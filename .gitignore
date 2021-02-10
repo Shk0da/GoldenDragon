@@ -1,0 +1,87 @@
+# Project  files #
+##################
+.project
+.classpath
+.settings
+.idea
+target
+my
+*.iml
+test-output
+*.iws
+*.ipr
+
+# Auto generate files #
+#######################
+ObjectFactory.java
+
+# Compiled source #
+###################
+*.com
+*.class
+*.dll
+*.exe
+*.o
+*.so
+
+# Packages #
+############
+# it's better to unpack these files and commit the raw source
+# git has its own built in compression methods
+*.7z
+*.dmg
+*.gz
+*.iso
+*.jar
+*.rar
+*.tar
+*.zip
+
+# Logs and databases #
+######################
+logs
+log.*
+hit_tests.log
+ham_tests.log
+zoo.log
+kafka-logs
+*0.index
+*0.log
+*0.timeindex
+*.log
+#*.sql
+*.sqlite
+*.h2.db
+*.trace.db
+*.lock.db
+
+# OS generated files #
+######################
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+Icon?
+ehthumbs.db
+Thumbs.db
+
+# Other files #
+###############
+*.old
+*.exclude
+~*
+#*.tmp
+#~*.doc
+
+.gradle
+**/build/
+/build/
+*/allure-results/
+/allure-results/
+*/out/
+*/bin/
+**/out
+**/bin
+
+!gradle/wrapper/gradle-wrapper.jar
