@@ -85,21 +85,35 @@ public class Rebalance {
         Map<TickerInfo.Key, PortfolioPosition> corrections = new HashMap<>();
         Map<TickerInfo.Key, PortfolioPosition> targetPositions = rebalanceConfig.getPortfolioPositions();
         if (null != targetPositions && !targetPositions.isEmpty()) {
-            for (Map.Entry<TickerInfo.Key, PortfolioPosition> entry : targetPositions.entrySet()) {
-                double percent = entry.getValue().getPercent();
-                if (currentPositions.containsKey(entry.getKey())) {
-                    var currentPosition = currentPositions.get(entry.getKey());
-                    percent = currentPosition.getPercent() > percent
-                            ? -1 * (currentPosition.getPercent() - percent)
-                            : percent - currentPosition.getPercent();
+            for (Map.Entry<TickerInfo.Key, PortfolioPosition> targetPosition : targetPositions.entrySet()) {
+                double targetPercent = targetPosition.getValue().getPercent();
+                if (currentPositions.containsKey(targetPosition.getKey())) {
+                    var currentPercent = currentPositions.get(targetPosition.getKey()).getPercent();
+                    double diff = Math.abs(currentPercent - targetPercent);
+                    if (diff >= 5.0) { // 5%
+                        targetPercent = currentPercent > targetPercent ? -1 * diff : diff;
+                    } else {
+                        targetPercent = currentPercent;
+                    }
                 }
-                corrections.put(entry.getKey(), new PortfolioPosition(entry.getValue().getName(), entry.getValue().getType(), percent));
+                corrections.put(
+                        targetPosition.getKey(),
+                        new PortfolioPosition(
+                                targetPosition.getValue().getName(),
+                                targetPosition.getValue().getType(),
+                                targetPercent
+                        )
+                );
             }
-            for (Map.Entry<TickerInfo.Key, PortfolioPosition> entry : currentPositions.entrySet()) {
-                if (!targetPositions.containsKey(entry.getKey())) {
+            for (Map.Entry<TickerInfo.Key, PortfolioPosition> currentPosition : currentPositions.entrySet()) {
+                if (!targetPositions.containsKey(currentPosition.getKey())) {
                     corrections.put(
-                            entry.getKey(),
-                            new PortfolioPosition(entry.getValue().getName(), entry.getValue().getType(), (-1) * entry.getValue().getPercent())
+                            currentPosition.getKey(),
+                            new PortfolioPosition(
+                                    currentPosition.getValue().getName(),
+                                    currentPosition.getValue().getType(),
+                                    (-1) * currentPosition.getValue().getPercent()
+                            )
                     );
                 }
             }
