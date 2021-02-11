@@ -119,6 +119,7 @@ public class Rebalance {
             }
         }
 
+        boolean isPrintResultTable = false;
         Map<TickerInfo.Key, PortfolioPosition> positionsToSave = new HashMap<>();
         for (PortfolioPosition correction : corrections.values()
                 .stream()
@@ -128,15 +129,42 @@ public class Rebalance {
             if (correction.getPercent() < 0) {
                 if (!sell(correction.getName(), correction.getType(), cost)) {
                     positionsToSave.put(new TickerInfo.Key(correction.getName(), correction.getType()), correction);
+                } else {
+                    isPrintResultTable = true;
                 }
             } else {
                 if (buy(correction.getName(), correction.getType(), cost)) {
                     positionsToSave.put(new TickerInfo.Key(correction.getName(), correction.getType()), correction);
+                    isPrintResultTable = true;
                 }
             }
         }
 
-        saveDataToDisk(RebalanceConfig.SERIALIZE_NAME, positionsToSave);
+        if (!positionsToSave.isEmpty()) {
+            saveDataToDisk(RebalanceConfig.SERIALIZE_NAME, positionsToSave);
+        }
+
+        if (isPrintResultTable) {
+            double portfolioCost = 0.0;
+            Map<TickerInfo.Key, Double> prices = new HashMap<>();
+            Map<TickerInfo.Key, PositionInfo> positions = tcsService.getCurrentPositions(TickerType.ALL);
+
+            for (Map.Entry<TickerInfo.Key, PortfolioPosition> position : positionsToSave.entrySet()) {
+                var currentPosition = positions.get(position.getKey());
+                double price = tcsService.getAvailablePrice(position.getKey(), currentPosition.getBalance(), false);
+
+                String basicCurrency = marketConfig.getCurrency();
+                String currency = tcsService.searchTicker(position.getKey()).getCurrency();
+                if (!basicCurrency.equals(currency)) {
+                    price = tcsService.convertCurrencies(currency, basicCurrency, price);
+                }
+                prices.put(position.getKey(), price);
+
+                portfolioCost += price * currentPosition.getBalance();
+            }
+
+            printCurrentPositions(positionsToSave, positions, prices, portfolioCost, marketConfig.getCurrency());
+        }
     }
 
     private boolean sell(String name, TickerType type, double cost) {
