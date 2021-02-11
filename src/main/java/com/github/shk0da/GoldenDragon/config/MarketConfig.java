@@ -18,6 +18,21 @@ public final class MarketConfig {
         this.currency = currency;
     }
 
+    public static MarketConfig byMarket(Market market) {
+        MarketConfig marketConfig;
+        switch (market) {
+            case US:
+                marketConfig = new MarketConfig(Market.US, 16, 19, 1_000, "USD");
+                break;
+            case MOEX:
+                marketConfig = new MarketConfig(Market.MOEX, 10, 18, 100_000, "RUB");
+                break;
+            default:
+                marketConfig = MarketConfig.createDefault();
+        }
+        return marketConfig;
+    }
+
     public static MarketConfig createDefault() {
         return new MarketConfig(Market.MOEX, 10, 18, 100_000, "RUB");
     }

@@ -28,4 +28,9 @@ public abstract class AbstractRepository<ID, T> implements Repository<ID, T> {
     public boolean containsKey(ID key) {
         return register.containsKey(key);
     }
+
+    @Override
+    public Map<ID, T> getAll() {
+        return Map.copyOf(register);
+    }
 }

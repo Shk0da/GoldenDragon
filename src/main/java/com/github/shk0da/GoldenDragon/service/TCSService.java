@@ -2,6 +2,9 @@ package com.github.shk0da.GoldenDragon.service;
 
 import com.github.shk0da.GoldenDragon.config.MainConfig;
 import com.github.shk0da.GoldenDragon.config.MarketConfig;
+import com.github.shk0da.GoldenDragon.model.PositionInfo;
+import com.github.shk0da.GoldenDragon.model.TickerInfo;
+import com.github.shk0da.GoldenDragon.model.TickerType;
 import com.github.shk0da.GoldenDragon.repository.FigiRepository;
 import com.github.shk0da.GoldenDragon.repository.PricesRepository;
 import com.github.shk0da.GoldenDragon.repository.Repository;
@@ -21,15 +24,15 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.TreeMap;
 import java.util.concurrent.TimeUnit;
-import java.util.function.BiConsumer;
-import java.util.function.Supplier;
 
 import static com.github.shk0da.GoldenDragon.config.MainConfig.HEADER_AUTHORIZATION;
 import static com.github.shk0da.GoldenDragon.config.MainConfig.HEADER_USER_AGENT;
 import static com.github.shk0da.GoldenDragon.config.MainConfig.USER_AGENT;
 import static com.github.shk0da.GoldenDragon.config.MainConfig.httpClient;
+import static com.github.shk0da.GoldenDragon.dictionary.CurrenciesDictionary.getTickerName;
 import static com.github.shk0da.GoldenDragon.utils.PrintUtils.printGlassOfPrices;
 import static com.github.shk0da.GoldenDragon.utils.RequestUtils.requestWithRetry;
+import static java.lang.Math.round;
 import static java.lang.System.out;
 
 public class TCSService {
@@ -37,22 +40,22 @@ public class TCSService {
     private final MainConfig mainConfig;
     private final MarketConfig marketConfig;
 
-    private final Repository<String, String> figiRepository = FigiRepository.INSTANCE;
-    private final Repository<String, Map<String, Object>> tickerRepository = TickerRepository.INSTANCE;
-    private final Repository<String, Map<String, Map<Double, Integer>>> pricesRepository = PricesRepository.INSTANCE;
+    private final Repository<TickerInfo.Key, String> figiRepository = FigiRepository.INSTANCE;
+    private final Repository<TickerInfo.Key, TickerInfo> tickerRepository = TickerRepository.INSTANCE;
+    private final Repository<TickerInfo.Key, Map<String, Map<Double, Integer>>> pricesRepository = PricesRepository.INSTANCE;
 
-    public TCSService(MainConfig mainConfig) {
+    public TCSService(MainConfig mainConfig, MarketConfig marketConfig) {
         this.mainConfig = mainConfig;
-        this.marketConfig = mainConfig.getMarketConfig();
+        this.marketConfig = marketConfig;
     }
 
-    public int createOrder(String tickerName, double price, int count, String operation) {
-        String figi = figiByName(tickerName);
+    public int createOrder(TickerInfo.Key key, double price, int count, String operation) {
+        String figi = figiByName(key);
         Map<String, Object> data = new HashMap<>();
         if (price > 0.0) {
             data.put("price", price);
         }
-        int lot = (int) searchTicker(tickerName).get("lot");
+        int lot = searchTicker(key).getLot();
         data.put("lots", (count / lot));
         data.put("operation", operation);
         String json = new Gson().toJson(data);
@@ -85,8 +88,27 @@ public class TCSService {
         return 1;
     }
 
-    public Map<String, Map<String, Object>> getStockList() {
+    public Map<TickerInfo.Key, TickerInfo> getStockList() {
         out.println("Loading current stocks from TCS...");
+        return getMarketList("stocks");
+    }
+
+    public Map<TickerInfo.Key, TickerInfo> getBondList() {
+        out.println("Loading current bonds from TCS...");
+        return getMarketList("bonds");
+    }
+
+    public Map<TickerInfo.Key, TickerInfo> getEtfList() {
+        out.println("Loading current etfs from TCS...");
+        return getMarketList("etfs");
+    }
+
+    public Map<TickerInfo.Key, TickerInfo> getCurrenciesList() {
+        out.println("Loading current currencies from TCS...");
+        return getMarketList("currencies");
+    }
+
+    public Map<TickerInfo.Key, TickerInfo> getMarketList(String type) {
         try {
             TimeUnit.MILLISECONDS.sleep(550);
         } catch (InterruptedException ex) {
@@ -96,7 +118,7 @@ public class TCSService {
         HttpResponse<String> response = requestWithRetry(() -> {
             HttpRequest request = HttpRequest.newBuilder()
                     .GET()
-                    .uri(URI.create(mainConfig.getTcsApi() + "market/stocks"))
+                    .uri(URI.create(mainConfig.getTcsApi() + "market/" + type))
                     .setHeader(HEADER_USER_AGENT, USER_AGENT)
                     .setHeader(HEADER_AUTHORIZATION, mainConfig.getTcsAuthorization())
                     .build();
@@ -108,33 +130,18 @@ public class TCSService {
             }
         });
 
-        Map<String, Map<String, Object>> stockList = new HashMap<>();
+        Map<TickerInfo.Key, TickerInfo> stockList = new HashMap<>();
         JsonObject payload = JsonParser.parseString(response.body()).getAsJsonObject();
         JsonArray instruments = payload.get("payload").getAsJsonObject().get("instruments").getAsJsonArray();
         for (JsonElement instrument : instruments) {
             try {
                 JsonObject item = instrument.getAsJsonObject();
-                String ticker = item.get("ticker").getAsString();
-                stockList.put(ticker, new LinkedHashMap<>() {{
-                    BiConsumer<String, Supplier<?>> putField = (name, value) -> {
-                        if (item.has(name)) {
-                            put(name, value.get());
-                        }
-                    };
-                    put("ticker", ticker);
-                    putField.accept("type", () -> item.get("type").getAsString());
-                    putField.accept("name", () -> item.get("name").getAsString());
-                    putField.accept("figi", () -> item.get("figi").getAsString());
-                    putField.accept("isin", () -> item.get("isin").getAsString());
-                    putField.accept("minPriceIncrement", () -> item.get("minPriceIncrement").getAsDouble());
-                    putField.accept("lot", () -> item.get("lot").getAsInt());
-                    putField.accept("currency", () -> item.get("currency").getAsString());
-                }});
+                TickerInfo tickerInfo = TickerInfo.of(item);
+                stockList.put(tickerInfo.getKey(), tickerInfo);
             } catch (Exception ex) {
                 out.println("Error: Failed parse payload: " + ex.getMessage());
             }
         }
-        out.println();
         return stockList;
     }
 
@@ -181,11 +188,11 @@ public class TCSService {
         return availableCash;
     }
 
-    public Map<String, Object> searchTicker(String name) {
-        if (tickerRepository.containsKey(name)) {
-            return tickerRepository.getById(name);
+    public TickerInfo searchTicker(TickerInfo.Key key) {
+        if (tickerRepository.containsKey(key)) {
+            return tickerRepository.getById(key);
         }
-        out.println("Search ticker '" + name + "' from TCS...");
+        out.println("Search ticker '" + key.getTicker() + "' from TCS...");
         try {
             TimeUnit.MILLISECONDS.sleep(550);
         } catch (InterruptedException ex) {
@@ -195,7 +202,7 @@ public class TCSService {
         HttpResponse<String> response = requestWithRetry(() -> {
             HttpRequest request = HttpRequest.newBuilder()
                     .GET()
-                    .uri(URI.create(mainConfig.getTcsApi() + "market/search/by-ticker?ticker=" + name))
+                    .uri(URI.create(mainConfig.getTcsApi() + "market/search/by-ticker?ticker=" + key.getTicker()))
                     .setHeader(HEADER_USER_AGENT, USER_AGENT)
                     .setHeader(HEADER_AUTHORIZATION, mainConfig.getTcsAuthorization())
                     .build();
@@ -207,38 +214,26 @@ public class TCSService {
             }
         });
 
-        Map<String, Object> tickerInfo = new LinkedHashMap<>();
         JsonObject payload = JsonParser.parseString(response.body()).getAsJsonObject();
         JsonArray instruments = payload.get("payload").getAsJsonObject().get("instruments").getAsJsonArray();
         for (JsonElement instrument : instruments) {
             try {
                 JsonObject item = instrument.getAsJsonObject();
-                String type = item.get("type").getAsString();
-                String ticker = item.get("ticker").getAsString();
-                if ("Stock".equals(type) && name.equals(ticker)) {
-                    tickerInfo.put("type", type);
-                    tickerInfo.put("ticker", ticker);
-                    tickerInfo.put("name", item.get("name").getAsString());
-                    tickerInfo.put("figi", item.get("figi").getAsString());
-                    tickerInfo.put("isin", item.get("isin").getAsString());
-                    tickerInfo.put("minPriceIncrement", item.get("minPriceIncrement").getAsDouble());
-                    tickerInfo.put("lot", item.get("lot").getAsInt());
-                    tickerInfo.put("currency", item.get("currency").getAsString());
-                    break;
+                TickerInfo tickerInfo = TickerInfo.of(item);
+                tickerRepository.insert(key, tickerInfo);
+
+                if (key.getType() == tickerInfo.getType()) {
+                    out.println(key.getTicker() + ": " + tickerInfo);
+                    return tickerInfo;
                 }
             } catch (Exception ex) {
                 out.println("Error: Failed parse payload: " + ex.getMessage());
             }
         }
-        if (!tickerInfo.containsKey("figi")) {
-            throw new RuntimeException("Ticker '" + name + "' not found in TCS");
-        }
-        out.println(name + ": " + tickerInfo);
-        tickerRepository.insert(name, tickerInfo);
-        return tickerInfo;
+        throw new RuntimeException("Ticker '" + key.getTicker() + "' not found in TCS");
     }
 
-    public Map<String, Map<String, Object>> getCurrentPositions() {
+    public Map<TickerInfo.Key, PositionInfo> getCurrentPositions(TickerType tickerType) {
         out.println("Loading current positions from TCS...");
         try {
             TimeUnit.MILLISECONDS.sleep(550);
@@ -261,39 +256,24 @@ public class TCSService {
             }
         });
 
-        Map<String, Map<String, Object>> positionInfoList = new HashMap<>();
+        Map<TickerInfo.Key, PositionInfo> positionInfoList = new HashMap<>();
         JsonObject payload = JsonParser.parseString(response.body()).getAsJsonObject();
         JsonArray positions = payload.get("payload").getAsJsonObject().get("positions").getAsJsonArray();
         for (JsonElement position : positions) {
             try {
                 JsonObject item = position.getAsJsonObject();
+                PositionInfo positionInfo = PositionInfo.of(item);
 
-                String type = item.get("instrumentType").getAsString();
-                if (!"Stock".equals(type)) continue;
+                if (TickerType.ALL != tickerType && !tickerType.equals(positionInfo.getInstrumentType())) {
+                    continue;
+                }
 
-                String ticker = item.get("ticker").getAsString();
-
-                String currency = searchTicker(ticker).get("currency").toString();
+                String ticker = positionInfo.getTicker();
+                var key = new TickerInfo.Key(ticker, positionInfo.getInstrumentType());
+                String currency = searchTicker(key).getCurrency();
                 if (!marketConfig.getCurrency().equals(currency)) continue;
 
-                positionInfoList.put(ticker, new LinkedHashMap<>() {{
-                    BiConsumer<String, Supplier<?>> putField = (name, value) -> {
-                        if (item.has(name)) {
-                            put(name, value.get());
-                        }
-                    };
-                    put("ticker", ticker);
-                    putField.accept("figi", () -> item.get("figi").getAsString());
-                    putField.accept("isin", () -> item.get("isin").getAsString());
-                    putField.accept("name", () -> item.get("name").getAsString());
-                    putField.accept("instrumentType", () -> type);
-                    putField.accept("balance", () -> item.get("balance").getAsInt());
-                    putField.accept("blocked", () -> item.get("blocked").getAsInt());
-                    putField.accept("lots", () -> item.get("lots").getAsInt());
-                    putField.accept("expectedYield", () -> item.get("expectedYield").getAsString());
-                    putField.accept("averagePositionPrice", () -> item.get("averagePositionPrice").getAsString());
-                    putField.accept("averagePositionPriceNoNkd", () -> item.get("averagePositionPriceNoNkd").getAsString());
-                }});
+                positionInfoList.put(key, positionInfo);
             } catch (Exception ex) {
                 out.println("Error: Failed parse payload: " + ex.getMessage());
             }
@@ -301,20 +281,24 @@ public class TCSService {
         return positionInfoList;
     }
 
-    public String figiByName(String tickerName) {
-        if (figiRepository.containsKey(tickerName)) {
-            return figiRepository.getById(tickerName);
+    public String figiByName(TickerInfo.Key key) {
+        if (figiRepository.containsKey(key)) {
+            return figiRepository.getById(key);
         }
-        var ticker = searchTicker(tickerName);
-        var figi = ticker.get("figi").toString();
-        figiRepository.insert(tickerName, figi);
+        var ticker = searchTicker(key);
+        var figi = ticker.getFigi();
+        figiRepository.insert(key, figi);
         return figi;
     }
 
-    public double getAvailablePrice(final String ticker, int count, boolean isPrintGlass) {
+    public double getAvailablePrice(TickerInfo.Key key) {
+        return getAvailablePrice(key, 1, false);
+    }
+
+    public double getAvailablePrice(TickerInfo.Key key, int count, boolean isPrintGlass) {
         int value = count;
         double tickerPrice = 0.0;
-        for (Map.Entry<Double, Integer> bid : getCurrentPrices(ticker, isPrintGlass).get("bids").entrySet()) {
+        for (Map.Entry<Double, Integer> bid : getCurrentPrices(key, isPrintGlass).get("bids").entrySet()) {
             tickerPrice = bid.getKey();
             value = value - bid.getValue();
             if (value <= 0) break;
@@ -322,17 +306,17 @@ public class TCSService {
         return tickerPrice;
     }
 
-    public Map<String, Map<Double, Integer>> getCurrentPrices(String tickerName) {
-        return getCurrentPrices(tickerName, true);
+    public Map<String, Map<Double, Integer>> getCurrentPrices(TickerInfo.Key key) {
+        return getCurrentPrices(key, true);
     }
 
-    public Map<String, Map<Double, Integer>> getCurrentPrices(String tickerName, boolean isPrintGlass) {
-        if (!isPrintGlass && pricesRepository.containsKey(tickerName)) {
-            return pricesRepository.getById(tickerName);
+    public Map<String, Map<Double, Integer>> getCurrentPrices(TickerInfo.Key key, boolean isPrintGlass) {
+        if (!isPrintGlass && pricesRepository.containsKey(key)) {
+            return pricesRepository.getById(key);
         }
-        String figi = figiByName(tickerName);
+        String figi = figiByName(key);
         if (isPrintGlass) {
-            out.println("Loading current price '" + tickerName + "' from TCS...");
+            out.println("Loading current price '" + key + "' from TCS...");
         }
         try {
             TimeUnit.MILLISECONDS.sleep(550);
@@ -382,9 +366,27 @@ public class TCSService {
         currentPrices.put("asks", asksValues);
 
         if (isPrintGlass) {
-            printGlassOfPrices(tickerName, currentPrices);
+            printGlassOfPrices(key.getTicker(), currentPrices);
         }
-        pricesRepository.insert(tickerName, currentPrices);
+        pricesRepository.insert(key, currentPrices);
         return currentPrices;
+    }
+
+    public double convertCurrencies(String currency, String basicCurrency, double price) {
+        if (basicCurrency.equals(currency)) {
+            return price;
+        }
+
+        String currencyTicker = getTickerName(currency);
+        if (currencyTicker.equals(currency)) {
+            return round(((price / getAvailablePrice(new TickerInfo.Key(getTickerName(basicCurrency), TickerType.CURRENCY)))) * 1000) / 1000.0;
+        }
+
+        var key = new TickerInfo.Key(currencyTicker, TickerType.CURRENCY);
+        TickerInfo currencyTickerInfo = searchTicker(key);
+        if (basicCurrency.equals(currencyTickerInfo.getCurrency())) {
+            return round(((price / getAvailablePrice(key))) * 100000) / 100000.0;
+        }
+        return price;
     }
 }

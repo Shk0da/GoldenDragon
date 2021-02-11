@@ -12,4 +12,6 @@ public interface Repository<ID, T> {
     void putAll(Map<ID, T> values);
 
     boolean containsKey(ID key);
+
+    Map<ID, T> getAll();
 }

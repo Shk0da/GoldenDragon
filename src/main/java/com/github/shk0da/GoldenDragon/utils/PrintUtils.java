@@ -1,6 +1,9 @@
 package com.github.shk0da.GoldenDragon.utils;
 
 import com.github.shk0da.GoldenDragon.model.DiviTicker;
+import com.github.shk0da.GoldenDragon.model.PortfolioPosition;
+import com.github.shk0da.GoldenDragon.model.PositionInfo;
+import com.github.shk0da.GoldenDragon.model.TickerInfo;
 import com.github.shk0da.GoldenDragon.service.TCSService;
 
 import java.util.LinkedHashMap;
@@ -34,9 +37,9 @@ public final class PrintUtils {
     }
 
     public static void printCurrentPositions(String currency,
-                                       Map<String, Map<String, Object>> currentPositions,
-                                       double cash,
-                                       TCSService tcsService) {
+                                             Map<TickerInfo.Key, PositionInfo> currentPositions,
+                                             double cash,
+                                             TCSService tcsService) {
         double totalPortfolioCost = 0.0D;
         out.println("========================== Current Positions =============================");
         out.printf("%-8s %-8s %-15s %-15s %-9s %-5s %-5s \n",
@@ -50,30 +53,28 @@ public final class PrintUtils {
         );
         out.println("--------------------------------------------------------------------------");
 
-        Map<String, Map<String, Object>> sortedPositions = currentPositions.entrySet().stream()
-                .sorted(comparing(o -> o.getValue().getOrDefault("ticker", "none").toString()))
-                .sorted(comparing(o -> o.getValue().getOrDefault("instrumentType", "none").toString()))
+        Map<TickerInfo.Key, PositionInfo> sortedPositions = currentPositions.entrySet().stream()
+                .sorted(comparing(o -> o.getValue().getTicker()))
+                .sorted(comparing(o -> o.getValue().getInstrumentType().name()))
                 .collect(toMap(Map.Entry::getKey, Map.Entry::getValue, (o1, o2) -> o1, LinkedHashMap::new));
-        for (Map.Entry<String, Map<String, Object>> entry : sortedPositions.entrySet()) {
-            Map<String, Object> currentPosition = entry.getValue();
+        for (Map.Entry<TickerInfo.Key, PositionInfo> entry : sortedPositions.entrySet()) {
+            PositionInfo currentPosition = entry.getValue();
 
-            String type = currentPosition.get("instrumentType").toString();
-            if (!"Stock".equals(type)) continue;
-
-            String ticker = currentPosition.get("ticker").toString();
+            String ticker = currentPosition.getTicker();
             String shortTicker = ticker.substring(0, min(ticker.length(), 7));
-            int balance = Integer.parseInt(currentPosition.getOrDefault("balance", "0").toString());
+            int balance = currentPosition.getBalance();
             out.printf("%-8s %-8s %-15s %-15s %-9s %-5s %-5s \n",
                     shortTicker,
-                    type,
-                    currentPosition.get("figi"),
-                    currentPosition.getOrDefault("isin", ""),
-                    balance,
-                    currentPosition.get("lots"),
-                    currentPosition.get("blocked")
+                    currentPosition.getInstrumentType(),
+                    currentPosition.getFigi(),
+                    currentPosition.getIsin(),
+                    currentPosition.getBalance(),
+                    currentPosition.getLots(),
+                    currentPosition.getBlocked()
             );
-            if (currency.equals(tcsService.searchTicker(ticker).get("currency").toString())) {
-                totalPortfolioCost += tcsService.getAvailablePrice(ticker, balance, false) * balance;
+            TickerInfo tickerInfo = tcsService.searchTicker(entry.getKey());
+            if (currency.equals(tickerInfo.getCurrency())) {
+                totalPortfolioCost += tcsService.getAvailablePrice(tickerInfo.getKey(), balance, false) * balance;
             }
         }
         out.println("==========================================================================\n");
@@ -107,5 +108,50 @@ public final class PrintUtils {
             }
         }
         out.println("==========================================================================\n");
+    }
+
+    public static void printCurrentPositions(Map<TickerInfo.Key, PortfolioPosition> currentPositions,
+                                             Map<TickerInfo.Key, PositionInfo> portfolioPositions,
+                                             Map<TickerInfo.Key, Double> prices,
+                                             double totalPortfolioCost,
+                                             String currency) {
+        out.println("================================= Current Positions ================================");
+        out.printf("%-8s %-8s %-15s %-15s %-9s %-5s %-12s %-5s \n",
+                "Ticker",
+                "Type",
+                "FIGI",
+                "ISIN",
+                "Qty",
+                "Lots",
+                "Price",
+                "  %"
+        );
+        out.println("------------------------------------------------------------------------------------");
+
+        Map<TickerInfo.Key, PortfolioPosition> sortedPositions = currentPositions.entrySet().stream()
+                .sorted(comparing(o -> o.getValue().getName()))
+                .sorted(comparing(o -> o.getValue().getType().name()))
+                .collect(toMap(Map.Entry::getKey, Map.Entry::getValue, (o1, o2) -> o1, LinkedHashMap::new));
+        for (Map.Entry<TickerInfo.Key, PortfolioPosition> entry : sortedPositions.entrySet()) {
+            PortfolioPosition currentPosition = entry.getValue();
+            PositionInfo positionInfo = portfolioPositions.get(entry.getKey());
+            if (null == positionInfo) continue;
+
+            String ticker = currentPosition.getName();
+            String shortTicker = ticker.substring(0, min(ticker.length(), 7));
+            out.printf("%-8s %-8s %-15s %-15s %-9s %-5s %-12s %2.2f\n",
+                    shortTicker,
+                    positionInfo.getInstrumentType(),
+                    positionInfo.getFigi(),
+                    positionInfo.getIsin(),
+                    positionInfo.getBalance(),
+                    positionInfo.getLots(),
+                    prices.getOrDefault(entry.getKey(), 0.0),
+                    currentPosition.getPercent()
+            );
+        }
+        out.println("====================================================================================\n");
+        out.printf("Total portfolio cost: %.2f %s", totalPortfolioCost, currency);
+        out.println("\n");
     }
 }

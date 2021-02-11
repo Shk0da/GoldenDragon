@@ -4,6 +4,8 @@ import com.github.shk0da.GoldenDragon.config.MainConfig;
 import com.github.shk0da.GoldenDragon.config.MarketConfig;
 import com.github.shk0da.GoldenDragon.model.DiviTicker;
 import com.github.shk0da.GoldenDragon.model.Market;
+import com.github.shk0da.GoldenDragon.model.PositionInfo;
+import com.github.shk0da.GoldenDragon.model.TickerInfo;
 import com.github.shk0da.GoldenDragon.repository.Repository;
 import com.github.shk0da.GoldenDragon.repository.TickerRepository;
 import com.github.shk0da.GoldenDragon.service.TCSService;
@@ -34,16 +36,18 @@ import java.util.Map;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
+import static com.github.shk0da.GoldenDragon.config.DivFlowConfig.DOHOD_DIV_CALENDAR;
+import static com.github.shk0da.GoldenDragon.config.DivFlowConfig.INVESTING_DIV_CALENDAR;
+import static com.github.shk0da.GoldenDragon.config.DivFlowConfig.SCAN_MOEX;
+import static com.github.shk0da.GoldenDragon.config.DivFlowConfig.SCAN_US;
+import static com.github.shk0da.GoldenDragon.config.DivFlowConfig.SMART_LAB_DIV_CALENDAR;
 import static com.github.shk0da.GoldenDragon.config.MainConfig.CALENDAR_WORK_DAYS;
-import static com.github.shk0da.GoldenDragon.config.MainConfig.DOHOD_DIV_CALENDAR;
 import static com.github.shk0da.GoldenDragon.config.MainConfig.HEADER_USER_AGENT;
-import static com.github.shk0da.GoldenDragon.config.MainConfig.INVESTING_DIV_CALENDAR;
-import static com.github.shk0da.GoldenDragon.config.MainConfig.SCAN_MOEX;
-import static com.github.shk0da.GoldenDragon.config.MainConfig.SCAN_US;
 import static com.github.shk0da.GoldenDragon.config.MainConfig.USER_AGENT;
 import static com.github.shk0da.GoldenDragon.config.MainConfig.dateFormat;
 import static com.github.shk0da.GoldenDragon.config.MainConfig.dateFormatUs;
 import static com.github.shk0da.GoldenDragon.config.MainConfig.httpClient;
+import static com.github.shk0da.GoldenDragon.model.TickerType.STOCK;
 import static com.github.shk0da.GoldenDragon.utils.PredicateUtils.distinctByKey;
 import static com.github.shk0da.GoldenDragon.utils.PrintUtils.printCalendarOfDividends;
 import static com.github.shk0da.GoldenDragon.utils.PrintUtils.printCurrentPositions;
@@ -63,23 +67,23 @@ import static java.util.stream.Collectors.toMap;
  */
 public class DivFlow {
 
-    private final MainConfig config;
+    private final MainConfig mainConfig;
     private final MarketConfig marketConfig;
 
     private final TCSService tcsService;
 
-    private final Repository<String, Map<String, Object>> tickerRepository = TickerRepository.INSTANCE;
+    private final Repository<TickerInfo.Key, TickerInfo> tickerRepository = TickerRepository.INSTANCE;
 
-    public DivFlow(MainConfig config, TCSService tcsService) {
+    public DivFlow(MainConfig mainConfig, MarketConfig marketConfig, TCSService tcsService) {
         out.printf("%s: Start DivFlow%n", new Date().toString());
-        this.config = config;
-        this.marketConfig = config.getMarketConfig();
+        this.mainConfig = mainConfig;
+        this.marketConfig = marketConfig;
         this.tcsService = tcsService;
     }
 
     public void run() {
         double cash = tcsService.getAvailableCash();
-        Map<String, Map<String, Object>> currentPositions = tcsService.getCurrentPositions();
+        Map<TickerInfo.Key, PositionInfo> currentPositions = tcsService.getCurrentPositions(STOCK);
         printCurrentPositions(marketConfig.getCurrency(), currentPositions, cash, tcsService);
 
         GregorianCalendar currentCalendar = new GregorianCalendar();
@@ -90,7 +94,7 @@ public class DivFlow {
                 .stream()
                 .peek(it -> {
                     it.setValue(it.getValue().stream()
-                            .filter(value -> tickerRepository.containsKey(value.getTickerCode()))
+                            .filter(value -> tickerRepository.containsKey(new TickerInfo.Key(value.getTickerCode(), STOCK)))
                             .filter(value -> {
                                 boolean isPast;
                                 boolean isToDay;
@@ -105,7 +109,7 @@ public class DivFlow {
                                     isToDay = true;
                                 }
 
-                                boolean isHolding = currentPositions.containsKey(value.getTickerCode());
+                                boolean isHolding = currentPositions.containsKey(new TickerInfo.Key(value.getTickerCode(), STOCK));
 
                                 if ((isToDay || isPast) && isHolding) return true;
 
@@ -120,7 +124,7 @@ public class DivFlow {
                             tickersForScan.addAll(it.getValue()
                                     .stream()
                                     .map(DiviTicker::getTickerCode)
-                                    .filter(ticker -> !currentPositions.containsKey(ticker))
+                                    .filter(ticker -> !currentPositions.containsKey(new TickerInfo.Key(ticker, STOCK)))
                                     .collect(toList())
                             );
                         }
@@ -141,7 +145,8 @@ public class DivFlow {
                             // is feature
                             if (dateFormat.parse(it.getKey()).after(currentCalendar.getTime())) {
                                 it.setValue(it.getValue().stream()
-                                        .filter(value -> afterScan.contains(value.getTickerCode()) || currentPositions.containsKey(value.getTickerCode()))
+                                        .filter(value -> afterScan.contains(value.getTickerCode())
+                                                || currentPositions.containsKey(new TickerInfo.Key(value.getTickerCode(), STOCK)))
                                         .collect(toList()));
                             }
                         } catch (Exception ex) {
@@ -177,11 +182,11 @@ public class DivFlow {
         }
         if (!tickersToSell.isEmpty()) {
             for (DiviTicker diviTicker : tickersToSell) {
-                if (!currentPositions.containsKey(diviTicker.getTickerCode())) {
+                if (!currentPositions.containsKey(new TickerInfo.Key(diviTicker.getTickerCode(), STOCK))) {
                     continue;
                 }
                 try {
-                    double cost = preparingSale(currentDate, diviTicker, currentPositions.get(diviTicker.getTickerCode()));
+                    double cost = preparingSale(currentDate, diviTicker, currentPositions.get(new TickerInfo.Key(diviTicker.getTickerCode(), STOCK)));
                     if (cost > 0.0) {
                         isPrintPortfolioCost = true;
                     }
@@ -204,7 +209,7 @@ public class DivFlow {
         }
         if (!tickersToBuy.isEmpty() && cash > 0.0) {
             for (DiviTicker diviTicker : tickersToBuy) {
-                if (currentPositions.containsKey(diviTicker.getTickerCode())) {
+                if (currentPositions.containsKey(new TickerInfo.Key(diviTicker.getTickerCode(), STOCK))) {
                     continue;
                 }
                 try {
@@ -222,24 +227,25 @@ public class DivFlow {
         }
 
         if (isPrintPortfolioCost) {
-            printCurrentPositions(marketConfig.getCurrency(), tcsService.getCurrentPositions(), tcsService.getAvailableCash(), tcsService);
+            printCurrentPositions(marketConfig.getCurrency(), tcsService.getCurrentPositions(STOCK), tcsService.getAvailableCash(), tcsService);
         }
     }
 
-    private double preparingSale(String currentDate, DiviTicker diviTicker, Map<String, Object> currentPosition) {
-        int count = (Integer) currentPosition.get("balance");
+    private double preparingSale(String currentDate, DiviTicker diviTicker, PositionInfo currentPosition) {
+        int count = currentPosition.getBalance();
         if (count == 0) {
             out.println("Warn: sale will be skipped - " + diviTicker.getTickerCode() + " with count " + count);
             return 0.0;
         }
 
-        double tickerPrice = tcsService.getAvailablePrice(diviTicker.getTickerCode(), count, true);
+        var key = new TickerInfo.Key(diviTicker.getTickerCode(), STOCK);
+        double tickerPrice = tcsService.getAvailablePrice(key, count, true);
         if (0.0 == tickerPrice) {
             out.println("Warn: sale will be used Market Price - " + diviTicker.getTickerCode());
         }
 
         double cost = count * tickerPrice;
-        if (1 == sell(currentDate, diviTicker, tickerPrice, count, cost)) {
+        if (1 == sell(currentDate, key, tickerPrice, count, cost)) {
             return cost;
         } else {
             return 0.0;
@@ -249,7 +255,8 @@ public class DivFlow {
     private double preparingPurchase(String currentDate, DiviTicker diviTicker, double availableCashToBuy) {
         int value = 0;
         double tickerPrice = 0.0;
-        for (Map.Entry<Double, Integer> ask : tcsService.getCurrentPrices(diviTicker.getTickerCode()).get("asks").entrySet()) {
+        var key = new TickerInfo.Key(diviTicker.getTickerCode(), STOCK);
+        for (Map.Entry<Double, Integer> ask : tcsService.getCurrentPrices(key).get("asks").entrySet()) {
             tickerPrice = ask.getKey();
             value = value + ask.getValue();
             if (value >= (availableCashToBuy / tickerPrice)) break;
@@ -260,7 +267,7 @@ public class DivFlow {
             return 0.0;
         }
 
-        int lot = (int) tcsService.searchTicker(diviTicker.getTickerCode()).get("lot");
+        int lot = tcsService.searchTicker(key).getLot();
         int count = (int) (availableCashToBuy / tickerPrice);
         while (count % lot != 0 && count > 0) {
             count = count - 1;
@@ -270,27 +277,27 @@ public class DivFlow {
             return 0.0;
         }
         double cost = count * tickerPrice;
-        if (1 == buy(currentDate, diviTicker, tickerPrice, count, cost)) {
+        if (1 == buy(currentDate, key, tickerPrice, count, cost)) {
             return cost;
         } else {
             return 0.0;
         }
     }
 
-    private int sell(String currentDate, DiviTicker diviTicker, double tickerPrice, int count, double cost) {
-        out.println("[" + currentDate + "] Sell: " + count + " " + diviTicker.getTickerCode() + " by " + tickerPrice + " (" + cost + ")");
-        if (config.isTestMode()) {
+    private int sell(String currentDate, TickerInfo.Key key, double tickerPrice, int count, double cost) {
+        out.println("[" + currentDate + "] Sell: " + count + " " + key.getTicker() + " by " + tickerPrice + " (" + cost + ")");
+        if (mainConfig.isTestMode()) {
             return 1;
         }
-        return tcsService.createOrder(diviTicker.getTickerCode(), tickerPrice, count, "Sell");
+        return tcsService.createOrder(key, tickerPrice, count, "Sell");
     }
 
-    private int buy(String currentDate, DiviTicker diviTicker, double tickerPrice, int count, double cost) {
-        out.println("[" + currentDate + "] Buy: " + count + " " + diviTicker.getTickerCode() + " by " + tickerPrice + " (" + cost + ")");
-        if (config.isTestMode()) {
+    private int buy(String currentDate, TickerInfo.Key key, double tickerPrice, int count, double cost) {
+        out.println("[" + currentDate + "] Buy: " + count + " " + key.getTicker() + " by " + tickerPrice + " (" + cost + ")");
+        if (mainConfig.isTestMode()) {
             return 1;
         }
-        return tcsService.createOrder(diviTicker.getTickerCode(), tickerPrice, count, "Buy");
+        return tcsService.createOrder(key, tickerPrice, count, "Buy");
     }
 
     private Map<String, List<DiviTicker>> getCalendarDividends() {
@@ -335,8 +342,8 @@ public class DivFlow {
         HttpResponse<String> response = requestWithRetry(() -> {
             HttpRequest request = HttpRequest.newBuilder()
                     .GET()
-                    .uri(URI.create(MainConfig.SMART_LAB_DIV_CALENDAR))
-                    .setHeader(MainConfig.HEADER_USER_AGENT, MainConfig.USER_AGENT)
+                    .uri(URI.create(SMART_LAB_DIV_CALENDAR))
+                    .setHeader(HEADER_USER_AGENT, USER_AGENT)
                     .build();
             try {
                 return MainConfig.httpClient.send(request, HttpResponse.BodyHandlers.ofString());
