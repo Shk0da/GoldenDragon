@@ -232,13 +232,18 @@ public class DivFlow {
     }
 
     private double preparingSale(String currentDate, DiviTicker diviTicker, PositionInfo currentPosition) {
+        var key = new TickerInfo.Key(diviTicker.getTickerCode(), STOCK);
+
+        int lot = tcsService.searchTicker(key).getLot();
         int count = currentPosition.getBalance();
+        while (count % lot != 0 && count > 0) {
+            count = count - 1;
+        }
         if (count == 0) {
             out.println("Warn: sale will be skipped - " + diviTicker.getTickerCode() + " with count " + count);
             return 0.0;
         }
 
-        var key = new TickerInfo.Key(diviTicker.getTickerCode(), STOCK);
         double tickerPrice = tcsService.getAvailablePrice(key, count, true);
         if (0.0 == tickerPrice) {
             out.println("Warn: sale will be used Market Price - " + diviTicker.getTickerCode());

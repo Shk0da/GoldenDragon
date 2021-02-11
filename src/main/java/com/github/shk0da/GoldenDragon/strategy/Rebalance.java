@@ -19,6 +19,7 @@ import static com.github.shk0da.GoldenDragon.config.MainConfig.dateFormat;
 import static com.github.shk0da.GoldenDragon.utils.PrintUtils.printCurrentPositions;
 import static com.github.shk0da.GoldenDragon.utils.SerializationUtils.loadDataFromDisk;
 import static com.github.shk0da.GoldenDragon.utils.SerializationUtils.saveDataToDisk;
+import static java.lang.Math.min;
 import static java.lang.Math.round;
 import static java.lang.System.out;
 import static java.util.Comparator.comparing;
@@ -181,7 +182,15 @@ public class Rebalance {
             cost = tcsService.convertCurrencies(currency, basicCurrency, cost);
         }
 
+        int lot = tcsService.searchTicker(key).getLot();
         int count = (int) round(cost / tcsService.getAvailablePrice(key));
+        while (count % lot != 0 && count > 0) {
+            count = count - 1;
+        }
+        if (count == 0) {
+            out.println("Warn: sale will be skipped - " + name + " with count " + count);
+            return false;
+        }
         double tickerPrice = tcsService.getAvailablePrice(key, count, true);
         if (0.0 == tickerPrice) {
             out.println("Warn: sale will be used Market Price - " + name);
@@ -195,14 +204,15 @@ public class Rebalance {
         return 1 == tcsService.createOrder(key, tickerPrice, count, "Sell");
     }
 
-    private boolean buy(String name, TickerType type, double availableCashToBuy) {
+    private boolean buy(String name, TickerType type, double cashToBuy) {
         var key = new TickerInfo.Key(name, type);
 
         String basicCurrency = marketConfig.getCurrency();
         String currency = tcsService.searchTicker(key).getCurrency();
         if (!basicCurrency.equals(currency)) {
-            availableCashToBuy = tcsService.convertCurrencies(currency, basicCurrency, availableCashToBuy);
+            cashToBuy = tcsService.convertCurrencies(currency, basicCurrency, cashToBuy);
         }
+        double availableCashToBuy = min(cashToBuy, tcsService.getAvailableCash());
 
         int value = 0;
         double tickerPrice = 0.0;
