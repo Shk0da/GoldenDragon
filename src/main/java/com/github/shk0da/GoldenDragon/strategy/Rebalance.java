@@ -90,7 +90,7 @@ public class Rebalance {
                 if (currentPositions.containsKey(targetPosition.getKey())) {
                     var currentPercent = currentPositions.get(targetPosition.getKey()).getPercent();
                     double diff = Math.abs(currentPercent - targetPercent);
-                    if (diff >= 5.0) { // 5%
+                    if (diff >= rebalanceConfig.getPositionPercent()) {
                         targetPercent = currentPercent > targetPercent ? -1 * diff : diff;
                     } else {
                         targetPercent = currentPercent;

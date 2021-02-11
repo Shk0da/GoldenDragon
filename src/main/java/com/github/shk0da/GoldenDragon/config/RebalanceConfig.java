@@ -15,6 +15,7 @@ public class RebalanceConfig {
 
     public static final String SERIALIZE_NAME = "rebalance.json";
 
+    private final double positionPercent;
     private final List<PortfolioPosition> portfolioPositions = new ArrayList<>();
 
     public RebalanceConfig() throws Exception {
@@ -33,9 +34,15 @@ public class RebalanceConfig {
         if (totalPercentage > 100.00) {
             throw new IllegalArgumentException("rebalance.portfolio > 100%!");
         }
+
+        positionPercent = Double.parseDouble(properties.getProperty("rebalance.position.percent"));
     }
 
     public Map<TickerInfo.Key, PortfolioPosition> getPortfolioPositions() {
         return portfolioPositions.stream().collect(Collectors.toMap(it -> new TickerInfo.Key(it.getName(), it.getType()), it -> it));
+    }
+
+    public double getPositionPercent() {
+        return positionPercent;
     }
 }
