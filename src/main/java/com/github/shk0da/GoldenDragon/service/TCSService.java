@@ -291,6 +291,15 @@ public class TCSService {
         return figi;
     }
 
+    public double getPriceInCurrentCurrency(TickerInfo.Key key, int qty, String basicCurrency) {
+        double price = getAvailablePrice(key, qty, false);
+        String currency = searchTicker(key).getCurrency();
+        if (!basicCurrency.equals(currency)) {
+            price = convertCurrencies(currency, basicCurrency, price);
+        }
+        return price;
+    }
+
     public double getAvailablePrice(TickerInfo.Key key) {
         return getAvailablePrice(key, 1, false);
     }

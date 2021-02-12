@@ -11,6 +11,7 @@ import java.util.List;
 import java.util.Map;
 
 import static java.lang.Math.min;
+import static java.lang.Math.round;
 import static java.lang.System.out;
 import static java.util.Comparator.comparing;
 import static java.util.stream.Collectors.toList;
@@ -153,5 +154,9 @@ public final class PrintUtils {
         out.println("====================================================================================\n");
         out.printf("Total portfolio cost: %.2f %s", totalPortfolioCost, currency);
         out.println("\n");
+    }
+
+    public static String formatFloat(Double value) {
+        return String.format("%.2f", round(value * 100) / 100.0);
     }
 }

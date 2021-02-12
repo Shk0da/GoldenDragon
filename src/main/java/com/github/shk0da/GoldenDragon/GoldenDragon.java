@@ -2,6 +2,7 @@ package com.github.shk0da.GoldenDragon;
 
 import com.github.shk0da.GoldenDragon.config.MainConfig;
 import com.github.shk0da.GoldenDragon.config.MarketConfig;
+import com.github.shk0da.GoldenDragon.config.RSXConfig;
 import com.github.shk0da.GoldenDragon.config.RebalanceConfig;
 import com.github.shk0da.GoldenDragon.model.Market;
 import com.github.shk0da.GoldenDragon.model.TickerInfo;
@@ -13,6 +14,9 @@ import com.github.shk0da.GoldenDragon.strategy.RSX;
 import com.github.shk0da.GoldenDragon.strategy.Rebalance;
 import com.google.gson.reflect.TypeToken;
 
+import java.io.FileDescriptor;
+import java.io.FileOutputStream;
+import java.io.PrintStream;
 import java.util.Calendar;
 import java.util.Date;
 import java.util.GregorianCalendar;
@@ -29,13 +33,17 @@ import static com.github.shk0da.GoldenDragon.utils.SerializationUtils.loadDataFr
 import static com.github.shk0da.GoldenDragon.utils.SerializationUtils.saveDataToDisk;
 import static java.lang.System.currentTimeMillis;
 import static java.lang.System.out;
+import static java.lang.System.setOut;
+import static java.nio.charset.StandardCharsets.UTF_8;
+import static java.util.TimeZone.setDefault;
 
 public class GoldenDragon {
 
     private static final Repository<TickerInfo.Key, TickerInfo> tickerRepository = TickerRepository.INSTANCE;
 
     public static void main(String[] args) {
-        TimeZone.setDefault(TimeZone.getTimeZone("Europe/Moscow"));
+        setDefault(TimeZone.getTimeZone("Europe/Moscow"));
+        setOut(new PrintStream(new FileOutputStream(FileDescriptor.out), true, UTF_8));
         out.printf("%s: Start GoldenDragon%n", new Date().toString());
 
         try {
@@ -74,7 +82,8 @@ public class GoldenDragon {
             // 2. RSX
             // CRON SPB: Every Mon at 17:00 MSK
             if ("RSX".equals(strategy)) {
-                new RSX(mainConfig, marketConfig, tcsService).run();
+                final RSXConfig rsxConfig = new RSXConfig();
+                new RSX(mainConfig, marketConfig, rsxConfig, tcsService).run();
             }
 
             // 3. DivFlow
