@@ -39,7 +39,7 @@ public class MainConfig {
     private final boolean isTestMode;
     private final boolean isSandbox;
 
-    private final String tcsAccountId;
+    private String tcsAccountId;
     private final String tcsAuthorization;
     private final String tcsApi;
 
@@ -62,6 +62,11 @@ public class MainConfig {
 
     public String getTcsAccountId() {
         return tcsAccountId;
+    }
+
+    public MainConfig withAccountId(String accountId) {
+        this.tcsAccountId = accountId;
+        return this;
     }
 
     public String getTcsAuthorization() {

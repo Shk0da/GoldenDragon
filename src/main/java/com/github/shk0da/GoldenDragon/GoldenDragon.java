@@ -47,11 +47,12 @@ public class GoldenDragon {
         out.printf("%s: Start GoldenDragon%n", new Date().toString());
 
         try {
+            MainConfig mainConfig = new MainConfig();
             String strategy = (args.length >= 1) ? args[0] : "Rebalance";
             Market market = (args.length >= 2) ? Market.valueOf(args[1]) : Market.MOEX;
-            out.println("Run: " + strategy + " " + market.name());
+            String accountId = (args.length >= 3) ? args[2] : mainConfig.getTcsAccountId();
+            out.println("Run: " + strategy + " " + market.name() + " [" + accountId + "]");
 
-            MainConfig mainConfig = new MainConfig();
             MarketConfig marketConfig = MarketConfig.byMarket(market);
 
             // Check Market hours
@@ -69,7 +70,7 @@ public class GoldenDragon {
                 }
             }
 
-            TCSService tcsService = new TCSService(mainConfig, marketConfig);
+            TCSService tcsService = new TCSService(mainConfig.withAccountId(accountId), marketConfig);
             updateTickerRepository(tcsService);
 
             // 1. Rebalance
@@ -103,7 +104,8 @@ public class GoldenDragon {
         AtomicReference<Map<TickerInfo.Key, TickerInfo>> tickerRegister = new AtomicReference<>(new HashMap<>());
 
         Callable<Boolean> isEmpty = () -> {
-            Map<TickerInfo.Key, TickerInfo> dataFromDisk = loadDataFromDisk(TickerRepository.SERIALIZE_NAME, new TypeToken<>() {});
+            Map<TickerInfo.Key, TickerInfo> dataFromDisk = loadDataFromDisk(TickerRepository.SERIALIZE_NAME, new TypeToken<>() {
+            });
             if (null == dataFromDisk) {
                 return true;
             }
