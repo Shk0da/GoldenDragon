@@ -10,10 +10,15 @@ public final class RequestUtils {
 
     public static HttpResponse<String> requestWithRetry(Supplier<HttpResponse<String>> supplier) {
         int tryCount = 0;
-        HttpResponse<String> response;
+        HttpResponse<String> response = null;
         do {
-            response = supplier.get();
-            if (null != response && 200 == response.statusCode()) break;
+            try {
+                response = supplier.get();
+                if (null != response && 200 == response.statusCode()) break;
+            } catch (Exception ex) {
+                out.println("Error: " + ex.getMessage());
+            }
+
             try {
                 int timeout = (null != response && response.statusCode() >= 500) ? 2 : 1;
                 TimeUnit.SECONDS.sleep(timeout);
