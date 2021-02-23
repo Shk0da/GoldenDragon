@@ -84,7 +84,6 @@ public class TradingViewService {
             filters.add(new Filter("market_cap_basic", "egreater", 50_000_000));
             filters.add(new Filter("Recommend.All|1M", "egreater", 0.5));
             filters.add(new Filter("debt_to_equity", "in_range", List.of(-50, 3)));
-            filters.add(new Filter("total_revenue", "egreater", 0));
             filters.add(new Filter("number_of_employees", "egreater", 1000));
         }
         if (Market.MOEX == market) {
