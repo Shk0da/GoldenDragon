@@ -22,6 +22,13 @@ public class ScanRequest {
         this.range = range;
     }
 
+    public ScanRequest(List<Filter> filter, Options options, Symbols symbols, List<String> columns) {
+        this.filter = filter;
+        this.options = options;
+        this.symbols = symbols;
+        this.columns = columns;
+    }
+
     public ScanRequest(List<Filter> filter, Options options, Symbols symbols, List<String> columns, Sort sort, int[] range) {
         this.filter = filter;
         this.options = options;
@@ -63,8 +70,22 @@ public class ScanRequest {
         public Query query;
         public List<String> tickers;
 
+        public Symbols(List<String> tickers) {
+            this.tickers = tickers;
+        }
+
+        public Symbols(Query query, List<String> tickers) {
+            this.query = query;
+            this.tickers = tickers;
+        }
+
         public static class Query {
+
             public List<String> types;
+
+            public Query(List<String> types) {
+                this.types = types;
+            }
         }
     }
 

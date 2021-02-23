@@ -2,16 +2,16 @@ package com.github.shk0da.GoldenDragon.strategy;
 
 import com.github.shk0da.GoldenDragon.config.MainConfig;
 import com.github.shk0da.GoldenDragon.config.MarketConfig;
+import com.github.shk0da.GoldenDragon.config.RSXConfig;
 import com.github.shk0da.GoldenDragon.model.DiviTicker;
 import com.github.shk0da.GoldenDragon.model.Market;
 import com.github.shk0da.GoldenDragon.model.PositionInfo;
 import com.github.shk0da.GoldenDragon.model.TickerInfo;
+import com.github.shk0da.GoldenDragon.model.TickerScan;
 import com.github.shk0da.GoldenDragon.repository.Repository;
 import com.github.shk0da.GoldenDragon.repository.TickerRepository;
 import com.github.shk0da.GoldenDragon.service.TCSService;
-import com.google.gson.Gson;
-import com.google.gson.JsonArray;
-import com.google.gson.JsonElement;
+import com.github.shk0da.GoldenDragon.service.TradingViewService;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import org.jsoup.Jsoup;
@@ -29,7 +29,6 @@ import java.util.Calendar;
 import java.util.Collection;
 import java.util.Date;
 import java.util.GregorianCalendar;
-import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -38,8 +37,6 @@ import java.util.stream.Collectors;
 
 import static com.github.shk0da.GoldenDragon.config.DivFlowConfig.DOHOD_DIV_CALENDAR;
 import static com.github.shk0da.GoldenDragon.config.DivFlowConfig.INVESTING_DIV_CALENDAR;
-import static com.github.shk0da.GoldenDragon.config.DivFlowConfig.SCAN_MOEX;
-import static com.github.shk0da.GoldenDragon.config.DivFlowConfig.SCAN_US;
 import static com.github.shk0da.GoldenDragon.config.DivFlowConfig.SMART_LAB_DIV_CALENDAR;
 import static com.github.shk0da.GoldenDragon.config.MainConfig.CALENDAR_WORK_DAYS;
 import static com.github.shk0da.GoldenDragon.config.MainConfig.HEADER_USER_AGENT;
@@ -47,6 +44,7 @@ import static com.github.shk0da.GoldenDragon.config.MainConfig.USER_AGENT;
 import static com.github.shk0da.GoldenDragon.config.MainConfig.dateFormat;
 import static com.github.shk0da.GoldenDragon.config.MainConfig.dateFormatUs;
 import static com.github.shk0da.GoldenDragon.config.MainConfig.httpClient;
+import static com.github.shk0da.GoldenDragon.model.Market.US;
 import static com.github.shk0da.GoldenDragon.model.TickerType.STOCK;
 import static com.github.shk0da.GoldenDragon.utils.PredicateUtils.distinctByKey;
 import static com.github.shk0da.GoldenDragon.utils.PrintUtils.printCalendarOfDividends;
@@ -72,6 +70,7 @@ public class DivFlow {
 
     private final TCSService tcsService;
 
+    private final TradingViewService tradingViewService = TradingViewService.INSTANCE;
     private final Repository<TickerInfo.Key, TickerInfo> tickerRepository = TickerRepository.INSTANCE;
 
     public DivFlow(MainConfig mainConfig, MarketConfig marketConfig, TCSService tcsService) {
@@ -462,18 +461,18 @@ public class DivFlow {
         out.println("Loading dividends from Investing...");
 
         Calendar calendar = new GregorianCalendar();
-        if (Market.US == marketConfig.getMarket()) {
-            calendar.add(Calendar.DATE, -4);
+        if (US == marketConfig.getMarket()) {
+            calendar.add(Calendar.DATE, -7);
         }
         String dateFrom = dateFormatUs.format(calendar.getTime());
-        calendar.add(Calendar.DATE, 18);
+        calendar.add(Calendar.DATE, 21);
         String dateTo = dateFormatUs.format(calendar.getTime());
 
         List<Element> dividends = new ArrayList<>();
         long lastTimeScope = currentTimeMillis() / 1000L;
         for (int i = 0; i < 10; i++) {
             List<Map.Entry<String, String>> parameters = new ArrayList<>(9);
-            parameters.add(entry("country[]", Market.US == marketConfig.getMarket() ? "5" : "56"));
+            parameters.add(entry("country[]", US == marketConfig.getMarket() ? "5" : "56"));
 
             parameters.add(entry("dateFrom", dateFrom));
             parameters.add(entry("dateTo", dateTo));
@@ -563,97 +562,23 @@ public class DivFlow {
 
     private List<String> scanSymbols(Collection<String> names) {
         out.println("Scanning symbols from TradingView...");
-
-        Map<String, Object> jsonData = new HashMap<>();
-
-        Map<String, Object> symbols = new HashMap<>();
-        List<String> tickers = new ArrayList<>(names.size() * 2);
-        if (Market.US == marketConfig.getMarket()) {
-            tickers.addAll(names.stream().map(name -> "NASDAQ:" + name).collect(toList()));
-            tickers.addAll(names.stream().map(name -> "NYSE:" + name).collect(toList()));
+        List<TickerScan> scan = tradingViewService.scanMarket(marketConfig.getMarket(), names);
+        if (scan.isEmpty()) {
+            return List.of();
         }
-        if (Market.MOEX == marketConfig.getMarket()) {
-            tickers.addAll(names.stream().map(name -> "MOEX:" + name).collect(toList()));
-        }
-        symbols.put("tickers", tickers);
-        jsonData.put("symbols", symbols);
-
-        List<Map<String, Object>> filter = new ArrayList<>(5);
-        if (Market.US == marketConfig.getMarket()) {
-            Map<String, Object> marketCapBasic = new LinkedHashMap<>();
-            marketCapBasic.put("left", "market_cap_basic");
-            marketCapBasic.put("operation", "egreater");
-            marketCapBasic.put("right", 50000000);
-            filter.add(marketCapBasic);
-
-            Map<String, Object> debtToEquity = new LinkedHashMap<>();
-            debtToEquity.put("left", "debt_to_equity");
-            debtToEquity.put("operation", "in_range");
-            debtToEquity.put("right", new int[]{-50, 3});
-            filter.add(debtToEquity);
-
-            Map<String, Object> recommend1M = new LinkedHashMap<>();
-            recommend1M.put("left", "Recommend.All|1M");
-            recommend1M.put("operation", "egreater");
-            recommend1M.put("right", 0.5);
-            filter.add(recommend1M);
-
-            Map<String, Object> numberOfEmployees = new LinkedHashMap<>();
-            numberOfEmployees.put("left", "number_of_employees");
-            numberOfEmployees.put("operation", "egreater");
-            numberOfEmployees.put("right", 1000);
-            filter.add(numberOfEmployees);
-        }
-
-        if (Market.MOEX == marketConfig.getMarket()) {
-            Map<String, Object> recommend1W = new LinkedHashMap<>();
-            recommend1W.put("left", "Recommend.All|1W");
-            recommend1W.put("operation", "egreater");
-            recommend1W.put("right", 0.4);
-            filter.add(recommend1W);
-        }
-
-        Map<String, Object> totalRevenue = new LinkedHashMap<>();
-        totalRevenue.put("left", "total_revenue");
-        totalRevenue.put("operation", "egreater");
-        totalRevenue.put("right", 0);
-        filter.add(totalRevenue);
-
-        jsonData.put("filter", filter);
-
-        jsonData.put("columns", new String[]{
-                "name",
-                "Recommend.MA|1W",
-                "Recommend.All|1W"
-        });
-        String json = new Gson().toJson(jsonData);
-
-        HttpResponse<String> response = requestWithRetry(() -> {
-            HttpRequest request = HttpRequest.newBuilder()
-                    .POST(HttpRequest.BodyPublishers.ofString(json))
-                    .uri(URI.create(marketConfig.getMarket() == Market.US ? SCAN_US : SCAN_MOEX))
-                    .setHeader(HEADER_USER_AGENT, USER_AGENT)
-                    .build();
+        if (US == marketConfig.getMarket()) {
             try {
-                return httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+                RSXConfig rsxConfig = new RSXConfig();
+                RSX rsx = new RSX(mainConfig, marketConfig, rsxConfig, tcsService);
+                if (rsx.isTrendUp()) {
+                    return rsx.topSymbols(scan);
+                }
+                return List.of();
             } catch (Exception ex) {
-                out.println("Error: " + ex.getMessage());
-                return null;
-            }
-        });
-
-        List<String> result = new ArrayList<>(names.size());
-        JsonArray data = JsonParser.parseString(response.body()).getAsJsonObject().get("data").getAsJsonArray();
-        for (JsonElement item : data) {
-            var params = item.getAsJsonObject().get("d").getAsJsonArray();
-            var ma = params.get(1).getAsDouble();
-            var all = params.get(2).getAsDouble();
-            if (ma >= 0.8 && all >= 0.4) {
-                var name = params.get(0).getAsString();
-                result.add(name);
+                out.println("Failed use RSX to filter symbols: " + ex.getMessage());
             }
         }
-        return result;
+        return scan.stream().map(TickerScan::getName).collect(Collectors.toUnmodifiableList());
     }
 
     private void mergeCalendars(Map<String, List<DiviTicker>> result, Map<String, List<DiviTicker>> dividends) {

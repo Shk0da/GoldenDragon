@@ -33,7 +33,6 @@ import static java.util.stream.Collectors.toList;
  */
 public class RSX extends Rebalancing {
 
-    private final MainConfig mainConfig;
     private final MarketConfig marketConfig;
     private final RSXConfig rsxConfig;
 
@@ -45,7 +44,6 @@ public class RSX extends Rebalancing {
 
     public RSX(MainConfig mainConfig, MarketConfig marketConfig, RSXConfig rsxConfig, TCSService tcsService) {
         super(mainConfig, marketConfig, tcsService);
-        this.mainConfig = mainConfig;
         this.marketConfig = marketConfig;
         this.rsxConfig = rsxConfig;
         this.tcsService = tcsService;
@@ -54,9 +52,10 @@ public class RSX extends Rebalancing {
     public void run() throws Exception {
         boolean isTrendUp = isTrendUp();
         double availableCash = tcsService.getAvailableCash();
-        Map<TickerInfo.Key, PortfolioPosition> previousPositions = loadDataFromDisk(RSXConfig.SERIALIZE_NAME, new TypeToken<>() {
-        });
-        Map<TickerInfo.Key, PortfolioPosition> targetPositions = topSymbols().stream()
+        Map<TickerInfo.Key, PortfolioPosition> previousPositions = loadDataFromDisk(RSXConfig.SERIALIZE_NAME, new TypeToken<>() {});
+        List<TickerScan> tickers = tradingViewService.scanMarket(marketConfig.getMarket(), 200);
+        Map<TickerInfo.Key, PortfolioPosition> targetPositions = topSymbols(tickers)
+                .stream()
                 .map(it -> {
                     var pos = new PortfolioPosition(it, TickerType.STOCK, 100.0 / rsxConfig.getStockPortfolioMaxSize());
                     var key = new TickerInfo.Key(pos.getName(), pos.getType());
@@ -76,7 +75,7 @@ public class RSX extends Rebalancing {
         }
     }
 
-    private boolean isTrendUp() {
+    public boolean isTrendUp() {
         List<TickerCandle> trendCandles50 = yahooService.getLastCandles(rsxConfig.getTrendStock(), 50);
         List<TickerCandle> trendCandles5 = trendCandles50.stream().skip(45).collect(toList());
         double longSMA = trendCandles50.stream().mapToDouble(TickerCandle::getClose).sum() / trendCandles50.size();
@@ -86,7 +85,7 @@ public class RSX extends Rebalancing {
         return isTrendUp;
     }
 
-    private List<Map<String, Object>> dataForFiler(List<TickerScan> tickers) {
+    public List<String> topSymbols(List<TickerScan> tickers) {
         List<Map<String, Object>> dataForFiler = new ArrayList<>(tickers.size());
         for (TickerScan ticker : tickers) {
             if (ticker.getDebtToEquity() == 0.0) continue;
@@ -102,12 +101,7 @@ public class RSX extends Rebalancing {
             data.put("totalDebtEquityRatio", debtEquityRatio[1]);
             dataForFiler.add(data);
         }
-        return dataForFiler;
-    }
 
-    private List<String> topSymbols() {
-        List<TickerScan> tickers = tradingViewService.scanMarket(marketConfig.getMarket(), 200);
-        List<Map<String, Object>> dataForFiler = dataForFiler(tickers);
         List<Map<String, Object>> stocks = dataForFiler.stream()
                 .filter(it -> (double) it.get("longTermDebtEquityRatio") != 0.0)
                 .filter(it -> (double) it.get("totalDebtEquityRatio") != 0.0)
