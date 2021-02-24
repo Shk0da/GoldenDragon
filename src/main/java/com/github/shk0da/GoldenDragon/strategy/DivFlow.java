@@ -74,7 +74,6 @@ public class DivFlow {
     private final Repository<TickerInfo.Key, TickerInfo> tickerRepository = TickerRepository.INSTANCE;
 
     public DivFlow(MainConfig mainConfig, MarketConfig marketConfig, TCSService tcsService) {
-        out.printf("%s: Start DivFlow%n", new Date().toString());
         this.mainConfig = mainConfig;
         this.marketConfig = marketConfig;
         this.tcsService = tcsService;
@@ -118,7 +117,7 @@ public class DivFlow {
                             .distinct()
                             .collect(toList()));
                     try {
-                        // is feature
+                        // is feature && not holding
                         if (dateFormat.parse(it.getKey()).after(currentCalendar.getTime())) {
                             tickersForScan.addAll(it.getValue()
                                     .stream()

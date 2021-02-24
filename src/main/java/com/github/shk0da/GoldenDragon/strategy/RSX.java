@@ -110,7 +110,7 @@ public class RSX extends Rebalancing {
                 .sorted(Comparator.comparingDouble(it -> ((Double) it.get("debtToEquity"))))
                 .limit(50)
                 .sorted(Comparator.comparingDouble(it -> ((Double) it.get("longTermDebtEquityRatio"))))
-                .skip(5)
+                .skip(dataForFiler.size() >= 25 ? 5 : 0)
                 .sorted(Comparator.comparingDouble(it -> ((Double) it.get("totalDebtEquityRatio"))))
                 .limit(20)
                 .collect(toList());
