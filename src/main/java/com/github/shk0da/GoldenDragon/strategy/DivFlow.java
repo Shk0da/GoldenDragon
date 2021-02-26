@@ -165,7 +165,7 @@ public class DivFlow {
             buyCalendar.add(Calendar.DATE, 1);
         }
 
-        boolean isPrintPortfolioCost = false;
+        boolean isPortfolioCostChanged = false;
         String currentDate = dateFormat.format(currentCalendar.getTime());
 
         // sell
@@ -184,10 +184,8 @@ public class DivFlow {
                     continue;
                 }
                 try {
-                    double cost = preparingSale(currentDate, diviTicker, currentPositions.get(new TickerInfo.Key(diviTicker.getTickerCode(), STOCK)));
-                    if (cost > 0.0) {
-                        isPrintPortfolioCost = true;
-                    }
+                    preparingSale(currentDate, diviTicker, currentPositions.get(new TickerInfo.Key(diviTicker.getTickerCode(), STOCK)));
+                    isPortfolioCostChanged = true;
                     out.println();
                 } catch (Exception ex) {
                     out.println("Failed preparing sale: " + ex.getMessage());
@@ -205,6 +203,9 @@ public class DivFlow {
             }
             buyCalendar.add(Calendar.DATE, 1);
         }
+        if (isPortfolioCostChanged && !tickersToBuy.isEmpty()) {
+            cash = tcsService.getAvailableCash();
+        }
         if (!tickersToBuy.isEmpty() && cash > 0.0) {
             for (DiviTicker diviTicker : tickersToBuy) {
                 if (currentPositions.containsKey(new TickerInfo.Key(diviTicker.getTickerCode(), STOCK))) {
@@ -215,7 +216,7 @@ public class DivFlow {
                     double cost = preparingPurchase(currentDate, diviTicker, availableCashToBuy);
                     if (cost > 0.0) {
                         cash = cash - cost;
-                        isPrintPortfolioCost = true;
+                        isPortfolioCostChanged = true;
                     }
                     out.println();
                 } catch (Exception ex) {
@@ -224,7 +225,7 @@ public class DivFlow {
             }
         }
 
-        if (isPrintPortfolioCost) {
+        if (isPortfolioCostChanged) {
             printCurrentPositions(marketConfig.getCurrency(), tcsService.getCurrentPositions(STOCK), tcsService.getAvailableCash(), tcsService);
         }
     }
