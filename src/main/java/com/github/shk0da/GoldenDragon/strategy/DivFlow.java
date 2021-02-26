@@ -199,7 +199,12 @@ public class DivFlow {
             String buyDate = dateFormat.format(buyCalendar.getTime());
             List<DiviTicker> tickers = dividends.get(buyDate);
             if (null != tickers) {
-                tickersToBuy.addAll(tickers);
+                for (DiviTicker ticker : tickers) {
+                    if (currentPositions.containsKey(new TickerInfo.Key(ticker.getTickerCode(), STOCK))) {
+                        continue;
+                    }
+                    tickersToBuy.add(ticker);
+                }
             }
             buyCalendar.add(Calendar.DATE, 1);
         }
@@ -207,17 +212,17 @@ public class DivFlow {
             cash = tcsService.getAvailableCash();
         }
         if (!tickersToBuy.isEmpty() && cash > 0.0) {
-            for (DiviTicker diviTicker : tickersToBuy) {
-                if (currentPositions.containsKey(new TickerInfo.Key(diviTicker.getTickerCode(), STOCK))) {
-                    continue;
-                }
+            int sizeTickersToBuy = tickersToBuy.size();
+            for (int i = tickersToBuy.size() - 1; i >= 0; i--) {
+                DiviTicker diviTicker = tickersToBuy.get(i);
                 try {
-                    double availableCashToBuy = min(marketConfig.getMaxPositionCostToBuy(), (cash * .8) / tickersToBuy.size());
+                    double availableCashToBuy = min(marketConfig.getMaxPositionCostToBuy(), (cash * .8) / sizeTickersToBuy);
                     double cost = preparingPurchase(currentDate, diviTicker, availableCashToBuy);
                     if (cost > 0.0) {
                         cash = cash - cost;
                         isPortfolioCostChanged = true;
                     }
+                    sizeTickersToBuy = sizeTickersToBuy - 1;
                     out.println();
                 } catch (Exception ex) {
                     out.println("Failed preparing purchase: " + ex.getMessage());

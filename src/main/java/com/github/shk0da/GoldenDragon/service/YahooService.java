@@ -110,16 +110,19 @@ public class YahooService {
         return response.body().lines()
                 .skip(1)
                 .map(it -> it.split(","))
+                .filter(it -> null != it[0] && !it[0].isBlank() && !it[0].equals("null"))
                 .map(it -> new TickerCandle(
                         symbol,
                         it[0],
-                        null != it[1] && !it[1].isBlank() ? Double.parseDouble(it[1]) : 0.0,
-                        null != it[2] && !it[2].isBlank() ? Double.parseDouble(it[2]) : 0.0,
-                        null != it[3] && !it[3].isBlank() ? Double.parseDouble(it[3]) : 0.0,
-                        null != it[4] && !it[4].isBlank() ? Double.parseDouble(it[4]) : 0.0,
-                        null != it[5] && !it[5].isBlank() ? Double.parseDouble(it[5]) : 0.0,
-                        null != it[6] && !it[6].isBlank() ? Integer.parseInt(it[6]) : 0
-                )).collect(Collectors.toList());
+                        parseDouble(it[1]),
+                        parseDouble(it[2]),
+                        parseDouble(it[3]),
+                        parseDouble(it[4]),
+                        parseDouble(it[5]),
+                        parseInt(it[6])
+                ))
+                .filter(it -> null != it.getClose() && it.getClose() > 0.0)
+                .collect(Collectors.toList());
     }
 
     private Map<String, Fundamental> getTickerFundamental(TickerScan ticker, List<String> options) {
@@ -201,5 +204,13 @@ public class YahooService {
             }
         }
         return (days + 10);
+    }
+
+    private int parseInt(String it) {
+        return null != it && !it.isBlank() && !it.equals("null") ? Integer.parseInt(it) : 0;
+    }
+
+    private double parseDouble(String it) {
+        return null != it && !it.isBlank() && !it.equals("null") ? Double.parseDouble(it) : 0.0;
     }
 }
