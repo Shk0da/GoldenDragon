@@ -64,7 +64,7 @@ public class TCSService {
         HttpResponse<String> response = RequestUtils.requestWithRetry(() -> {
             HttpRequest request = HttpRequest.newBuilder()
                     .POST(HttpRequest.BodyPublishers.ofString(json))
-                    .uri(URI.create(mainConfig.getTcsApi() + "/orders/" + orderType + "?brokerAccountId" + mainConfig.getTcsAccountId() + "&figi=" + figi))
+                    .uri(URI.create(mainConfig.getTcsApi() + "/orders/" + orderType + "?brokerAccountId=" + mainConfig.getTcsAccountId() + "&figi=" + figi))
                     .setHeader(HEADER_USER_AGENT, USER_AGENT)
                     .setHeader(HEADER_AUTHORIZATION, mainConfig.getTcsAuthorization())
                     .header("Content-Type", "application/json")
