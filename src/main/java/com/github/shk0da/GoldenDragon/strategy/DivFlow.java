@@ -549,9 +549,16 @@ public class DivFlow {
                 code = code.toUpperCase();
 
                 var name = item.select("td:eq(1) > span").text();
+
+                Calendar nextWorkDay = Calendar.getInstance();
+                nextWorkDay.setTime(closeByDate);
+                do {
+                    nextWorkDay.add(Calendar.DATE, 1);
+                } while (!CALENDAR_WORK_DAYS.contains(nextWorkDay.get(Calendar.DAY_OF_WEEK)));
+                var realCloseByDate = dateFormat.format(nextWorkDay.getTime());
+
                 var lastDate = dateFormat.format(new Date(closeByDate.getTime() - DAYS.toMillis(2)));
-                var price = "0.0";
-                DiviTicker ticker = new DiviTicker(name, code, lastDate, closeDate, dividend, profit, price);
+                DiviTicker ticker = new DiviTicker(name, code, lastDate, realCloseByDate, dividend, profit, "0.0");
 
                 List<DiviTicker> byDate = result.getOrDefault(ticker.getCloseDate(), new ArrayList<>(4));
                 byDate.add(ticker);
