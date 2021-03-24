@@ -32,6 +32,15 @@ public final class MarketConfig {
                             properties.getProperty("market.us.currency", "USD"))
                     );
             defaultMarketConfigs.put(
+                    Market.DE,
+                    new MarketConfig(
+                            Market.DE,
+                            Integer.parseInt(properties.getProperty("market.de.startWorkHour", "11")),
+                            Integer.parseInt(properties.getProperty("market.de.endWorkHour", "22")),
+                            Integer.parseInt(properties.getProperty("market.de.maxPositionCostToBuy", "1000")),
+                            properties.getProperty("market.de.currency", "EUR"))
+            );
+            defaultMarketConfigs.put(
                     Market.MOEX,
                     new MarketConfig(
                             Market.MOEX,
@@ -43,6 +52,7 @@ public final class MarketConfig {
         } catch (Exception ex) {
             out.println("Failed load Market config: " + ex.getMessage());
             defaultMarketConfigs.put(Market.US, createDefaultUS());
+            defaultMarketConfigs.put(Market.DE, createDefaultDE());
             defaultMarketConfigs.put(Market.MOEX, createDefaultMOEX());
         }
     }
@@ -61,6 +71,10 @@ public final class MarketConfig {
 
     private static MarketConfig createDefaultUS() {
         return new MarketConfig(Market.US, 16, 19, 1_000, "USD");
+    }
+
+    private static MarketConfig createDefaultDE() {
+        return new MarketConfig(Market.DE, 11, 22, 1_000, "EUR");
     }
 
     private static MarketConfig createDefaultMOEX() {

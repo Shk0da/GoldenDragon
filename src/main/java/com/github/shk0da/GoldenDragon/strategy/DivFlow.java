@@ -4,7 +4,6 @@ import com.github.shk0da.GoldenDragon.config.MainConfig;
 import com.github.shk0da.GoldenDragon.config.MarketConfig;
 import com.github.shk0da.GoldenDragon.config.RSXConfig;
 import com.github.shk0da.GoldenDragon.model.DiviTicker;
-import com.github.shk0da.GoldenDragon.model.Market;
 import com.github.shk0da.GoldenDragon.model.PositionInfo;
 import com.github.shk0da.GoldenDragon.model.TickerInfo;
 import com.github.shk0da.GoldenDragon.model.TickerScan;
@@ -44,6 +43,8 @@ import static com.github.shk0da.GoldenDragon.config.MainConfig.USER_AGENT;
 import static com.github.shk0da.GoldenDragon.config.MainConfig.dateFormat;
 import static com.github.shk0da.GoldenDragon.config.MainConfig.dateFormatUs;
 import static com.github.shk0da.GoldenDragon.config.MainConfig.httpClient;
+import static com.github.shk0da.GoldenDragon.model.Market.DE;
+import static com.github.shk0da.GoldenDragon.model.Market.MOEX;
 import static com.github.shk0da.GoldenDragon.model.Market.US;
 import static com.github.shk0da.GoldenDragon.model.TickerType.STOCK;
 import static com.github.shk0da.GoldenDragon.utils.PredicateUtils.distinctByKey;
@@ -100,7 +101,7 @@ public class DivFlow {
                                 try {
                                     Date valueDate = dateFormat.parse(value.getCloseDate());
                                     isPast = valueDate.before(currentCalendar.getTime());
-                                    isToDay =  valueDate.equals(currentCalendar.getTime());
+                                    isToDay = valueDate.equals(currentCalendar.getTime());
                                     isFeature = valueDate.after(currentCalendar.getTime());
                                 } catch (Exception nothing) {
                                     isPast = true;
@@ -312,7 +313,7 @@ public class DivFlow {
     private Map<String, List<DiviTicker>> getCalendarDividends() {
         Map<String, List<DiviTicker>> result = new LinkedHashMap<>();
 
-        if (Market.MOEX == marketConfig.getMarket()) {
+        if (MOEX == marketConfig.getMarket()) {
             try {
                 mergeCalendars(result, getSmartLabDividends());
             } catch (Exception ex) {
@@ -477,8 +478,18 @@ public class DivFlow {
         long lastTimeScope = currentTimeMillis() / 1000L;
         for (int i = 0; i < 10; i++) {
             List<Map.Entry<String, String>> parameters = new ArrayList<>(9);
-            parameters.add(entry("country[]", US == marketConfig.getMarket() ? "5" : "56"));
-
+            switch (marketConfig.getMarket()) {
+                case US:
+                    parameters.add(entry("country[]", "5"));
+                    break;
+                case DE:
+                    parameters.add(entry("country[]", "17"));
+                    break;
+                case MOEX:
+                default:
+                    parameters.add(entry("country[]", "56"));
+                    break;
+            }
             parameters.add(entry("dateFrom", dateFrom));
             parameters.add(entry("dateTo", dateTo));
             parameters.add(entry("currentTab", "custom"));
@@ -547,6 +558,9 @@ public class DivFlow {
                 var code = item.select("td:eq(1) > a").text();
                 if (null == code || code.isBlank()) continue;
                 code = code.toUpperCase();
+                if (DE == marketConfig.getMarket()) {
+                    code = code + "@DE";
+                }
 
                 var name = item.select("td:eq(1) > span").text();
 
@@ -578,7 +592,7 @@ public class DivFlow {
         if (scan.isEmpty()) {
             return List.of();
         }
-        if (US == marketConfig.getMarket()) {
+        if (MOEX != marketConfig.getMarket()) {
             try {
                 RSXConfig rsxConfig = new RSXConfig();
                 RSX rsx = new RSX(mainConfig, marketConfig, rsxConfig, tcsService);

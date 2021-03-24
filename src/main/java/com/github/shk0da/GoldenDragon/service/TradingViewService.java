@@ -36,6 +36,7 @@ public class TradingViewService {
     public static final TradingViewService INSTANCE = new TradingViewService();
 
     private static final String US_SCAN_URI = "https://scanner.tradingview.com/america/scan";
+    private static final String DE_SCAN_URI = "https://scanner.tradingview.com/germany/scan";
     private static final String MOEX_SCAN_URI = "https://scanner.tradingview.com/russia/scan";
 
     public List<TickerScan> scanMarket(Market market, int size) {
@@ -72,12 +73,17 @@ public class TradingViewService {
             tickers.addAll(symbols.stream().map(name -> "NASDAQ:" + name).collect(toList()));
             tickers.addAll(symbols.stream().map(name -> "NYSE:" + name).collect(toList()));
         }
+        if (Market.DE == market) {
+            tickers.addAll(symbols.stream().map(name -> "FWB:" + name.replace("@DE", "")).collect(toList()));
+        }
         if (Market.MOEX == market) {
             tickers.addAll(symbols.stream().map(name -> "MOEX:" + name).collect(toList()));
         }
 
         List<Filter> filters = new ArrayList<>();
-        if (Market.US == market) {
+        if (Market.MOEX == market) {
+            filters.add(new Filter("Recommend.All|1M", "egreater", 0.4));
+        } else {
             filters.add(new Filter("debt_to_equity", "nempty"));
             filters.add(new Filter("type", "in_range", List.of("stock")));
             filters.add(new Filter("subtype", "in_range", List.of("common")));
@@ -85,9 +91,6 @@ public class TradingViewService {
             filters.add(new Filter("Recommend.All|1M", "egreater", 0.5));
             filters.add(new Filter("debt_to_equity", "in_range", List.of(-50, 3)));
             filters.add(new Filter("number_of_employees", "egreater", 1000));
-        }
-        if (Market.MOEX == market) {
-            filters.add(new Filter("Recommend.All|1M", "egreater", 0.4));
         }
         filters.add(new Filter("total_revenue", "egreater", 0));
 
@@ -116,10 +119,22 @@ public class TradingViewService {
             out.println("Error: " + ex.getMessage());
         }
 
+        URI marketUrl;
+        switch (market) {
+            case US:
+                marketUrl = URI.create(US_SCAN_URI);
+                break;
+            case DE:
+                marketUrl = URI.create(DE_SCAN_URI);
+                break;
+            case MOEX:
+            default:
+                marketUrl = URI.create(MOEX_SCAN_URI);
+        }
         HttpResponse<String> response = requestWithRetry(() -> {
             String json = new Gson().toJson(scanRequest);
             HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(Market.MOEX == market ? MOEX_SCAN_URI : US_SCAN_URI))
+                    .uri(marketUrl)
                     .setHeader(HEADER_USER_AGENT, USER_AGENT)
                     .POST(HttpRequest.BodyPublishers.ofString(json))
                     .timeout(Duration.of(10, ChronoUnit.SECONDS))
@@ -147,9 +162,14 @@ public class TradingViewService {
             var obj = item.getAsJsonObject();
             var values = obj.get("d").getAsJsonArray();
             var nameWithMarket = obj.get("s").getAsString().split(":");
+            var marketName = nameWithMarket[0];
+            var tickerName = nameWithMarket[1];
+            if (Market.DE == market) {
+                tickerName = tickerName + "@DE";
+            }
             result.add(new TickerScan(
-                    nameWithMarket[1],
-                    nameWithMarket[0],
+                    tickerName,
+                    marketName,
                     values.get(1).getAsString(),
                     values.get(2).getAsLong(),
                     values.get(3).getAsDouble(),
