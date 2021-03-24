@@ -11,6 +11,7 @@ import com.github.shk0da.GoldenDragon.repository.Repository;
 import com.github.shk0da.GoldenDragon.repository.TickerRepository;
 import com.github.shk0da.GoldenDragon.service.TCSService;
 import com.github.shk0da.GoldenDragon.service.TradingViewService;
+import com.github.shk0da.GoldenDragon.service.YahooService;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import org.jsoup.Jsoup;
@@ -52,6 +53,7 @@ import static com.github.shk0da.GoldenDragon.utils.PrintUtils.printCalendarOfDiv
 import static com.github.shk0da.GoldenDragon.utils.PrintUtils.printCurrentPositions;
 import static com.github.shk0da.GoldenDragon.utils.RequestUtils.requestWithRetry;
 import static java.lang.Math.min;
+import static java.lang.String.valueOf;
 import static java.lang.System.currentTimeMillis;
 import static java.lang.System.out;
 import static java.nio.charset.StandardCharsets.UTF_8;
@@ -71,6 +73,7 @@ public class DivFlow {
 
     private final TCSService tcsService;
 
+    private final YahooService yahooService = YahooService.INSTANCE;
     private final TradingViewService tradingViewService = TradingViewService.INSTANCE;
     private final Repository<TickerInfo.Key, TickerInfo> tickerRepository = TickerRepository.INSTANCE;
 
@@ -493,10 +496,10 @@ public class DivFlow {
             parameters.add(entry("dateFrom", dateFrom));
             parameters.add(entry("dateTo", dateTo));
             parameters.add(entry("currentTab", "custom"));
-            parameters.add(entry("limit_from", String.valueOf(i)));
+            parameters.add(entry("limit_from", valueOf(i)));
             if (i >= 1) {
                 parameters.add(entry("submitFilters", "0"));
-                parameters.add(entry("last_time_scope", String.valueOf(lastTimeScope)));
+                parameters.add(entry("last_time_scope", valueOf(lastTimeScope)));
                 parameters.add(entry("byHandler", "true"));
             }
 
@@ -557,6 +560,11 @@ public class DivFlow {
 
                 var code = item.select("td:eq(1) > a").text();
                 if (null == code || code.isBlank()) continue;
+                if (!tickerRepository.containsKey(new TickerInfo.Key(code, STOCK))) continue;
+
+                var lastCandle = yahooService.getLastCandle(code);
+                var price = valueOf(null != lastCandle ? lastCandle.getClose() : 0.0);
+
                 code = code.toUpperCase();
                 if (DE == marketConfig.getMarket()) {
                     code = code + "@DE";
@@ -572,7 +580,7 @@ public class DivFlow {
                 var realCloseByDate = dateFormat.format(nextWorkDay.getTime());
 
                 var lastDate = dateFormat.format(new Date(closeByDate.getTime() - DAYS.toMillis(2)));
-                DiviTicker ticker = new DiviTicker(name, code, lastDate, realCloseByDate, dividend, profit, "0.0");
+                DiviTicker ticker = new DiviTicker(name, code, lastDate, realCloseByDate, dividend, profit, price);
 
                 List<DiviTicker> byDate = result.getOrDefault(ticker.getCloseDate(), new ArrayList<>(4));
                 byDate.add(ticker);

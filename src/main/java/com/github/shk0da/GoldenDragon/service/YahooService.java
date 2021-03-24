@@ -35,9 +35,18 @@ public class YahooService {
 
     public static final YahooService INSTANCE = new YahooService();
 
-    private static final String TICKER_INFO_URI = "https://query1.finance.yahoo.com/v8/finance/chart";
     private static final String HISTORY_DATA_URI = "https://query1.finance.yahoo.com/v7/finance/download";
     private static final String BALANCE_SHEET_URI = "https://query1.finance.yahoo.com/ws/fundamentals-timeseries/v1/finance/timeseries";
+
+    public TickerCandle getLastCandle(String symbol) {
+        try {
+            List<TickerCandle> historyData = getHistoryData(symbol, new Date(currentTimeMillis() - DAYS.toMillis(daysFromSize(1))), new Date());
+            return historyData.isEmpty() ? null : historyData.get(historyData.size() - 1);
+        } catch (Exception ex) {
+            out.printf("Failed downloaded new candles for '%s', %s\n", symbol, ex.getMessage());
+            return null;
+        }
+    }
 
     public List<TickerCandle> getLastCandles(String symbol, int count) {
         try {
@@ -161,7 +170,7 @@ public class YahooService {
         JsonArray timeSeries = payload.get("timeseries").getAsJsonObject().get("result").getAsJsonArray();
         for (JsonElement element : timeSeries) {
             for (String option : options) {
-                if (!element.getAsJsonObject().has(option))  continue;
+                if (!element.getAsJsonObject().has(option)) continue;
 
                 JsonArray values = element.getAsJsonObject().get(option).getAsJsonArray();
                 List<JsonElement> elements = new ArrayList<>();

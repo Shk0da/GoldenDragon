@@ -5,6 +5,7 @@ import java.util.Objects;
 
 import static com.github.shk0da.GoldenDragon.config.MainConfig.dateFormat;
 import static java.lang.Math.min;
+import static java.lang.Math.round;
 import static java.lang.System.out;
 
 public class DiviTicker {
@@ -50,11 +51,15 @@ public class DiviTicker {
     }
 
     public Double getPercent() {
+        double closePrice = getPrice();
+        if (closePrice > 0.0) {
+            return round((getDividend() / (closePrice / 100)) * 100) / 100.0;
+        }
         return parseDouble(percent);
     }
 
     public Double getPrice() {
-        return parseDouble(closePrice);
+        return round(parseDouble(closePrice) * 1000) / 1000.0;
     }
 
     private Date parseDate(String value) {
