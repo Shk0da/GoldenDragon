@@ -32,7 +32,6 @@ import java.util.GregorianCalendar;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 import static com.github.shk0da.GoldenDragon.config.DivFlowConfig.DOHOD_DIV_CALENDAR;
@@ -46,7 +45,6 @@ import static com.github.shk0da.GoldenDragon.config.MainConfig.dateFormatUs;
 import static com.github.shk0da.GoldenDragon.config.MainConfig.httpClient;
 import static com.github.shk0da.GoldenDragon.model.Market.DE;
 import static com.github.shk0da.GoldenDragon.model.Market.MOEX;
-import static com.github.shk0da.GoldenDragon.model.Market.US;
 import static com.github.shk0da.GoldenDragon.model.TickerType.STOCK;
 import static com.github.shk0da.GoldenDragon.utils.PredicateUtils.distinctByKey;
 import static com.github.shk0da.GoldenDragon.utils.PrintUtils.printCalendarOfDividends;
@@ -58,7 +56,9 @@ import static java.lang.System.currentTimeMillis;
 import static java.lang.System.out;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static java.util.Map.entry;
+import static java.util.concurrent.ThreadLocalRandom.current;
 import static java.util.concurrent.TimeUnit.DAYS;
+import static java.util.concurrent.TimeUnit.MILLISECONDS;
 import static java.util.stream.Collectors.toList;
 import static java.util.stream.Collectors.toMap;
 
@@ -469,82 +469,98 @@ public class DivFlow {
     private Map<String, List<DiviTicker>> getInvestingDividends() {
         out.println("Loading dividends from Investing...");
 
-        Calendar calendar = new GregorianCalendar();
-        if (US == marketConfig.getMarket()) {
-            calendar.add(Calendar.DATE, -7);
-        }
-        String dateFrom = dateFormatUs.format(calendar.getTime());
-        calendar.add(Calendar.DATE, 21);
-        String dateTo = dateFormatUs.format(calendar.getTime());
+        Calendar currentCalendar = new GregorianCalendar();
+        currentCalendar.add(Calendar.DATE, -7);
+
+        Calendar endCalendar = new GregorianCalendar();
+        endCalendar.setTime(currentCalendar.getTime());
+        endCalendar.add(Calendar.DATE, 21);
 
         List<Element> dividends = new ArrayList<>();
         long lastTimeScope = currentTimeMillis() / 1000L;
-        for (int i = 0; i < 10; i++) {
-            List<Map.Entry<String, String>> parameters = new ArrayList<>(9);
-            switch (marketConfig.getMarket()) {
-                case US:
-                    parameters.add(entry("country[]", "5"));
-                    break;
-                case DE:
-                    parameters.add(entry("country[]", "17"));
-                    break;
-                case MOEX:
-                default:
-                    parameters.add(entry("country[]", "56"));
-                    break;
-            }
-            parameters.add(entry("dateFrom", dateFrom));
-            parameters.add(entry("dateTo", dateTo));
-            parameters.add(entry("currentTab", "custom"));
-            parameters.add(entry("limit_from", valueOf(i)));
-            if (i >= 1) {
-                parameters.add(entry("submitFilters", "0"));
-                parameters.add(entry("last_time_scope", valueOf(lastTimeScope)));
-                parameters.add(entry("byHandler", "true"));
-            }
-
-            String form = parameters.stream()
-                    .map(entry -> entry.getKey() + "=" + URLEncoder.encode(entry.getValue(), UTF_8))
-                    .collect(Collectors.joining("&"));
-
-            HttpResponse<String> response = requestWithRetry(() -> {
-                HttpRequest request = HttpRequest.newBuilder()
-                        .POST(HttpRequest.BodyPublishers.ofString(form))
-                        .uri(URI.create(INVESTING_DIV_CALENDAR))
-                        .setHeader(HEADER_USER_AGENT, USER_AGENT)
-                        .setHeader("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
-                        .setHeader("Origin", "https://ru.investing.com")
-                        .setHeader("Referer", "https://ru.investing.com/dividends-calendar/")
-                        .setHeader("X-Requested-With", "XMLHttpRequest")
-                        .setHeader("dnt", "1")
-                        .setHeader("sec-gpc", "1")
-                        .setHeader("Sec-Fetch-Mode", "cors")
-                        .build();
-                try {
-                    return httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-                } catch (Exception ex) {
-                    out.println("Error: " + ex.getMessage());
-                    return null;
-                }
-            });
-
-            JsonObject jsonResponse = JsonParser.parseString(response.body()).getAsJsonObject();
-            String data = jsonResponse.get("data").getAsString();
-            Document html = Jsoup.parseBodyFragment("<table><tbody>" + data + "</tbody></table>");
-            List<Element> toAdd = html.select("tr").stream()
-                    .filter(it -> !it.hasAttr("tablesorterdivider"))
-                    .collect(toList());
-            dividends.addAll(toAdd);
-
-            if (!jsonResponse.get("bind_scroll_handler").getAsBoolean()) break;
-            lastTimeScope = jsonResponse.get("last_time_scope").getAsLong();
+        while (currentCalendar.getTimeInMillis() <= endCalendar.getTimeInMillis()) {
+            String currentDate = dateFormatUs.format(currentCalendar.getTime());
             try {
-                TimeUnit.MILLISECONDS.sleep(550);
-            } catch (InterruptedException ex) {
-                out.println("Error: " + ex.getMessage());
+                for (int page = 0; page < 10; page++) {
+                    List<Map.Entry<String, String>> parameters = new ArrayList<>(9);
+                    switch (marketConfig.getMarket()) {
+                        case US:
+                            parameters.add(entry("country[]", "5"));
+                            break;
+                        case DE:
+                            parameters.add(entry("country[]", "17"));
+                            break;
+                        case MOEX:
+                        default:
+                            parameters.add(entry("country[]", "56"));
+                            break;
+                    }
+                    parameters.add(entry("dateFrom", currentDate));
+                    parameters.add(entry("dateTo", currentDate));
+                    parameters.add(entry("currentTab", "custom"));
+                    parameters.add(entry("limit_from", valueOf(page)));
+                    if (page >= 1) {
+                        parameters.add(entry("submitFilters", "0"));
+                        parameters.add(entry("last_time_scope", valueOf(lastTimeScope)));
+                        parameters.add(entry("byHandler", "true"));
+                    }
+
+                    String form = parameters.stream()
+                            .map(entry -> entry.getKey() + "=" + URLEncoder.encode(entry.getValue(), UTF_8))
+                            .collect(Collectors.joining("&"));
+
+                    HttpResponse<String> response = requestWithRetry(() -> {
+                        HttpRequest request = HttpRequest.newBuilder()
+                                .POST(HttpRequest.BodyPublishers.ofString(form))
+                                .uri(URI.create(INVESTING_DIV_CALENDAR))
+                                .setHeader(HEADER_USER_AGENT, USER_AGENT)
+                                .setHeader("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
+                                .setHeader("Origin", "https://ru.investing.com")
+                                .setHeader("Referer", "https://ru.investing.com/dividends-calendar/")
+                                .setHeader("X-Requested-With", "XMLHttpRequest")
+                                .setHeader("dnt", "1")
+                                .setHeader("sec-gpc", "1")
+                                .setHeader("Sec-Fetch-Mode", "cors")
+                                .build();
+                        try {
+                            return httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+                        } catch (Exception ex) {
+                            out.println("Error: " + ex.getMessage());
+                            return null;
+                        }
+                    });
+
+                    JsonObject jsonResponse = JsonParser.parseString(response.body()).getAsJsonObject();
+                    String data = jsonResponse.get("data").getAsString();
+                    Document html = Jsoup.parseBodyFragment("<table><tbody>" + data + "</tbody></table>");
+                    List<Element> toAdd = html.select("tr").stream()
+                            .filter(it -> !it.hasAttr("tablesorterdivider"))
+                            .collect(toList());
+                    dividends.addAll(toAdd);
+
+                    if (jsonResponse.get("bind_scroll_handler").getAsBoolean()) {
+                        lastTimeScope = jsonResponse.get("last_time_scope").getAsLong();
+                        try {
+                            MILLISECONDS.sleep(current().nextInt(150, 250));
+                        } catch (InterruptedException ex) {
+                            out.println("Error: " + ex.getMessage());
+                        }
+                    } else break;
+                }
+                if (currentCalendar.getTimeInMillis() < endCalendar.getTimeInMillis()) {
+                    try {
+                        MILLISECONDS.sleep(current().nextInt(200, 350));
+                    } catch (InterruptedException ex) {
+                        out.println("Error: " + ex.getMessage());
+                    }
+                }
+            } catch (Exception ex) {
+                out.println("Error: Failed loading dividends for " + currentDate + ": " + ex.getMessage());
             }
+            currentCalendar.add(Calendar.DATE, 1);
         }
 
+        out.println("Loading prices from Yahoo...");
         Map<String, List<DiviTicker>> result = new LinkedHashMap<>();
         for (Element item : dividends) {
             try {
