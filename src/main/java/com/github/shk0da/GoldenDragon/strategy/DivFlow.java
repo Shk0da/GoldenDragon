@@ -161,7 +161,7 @@ public class DivFlow {
         printCalendarOfDividends(dividends);
 
         GregorianCalendar sellCalendar = new GregorianCalendar();
-        sellCalendar.add(Calendar.DATE, -3);
+        sellCalendar.add(Calendar.DATE, -5);
 
         GregorianCalendar buyCalendar = new GregorianCalendar();
         buyCalendar.setTime(new Date(currentCalendar.getTime().getTime() + DAYS.toMillis(10)));
@@ -174,7 +174,7 @@ public class DivFlow {
 
         // sell
         List<DiviTicker> tickersToSell = new ArrayList<>(10);
-        for (int i = 0; i < 3; i++) {
+        for (int i = 0; i < 5; i++) {
             String sellDate = dateFormat.format(sellCalendar.getTime());
             List<DiviTicker> tickers = dividends.get(sellDate);
             if (null != tickers) {
