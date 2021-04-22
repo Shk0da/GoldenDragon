@@ -115,7 +115,10 @@ public class DivFlow {
 
                                 if ((isToDay || isPast) && isHolding) return true;
 
-                                return isFeature && (isHolding || (value.getPercent() >= 1.0 && value.getPercent() <= 10.0));
+                                double maxPercent = 10.0;
+                                double minPercent = MOEX == marketConfig.getMarket() ? 1.0 : 0.6;
+                                boolean hasAllowPercent = value.getPercent() >= minPercent && value.getPercent() <= maxPercent;
+                                return isFeature && (isHolding || hasAllowPercent);
                             })
                             .filter(distinctByKey(DiviTicker::getTickerCode))
                             .distinct()
@@ -174,7 +177,7 @@ public class DivFlow {
 
         // sell
         List<DiviTicker> tickersToSell = new ArrayList<>(10);
-        for (int i = 0; i < 5; i++) {
+        for (int i = 0; i <= 6; i++) {
             String sellDate = dateFormat.format(sellCalendar.getTime());
             List<DiviTicker> tickers = dividends.get(sellDate);
             if (null != tickers) {
