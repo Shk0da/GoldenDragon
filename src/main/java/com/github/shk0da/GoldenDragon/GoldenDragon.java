@@ -44,7 +44,7 @@ public class GoldenDragon {
     public static void main(String[] args) {
         setDefault(TimeZone.getTimeZone("Europe/Moscow"));
         setOut(new PrintStream(new FileOutputStream(FileDescriptor.out), true, UTF_8));
-        out.printf("%s: Start GoldenDragon%n", new Date().toString());
+        out.printf("%s: Start GoldenDragon%n", new Date());
 
         try {
             MainConfig mainConfig = new MainConfig();
@@ -97,7 +97,7 @@ public class GoldenDragon {
             out.printf("Error: %s%n", ex.getMessage());
             ex.printStackTrace();
         }
-        out.printf("%s: Finish GoldenDragon%n", new Date().toString());
+        out.printf("%s: Finish GoldenDragon%n", new Date());
     }
 
     private static void updateTickerRepository(TCSService tcsService) throws Exception {
