@@ -142,62 +142,70 @@ public class YahooService {
             out.println("Error: " + ex.getMessage());
         }
 
-        String type = String.join(",", options);
-        HttpResponse<String> response = requestWithRetry(() -> {
-            long periodStart = new Date(currentTimeMillis() - DAYS.toMillis(90)).getTime() / 1000;
-            long periodEnd = new Date(currentTimeMillis() + DAYS.toMillis(365)).getTime() / 1000;
-            String uri = String.format(
-                    "%s/%s?region=%s&symbol=%s&type=%s&lang=en-US&padTimeSeries=true&merge=false&period1=%s&period2=%s&corsDomain=finance.yahoo.com",
-                    BALANCE_SHEET_URI, ticker.getName(), "US", ticker.getName(), type, periodStart, periodEnd
-            );
-            HttpRequest request = HttpRequest.newBuilder()
-                    .GET()
-                    .uri(URI.create(uri))
-                    .setHeader(HEADER_USER_AGENT, USER_AGENT)
-                    .timeout(Duration.of(10, ChronoUnit.SECONDS))
-                    .build();
-            try {
-                return httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-            } catch (Exception ex) {
-                out.println("Error: " + ex.getMessage());
-                return null;
-            }
-        });
-        out.printf("Downloaded new fundamentals for '%s' [%s]\n", ticker.getName(), ticker.getDescription());
-
         Map<String, Fundamental> result = new HashMap<>();
-        JsonObject payload = JsonParser.parseString(response.body()).getAsJsonObject();
-        JsonArray timeSeries = payload.get("timeseries").getAsJsonObject().get("result").getAsJsonArray();
-        for (JsonElement element : timeSeries) {
-            for (String option : options) {
-                if (!element.getAsJsonObject().has(option)) continue;
-
-                JsonArray values = element.getAsJsonObject().get(option).getAsJsonArray();
-                List<JsonElement> elements = new ArrayList<>();
-                values.iterator().forEachRemaining(elements::add);
-                if (elements.isEmpty()) continue;
-
-                var item = elements.get(elements.size() - 1).getAsJsonObject();
-                Date date;
-                try {
-                    date = null != item.get("asOfDate") ? dateFormat.parse(item.get("asOfDate").getAsString()) : new Date();
-                } catch (Exception skip) {
-                    date = new Date();
-                }
-                JsonObject value = item.get("reportedValue").getAsJsonObject();
-                Fundamental fundamental = new Fundamental(
-                        ticker.getName(),
-                        option,
-                        date,
-                        item.get("periodType").getAsString(),
-                        item.get("currencyCode").getAsString(),
-                        value.get("raw").getAsDouble(),
-                        value.get("fmt").getAsString()
+        try {
+            String type = String.join(",", options);
+            HttpResponse<String> response = requestWithRetry(() -> {
+                long periodStart = new Date(currentTimeMillis() - DAYS.toMillis(90)).getTime() / 1000;
+                long periodEnd = new Date(currentTimeMillis() + DAYS.toMillis(365)).getTime() / 1000;
+                String uri = String.format(
+                        "%s/%s?region=%s&symbol=%s&type=%s&lang=en-US&padTimeSeries=true&merge=false&period1=%s&period2=%s&corsDomain=finance.yahoo.com",
+                        BALANCE_SHEET_URI, ticker.getName(), "US", ticker.getName(), type, periodStart, periodEnd
                 );
-                if (!result.containsKey(option) || result.get(option).getDateTime().before(date)) {
-                    result.put(option, fundamental);
+                HttpRequest request = HttpRequest.newBuilder()
+                        .GET()
+                        .uri(URI.create(uri))
+                        .setHeader(HEADER_USER_AGENT, USER_AGENT)
+                        .timeout(Duration.of(10, ChronoUnit.SECONDS))
+                        .build();
+                try {
+                    return httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+                } catch (Exception ex) {
+                    out.println("Error: " + ex.getMessage());
+                    return null;
+                }
+            });
+            out.printf("Downloaded new fundamentals for '%s' [%s]\n", ticker.getName(), ticker.getDescription());
+
+            JsonObject payload = JsonParser.parseString(response.body()).getAsJsonObject();
+            JsonArray timeSeries = payload.get("timeseries").getAsJsonObject().get("result").getAsJsonArray();
+            for (JsonElement element : timeSeries) {
+                for (String option : options) {
+                    if (!element.getAsJsonObject().has(option)) continue;
+
+                    JsonArray values = element.getAsJsonObject().get(option).getAsJsonArray();
+                    List<JsonElement> elements = new ArrayList<>();
+                    values.iterator().forEachRemaining(it -> {
+                        if (null != it) {
+                            elements.add(it);
+                        }
+                    });
+                    if (elements.isEmpty()) continue;
+
+                    var item = elements.get(elements.size() - 1).getAsJsonObject();
+                    Date date;
+                    try {
+                        date = null != item.get("asOfDate") ? dateFormat.parse(item.get("asOfDate").getAsString()) : new Date();
+                    } catch (Exception skip) {
+                        date = new Date();
+                    }
+                    JsonObject value = item.get("reportedValue").getAsJsonObject();
+                    Fundamental fundamental = new Fundamental(
+                            ticker.getName(),
+                            option,
+                            date,
+                            item.get("periodType").getAsString(),
+                            item.get("currencyCode").getAsString(),
+                            value.get("raw").getAsDouble(),
+                            value.get("fmt").getAsString()
+                    );
+                    if (!result.containsKey(option) || result.get(option).getDateTime().before(date)) {
+                        result.put(option, fundamental);
+                    }
                 }
             }
+        } catch (Exception ex) {
+            out.println("Error get TickerFundamental: " + ex.getMessage());
         }
         return result;
     }
