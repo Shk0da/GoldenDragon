@@ -5,6 +5,7 @@ import com.github.shk0da.GoldenDragon.model.TickerCandle;
 import com.github.shk0da.GoldenDragon.model.TickerScan;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
+import com.google.gson.JsonNull;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 
@@ -176,20 +177,27 @@ public class YahooService {
                     JsonArray values = element.getAsJsonObject().get(option).getAsJsonArray();
                     List<JsonElement> elements = new ArrayList<>();
                     values.iterator().forEachRemaining(it -> {
-                        if (null != it) {
+                        if (null != it && !(it instanceof JsonNull)) {
                             elements.add(it);
                         }
                     });
                     if (elements.isEmpty()) continue;
 
-                    var item = elements.get(elements.size() - 1).getAsJsonObject();
+                    var lastElement = elements.get(elements.size() - 1);
+                    if (null == lastElement) continue;
+
+                    var item = lastElement.getAsJsonObject();
                     Date date;
                     try {
                         date = null != item.get("asOfDate") ? dateFormat.parse(item.get("asOfDate").getAsString()) : new Date();
                     } catch (Exception skip) {
                         date = new Date();
                     }
-                    JsonObject value = item.get("reportedValue").getAsJsonObject();
+
+                    var reportedValue = item.get("reportedValue");
+                    if (null == reportedValue) continue;
+
+                    JsonObject value = reportedValue.getAsJsonObject();
                     Fundamental fundamental = new Fundamental(
                             ticker.getName(),
                             option,
