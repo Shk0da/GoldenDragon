@@ -35,6 +35,7 @@ public class RSX extends Rebalancing {
 
     private final MarketConfig marketConfig;
     private final RSXConfig rsxConfig;
+    private final String serializeName;
 
     private final TCSService tcsService;
     private final YahooService yahooService = YahooService.INSTANCE;
@@ -47,12 +48,13 @@ public class RSX extends Rebalancing {
         this.marketConfig = marketConfig;
         this.rsxConfig = rsxConfig;
         this.tcsService = tcsService;
+        this.serializeName = mainConfig.getTcsAccountId() + "_" + RSXConfig.SERIALIZE_NAME;
     }
 
     public void run() throws Exception {
         boolean isTrendUp = isTrendUp();
         double availableCash = tcsService.getAvailableCash();
-        Map<TickerInfo.Key, PortfolioPosition> previousPositions = loadDataFromDisk(RSXConfig.SERIALIZE_NAME, new TypeToken<>() {});
+        Map<TickerInfo.Key, PortfolioPosition> previousPositions = loadDataFromDisk(serializeName, new TypeToken<>() {});
         List<TickerScan> tickers = tradingViewService.scanMarket(marketConfig.getMarket(), 200);
         Map<TickerInfo.Key, PortfolioPosition> targetPositions = topSymbols(tickers)
                 .stream()
@@ -71,7 +73,7 @@ public class RSX extends Rebalancing {
                 .collect(Collectors.toMap(it -> new TickerInfo.Key(it.getName(), it.getType()), it -> it));
         Map<TickerInfo.Key, PortfolioPosition> positionsToSave = doRebalance(availableCash, previousPositions, targetPositions, 1.0);
         if (!positionsToSave.isEmpty()) {
-            saveDataToDisk(RSXConfig.SERIALIZE_NAME, positionsToSave);
+            saveDataToDisk(serializeName, positionsToSave);
         }
     }
 

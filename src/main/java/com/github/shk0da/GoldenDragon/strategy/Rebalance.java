@@ -19,22 +19,23 @@ import static com.github.shk0da.GoldenDragon.utils.SerializationUtils.saveDataTo
 public class Rebalance extends Rebalancing {
 
     private final TCSService tcsService;
-
     private final RebalanceConfig rebalanceConfig;
+    private final String serializeName;
 
     public Rebalance(MainConfig mainConfig, MarketConfig marketConfig, RebalanceConfig rebalanceConfig, TCSService tcsService) {
         super(mainConfig, marketConfig, tcsService);
         this.rebalanceConfig = rebalanceConfig;
         this.tcsService = tcsService;
+        this.serializeName = mainConfig.getTcsAccountId() + "_" + RebalanceConfig.SERIALIZE_NAME;
     }
 
     public void run() throws Exception {
         double totalPortfolioCost = tcsService.getAvailableCash();
-        Map<TickerInfo.Key, PortfolioPosition> previousPositions = loadDataFromDisk(RebalanceConfig.SERIALIZE_NAME, new TypeToken<>() {});
+        Map<TickerInfo.Key, PortfolioPosition> previousPositions = loadDataFromDisk(serializeName, new TypeToken<>() {});
         Map<TickerInfo.Key, PortfolioPosition> targetPositions = rebalanceConfig.getPortfolioPositions();
         Map<TickerInfo.Key, PortfolioPosition> positionsToSave = doRebalance(totalPortfolioCost, previousPositions, targetPositions, rebalanceConfig.getPositionPercent());
         if (!positionsToSave.isEmpty()) {
-            saveDataToDisk(RebalanceConfig.SERIALIZE_NAME, positionsToSave);
+            saveDataToDisk(serializeName, positionsToSave);
         }
     }
 }
