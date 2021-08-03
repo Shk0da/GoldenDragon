@@ -38,6 +38,7 @@ public abstract class Rebalancing {
         Map<TickerInfo.Key, PortfolioPosition> currentPositions = new HashMap<>();
         if (null != previousPositions && !previousPositions.isEmpty()) {
             Map<PortfolioPosition, Double> portfolioPositionToCost = new HashMap<>();
+            out.println();
             Map<TickerInfo.Key, PositionInfo> positions = tcsService.getCurrentPositions(TickerType.ALL);
             Map<TickerInfo.Key, Double> prices = new HashMap<>();
             for (Map.Entry<TickerInfo.Key, PositionInfo> position : positions.entrySet()) {
@@ -124,7 +125,8 @@ public abstract class Rebalancing {
         }
 
         if (isPrintResultTable) {
-            double portfolioCost = 0.0;
+            out.println();
+            double portfolioCost = tcsService.getAvailableCash();
             Map<TickerInfo.Key, Double> prices = new HashMap<>();
             Map<TickerInfo.Key, PositionInfo> positions = tcsService.getCurrentPositions(TickerType.ALL);
 
