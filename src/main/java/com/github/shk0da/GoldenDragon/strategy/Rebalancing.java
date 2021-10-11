@@ -111,13 +111,15 @@ public abstract class Rebalancing {
                 .collect(Collectors.toList())) {
             double cost = Math.abs(totalPortfolioCost / 100 * correction.getPercent());
             if (correction.getPercent() < 0) {
-                if (!sell(correction.getName(), correction.getType(), cost)) {
-                    positionsToSave.put(new TickerInfo.Key(correction.getName(), correction.getType()), correction);
-                } else {
+                boolean isSuccessfulSell = sell(correction.getName(), correction.getType(), cost);
+                if (isSuccessfulSell) {
                     isPrintResultTable = true;
+                } else {
+                    positionsToSave.put(new TickerInfo.Key(correction.getName(), correction.getType()), correction);
                 }
             } else {
-                if (buy(correction.getName(), correction.getType(), cost)) {
+                boolean isSuccessfulBuy = buy(correction.getName(), correction.getType(), cost);
+                if (isSuccessfulBuy) {
                     positionsToSave.put(new TickerInfo.Key(correction.getName(), correction.getType()), correction);
                     isPrintResultTable = true;
                 }
