@@ -166,15 +166,20 @@ public abstract class Rebalancing {
             cost = tcsService.convertCurrencies(currency, basicCurrency, cost);
         }
 
-        int lot = tcsService.searchTicker(key).getLot();
-        int count = (int) round(cost / tcsService.getAvailablePrice(key));
-        while (count % lot != 0 && count > 0) {
-            count = count - 1;
+        int count = 1;
+        double availablePrice = tcsService.getAvailablePrice(key);
+        if (availablePrice < cost) {
+            count = (int) round(cost / availablePrice);
+            int lot = tcsService.searchTicker(key).getLot();
+            while (count % lot != 0 && count > 0) {
+                count = count - 1;
+            }
         }
         if (count == 0) {
             out.println("Warn: sale will be skipped - " + name + " with count " + count);
             return false;
         }
+
         double tickerPrice = tcsService.getAvailablePrice(key, count, true);
         if (0.0 == tickerPrice) {
             out.println("Warn: sale will be used Market Price - " + name);
@@ -210,10 +215,13 @@ public abstract class Rebalancing {
             return false;
         }
 
-        int lot = tcsService.searchTicker(key).getLot();
-        int count = (int) (cashToBuy / tickerPrice);
-        while (count % lot != 0 && count > 0) {
-            count = count - 1;
+        int count = 0;
+        if (cashToBuy >= tickerPrice) {
+            int lot = tcsService.searchTicker(key).getLot();
+            count = (int) (cashToBuy / tickerPrice);
+            while (count % lot != 0 && count > 0) {
+                count = count - 1;
+            }
         }
         if (count == 0) {
             out.println("Warn: purchase will be skipped - " + name + " with count " + count);
