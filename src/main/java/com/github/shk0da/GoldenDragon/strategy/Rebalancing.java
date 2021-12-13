@@ -105,10 +105,12 @@ public abstract class Rebalancing {
 
         boolean isPrintResultTable = false;
         Map<TickerInfo.Key, PortfolioPosition> positionsToSave = new HashMap<>();
-        for (PortfolioPosition correction : corrections.values()
+        var sortedCorrections = corrections.values()
                 .stream()
                 .sorted(comparing(PortfolioPosition::getPercent))
-                .collect(Collectors.toList())) {
+                .collect(Collectors.toList());
+        for (PortfolioPosition correction : sortedCorrections) {
+            out.printf("Correction: %s [%.2f] \n", correction.getName(), correction.getPercent());
             double cost = Math.abs(totalPortfolioCost / 100 * correction.getPercent());
             if (correction.getPercent() > 0) {
                 boolean isSuccessfulBuy = buy(correction.getName(), correction.getType(), cost);
