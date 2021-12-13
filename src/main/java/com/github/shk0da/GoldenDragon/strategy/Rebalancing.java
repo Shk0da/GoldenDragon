@@ -10,6 +10,7 @@ import com.github.shk0da.GoldenDragon.service.TCSService;
 
 import java.util.Date;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
@@ -105,7 +106,7 @@ public abstract class Rebalancing {
 
         boolean isPrintResultTable = false;
         Map<TickerInfo.Key, PortfolioPosition> positionsToSave = new HashMap<>();
-        var sortedCorrections = corrections.values()
+        List<PortfolioPosition> sortedCorrections = corrections.values()
                 .stream()
                 .sorted(comparing(PortfolioPosition::getPercent))
                 .collect(Collectors.toList());
@@ -113,9 +114,16 @@ public abstract class Rebalancing {
             out.printf("Correction: %s [%.2f] \n", correction.getName(), correction.getPercent());
             double cost = Math.abs(totalPortfolioCost / 100 * correction.getPercent());
             if (correction.getPercent() > 0) {
+                TickerInfo.Key tickerInfoKey = new TickerInfo.Key(correction.getName(), correction.getType());
                 boolean isSuccessfulBuy = buy(correction.getName(), correction.getType(), cost);
-                if (isSuccessfulBuy) {
-                    positionsToSave.put(new TickerInfo.Key(correction.getName(), correction.getType()), correction);
+                boolean isCurrentPosition = currentPositions.containsKey(tickerInfoKey);
+                if (isSuccessfulBuy || isCurrentPosition) {
+                    if (isCurrentPosition) {
+                        double currentPercent = currentPositions.get(tickerInfoKey).getPercent();
+                        double totalPercent = isSuccessfulBuy  ? correction.getPercent() + currentPercent : currentPercent;
+                        correction = new PortfolioPosition(correction.getName(), correction.getType(), totalPercent);
+                    }
+                    positionsToSave.put(tickerInfoKey, correction);
                     isPrintResultTable = true;
                 }
             } else {
