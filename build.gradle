@@ -8,14 +8,13 @@ version '1.0'
 sourceCompatibility = 11
 
 repositories {
-    flatDir {
-        dirs 'libs'
-    }
+    mavenCentral()
 }
 
 dependencies {
-    implementation name: 'gson-2.8.6'
-    implementation name: 'jsoup-1.13.1'
+    implementation 'ru.tinkoff.piapi:java-sdk-core:1.5'
+    implementation 'com.google.code.gson:gson:2.8.9'
+    implementation 'org.jsoup:jsoup:1.15.3'
 }
 
 task uberJar(type: Jar) {

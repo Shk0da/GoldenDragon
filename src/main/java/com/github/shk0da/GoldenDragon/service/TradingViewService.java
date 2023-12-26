@@ -40,17 +40,34 @@ public class TradingViewService {
     private static final String MOEX_SCAN_URI = "https://scanner.tradingview.com/russia/scan";
 
     public List<TickerScan> scanMarket(Market market, int size) {
+        List<Filter> filters = new ArrayList<>();
+        if (Market.MOEX == market) {
+            filters.addAll(List.of(
+                    new Filter("debt_to_equity", "nempty"),
+                    new Filter("Recommend.All|1M", "nempty"),
+                    new Filter("total_debt", "nequal", 0.0),
+                    new Filter("type", "in_range", List.of("stock")),
+                    new Filter("subtype", "in_range", List.of("common")),
+                    new Filter("exchange", "in_range", List.of("MOEX")),
+                    new Filter("market_cap_basic", "egreater", 50_000_000),
+                    new Filter("Recommend.All|1M", "egreater", 0.4),
+                    new Filter("debt_to_equity", "in_range", List.of(-50, 3)),
+                    new Filter("total_revenue", "egreater", 0)
+            ));
+        } else {
+            filters.addAll(List.of(
+                    new Filter("debt_to_equity", "nempty"),
+                    new Filter("type", "in_range", List.of("stock")),
+                    new Filter("subtype", "in_range", List.of("common")),
+                    new Filter("market_cap_basic", "egreater", 50_000_000),
+                    new Filter("Recommend.All|1M", "egreater", 0.5),
+                    new Filter("debt_to_equity", "in_range", List.of(-50, 3)),
+                    new Filter("total_revenue", "egreater", 0),
+                    new Filter("number_of_employees", "egreater", 1000)
+            ));
+        }
         ScanRequest scanRequest = new ScanRequest(
-                List.of(
-                        new Filter("debt_to_equity", "nempty"),
-                        new Filter("type", "in_range", List.of("stock")),
-                        new Filter("subtype", "in_range", List.of("common")),
-                        new Filter("market_cap_basic", "egreater", 50_000_000),
-                        new Filter("Recommend.All|1M", "egreater", 0.5),
-                        new Filter("debt_to_equity", "in_range", List.of(-50, 3)),
-                        new Filter("total_revenue", "egreater", 0),
-                        new Filter("number_of_employees", "egreater", 1000)
-                ),
+                filters,
                 new Options("en"),
                 List.of(
                         "name",

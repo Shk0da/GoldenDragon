@@ -1,11 +1,6 @@
 package com.github.shk0da.GoldenDragon.model;
 
-import com.google.gson.JsonObject;
-
-import java.util.LinkedHashMap;
 import java.util.Objects;
-import java.util.function.BiConsumer;
-import java.util.function.Supplier;
 
 public class TickerInfo {
 
@@ -72,34 +67,6 @@ public class TickerInfo {
         this.currency = currency;
         this.name = name;
         this.type = TickerType.byName(type);
-    }
-
-    public static TickerInfo of(JsonObject jsonObject) {
-        var values = new LinkedHashMap<>() {{
-            BiConsumer<String, Supplier<?>> putField = (name, value) -> {
-                if (jsonObject.has(name)) {
-                    put(name, value.get());
-                }
-            };
-            putField.accept("ticker", () -> jsonObject.get("ticker").getAsString());
-            putField.accept("type", () -> jsonObject.get("type").getAsString());
-            putField.accept("name", () -> jsonObject.get("name").getAsString());
-            putField.accept("figi", () -> jsonObject.get("figi").getAsString());
-            putField.accept("isin", () -> jsonObject.get("isin").getAsString());
-            putField.accept("minPriceIncrement", () -> jsonObject.get("minPriceIncrement").getAsDouble());
-            putField.accept("lot", () -> jsonObject.get("lot").getAsInt());
-            putField.accept("currency", () -> jsonObject.get("currency").getAsString());
-        }};
-        return new TickerInfo(
-                (String) values.get("figi"),
-                (String) values.get("ticker"),
-                (String) values.get("isin"),
-                (Double) values.get("minPriceIncrement"),
-                (Integer) values.get("lot"),
-                (String) values.get("currency"),
-                (String) values.get("name"),
-                (String) values.get("type")
-        );
     }
 
     public String getFigi() {

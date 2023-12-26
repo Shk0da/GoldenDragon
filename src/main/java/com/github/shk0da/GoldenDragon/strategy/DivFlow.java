@@ -624,7 +624,7 @@ public class DivFlow {
                 RSXConfig rsxConfig = new RSXConfig();
                 RSX rsx = new RSX(mainConfig, marketConfig, rsxConfig, tcsService);
                 if (rsx.isTrendUp()) {
-                    return rsx.topSymbols(scan);
+                    return rsx.topSymbols(scan, marketConfig.getMarket());
                 }
                 return List.of();
             } catch (Exception ex) {

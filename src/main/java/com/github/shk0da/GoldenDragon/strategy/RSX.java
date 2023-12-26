@@ -3,6 +3,7 @@ package com.github.shk0da.GoldenDragon.strategy;
 import com.github.shk0da.GoldenDragon.config.MainConfig;
 import com.github.shk0da.GoldenDragon.config.MarketConfig;
 import com.github.shk0da.GoldenDragon.config.RSXConfig;
+import com.github.shk0da.GoldenDragon.model.Market;
 import com.github.shk0da.GoldenDragon.model.PortfolioPosition;
 import com.github.shk0da.GoldenDragon.model.TickerCandle;
 import com.github.shk0da.GoldenDragon.model.TickerInfo;
@@ -10,6 +11,7 @@ import com.github.shk0da.GoldenDragon.model.TickerScan;
 import com.github.shk0da.GoldenDragon.model.TickerType;
 import com.github.shk0da.GoldenDragon.repository.Repository;
 import com.github.shk0da.GoldenDragon.repository.TickerRepository;
+import com.github.shk0da.GoldenDragon.service.MOEXService;
 import com.github.shk0da.GoldenDragon.service.TCSService;
 import com.github.shk0da.GoldenDragon.service.TradingViewService;
 import com.github.shk0da.GoldenDragon.service.YahooService;
@@ -23,6 +25,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.stream.Collectors;
 
+import static com.github.shk0da.GoldenDragon.model.Market.MOEX;
 import static com.github.shk0da.GoldenDragon.utils.SerializationUtils.loadDataFromDisk;
 import static com.github.shk0da.GoldenDragon.utils.SerializationUtils.saveDataToDisk;
 import static java.lang.System.out;
@@ -38,6 +41,7 @@ public class RSX extends Rebalancing {
     private final String serializeName;
 
     private final TCSService tcsService;
+    private final MOEXService moexService = MOEXService.INSTANCE;
     private final YahooService yahooService = YahooService.INSTANCE;
     private final TradingViewService tradingViewService = TradingViewService.INSTANCE;
 
@@ -56,7 +60,8 @@ public class RSX extends Rebalancing {
         double availableCash = tcsService.getAvailableCash();
         Map<TickerInfo.Key, PortfolioPosition> previousPositions = loadDataFromDisk(serializeName, new TypeToken<>() {});
         List<TickerScan> tickers = tradingViewService.scanMarket(marketConfig.getMarket(), 200);
-        Map<TickerInfo.Key, PortfolioPosition> targetPositions = topSymbols(tickers)
+        List<String> topSymbols = topSymbols(tickers, marketConfig.getMarket());
+        Map<TickerInfo.Key, PortfolioPosition> targetPositions = topSymbols
                 .stream()
                 .map(it -> {
                     var pos = new PortfolioPosition(it, TickerType.STOCK, 100.0 / rsxConfig.getStockPortfolioMaxSize());
@@ -71,6 +76,10 @@ public class RSX extends Rebalancing {
                 })
                 .filter(Objects::nonNull)
                 .collect(Collectors.toMap(it -> new TickerInfo.Key(it.getName(), it.getType()), it -> it));
+        if (targetPositions.isEmpty()) {
+            out.println("There are no suitable conditions for trading...");
+        }
+
         Map<TickerInfo.Key, PortfolioPosition> positionsToSave = doRebalance(availableCash, previousPositions, targetPositions, 1.0);
         if (!positionsToSave.isEmpty()) {
             saveDataToDisk(serializeName, positionsToSave);
@@ -78,7 +87,12 @@ public class RSX extends Rebalancing {
     }
 
     public boolean isTrendUp() {
-        List<TickerCandle> trendCandles50 = yahooService.getLastCandles(rsxConfig.getTrendStock(), 50);
+        List<TickerCandle> trendCandles50;
+        if (MOEX == marketConfig.getMarket()) {
+            trendCandles50 = moexService.getLastCandles(rsxConfig.getTrendStock(), 50);
+        } else {
+            trendCandles50 = yahooService.getLastCandles(rsxConfig.getTrendStock(), 50);
+        }
         List<TickerCandle> trendCandles5 = trendCandles50.stream().skip(45).collect(toList());
         double longSMA = trendCandles50.stream().mapToDouble(TickerCandle::getClose).sum() / trendCandles50.size();
         double shortSMA = trendCandles5.stream().mapToDouble(TickerCandle::getClose).sum() / trendCandles5.size();
@@ -87,38 +101,64 @@ public class RSX extends Rebalancing {
         return isTrendUp;
     }
 
-    public List<String> topSymbols(List<TickerScan> tickers) {
-        List<Map<String, Object>> dataForFiler = new ArrayList<>(tickers.size());
-        for (TickerScan ticker : tickers) {
-            if (ticker.getDebtToEquity() == 0.0) continue;
-            if (!tickerRepository.containsKey(new TickerInfo.Key(ticker.getName(), TickerType.STOCK))) continue;
+    public List<String> topSymbols(List<TickerScan> tickers, Market market) {
+        List<Map<String, Object>> stocks;
+        if (MOEX == market) {
+            List<Map<String, Object>> dataForFiler = new ArrayList<>(tickers.size());
+            for (TickerScan ticker : tickers) {
+                if (ticker.getDebtToEquity() == 0.0) continue;
+                if (!tickerRepository.containsKey(new TickerInfo.Key(ticker.getName(), TickerType.STOCK))) continue;
+                Map<String, Object> data = new HashMap<>();
+                data.put("symbol", ticker.getName());
+                data.put("recommend1M", ticker.getRecommend1M());
+                data.put("debtToEquity", ticker.getDebtToEquity());
+                dataForFiler.add(data);
+            }
 
-            Map<String, Object> data = new HashMap<>();
-            data.put("symbol", ticker.getName());
-            data.put("recommend1M", ticker.getRecommend1M());
-            data.put("debtToEquity", ticker.getDebtToEquity());
+            stocks = dataForFiler.stream()
+                    .sorted((it1, it2) -> ((Double) it2.get("recommend1M")).compareTo((Double) it1.get("recommend1M")))
+                    .limit(100)
+                    .sorted(Comparator.comparingDouble(it -> ((Double) it.get("debtToEquity"))))
+                    .limit(50)
+                    .collect(toList());
+        } else {
+            List<Map<String, Object>> dataForFiler = new ArrayList<>(tickers.size());
+            for (TickerScan ticker : tickers) {
+                if (ticker.getDebtToEquity() == 0.0) continue;
+                if (!tickerRepository.containsKey(new TickerInfo.Key(ticker.getName(), TickerType.STOCK))) continue;
 
-            var debtEquityRatio = yahooService.getLongTermDebtEquityAndTotalDebtEquityRatio(ticker);
-            data.put("longTermDebtEquityRatio", debtEquityRatio[0]);
-            data.put("totalDebtEquityRatio", debtEquityRatio[1]);
-            dataForFiler.add(data);
+                Map<String, Object> data = new HashMap<>();
+                data.put("symbol", ticker.getName());
+                data.put("recommend1M", ticker.getRecommend1M());
+                data.put("debtToEquity", ticker.getDebtToEquity());
+
+                var debtEquityRatio = yahooService.getLongTermDebtEquityAndTotalDebtEquityRatio(ticker);
+                data.put("longTermDebtEquityRatio", debtEquityRatio[0]);
+                data.put("totalDebtEquityRatio", debtEquityRatio[1]);
+                dataForFiler.add(data);
+            }
+
+            stocks = dataForFiler.stream()
+                    .filter(it -> (double) it.get("longTermDebtEquityRatio") != 0.0)
+                    .filter(it -> (double) it.get("totalDebtEquityRatio") != 0.0)
+                    .sorted((it1, it2) -> ((Double) it2.get("recommend1M")).compareTo((Double) it1.get("recommend1M")))
+                    .limit(100)
+                    .sorted(Comparator.comparingDouble(it -> ((Double) it.get("debtToEquity"))))
+                    .limit(50)
+                    .sorted(Comparator.comparingDouble(it -> ((Double) it.get("longTermDebtEquityRatio"))))
+                    .skip(dataForFiler.size() >= 25 ? 5 : 0)
+                    .sorted(Comparator.comparingDouble(it -> ((Double) it.get("totalDebtEquityRatio"))))
+                    .limit(20)
+                    .collect(toList());
         }
 
-        List<Map<String, Object>> stocks = dataForFiler.stream()
-                .filter(it -> (double) it.get("longTermDebtEquityRatio") != 0.0)
-                .filter(it -> (double) it.get("totalDebtEquityRatio") != 0.0)
-                .sorted((it1, it2) -> ((Double) it2.get("recommend1M")).compareTo((Double) it1.get("recommend1M")))
-                .limit(100)
-                .sorted(Comparator.comparingDouble(it -> ((Double) it.get("debtToEquity"))))
-                .limit(50)
-                .sorted(Comparator.comparingDouble(it -> ((Double) it.get("longTermDebtEquityRatio"))))
-                .skip(dataForFiler.size() >= 25 ? 5 : 0)
-                .sorted(Comparator.comparingDouble(it -> ((Double) it.get("totalDebtEquityRatio"))))
-                .limit(20)
-                .collect(toList());
-
         stocks.forEach(stock -> {
-            var candles = yahooService.getLastCandles((String) stock.get("symbol"), 128);
+            List<TickerCandle> candles;
+            if (MOEX == market) {
+                candles = moexService.getLastCandles((String) stock.get("symbol"), 128);
+            } else {
+                candles = yahooService.getLastCandles((String) stock.get("symbol"), 128);
+            }
             if (!candles.isEmpty() && candles.size() >= 2) {
                 var topCandles = candles.stream().skip(candles.size() - 2).collect(toList());
                 var overall = ((candles.get(candles.size() - 1).getClose() - candles.get(0).getClose()) / candles.get(0).getClose()) * 100;

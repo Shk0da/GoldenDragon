@@ -12,7 +12,6 @@ import java.util.Properties;
 
 public class MainConfig {
 
-    public static final String HEADER_AUTHORIZATION = "Authorization";
     public static final String HEADER_USER_AGENT = "User-Agent";
     public static final String USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/87.0.4280.88 Safari/537.36";
 
@@ -33,23 +32,18 @@ public class MainConfig {
             .connectTimeout(Duration.ofSeconds(10))
             .build();
 
-    private static final String TCS_API = "https://api-invest.tinkoff.ru/openapi/";
-    private static final String TCS_SANDBOX_API = "https://api-invest.tinkoff.ru/openapi/sandbox/";
-
     private final boolean isTestMode;
     private final boolean isSandbox;
 
     private String tcsAccountId;
-    private final String tcsAuthorization;
-    private final String tcsApi;
+    private final String tcsApiKey;
 
     public MainConfig() throws Exception {
         final Properties properties = PropertiesUtils.loadProperties();
         this.isTestMode = Boolean.parseBoolean(properties.getProperty("tcs.testMode", "false"));
         this.isSandbox = Boolean.parseBoolean(properties.getProperty("tcs.isSandbox", "false"));
         this.tcsAccountId = properties.getProperty("tcs.accountId");
-        this.tcsAuthorization = "Bearer " + properties.getProperty("tcs.apiKey");
-        this.tcsApi = isSandbox() ? TCS_SANDBOX_API : TCS_API;
+        this.tcsApiKey = properties.getProperty("tcs.apiKey");
     }
 
     public boolean isTestMode() {
@@ -69,11 +63,7 @@ public class MainConfig {
         return this;
     }
 
-    public String getTcsAuthorization() {
-        return tcsAuthorization;
-    }
-
-    public String getTcsApi() {
-        return tcsApi;
+    public String getTcsApiKey() {
+        return tcsApiKey;
     }
 }
