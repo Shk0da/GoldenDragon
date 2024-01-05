@@ -12,11 +12,15 @@ import com.google.gson.JsonParser;
 import java.net.URI;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.time.LocalDateTime;
+import java.time.LocalTime;
 import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.Map;
 import java.util.TreeMap;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static com.github.shk0da.GoldenDragon.config.MainConfig.HEADER_USER_AGENT;
 import static com.github.shk0da.GoldenDragon.config.MainConfig.USER_AGENT;
@@ -30,7 +34,7 @@ public class PulseFollower {
     public static final String SESSION_STATUS_API = "https://www.tinkoff.ru/api/common/v1/session_status?appName=invest&appVersion=1.383.0&origin=web%2Cib5%2Cplatform&sessionid=${sessionId}&wuid=912317975229ba1b4694cef6d31d0f6d";
 
     public static final String PULSE_INSTRUMENT_API = "https://api-invest-gw.tinkoff.ru/social/v1/profile/${profileId}/instrument?limit=30&sessionId=${sessionId}&appName=socialweb&appVersion=1.383.0&origin=web&platform=web";
-    public static final String PULSE_OPERATION_API = "https://api-invest-gw.tinkoff.ru/social/v1/profile/${profileId}/operation/instrument/${tickerName}/${tickerClass}?limit=1&sessionId=${sessionId}&appName=socialweb&appVersion=1.383.0&origin=web&platform=web";
+    public static final String PULSE_OPERATION_API = "https://api-invest-gw.tinkoff.ru/social/v1/profile/${profileId}/operation/instrument/${tickerName}/${tickerClass}?limit=30&sessionId=${sessionId}&appName=socialweb&appVersion=1.383.0&origin=web&platform=web";
 
     private final PulseConfig pulseConfig;
     private final TCSService tcsService;
@@ -47,13 +51,24 @@ public class PulseFollower {
         executePing(sessionId);
         executeSessionStatus(sessionId);
 
+        Map<OffsetDateTime, OperationInfo> operationsByDateTime = new TreeMap<>();
         Map<OffsetDateTime, InstrumentInfo> instrumentsByDateTime = getInstruments(profileId, sessionId);
         instrumentsByDateTime.forEach((dateTme, item) -> {
-            Map<OffsetDateTime, OperationInfo> operations = getOperation(profileId, sessionId, item);
-            operations.forEach((operationDateTme, operation) -> {
-                out.printf("operation [%s]: %s\n", item.getTicker(), operation);
-            });
+            operationsByDateTime.putAll(getOperations(profileId, sessionId, item));
         });
+
+        AtomicReference<Double> sum = new AtomicReference<>(0.0);
+        operationsByDateTime.forEach((operationDateTme, operation) -> {
+            OffsetDateTime midNight = OffsetDateTime.now()
+                    .toLocalDate()
+                    .atTime(LocalTime.MIDNIGHT)
+                    .atOffset(ZoneOffset.UTC);
+            if (operationDateTme.isAfter(midNight)) {
+                sum.updateAndGet(v -> v + operation.getRelativeYield());
+                out.printf("operation [%s]: %s\n", operation.getTicker(), operation);
+            }
+        });
+        out.printf("RelativeYield: %f\n", sum.get());
     }
 
     private static Map<OffsetDateTime, InstrumentInfo> getInstruments(String profileId, String sessionId) {
@@ -88,7 +103,7 @@ public class PulseFollower {
         return instrumentsByDateTime;
     }
 
-    private static Map<OffsetDateTime, OperationInfo> getOperation(String profileId, String sessionId, InstrumentInfo instrumentInfo) {
+    private static Map<OffsetDateTime, OperationInfo> getOperations(String profileId, String sessionId, InstrumentInfo instrumentInfo) {
         String operationsJson = executeHttpGet(
                 PULSE_OPERATION_API
                         .replace("${profileId}", profileId)
@@ -113,7 +128,7 @@ public class PulseFollower {
         for (JsonElement instrument : operations) {
             try {
                 JsonObject item = instrument.getAsJsonObject();
-                OperationInfo operationInfo = OperationInfo.of(item);
+                OperationInfo operationInfo = OperationInfo.of(item).withTicker(instrumentInfo.getTicker());
                 operationsByDateTime.put(operationInfo.getTradeDateTime(), operationInfo);
             } catch (Exception ex) {
                 out.println("Error: Failed parse payload: " + ex.getMessage());

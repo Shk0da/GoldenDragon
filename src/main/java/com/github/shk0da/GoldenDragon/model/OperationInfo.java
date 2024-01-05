@@ -10,6 +10,8 @@ import java.util.function.Supplier;
 
 public class OperationInfo {
 
+    private String ticker;
+
     private final String action;
     private final Double relativeYield;
     private final Double averagePrice;
@@ -36,6 +38,15 @@ public class OperationInfo {
 
     public OffsetDateTime getTradeDateTime() {
         return tradeDateTime;
+    }
+
+    public String getTicker() {
+        return ticker;
+    }
+
+    public OperationInfo withTicker(String ticker) {
+        this.ticker = ticker;;
+        return this;
     }
 
     public static OperationInfo of(JsonObject jsonObject) {
