@@ -2,6 +2,7 @@ package com.github.shk0da.GoldenDragon;
 
 import com.github.shk0da.GoldenDragon.config.MainConfig;
 import com.github.shk0da.GoldenDragon.config.MarketConfig;
+import com.github.shk0da.GoldenDragon.config.PulseConfig;
 import com.github.shk0da.GoldenDragon.config.RSXConfig;
 import com.github.shk0da.GoldenDragon.config.RebalanceConfig;
 import com.github.shk0da.GoldenDragon.model.Market;
@@ -10,6 +11,7 @@ import com.github.shk0da.GoldenDragon.repository.Repository;
 import com.github.shk0da.GoldenDragon.repository.TickerRepository;
 import com.github.shk0da.GoldenDragon.service.TCSService;
 import com.github.shk0da.GoldenDragon.strategy.DivFlow;
+import com.github.shk0da.GoldenDragon.strategy.PulseFollower;
 import com.github.shk0da.GoldenDragon.strategy.RSX;
 import com.github.shk0da.GoldenDragon.strategy.Rebalance;
 import com.google.gson.reflect.TypeToken;
@@ -92,6 +94,12 @@ public class GoldenDragon {
             // CRON SPB: Every Mon-Fri at 16:31 MSK
             if ("DivFlow".equals(strategy)) {
                 new DivFlow(mainConfig, marketConfig, tcsService).run();
+            }
+
+            // 4. PulseFollower
+            if ("PulseFollower".equals(strategy)) {
+                final PulseConfig pulseConfig = new PulseConfig();
+                new PulseFollower(pulseConfig, tcsService).run();
             }
         } catch (Exception ex) {
             out.printf("Error: %s%n", ex.getMessage());
