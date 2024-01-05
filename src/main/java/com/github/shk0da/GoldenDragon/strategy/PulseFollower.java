@@ -12,15 +12,13 @@ import com.google.gson.JsonParser;
 import java.net.URI;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
-import java.time.LocalDateTime;
-import java.time.LocalTime;
 import java.time.OffsetDateTime;
-import java.time.ZoneOffset;
 import java.util.Map;
 import java.util.TreeMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicReference;
 
 import static com.github.shk0da.GoldenDragon.config.MainConfig.HEADER_USER_AGENT;
 import static com.github.shk0da.GoldenDragon.config.MainConfig.USER_AGENT;
@@ -38,37 +36,39 @@ public class PulseFollower {
 
     private final PulseConfig pulseConfig;
     private final TCSService tcsService;
+    private final ExecutorService executorService;
 
     public PulseFollower(PulseConfig pulseConfig, TCSService tcsService) {
         this.pulseConfig = pulseConfig;
         this.tcsService = tcsService;
+        this.executorService = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors());
     }
 
     public void run() {
         String profileId = pulseConfig.getFollowProfileId();
         String sessionId = pulseConfig.getFollowSessionId();
 
-        executePing(sessionId);
-        executeSessionStatus(sessionId);
+        runSessionWatcher(sessionId);
 
-        Map<OffsetDateTime, OperationInfo> operationsByDateTime = new TreeMap<>();
-        Map<OffsetDateTime, InstrumentInfo> instrumentsByDateTime = getInstruments(profileId, sessionId);
-        instrumentsByDateTime.forEach((dateTme, item) -> {
-            operationsByDateTime.putAll(getOperations(profileId, sessionId, item));
-        });
+        while (true) {
+            Map<OffsetDateTime, OperationInfo> operationsByDateTime = new TreeMap<>();
+            Map<OffsetDateTime, InstrumentInfo> instrumentsByDateTime = getInstruments(profileId, sessionId);
+            instrumentsByDateTime.forEach((dateTme, item) -> {
+                operationsByDateTime.putAll(getOperations(profileId, sessionId, item));
+            });
 
-        AtomicReference<Double> sum = new AtomicReference<>(0.0);
-        operationsByDateTime.forEach((operationDateTme, operation) -> {
-            OffsetDateTime midNight = OffsetDateTime.now()
-                    .toLocalDate()
-                    .atTime(LocalTime.MIDNIGHT)
-                    .atOffset(ZoneOffset.UTC);
-            if (operationDateTme.isAfter(midNight)) {
-                sum.updateAndGet(v -> v + operation.getRelativeYield());
-                out.printf("operation [%s]: %s\n", operation.getTicker(), operation);
+            operationsByDateTime.forEach((operationDateTme, operation) -> {
+                if (operationDateTme.isAfter(OffsetDateTime.now().minusMinutes(1))) {
+                    out.printf("operation [%s]: %s\n", operation.getTicker(), operation);
+                }
+            });
+
+            try {
+                TimeUnit.MILLISECONDS.sleep(5_000);
+            } catch (InterruptedException ex) {
+                out.println("Error: " + ex.getMessage());
             }
-        });
-        out.printf("RelativeYield: %f\n", sum.get());
+        }
     }
 
     private static Map<OffsetDateTime, InstrumentInfo> getInstruments(String profileId, String sessionId) {
@@ -135,6 +135,29 @@ public class PulseFollower {
             }
         }
         return operationsByDateTime;
+    }
+
+    private void runSessionWatcher(String sessionId) {
+        executorService.execute(() -> {
+            while (true) {
+                executeSessionStatus(sessionId);
+                try {
+                    TimeUnit.MINUTES.sleep(2);
+                } catch (InterruptedException ex) {
+                    out.println("Error: " + ex.getMessage());
+                }
+            }
+        });
+        executorService.execute(() -> {
+            while (true) {
+                executePing(sessionId);
+                try {
+                    TimeUnit.SECONDS.sleep(30);
+                } catch (InterruptedException ex) {
+                    out.println("Error: " + ex.getMessage());
+                }
+            }
+        });
     }
 
     private static void executePing(String sessionId) {
