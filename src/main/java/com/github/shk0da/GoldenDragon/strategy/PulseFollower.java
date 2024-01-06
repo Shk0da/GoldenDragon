@@ -21,7 +21,9 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 
+import static com.github.shk0da.GoldenDragon.config.MainConfig.HEADER_COOKIES;
 import static com.github.shk0da.GoldenDragon.config.MainConfig.HEADER_USER_AGENT;
 import static com.github.shk0da.GoldenDragon.config.MainConfig.USER_AGENT;
 import static com.github.shk0da.GoldenDragon.config.MainConfig.httpClient;
@@ -30,6 +32,7 @@ import static java.lang.System.out;
 
 public class PulseFollower {
 
+    public static final String RE_AUTHORIZE_API = "https://www.tinkoff.ru/api/common/v1/session/authorize?prompt=none&origin=web,ib5,platform,mdep";
     public static final String PING_API = "https://www.tinkoff.ru/api/common/v1/ping?appName=invest&appVersion=2.0.0&sessionid=${sessionId}";
     public static final String SESSION_STATUS_API = "https://www.tinkoff.ru/api/common/v1/session_status?appName=invest&appVersion=2.0.0&sessionid=${sessionId}";
 
@@ -40,22 +43,27 @@ public class PulseFollower {
     private final TCSService tcsService;
     private final ExecutorService sessionWatcher;
 
+    private final AtomicReference<String> cookies = new AtomicReference<>();
+    private final AtomicReference<String> sessionId = new AtomicReference<>();
+
     public PulseFollower(PulseConfig pulseConfig, TCSService tcsService) {
         this.pulseConfig = pulseConfig;
         this.tcsService = tcsService;
         this.sessionWatcher = Executors.newSingleThreadExecutor();
+
+        this.cookies.set(pulseConfig.getCookies());
+        this.sessionId.set(pulseConfig.getFollowSessionId());
     }
 
     public void run() {
         int maxPositions = pulseConfig.getMaxPositions();
-        String sessionId = pulseConfig.getFollowSessionId();
         String[] profileIds = pulseConfig.getFollowProfileId();
 
-        runSessionWatcher(sessionId);
-        runFollow(profileIds, sessionId, maxPositions);
+        runSessionWatcher();
+        runFollow(profileIds, maxPositions);
     }
 
-    private void runFollow(String[] profileIds, String sessionId, int maxPositions) {
+    private void runFollow(String[] profileIds, int maxPositions) {
         out.printf("Start follow for profileIds=%s\n", Arrays.toString(profileIds));
 
         Map<String, OffsetDateTime> lastWatchedTrade = new HashMap<>();
@@ -67,10 +75,10 @@ public class PulseFollower {
             for (String profileId : profileIds) {
                 try {
                     Map<OffsetDateTime, OperationInfo> operationsByDateTime = new TreeMap<>();
-                    Map<OffsetDateTime, InstrumentInfo> instrumentsByDateTime = getInstruments(profileId, sessionId);
+                    Map<OffsetDateTime, InstrumentInfo> instrumentsByDateTime = getInstruments(profileId, sessionId.get());
                     instrumentsByDateTime.forEach((dateTme, item) -> {
                         if (lastWatchedTrade.get(profileId).isBefore(dateTme)) {
-                            operationsByDateTime.putAll(getOperations(profileId, sessionId, item));
+                            operationsByDateTime.putAll(getOperations(profileId, sessionId.get(), item));
                         }
                     });
 
@@ -175,15 +183,15 @@ public class PulseFollower {
         return operationsByDateTime;
     }
 
-    private void runSessionWatcher(String sessionId) {
-        out.printf("Start session watcher for sessionId=%s\n", sessionId);
+    private void runSessionWatcher() {
+        out.printf("Start session watcher for sessionId=%s\n", sessionId.get());
         sessionWatcher.execute(() -> {
             long startTime = System.currentTimeMillis();
             while (true) {
                 try {
-                    executePing(sessionId);
+                    executePing(sessionId.get());
                     if (System.currentTimeMillis() - startTime >= 1.9 * 60 * 1000) {
-                        executeSessionStatus(sessionId);
+                        executeSessionStatus(sessionId.get(), cookies.get());
                         startTime = System.currentTimeMillis();
                     }
                     TimeUnit.MINUTES.sleep(1);
@@ -194,24 +202,48 @@ public class PulseFollower {
         });
     }
 
-    private static void executePing(String sessionId) {
+    private void executePing(String sessionId) {
         String response = executeHttpGet(PING_API.replace("${sessionId}", sessionId));
         out.printf("Ping: %s\n", response);
     }
 
-    private static void executeSessionStatus(String sessionId) {
+    private void executeSessionStatus(String sessionId, String cookies) {
         String response = executeHttpGet(SESSION_STATUS_API.replace("${sessionId}", sessionId));
         out.printf("SessionStatus: %s\n", response);
+        if (null == response) return;
+
+        JsonObject payload = JsonParser.parseString(response)
+                .getAsJsonObject()
+                .get("payload")
+                .getAsJsonObject();
+        int ssoTokenExpiresIn = payload.get("ssoTokenExpiresIn").getAsInt();
+        if (ssoTokenExpiresIn <= 2000) {
+            String html = executeHttpGet(RE_AUTHORIZE_API, cookies.replace("${sessionId}", sessionId));
+            if (null != html && !html.isBlank()) {
+                int sessionIdStart = html.indexOf("\"sessionId\":\"") + 13;
+                int sessionIdEnd = html.indexOf("\",\"accessLevel\":");
+                String sessionIdFromFrame = html.substring(sessionIdStart, sessionIdEnd);
+                out.printf("New sessionId=%s\n", sessionIdFromFrame);
+                this.sessionId.set(sessionIdFromFrame);
+            }
+        }
     }
 
     private static String executeHttpGet(String url) {
+        return executeHttpGet(url, null);
+    }
+
+    private static String executeHttpGet(String url, String cookies) {
         randomSleep();
         HttpResponse<String> response = requestWithRetry(() -> {
-            HttpRequest request = HttpRequest.newBuilder()
+            HttpRequest.Builder requestBuilder = HttpRequest.newBuilder()
                     .GET()
                     .uri(URI.create(url))
-                    .setHeader(HEADER_USER_AGENT, USER_AGENT)
-                    .build();
+                    .setHeader(HEADER_USER_AGENT, USER_AGENT);
+            if (null != cookies) {
+                requestBuilder.setHeader(HEADER_COOKIES, cookies);
+            }
+            HttpRequest request = requestBuilder.build();
             try {
                 return httpClient.send(request, HttpResponse.BodyHandlers.ofString());
             } catch (Exception ex) {
