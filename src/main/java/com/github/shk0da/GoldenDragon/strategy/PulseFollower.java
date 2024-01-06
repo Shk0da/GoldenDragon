@@ -192,6 +192,10 @@ public class PulseFollower {
                 return null;
             }
         });
+        if (response.statusCode() >= 400) {
+            out.printf("Error execute %s: %d\n", url, response.statusCode());
+            return null;
+        }
         return response.body();
     }
 
