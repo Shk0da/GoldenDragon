@@ -8,11 +8,13 @@ public class PulseConfig {
 
     private final String followSessionId;
     private final String followProfileId;
+    private final int maxPositions;
 
     public PulseConfig() throws Exception {
         final Properties properties = PropertiesUtils.loadProperties();
         this.followSessionId = properties.getProperty("pulse.follow.sessionId");
         this.followProfileId = properties.getProperty("pulse.follow.profileId");
+        this.maxPositions = Integer.parseInt(properties.getProperty("pulse.follow.maxPositions"));
     }
 
     public String getFollowSessionId() {
@@ -21,5 +23,9 @@ public class PulseConfig {
 
     public String getFollowProfileId() {
         return followProfileId;
+    }
+
+    public int getMaxPositions() {
+        return maxPositions;
     }
 }

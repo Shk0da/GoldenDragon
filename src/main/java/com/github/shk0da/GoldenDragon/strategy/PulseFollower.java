@@ -48,12 +48,13 @@ public class PulseFollower {
     public void run() {
         String profileId = pulseConfig.getFollowProfileId();
         String sessionId = pulseConfig.getFollowSessionId();
+        int maxPositions = pulseConfig.getMaxPositions();
 
         runSessionWatcher(sessionId);
-        runFollow(profileId, sessionId);
+        runFollow(profileId, sessionId, maxPositions);
     }
 
-    private void runFollow(String profileId, String sessionId) {
+    private void runFollow(String profileId, String sessionId, int maxPositions) {
         out.printf("Start follow for profileId=%s\n", profileId);
 
         AtomicReference<OffsetDateTime> lastWatchedTrade = new AtomicReference<>(OffsetDateTime.now());
@@ -61,16 +62,20 @@ public class PulseFollower {
             try {
                 Map<OffsetDateTime, OperationInfo> operationsByDateTime = new TreeMap<>();
                 Map<OffsetDateTime, InstrumentInfo> instrumentsByDateTime = getInstruments(profileId, sessionId);
-                instrumentsByDateTime.forEach((dateTme, item) -> operationsByDateTime.putAll(getOperations(profileId, sessionId, item)));
+                instrumentsByDateTime.forEach((dateTme, item) -> {
+                    if (lastWatchedTrade.get().isBefore(dateTme)) {
+                        operationsByDateTime.putAll(getOperations(profileId, sessionId, item));
+                    }
+                });
 
                 operationsByDateTime.forEach((operationDateTme, operation) -> {
                     if (lastWatchedTrade.get().isBefore(operationDateTme)) {
-                        out.printf("Operation [%s]: %s\n", operation.getTicker(), operation);
+                        out.printf("Operation [%s]: %s\n", operation.getInstrument().getTicker(), operation);
                         lastWatchedTrade.set(operationDateTme);
                     }
                 });
 
-                TimeUnit.SECONDS.sleep(5);
+                TimeUnit.SECONDS.sleep(10);
             } catch (Exception ex) {
                 out.println("Error: " + ex.getMessage());
             }
@@ -134,7 +139,7 @@ public class PulseFollower {
         for (JsonElement instrument : operations) {
             try {
                 JsonObject item = instrument.getAsJsonObject();
-                OperationInfo operationInfo = OperationInfo.of(item).withTicker(instrumentInfo.getTicker());
+                OperationInfo operationInfo = OperationInfo.of(item).withInstrument(instrumentInfo);
                 operationsByDateTime.put(operationInfo.getTradeDateTime(), operationInfo);
             } catch (Exception ex) {
                 out.println("Error: Failed parse payload: " + ex.getMessage());
@@ -192,7 +197,7 @@ public class PulseFollower {
 
     private static void randomSleep() {
         try {
-            TimeUnit.MILLISECONDS.sleep(ThreadLocalRandom.current().nextInt(50, 350));
+            TimeUnit.MILLISECONDS.sleep(ThreadLocalRandom.current().nextInt(1_000, 2_000));
         } catch (InterruptedException ex) {
             out.println("Error: " + ex.getMessage());
         }

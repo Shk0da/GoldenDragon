@@ -10,7 +10,7 @@ import java.util.function.Supplier;
 
 public class OperationInfo {
 
-    private String ticker;
+    private InstrumentInfo instrumentInfo;
 
     private final String action;
     private final Double relativeYield;
@@ -40,12 +40,12 @@ public class OperationInfo {
         return tradeDateTime;
     }
 
-    public String getTicker() {
-        return ticker;
+    public InstrumentInfo getInstrument() {
+        return instrumentInfo;
     }
 
-    public OperationInfo withTicker(String ticker) {
-        this.ticker = ticker;;
+    public OperationInfo withInstrument(InstrumentInfo instrumentInfo) {
+        this.instrumentInfo = instrumentInfo;;
         return this;
     }
 
@@ -72,7 +72,8 @@ public class OperationInfo {
     @Override
     public String toString() {
         return "OperationInfo{" +
-                "action='" + action + '\'' +
+                "ticker='" + (null != instrumentInfo ? instrumentInfo.getTicker() : "-") + '\'' +
+                ", action='" + action + '\'' +
                 ", relativeYield=" + relativeYield +
                 ", averagePrice=" + averagePrice +
                 ", tradeDateTime=" + tradeDateTime +

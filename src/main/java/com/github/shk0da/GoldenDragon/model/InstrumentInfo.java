@@ -29,6 +29,13 @@ public class InstrumentInfo {
         return type;
     }
 
+    public TickerType getTickerType() {
+        if (type.equals("share")) {
+            return TickerType.STOCK;
+        }
+        return TickerType.byName(type);
+    }
+
     public String getTicker() {
         return ticker;
     }
