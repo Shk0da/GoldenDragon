@@ -19,6 +19,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static com.github.shk0da.GoldenDragon.config.MainConfig.HEADER_USER_AGENT;
 import static com.github.shk0da.GoldenDragon.config.MainConfig.USER_AGENT;
@@ -28,20 +29,20 @@ import static java.lang.System.out;
 
 public class PulseFollower {
 
-    public static final String PING_API = "https://www.tinkoff.ru/api/common/v1/ping?appName=invest&appVersion=1.383.0&origin=web%2Cib5%2Cplatform&sessionid=${sessionId}&wuid=912317975229ba1b4694cef6d31d0f6d";
-    public static final String SESSION_STATUS_API = "https://www.tinkoff.ru/api/common/v1/session_status?appName=invest&appVersion=1.383.0&origin=web%2Cib5%2Cplatform&sessionid=${sessionId}&wuid=912317975229ba1b4694cef6d31d0f6d";
+    public static final String PING_API = "https://www.tinkoff.ru/api/common/v1/ping?appName=invest&appVersion=2.0.0&sessionid=${sessionId}";
+    public static final String SESSION_STATUS_API = "https://www.tinkoff.ru/api/common/v1/session_status?appName=invest&appVersion=2.0.0&sessionid=${sessionId}";
 
     public static final String PULSE_INSTRUMENT_API = "https://api-invest-gw.tinkoff.ru/social/v1/profile/${profileId}/instrument?limit=30&sessionId=${sessionId}&appName=socialweb&appVersion=1.383.0&origin=web&platform=web";
     public static final String PULSE_OPERATION_API = "https://api-invest-gw.tinkoff.ru/social/v1/profile/${profileId}/operation/instrument/${tickerName}/${tickerClass}?limit=30&sessionId=${sessionId}&appName=socialweb&appVersion=1.383.0&origin=web&platform=web";
 
     private final PulseConfig pulseConfig;
     private final TCSService tcsService;
-    private final ExecutorService executorService;
+    private final ExecutorService sessionWatcher;
 
     public PulseFollower(PulseConfig pulseConfig, TCSService tcsService) {
         this.pulseConfig = pulseConfig;
         this.tcsService = tcsService;
-        this.executorService = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors());
+        this.sessionWatcher = Executors.newSingleThreadExecutor();
     }
 
     public void run() {
@@ -49,23 +50,28 @@ public class PulseFollower {
         String sessionId = pulseConfig.getFollowSessionId();
 
         runSessionWatcher(sessionId);
+        runFollow(profileId, sessionId);
+    }
 
+    private void runFollow(String profileId, String sessionId) {
+        out.printf("Start follow for profileId=%s\n", profileId);
+
+        AtomicReference<OffsetDateTime> lastWatchedTrade = new AtomicReference<>(OffsetDateTime.now());
         while (true) {
-            Map<OffsetDateTime, OperationInfo> operationsByDateTime = new TreeMap<>();
-            Map<OffsetDateTime, InstrumentInfo> instrumentsByDateTime = getInstruments(profileId, sessionId);
-            instrumentsByDateTime.forEach((dateTme, item) -> {
-                operationsByDateTime.putAll(getOperations(profileId, sessionId, item));
-            });
-
-            operationsByDateTime.forEach((operationDateTme, operation) -> {
-                if (operationDateTme.isAfter(OffsetDateTime.now().minusMinutes(1))) {
-                    out.printf("operation [%s]: %s\n", operation.getTicker(), operation);
-                }
-            });
-
             try {
-                TimeUnit.MILLISECONDS.sleep(5_000);
-            } catch (InterruptedException ex) {
+                Map<OffsetDateTime, OperationInfo> operationsByDateTime = new TreeMap<>();
+                Map<OffsetDateTime, InstrumentInfo> instrumentsByDateTime = getInstruments(profileId, sessionId);
+                instrumentsByDateTime.forEach((dateTme, item) -> operationsByDateTime.putAll(getOperations(profileId, sessionId, item)));
+
+                operationsByDateTime.forEach((operationDateTme, operation) -> {
+                    if (lastWatchedTrade.get().isBefore(operationDateTme)) {
+                        out.printf("Operation [%s]: %s\n", operation.getTicker(), operation);
+                        lastWatchedTrade.set(operationDateTme);
+                    }
+                });
+
+                TimeUnit.SECONDS.sleep(5);
+            } catch (Exception ex) {
                 out.println("Error: " + ex.getMessage());
             }
         }
@@ -138,21 +144,17 @@ public class PulseFollower {
     }
 
     private void runSessionWatcher(String sessionId) {
-        executorService.execute(() -> {
+        out.printf("Start session watcher for sessionId=%s\n", sessionId);
+        sessionWatcher.execute(() -> {
+            long startTime = System.currentTimeMillis();
             while (true) {
-                executeSessionStatus(sessionId);
                 try {
-                    TimeUnit.MINUTES.sleep(2);
-                } catch (InterruptedException ex) {
-                    out.println("Error: " + ex.getMessage());
-                }
-            }
-        });
-        executorService.execute(() -> {
-            while (true) {
-                executePing(sessionId);
-                try {
-                    TimeUnit.SECONDS.sleep(30);
+                    executePing(sessionId);
+                    if (System.currentTimeMillis() - startTime >= 60 * 1000) {
+                        executeSessionStatus(sessionId);
+                        startTime = System.currentTimeMillis();
+                    }
+                    TimeUnit.MINUTES.sleep(1);
                 } catch (InterruptedException ex) {
                     out.println("Error: " + ex.getMessage());
                 }
