@@ -150,7 +150,7 @@ public class PulseFollower {
             while (true) {
                 try {
                     executePing(sessionId);
-                    if (System.currentTimeMillis() - startTime >= 60 * 1000) {
+                    if (System.currentTimeMillis() - startTime >= 1.9 * 60 * 1000) {
                         executeSessionStatus(sessionId);
                         startTime = System.currentTimeMillis();
                     }
