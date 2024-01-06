@@ -32,7 +32,7 @@ import static java.lang.System.out;
 
 public class PulseFollower {
 
-    public static final String RE_AUTHORIZE_API = "https://www.tinkoff.ru/api/common/v1/session/authorize?prompt=none&origin=web,ib5,platform,mdep";
+    public static final String AUTHORIZE_API = "https://www.tinkoff.ru/api/common/v1/session/authorize?prompt=none&origin=web,ib5,platform,mdep";
     public static final String PING_API = "https://www.tinkoff.ru/api/common/v1/ping?appName=invest&appVersion=2.0.0&sessionid=${sessionId}";
     public static final String SESSION_STATUS_API = "https://www.tinkoff.ru/api/common/v1/session_status?appName=invest&appVersion=2.0.0&sessionid=${sessionId}";
 
@@ -218,7 +218,7 @@ public class PulseFollower {
                 .getAsJsonObject();
         int ssoTokenExpiresIn = payload.get("ssoTokenExpiresIn").getAsInt();
         if (ssoTokenExpiresIn <= 2000) {
-            String html = executeHttpGet(RE_AUTHORIZE_API, cookies.replace("${sessionId}", sessionId));
+            String html = executeHttpGet(AUTHORIZE_API, cookies.replace("${sessionId}", sessionId));
             if (null != html && !html.isBlank()) {
                 int sessionIdStart = html.indexOf("\"sessionId\":\"") + 13;
                 int sessionIdEnd = html.indexOf("\",\"accessLevel\":");
