@@ -71,10 +71,10 @@ public class PulseFollower {
 
                 operationsByDateTime.forEach((operationDateTme, operation) -> {
                     if (lastWatchedTrade.get().isBefore(operationDateTme)) {
-                        InstrumentInfo instrumentInfo = operation.getInstrument();
-                        out.printf("Operation [%s]: %s\n", instrumentInfo.getTicker(), operation);
+                        InstrumentInfo instrument = operation.getInstrument();
+                        out.printf("Operation [%s]: %s\n", instrument.getTicker(), operation);
                         lastWatchedTrade.set(operationDateTme);
-                        handleAction(operation, instrumentInfo, maxPositions);
+                        handleAction(operation, instrument, maxPositions);
                     }
                 });
 
@@ -85,7 +85,7 @@ public class PulseFollower {
         }
     }
 
-    private void handleAction(OperationInfo operation, InstrumentInfo instrumentInfo, int maxPositions) {
+    private void handleAction(OperationInfo operation, InstrumentInfo instrument, int maxPositions) {
         switch (operation.getAction()) {
             case "buy":
                 int countOfCurrentPositions = tcsService.getCountOfCurrentPositions();
@@ -94,11 +94,11 @@ public class PulseFollower {
                     double totalPortfolioCost = tcsService.getTotalPortfolioCost();
                     int availablePositions = maxPositions - countOfCurrentPositions;
                     double cost = Math.min(availableCash, Math.abs(totalPortfolioCost / availablePositions));
-                    tcsService.buy(instrumentInfo.getTicker(), instrumentInfo.getTickerType(), cost);
+                    tcsService.buy(instrument.getTicker(), instrument.getTickerType(), cost);
                 }
                 break;
             case "sell":
-                tcsService.sellAllByMarket(instrumentInfo.getTicker(), instrumentInfo.getTickerType());
+                tcsService.sellAllByMarket(instrument.getTicker(), instrument.getTickerType());
                 break;
         }
     }
