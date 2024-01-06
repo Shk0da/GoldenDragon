@@ -3,7 +3,6 @@ package com.github.shk0da.GoldenDragon.strategy;
 import com.github.shk0da.GoldenDragon.config.PulseConfig;
 import com.github.shk0da.GoldenDragon.model.InstrumentInfo;
 import com.github.shk0da.GoldenDragon.model.OperationInfo;
-import com.github.shk0da.GoldenDragon.model.TickerInfo;
 import com.github.shk0da.GoldenDragon.service.TCSService;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
@@ -22,7 +21,6 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicReference;
 
 import static com.github.shk0da.GoldenDragon.config.MainConfig.HEADER_USER_AGENT;
 import static com.github.shk0da.GoldenDragon.config.MainConfig.USER_AGENT;
@@ -81,7 +79,7 @@ public class PulseFollower {
                             InstrumentInfo instrument = operation.getInstrument();
                             out.printf("[%s] Operation [%s]: %s\n", profileId, instrument.getTicker(), operation);
                             lastWatchedTrade.put(profileId, operationDateTme);
-                            handleAction(operation, instrument, maxPositions);
+                            handleOperation(operation, instrument, maxPositions);
                         }
                     });
 
@@ -93,7 +91,7 @@ public class PulseFollower {
         }
     }
 
-    private void handleAction(OperationInfo operation, InstrumentInfo instrument, int maxPositions) {
+    private void handleOperation(OperationInfo operation, InstrumentInfo instrument, int maxPositions) {
         switch (operation.getAction()) {
             case "buy":
                 int countOfCurrentPositions = tcsService.getCountOfCurrentPositions();
