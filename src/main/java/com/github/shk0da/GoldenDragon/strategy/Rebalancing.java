@@ -122,7 +122,7 @@ public abstract class Rebalancing {
                     isPrintResultTable = true;
                 }
             } else {
-                boolean isSuccessfulSell =  tcsService.sell(correction.getName(), correction.getType(), cost);
+                boolean isSuccessfulSell = tcsService.sell(correction.getName(), correction.getType(), cost);
                 if (isSuccessfulSell) {
                     isPrintResultTable = true;
                 } else {

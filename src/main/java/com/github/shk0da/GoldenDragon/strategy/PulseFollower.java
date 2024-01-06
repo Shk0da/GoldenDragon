@@ -3,6 +3,7 @@ package com.github.shk0da.GoldenDragon.strategy;
 import com.github.shk0da.GoldenDragon.config.PulseConfig;
 import com.github.shk0da.GoldenDragon.model.InstrumentInfo;
 import com.github.shk0da.GoldenDragon.model.OperationInfo;
+import com.github.shk0da.GoldenDragon.model.TickerInfo;
 import com.github.shk0da.GoldenDragon.service.TCSService;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
@@ -70,8 +71,27 @@ public class PulseFollower {
 
                 operationsByDateTime.forEach((operationDateTme, operation) -> {
                     if (lastWatchedTrade.get().isBefore(operationDateTme)) {
-                        out.printf("Operation [%s]: %s\n", operation.getInstrument().getTicker(), operation);
+                        InstrumentInfo instrumentInfo = operation.getInstrument();
+                        out.printf("Operation [%s]: %s\n", instrumentInfo.getTicker(), operation);
                         lastWatchedTrade.set(operationDateTme);
+
+                        switch (operation.getAction()) {
+                            case "buy":
+                                int countOfCurrentPositions = tcsService.getCountOfCurrentPositions();
+                                if (countOfCurrentPositions < maxPositions) {
+                                    double availableCash = tcsService.getAvailableCash();
+                                    double totalPortfolioCost = tcsService.getTotalPortfolioCost();
+                                    int availablePositions = maxPositions - countOfCurrentPositions;
+                                    double cost = Math.min(availableCash, Math.abs(totalPortfolioCost / availablePositions));
+                                    tcsService.buy(instrumentInfo.getTicker(), instrumentInfo.getTickerType(), cost);
+                                }
+                                break;
+                            case "sell":
+                                int count = tcsService.getCountOfCurrentPositions(instrumentInfo.getTickerType(), instrumentInfo.getTicker());
+                                var key = new TickerInfo.Key(instrumentInfo.getTicker(), instrumentInfo.getTickerType());
+                                tcsService.createOrder(key, 0.0, count, "Sell");
+                                break;
+                        }
                     }
                 });
 

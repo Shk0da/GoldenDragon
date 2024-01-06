@@ -155,12 +155,16 @@ public class TCSService {
         String figi = figiByName(key);
         int lot = searchTicker(key).getLot();
         int quantity = (count / lot);
-        Quotation orderPrice = Quotation.newBuilder()
-                .setUnits((long) (price - (price % 1)))
-                .setNano((int) (price % 1))
-                .build();
         OrderDirection direction = "Buy".equals(operation) ? ORDER_DIRECTION_BUY : ORDER_DIRECTION_SELL;
-        OrderType type = price >= 0.0 ? OrderType.ORDER_TYPE_LIMIT : OrderType.ORDER_TYPE_MARKET;
+        OrderType type = OrderType.ORDER_TYPE_MARKET;
+        Quotation orderPrice = Quotation.newBuilder().build();
+        if (price >= 0.0) {
+            type = OrderType.ORDER_TYPE_LIMIT;
+            orderPrice = Quotation.newBuilder()
+                    .setUnits((long) (price - (price % 1)))
+                    .setNano((int) (price % 1))
+                    .build();
+        }
         PostOrderResponse response = investApi.getOrdersService().postOrderSync(
                 figi, quantity, orderPrice, direction, mainConfig.getTcsAccountId(), type, null
         );
@@ -303,6 +307,28 @@ public class TCSService {
         return tickerInfo;
     }
 
+    public double getTotalPortfolioCost() {
+        return investApi.getOperationsService()
+                .getPortfolioSync(mainConfig.getTcsAccountId())
+                .getTotalAmountPortfolio()
+                .getValue()
+                .doubleValue();
+    }
+
+    public int getCountOfCurrentPositions() {
+        return investApi.getOperationsService()
+                .getPortfolioSync(mainConfig.getTcsAccountId())
+                .getPositions()
+                .size();
+    }
+
+    public int getCountOfCurrentPositions(TickerType tickerType, String tickerName) {
+        return (int) getCurrentPositions(tickerType).values()
+                .stream()
+                .filter(it -> it.getTicker().equalsIgnoreCase(tickerName))
+                .count();
+    }
+
     public Map<TickerInfo.Key, PositionInfo> getCurrentPositions(TickerType tickerType) {
         out.println("Loading current positions from TCS...");
         try {
@@ -325,7 +351,6 @@ public class TCSService {
                     });
                     TickerInfo tickerInfo = searchTicker(tickerKey.get());
                     if (marketConfig.getCurrency().equals(tickerInfo.getCurrency())) {
-
                         PositionInfo positionInfo = new PositionInfo(
                                 tickerInfo.getFigi(),
                                 tickerInfo.getTicker(),
