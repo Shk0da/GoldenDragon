@@ -56,11 +56,8 @@ public class PulseFollower {
     }
 
     public void run() {
-        int maxPositions = pulseConfig.getMaxPositions();
-        String[] profileIds = pulseConfig.getFollowProfileId();
-
         runSessionWatcher();
-        runFollow(profileIds, maxPositions);
+        runFollow(pulseConfig.getFollowProfileId(), pulseConfig.getMaxPositions());
     }
 
     private void runFollow(String[] profileIds, int maxPositions) {
