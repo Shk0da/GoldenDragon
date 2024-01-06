@@ -85,7 +85,7 @@ public class PulseFollower {
                         }
                     });
 
-                    TimeUnit.SECONDS.sleep(5);
+                    TimeUnit.SECONDS.sleep(5 / profileIds.length);
                 } catch (Exception ex) {
                     out.println("Error: " + ex.getMessage());
                 }
