@@ -74,22 +74,7 @@ public class PulseFollower {
                         InstrumentInfo instrumentInfo = operation.getInstrument();
                         out.printf("Operation [%s]: %s\n", instrumentInfo.getTicker(), operation);
                         lastWatchedTrade.set(operationDateTme);
-
-                        switch (operation.getAction()) {
-                            case "buy":
-                                int countOfCurrentPositions = tcsService.getCountOfCurrentPositions();
-                                if (countOfCurrentPositions < maxPositions) {
-                                    double availableCash = tcsService.getAvailableCash();
-                                    double totalPortfolioCost = tcsService.getTotalPortfolioCost();
-                                    int availablePositions = maxPositions - countOfCurrentPositions;
-                                    double cost = Math.min(availableCash, Math.abs(totalPortfolioCost / availablePositions));
-                                    tcsService.buy(instrumentInfo.getTicker(), instrumentInfo.getTickerType(), cost);
-                                }
-                                break;
-                            case "sell":
-                                tcsService.sellAllByMarket(instrumentInfo.getTicker(), instrumentInfo.getTickerType());
-                                break;
-                        }
+                        handleAction(operation, instrumentInfo, maxPositions);
                     }
                 });
 
@@ -97,6 +82,24 @@ public class PulseFollower {
             } catch (Exception ex) {
                 out.println("Error: " + ex.getMessage());
             }
+        }
+    }
+
+    private void handleAction(OperationInfo operation, InstrumentInfo instrumentInfo, int maxPositions) {
+        switch (operation.getAction()) {
+            case "buy":
+                int countOfCurrentPositions = tcsService.getCountOfCurrentPositions();
+                if (countOfCurrentPositions < maxPositions) {
+                    double availableCash = tcsService.getAvailableCash();
+                    double totalPortfolioCost = tcsService.getTotalPortfolioCost();
+                    int availablePositions = maxPositions - countOfCurrentPositions;
+                    double cost = Math.min(availableCash, Math.abs(totalPortfolioCost / availablePositions));
+                    tcsService.buy(instrumentInfo.getTicker(), instrumentInfo.getTickerType(), cost);
+                }
+                break;
+            case "sell":
+                tcsService.sellAllByMarket(instrumentInfo.getTicker(), instrumentInfo.getTickerType());
+                break;
         }
     }
 
