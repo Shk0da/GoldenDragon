@@ -14,6 +14,8 @@ import java.net.URI;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.OffsetDateTime;
+import java.util.Arrays;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.TreeMap;
 import java.util.concurrent.ExecutorService;
@@ -47,40 +49,46 @@ public class PulseFollower {
     }
 
     public void run() {
-        String profileId = pulseConfig.getFollowProfileId();
-        String sessionId = pulseConfig.getFollowSessionId();
         int maxPositions = pulseConfig.getMaxPositions();
+        String sessionId = pulseConfig.getFollowSessionId();
+        String[] profileIds = pulseConfig.getFollowProfileId();
 
         runSessionWatcher(sessionId);
-        runFollow(profileId, sessionId, maxPositions);
+        runFollow(profileIds, sessionId, maxPositions);
     }
 
-    private void runFollow(String profileId, String sessionId, int maxPositions) {
-        out.printf("Start follow for profileId=%s\n", profileId);
+    private void runFollow(String[] profileIds, String sessionId, int maxPositions) {
+        out.printf("Start follow for profileIds=%s\n", Arrays.toString(profileIds));
 
-        AtomicReference<OffsetDateTime> lastWatchedTrade = new AtomicReference<>(OffsetDateTime.now());
+        Map<String, OffsetDateTime> lastWatchedTrade = new HashMap<>();
+        for (String profileId : profileIds) {
+            lastWatchedTrade.put(profileId, OffsetDateTime.now());
+        }
+
         while (true) {
-            try {
-                Map<OffsetDateTime, OperationInfo> operationsByDateTime = new TreeMap<>();
-                Map<OffsetDateTime, InstrumentInfo> instrumentsByDateTime = getInstruments(profileId, sessionId);
-                instrumentsByDateTime.forEach((dateTme, item) -> {
-                    if (lastWatchedTrade.get().isBefore(dateTme)) {
-                        operationsByDateTime.putAll(getOperations(profileId, sessionId, item));
-                    }
-                });
+            for (String profileId : profileIds) {
+                try {
+                    Map<OffsetDateTime, OperationInfo> operationsByDateTime = new TreeMap<>();
+                    Map<OffsetDateTime, InstrumentInfo> instrumentsByDateTime = getInstruments(profileId, sessionId);
+                    instrumentsByDateTime.forEach((dateTme, item) -> {
+                        if (lastWatchedTrade.get(profileId).isBefore(dateTme)) {
+                            operationsByDateTime.putAll(getOperations(profileId, sessionId, item));
+                        }
+                    });
 
-                operationsByDateTime.forEach((operationDateTme, operation) -> {
-                    if (lastWatchedTrade.get().isBefore(operationDateTme)) {
-                        InstrumentInfo instrument = operation.getInstrument();
-                        out.printf("Operation [%s]: %s\n", instrument.getTicker(), operation);
-                        lastWatchedTrade.set(operationDateTme);
-                        handleAction(operation, instrument, maxPositions);
-                    }
-                });
+                    operationsByDateTime.forEach((operationDateTme, operation) -> {
+                        if (lastWatchedTrade.get(profileId).isBefore(operationDateTme)) {
+                            InstrumentInfo instrument = operation.getInstrument();
+                            out.printf("[%s] Operation [%s]: %s\n", profileId, instrument.getTicker(), operation);
+                            lastWatchedTrade.put(profileId, operationDateTme);
+                            handleAction(operation, instrument, maxPositions);
+                        }
+                    });
 
-                TimeUnit.SECONDS.sleep(10);
-            } catch (Exception ex) {
-                out.println("Error: " + ex.getMessage());
+                    TimeUnit.SECONDS.sleep(5);
+                } catch (Exception ex) {
+                    out.println("Error: " + ex.getMessage());
+                }
             }
         }
     }
