@@ -23,7 +23,7 @@ public class Rebalance extends Rebalancing {
     private final String serializeName;
 
     public Rebalance(MainConfig mainConfig, MarketConfig marketConfig, RebalanceConfig rebalanceConfig, TCSService tcsService) {
-        super(mainConfig, marketConfig, tcsService);
+        super(marketConfig, tcsService);
         this.rebalanceConfig = rebalanceConfig;
         this.tcsService = tcsService;
         this.serializeName = mainConfig.getTcsAccountId() + "_" + RebalanceConfig.SERIALIZE_NAME;

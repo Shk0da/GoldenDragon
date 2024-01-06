@@ -26,6 +26,7 @@ import ru.tinkoff.piapi.core.models.Position;
 import ru.tinkoff.piapi.core.models.Positions;
 
 import java.math.BigDecimal;
+import java.util.Date;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -35,6 +36,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 
+import static com.github.shk0da.GoldenDragon.config.MainConfig.dateFormat;
 import static com.github.shk0da.GoldenDragon.dictionary.CurrenciesDictionary.getTickerName;
 import static com.github.shk0da.GoldenDragon.utils.PrintUtils.printGlassOfPrices;
 import static java.lang.Math.round;
@@ -62,6 +64,91 @@ public class TCSService {
         figiRepository.insert(new TickerInfo.Key("RUB", TickerType.CURRENCY), "RUB000UTSTOM");
         figiRepository.insert(new TickerInfo.Key("USD", TickerType.CURRENCY), "BBG0013HGFT4");
         figiRepository.insert(new TickerInfo.Key("EUR", TickerType.CURRENCY), "BBG0013HJJ31");
+    }
+
+    public boolean sell(String name, TickerType type, double cost) {
+        if (cost == 0) {
+            out.println("Warn: sale will be skipped - " + name + " with cost " + cost);
+            return false;
+        }
+
+        var key = new TickerInfo.Key(name, type);
+
+        String basicCurrency = marketConfig.getCurrency();
+        String currency = searchTicker(key).getCurrency();
+        if (!basicCurrency.equals(currency)) {
+            cost = convertCurrencies(currency, basicCurrency, cost);
+        }
+
+        int count = 1;
+        double availablePrice = getAvailablePrice(key);
+        if (availablePrice < cost) {
+            count = (int) round(cost / availablePrice);
+            int lot = searchTicker(key).getLot();
+            while (count % lot != 0 && count > 0) {
+                count = count - 1;
+            }
+        }
+        if (count == 0) {
+            out.println("Warn: sale will be skipped - " + name + " with count " + count);
+            return false;
+        }
+
+        double tickerPrice = getAvailablePrice(key, count, true);
+        if (0.0 == tickerPrice) {
+            out.println("Warn: sale will be used Market Price - " + name);
+        }
+
+        String currentDate = dateFormat.format(new Date());
+        out.println("[" + currentDate + "] Sell: " + count + " " + key.getTicker() + " by " + tickerPrice + " (" + cost + " " + currency + ")");
+        if (mainConfig.isTestMode()) {
+            return true;
+        }
+        return 1 == createOrder(key, tickerPrice, count, "Sell");
+    }
+
+    public boolean buy(String name, TickerType type, double cashToBuy) {
+        var key = new TickerInfo.Key(name, type);
+
+        String basicCurrency = marketConfig.getCurrency();
+        String currency = searchTicker(key).getCurrency();
+        if (!basicCurrency.equals(currency)) {
+            cashToBuy = convertCurrencies(currency, basicCurrency, cashToBuy);
+        }
+
+        int value = 0;
+        double tickerPrice = 0.0;
+        for (Map.Entry<Double, Integer> ask : getCurrentPrices(key).get("asks").entrySet()) {
+            tickerPrice = ask.getKey();
+            value = value + ask.getValue();
+            if (value >= (cashToBuy / tickerPrice)) break;
+        }
+
+        if (0.0 == tickerPrice) {
+            out.println("Warn: purchase will be skipped - " + name + " by price " + tickerPrice);
+            return false;
+        }
+
+        int count = 0;
+        if (cashToBuy >= tickerPrice) {
+            int lot = searchTicker(key).getLot();
+            count = (int) (cashToBuy / tickerPrice);
+            while (count % lot != 0 && count > 0) {
+                count = count - 1;
+            }
+        }
+        if (count == 0) {
+            out.println("Warn: purchase will be skipped - " + name + " with count " + count);
+            return false;
+        }
+        double cost = count * tickerPrice;
+
+        String currentDate = dateFormat.format(new Date());
+        out.println("[" + currentDate + "] Buy: " + count + " " + key.getTicker() + " by " + tickerPrice + " (" + cost + " " + currency + ")");
+        if (mainConfig.isTestMode()) {
+            return true;
+        }
+        return 1 == createOrder(key, tickerPrice, count, "Buy");
     }
 
     public int createOrder(TickerInfo.Key key, double price, int count, String operation) {

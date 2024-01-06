@@ -1,6 +1,5 @@
 package com.github.shk0da.GoldenDragon.strategy;
 
-import com.github.shk0da.GoldenDragon.config.MainConfig;
 import com.github.shk0da.GoldenDragon.config.MarketConfig;
 import com.github.shk0da.GoldenDragon.model.PortfolioPosition;
 import com.github.shk0da.GoldenDragon.model.PositionInfo;
@@ -8,13 +7,11 @@ import com.github.shk0da.GoldenDragon.model.TickerInfo;
 import com.github.shk0da.GoldenDragon.model.TickerType;
 import com.github.shk0da.GoldenDragon.service.TCSService;
 
-import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
-import static com.github.shk0da.GoldenDragon.config.MainConfig.dateFormat;
 import static com.github.shk0da.GoldenDragon.utils.PrintUtils.printCurrentPositions;
 import static java.lang.Math.round;
 import static java.lang.System.out;
@@ -22,12 +19,10 @@ import static java.util.Comparator.comparing;
 
 public abstract class Rebalancing {
 
-    private final MainConfig mainConfig;
     private final MarketConfig marketConfig;
     private final TCSService tcsService;
 
-    public Rebalancing(MainConfig mainConfig, MarketConfig marketConfig, TCSService tcsService) {
-        this.mainConfig = mainConfig;
+    public Rebalancing(MarketConfig marketConfig, TCSService tcsService) {
         this.marketConfig = marketConfig;
         this.tcsService = tcsService;
     }
@@ -115,7 +110,7 @@ public abstract class Rebalancing {
             double cost = Math.abs(totalPortfolioCost / 100 * correction.getPercent());
             if (correction.getPercent() > 0) {
                 TickerInfo.Key tickerInfoKey = new TickerInfo.Key(correction.getName(), correction.getType());
-                boolean isSuccessfulBuy = buy(correction.getName(), correction.getType(), cost);
+                boolean isSuccessfulBuy = tcsService.buy(correction.getName(), correction.getType(), cost);
                 boolean isCurrentPosition = currentPositions.containsKey(tickerInfoKey);
                 if (isSuccessfulBuy || isCurrentPosition) {
                     if (isCurrentPosition) {
@@ -127,7 +122,7 @@ public abstract class Rebalancing {
                     isPrintResultTable = true;
                 }
             } else {
-                boolean isSuccessfulSell = sell(correction.getName(), correction.getType(), cost);
+                boolean isSuccessfulSell =  tcsService.sell(correction.getName(), correction.getType(), cost);
                 if (isSuccessfulSell) {
                     isPrintResultTable = true;
                 } else {
@@ -162,90 +157,5 @@ public abstract class Rebalancing {
         }
 
         return positionsToSave;
-    }
-
-    protected boolean sell(String name, TickerType type, double cost) {
-        if (cost == 0) {
-            out.println("Warn: sale will be skipped - " + name + " with cost " + cost);
-            return false;
-        }
-
-        var key = new TickerInfo.Key(name, type);
-
-        String basicCurrency = marketConfig.getCurrency();
-        String currency = tcsService.searchTicker(key).getCurrency();
-        if (!basicCurrency.equals(currency)) {
-            cost = tcsService.convertCurrencies(currency, basicCurrency, cost);
-        }
-
-        int count = 1;
-        double availablePrice = tcsService.getAvailablePrice(key);
-        if (availablePrice < cost) {
-            count = (int) round(cost / availablePrice);
-            int lot = tcsService.searchTicker(key).getLot();
-            while (count % lot != 0 && count > 0) {
-                count = count - 1;
-            }
-        }
-        if (count == 0) {
-            out.println("Warn: sale will be skipped - " + name + " with count " + count);
-            return false;
-        }
-
-        double tickerPrice = tcsService.getAvailablePrice(key, count, true);
-        if (0.0 == tickerPrice) {
-            out.println("Warn: sale will be used Market Price - " + name);
-        }
-
-        String currentDate = dateFormat.format(new Date());
-        out.println("[" + currentDate + "] Sell: " + count + " " + key.getTicker() + " by " + tickerPrice + " (" + cost + " " + currency + ")");
-        if (mainConfig.isTestMode()) {
-            return true;
-        }
-        return 1 == tcsService.createOrder(key, tickerPrice, count, "Sell");
-    }
-
-    protected boolean buy(String name, TickerType type, double cashToBuy) {
-        var key = new TickerInfo.Key(name, type);
-
-        String basicCurrency = marketConfig.getCurrency();
-        String currency = tcsService.searchTicker(key).getCurrency();
-        if (!basicCurrency.equals(currency)) {
-            cashToBuy = tcsService.convertCurrencies(currency, basicCurrency, cashToBuy);
-        }
-
-        int value = 0;
-        double tickerPrice = 0.0;
-        for (Map.Entry<Double, Integer> ask : tcsService.getCurrentPrices(key).get("asks").entrySet()) {
-            tickerPrice = ask.getKey();
-            value = value + ask.getValue();
-            if (value >= (cashToBuy / tickerPrice)) break;
-        }
-
-        if (0.0 == tickerPrice) {
-            out.println("Warn: purchase will be skipped - " + name + " by price " + tickerPrice);
-            return false;
-        }
-
-        int count = 0;
-        if (cashToBuy >= tickerPrice) {
-            int lot = tcsService.searchTicker(key).getLot();
-            count = (int) (cashToBuy / tickerPrice);
-            while (count % lot != 0 && count > 0) {
-                count = count - 1;
-            }
-        }
-        if (count == 0) {
-            out.println("Warn: purchase will be skipped - " + name + " with count " + count);
-            return false;
-        }
-        double cost = count * tickerPrice;
-
-        String currentDate = dateFormat.format(new Date());
-        out.println("[" + currentDate + "] Buy: " + count + " " + key.getTicker() + " by " + tickerPrice + " (" + cost + " " + currency + ")");
-        if (mainConfig.isTestMode()) {
-            return true;
-        }
-        return 1 == tcsService.createOrder(key, tickerPrice, count, "Buy");
     }
 }

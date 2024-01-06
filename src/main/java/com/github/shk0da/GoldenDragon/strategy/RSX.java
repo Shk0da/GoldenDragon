@@ -48,7 +48,7 @@ public class RSX extends Rebalancing {
     private final Repository<TickerInfo.Key, TickerInfo> tickerRepository = TickerRepository.INSTANCE;
 
     public RSX(MainConfig mainConfig, MarketConfig marketConfig, RSXConfig rsxConfig, TCSService tcsService) {
-        super(mainConfig, marketConfig, tcsService);
+        super(marketConfig, tcsService);
         this.marketConfig = marketConfig;
         this.rsxConfig = rsxConfig;
         this.tcsService = tcsService;
