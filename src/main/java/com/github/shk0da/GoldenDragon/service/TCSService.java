@@ -68,7 +68,10 @@ public class TCSService {
 
     public boolean sellAllByMarket(String name, TickerType type) {
         int count = getCountOfCurrentPositions(type, name);
-        return 1 == createOrder(new TickerInfo.Key(name, type), 0.0, count, "Sell");
+        if (count > 0) {
+            return 1 == createOrder(new TickerInfo.Key(name, type), 0.0, count, "Sell");
+        }
+        return true;
     }
 
     public boolean sell(String name, TickerType type, double cost) {
