@@ -87,9 +87,7 @@ public class PulseFollower {
                                 }
                                 break;
                             case "sell":
-                                int count = tcsService.getCountOfCurrentPositions(instrumentInfo.getTickerType(), instrumentInfo.getTicker());
-                                var key = new TickerInfo.Key(instrumentInfo.getTicker(), instrumentInfo.getTickerType());
-                                tcsService.createOrder(key, 0.0, count, "Sell");
+                                tcsService.sellAllByMarket(instrumentInfo.getTicker(), instrumentInfo.getTickerType());
                                 break;
                         }
                     }

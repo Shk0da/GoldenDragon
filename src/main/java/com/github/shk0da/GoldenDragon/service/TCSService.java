@@ -66,6 +66,11 @@ public class TCSService {
         figiRepository.insert(new TickerInfo.Key("EUR", TickerType.CURRENCY), "BBG0013HJJ31");
     }
 
+    public boolean sellAllByMarket(String name, TickerType type) {
+        int count = getCountOfCurrentPositions(type, name);
+        return 1 == createOrder(new TickerInfo.Key(name, type), 0.0, count, "Sell");
+    }
+
     public boolean sell(String name, TickerType type, double cost) {
         if (cost == 0) {
             out.println("Warn: sale will be skipped - " + name + " with cost " + cost);
@@ -323,10 +328,12 @@ public class TCSService {
     }
 
     public int getCountOfCurrentPositions(TickerType tickerType, String tickerName) {
-        return (int) getCurrentPositions(tickerType).values()
+        return getCurrentPositions(tickerType).values()
                 .stream()
                 .filter(it -> it.getTicker().equalsIgnoreCase(tickerName))
-                .count();
+                .map(it -> it.getLots())
+                .findFirst()
+                .orElse(0);
     }
 
     public Map<TickerInfo.Key, PositionInfo> getCurrentPositions(TickerType tickerType) {
