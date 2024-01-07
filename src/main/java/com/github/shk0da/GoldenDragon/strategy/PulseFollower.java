@@ -216,22 +216,26 @@ public class PulseFollower {
         JsonObject json = JsonParser.parseString(response).getAsJsonObject();
         if (json.has("errorMessage")) {
             telegramNotifyService.sendMessage("PulseFollower: " + json.get("plainMessage"));
-            System.exit(-1);
+            executeAuthorize(sessionId, cookies);
         }
 
         JsonObject payload = json.get("payload").getAsJsonObject();
         int ssoTokenExpiresIn = payload.get("ssoTokenExpiresIn").getAsInt();
         if (ssoTokenExpiresIn <= 2_000) {
-            String html = executeHttpGet(AUTHORIZE_API, cookies.replace("${sessionId}", sessionId));
-            out.printf("Authorize: %s\n", html);
-            if (null != html && !html.isBlank()) {
-                int sessionIdStart = html.indexOf("\"sessionId\":\"") + 13;
-                int sessionIdEnd = html.indexOf("\",\"accessLevel\":");
-                String sessionIdFromFrame = html.substring(sessionIdStart, sessionIdEnd);
-                out.printf("New sessionId=%s\n", sessionIdFromFrame);
-                telegramNotifyService.sendMessage("PulseFollower: New sessionId=" + sessionIdFromFrame);
-                this.sessionId.set(sessionIdFromFrame);
-            }
+            executeAuthorize(sessionId, cookies);
+        }
+    }
+
+    private void executeAuthorize(String sessionId, String cookies) {
+        String html = executeHttpGet(AUTHORIZE_API, cookies.replace("${sessionId}", sessionId));
+        out.printf("Authorize: %s\n", html);
+        if (null != html && !html.isBlank()) {
+            int sessionIdStart = html.indexOf("\"sessionId\":\"") + 13;
+            int sessionIdEnd = html.indexOf("\",\"accessLevel\":");
+            String sessionIdFromFrame = html.substring(sessionIdStart, sessionIdEnd);
+            out.printf("New sessionId=%s\n", sessionIdFromFrame);
+            telegramNotifyService.sendMessage("PulseFollower: New sessionId=" + sessionIdFromFrame);
+            this.sessionId.set(sessionIdFromFrame);
         }
     }
 
