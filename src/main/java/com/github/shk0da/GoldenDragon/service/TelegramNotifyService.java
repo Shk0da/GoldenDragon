@@ -41,7 +41,7 @@ public class TelegramNotifyService {
         }
     }
 
-    public void sendMessageToTelegram(String message) {
+    public void sendMessage(String message) {
         lock.lock();
         try {
             long now = System.currentTimeMillis();

@@ -213,7 +213,7 @@ public class PulseFollower {
         out.printf("SessionStatus: %s\n", response);
         if (null == response) {
             out.println("The session has expired... Exit.");
-            telegramNotifyService.sendMessageToTelegram("PulseFollower: The session has expired...");
+            telegramNotifyService.sendMessage("PulseFollower: The session has expired...");
             System.exit(-1);
         }
 
@@ -230,7 +230,7 @@ public class PulseFollower {
                 int sessionIdEnd = html.indexOf("\",\"accessLevel\":");
                 String sessionIdFromFrame = html.substring(sessionIdStart, sessionIdEnd);
                 out.printf("New sessionId=%s\n", sessionIdFromFrame);
-                telegramNotifyService.sendMessageToTelegram("PulseFollower: New sessionId=" + sessionIdFromFrame);
+                telegramNotifyService.sendMessage("PulseFollower: New sessionId=" + sessionIdFromFrame);
                 this.sessionId.set(sessionIdFromFrame);
             }
         }
