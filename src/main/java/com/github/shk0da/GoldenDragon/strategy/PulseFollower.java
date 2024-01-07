@@ -27,6 +27,7 @@ import static com.github.shk0da.GoldenDragon.config.MainConfig.HEADER_COOKIES;
 import static com.github.shk0da.GoldenDragon.config.MainConfig.HEADER_USER_AGENT;
 import static com.github.shk0da.GoldenDragon.config.MainConfig.USER_AGENT;
 import static com.github.shk0da.GoldenDragon.config.MainConfig.httpClient;
+import static com.github.shk0da.GoldenDragon.service.TelegramNotifyService.telegramNotifyService;
 import static com.github.shk0da.GoldenDragon.utils.RequestUtils.requestWithRetry;
 import static java.lang.System.out;
 
@@ -205,6 +206,7 @@ public class PulseFollower {
     private void executePing(String sessionId) {
         String response = executeHttpGet(PING_API.replace("${sessionId}", sessionId));
         out.printf("Ping: %s\n", response);
+
     }
 
     private void executeSessionStatus(String sessionId, String cookies) {
@@ -212,6 +214,7 @@ public class PulseFollower {
         out.printf("SessionStatus: %s\n", response);
         if (null == response) {
             out.println("The session has expired... Exit.");
+            telegramNotifyService.sendMessageToTelegram("PulseFollower: The session has expired...");
             System.exit(-1);
         }
 
