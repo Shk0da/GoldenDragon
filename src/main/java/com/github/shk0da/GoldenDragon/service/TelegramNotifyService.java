@@ -21,7 +21,6 @@ public class TelegramNotifyService {
 
     public static final TelegramNotifyService telegramNotifyService = new TelegramNotifyService();
 
-    private static int MIN_INTERVAL = 5_000;
     private static final String TELEGRAM_SEND_MESSAGE_URL = "https://api.telegram.org/bot%s/sendMessage?chat_id=%s&text=%s";
 
     private final String botToken;
@@ -45,7 +44,7 @@ public class TelegramNotifyService {
         lock.lock();
         try {
             long now = System.currentTimeMillis();
-            if (lastTimeSentTelegram == 0 || (lastTimeSentTelegram + MIN_INTERVAL < now)) {
+            if (lastTimeSentTelegram == 0 || (lastTimeSentTelegram + 5_000 < now)) {
                 requestWithRetry(() -> {
                     String text = URLEncoder.encode(message, StandardCharsets.UTF_8);
                     String uri = String.format(TELEGRAM_SEND_MESSAGE_URL, botToken, chatId, text);
