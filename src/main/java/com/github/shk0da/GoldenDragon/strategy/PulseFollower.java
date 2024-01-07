@@ -222,7 +222,7 @@ public class PulseFollower {
                 .get("payload")
                 .getAsJsonObject();
         int ssoTokenExpiresIn = payload.get("ssoTokenExpiresIn").getAsInt();
-        if (ssoTokenExpiresIn <= 2000) {
+        if (ssoTokenExpiresIn <= 300) {
             String html = executeHttpGet(AUTHORIZE_API, cookies.replace("${sessionId}", sessionId));
             out.printf("Authorize: %s\n", html);
             if (null != html && !html.isBlank()) {
