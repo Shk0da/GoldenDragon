@@ -206,7 +206,6 @@ public class PulseFollower {
     private void executePing(String sessionId) {
         String response = executeHttpGet(PING_API.replace("${sessionId}", sessionId));
         out.printf("Ping: %s\n", response);
-
     }
 
     private void executeSessionStatus(String sessionId, String cookies) {
@@ -231,6 +230,7 @@ public class PulseFollower {
                 int sessionIdEnd = html.indexOf("\",\"accessLevel\":");
                 String sessionIdFromFrame = html.substring(sessionIdStart, sessionIdEnd);
                 out.printf("New sessionId=%s\n", sessionIdFromFrame);
+                telegramNotifyService.sendMessageToTelegram("PulseFollower: New sessionId=" + sessionIdFromFrame);
                 this.sessionId.set(sessionIdFromFrame);
             }
         }
