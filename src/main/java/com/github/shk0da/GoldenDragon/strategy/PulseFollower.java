@@ -187,11 +187,11 @@ public class PulseFollower {
     private void runSessionWatcher() {
         out.printf("Start session watcher for sessionId=%s\n", sessionId.get());
         sessionWatcher.execute(() -> {
-            long startTime = System.currentTimeMillis();
+            long startTime = 0L;
             while (true) {
                 try {
                     executePing(sessionId.get());
-                    if (System.currentTimeMillis() - startTime >= 1.9 * 60 * 1000) {
+                    if (0L == startTime || System.currentTimeMillis() - startTime >= 2 * 60 * 1000) {
                         executeSessionStatus(sessionId.get(), cookies.get());
                         startTime = System.currentTimeMillis();
                     }
