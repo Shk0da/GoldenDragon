@@ -8,7 +8,11 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
+import com.sun.net.httpserver.HttpServer;
 
+import java.io.IOException;
+import java.io.OutputStream;
+import java.net.InetSocketAddress;
 import java.net.URI;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
@@ -23,7 +27,6 @@ import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
-import static com.github.shk0da.GoldenDragon.config.MainConfig.HEADER_COOKIES;
 import static com.github.shk0da.GoldenDragon.config.MainConfig.HEADER_USER_AGENT;
 import static com.github.shk0da.GoldenDragon.config.MainConfig.USER_AGENT;
 import static com.github.shk0da.GoldenDragon.config.MainConfig.httpClient;
@@ -33,7 +36,6 @@ import static java.lang.System.out;
 
 public class PulseFollower {
 
-    public static final String AUTHORIZE_API = "https://www.tinkoff.ru/api/common/v1/session/authorize?prompt=none&origin=web,ib5,platform,mdep";
     public static final String PING_API = "https://www.tinkoff.ru/api/common/v1/ping?appName=invest&appVersion=2.0.0&sessionid=${sessionId}";
     public static final String SESSION_STATUS_API = "https://www.tinkoff.ru/api/common/v1/session_status?appName=invest&appVersion=2.0.0&sessionid=${sessionId}";
 
@@ -42,26 +44,21 @@ public class PulseFollower {
 
     private final PulseConfig pulseConfig;
     private final TCSService tcsService;
-    private final ExecutorService sessionWatcher;
 
-    private final AtomicReference<String> cookies = new AtomicReference<>();
     private final AtomicReference<String> sessionId = new AtomicReference<>();
+    private final ExecutorService sessionWatcher = Executors.newSingleThreadExecutor();
+    private final ExecutorService httpServer = Executors.newSingleThreadExecutor();
 
     public PulseFollower(PulseConfig pulseConfig, TCSService tcsService) {
         this.pulseConfig = pulseConfig;
         this.tcsService = tcsService;
-        this.sessionWatcher = Executors.newSingleThreadExecutor();
-
-        this.cookies.set(pulseConfig.getCookies());
         this.sessionId.set(pulseConfig.getFollowSessionId());
     }
 
     public void run() {
         runSessionWatcher();
-
-        int maxPositions = pulseConfig.getMaxPositions();
-        String[] profileIds = pulseConfig.getFollowProfileId();
-        runFollow(profileIds, maxPositions);
+        runHttpServer(pulseConfig.getHttpPort());
+        runFollow(pulseConfig.getFollowProfileId(), pulseConfig.getMaxPositions());
     }
 
     private void runFollow(String[] profileIds, int maxPositions) {
@@ -184,6 +181,28 @@ public class PulseFollower {
         return operationsByDateTime;
     }
 
+    private void runHttpServer(int serverPort) {
+        out.printf("Start http server: //0.0.0.0:%d/api/update?sessionId=${sessionId}\n", serverPort);
+        try {
+            HttpServer server = HttpServer.create(new InetSocketAddress(serverPort), 0);
+            server.createContext("/api/update", (exchange -> {
+                String newSessionId = exchange.getRequestURI().getQuery().split("=")[1];
+                sessionId.set(newSessionId);
+
+                String respText = "New sessionId=" + newSessionId;
+                exchange.sendResponseHeaders(200, respText.getBytes().length);
+                OutputStream output = exchange.getResponseBody();
+                output.write(respText.getBytes());
+                output.flush();
+                exchange.close();
+            }));
+            server.setExecutor(httpServer);
+            server.start();
+        } catch (IOException ex) {
+            out.println("Error: " + ex.getMessage());
+        }
+    }
+
     private void runSessionWatcher() {
         out.printf("Start session watcher for sessionId=%s\n", sessionId.get());
         sessionWatcher.execute(() -> {
@@ -192,7 +211,7 @@ public class PulseFollower {
                 try {
                     executePing(sessionId.get());
                     if (0L == startTime || System.currentTimeMillis() - startTime >= 2 * 60 * 1000) {
-                        executeSessionStatus(sessionId.get(), cookies.get());
+                        executeSessionStatus(sessionId.get());
                         startTime = System.currentTimeMillis();
                     }
                     TimeUnit.MINUTES.sleep(1);
@@ -208,7 +227,7 @@ public class PulseFollower {
         out.printf("Ping: %s\n", response);
     }
 
-    private void executeSessionStatus(String sessionId, String cookies) {
+    private void executeSessionStatus(String sessionId) {
         String response = executeHttpGet(SESSION_STATUS_API.replace("${sessionId}", sessionId));
         out.printf("SessionStatus: %s\n", response);
         if (null == response) return;
@@ -216,44 +235,24 @@ public class PulseFollower {
         JsonObject json = JsonParser.parseString(response).getAsJsonObject();
         if (json.has("errorMessage")) {
             telegramNotifyService.sendMessage("PulseFollower: " + json.get("plainMessage"));
-            executeAuthorize(sessionId, cookies);
         }
-
-        JsonObject payload = json.get("payload").getAsJsonObject();
-        int ssoTokenExpiresIn = payload.get("ssoTokenExpiresIn").getAsInt();
-        if (ssoTokenExpiresIn <= 2_000) {
-            executeAuthorize(sessionId, cookies);
-        }
-    }
-
-    private void executeAuthorize(String sessionId, String cookies) {
-        String html = executeHttpGet(AUTHORIZE_API, cookies.replace("${sessionId}", sessionId));
-        out.printf("Authorize: %s\n", html);
-        if (null != html && !html.isBlank()) {
-            int sessionIdStart = html.indexOf("\"sessionId\":\"") + 13;
-            int sessionIdEnd = html.indexOf("\",\"accessLevel\":");
-            String sessionIdFromFrame = html.substring(sessionIdStart, sessionIdEnd);
-            out.printf("New sessionId=%s\n", sessionIdFromFrame);
-            telegramNotifyService.sendMessage("PulseFollower: New sessionId=" + sessionIdFromFrame);
-            this.sessionId.set(sessionIdFromFrame);
+        if (json.has("payload")) {
+            JsonObject payload = json.get("payload").getAsJsonObject();
+            int ssoTokenExpiresIn = payload.get("ssoTokenExpiresIn").getAsInt();
+            if (ssoTokenExpiresIn <= 2_000) {
+                telegramNotifyService.sendMessage("PulseFollower: ssoTokenExpiresIn=" + ssoTokenExpiresIn);
+            }
         }
     }
 
     private static String executeHttpGet(String url) {
-        return executeHttpGet(url, null);
-    }
-
-    private static String executeHttpGet(String url, String cookies) {
         randomSleep();
         HttpResponse<String> response = requestWithRetry(() -> {
-            HttpRequest.Builder requestBuilder = HttpRequest.newBuilder()
+            HttpRequest request = HttpRequest.newBuilder()
                     .GET()
                     .uri(URI.create(url))
-                    .setHeader(HEADER_USER_AGENT, USER_AGENT);
-            if (null != cookies) {
-                requestBuilder.setHeader(HEADER_COOKIES, cookies);
-            }
-            HttpRequest request = requestBuilder.build();
+                    .setHeader(HEADER_USER_AGENT, USER_AGENT)
+                    .build();
             try {
                 return httpClient.send(request, HttpResponse.BodyHandlers.ofString());
             } catch (Exception ex) {

@@ -6,25 +6,25 @@ import java.util.Properties;
 
 public class PulseConfig {
 
+    private final int httpPort;
     private final String followSessionId;
-    private final String cookies;
     private final String[] followProfileIds;
     private final int maxPositions;
 
     public PulseConfig() throws Exception {
         final Properties properties = PropertiesUtils.loadProperties();
+        this.httpPort = Integer.parseInt(properties.getProperty("pulse.follow.httpPort"));
         this.followSessionId = properties.getProperty("pulse.follow.sessionId");
-        this.cookies = properties.getProperty("pulse.follow.cookies");
         this.followProfileIds = properties.getProperty("pulse.follow.profileIds").split(";");
         this.maxPositions = Integer.parseInt(properties.getProperty("pulse.follow.maxPositions"));
     }
 
-    public String getFollowSessionId() {
-        return followSessionId;
+    public int getHttpPort() {
+        return httpPort;
     }
 
-    public String getCookies() {
-        return cookies;
+    public String getFollowSessionId() {
+        return followSessionId;
     }
 
     public String[] getFollowProfileId() {
