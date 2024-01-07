@@ -57,7 +57,10 @@ public class PulseFollower {
 
     public void run() {
         runSessionWatcher();
-        runFollow(pulseConfig.getFollowProfileId(), pulseConfig.getMaxPositions());
+
+        int maxPositions = pulseConfig.getMaxPositions();
+        String[] profileIds = pulseConfig.getFollowProfileId();
+        runFollow(profileIds, maxPositions);
     }
 
     private void runFollow(String[] profileIds, int maxPositions) {
@@ -216,6 +219,7 @@ public class PulseFollower {
         int ssoTokenExpiresIn = payload.get("ssoTokenExpiresIn").getAsInt();
         if (ssoTokenExpiresIn <= 2000) {
             String html = executeHttpGet(AUTHORIZE_API, cookies.replace("${sessionId}", sessionId));
+            out.printf("Authorize: %s\n", html);
             if (null != html && !html.isBlank()) {
                 int sessionIdStart = html.indexOf("\"sessionId\":\"") + 13;
                 int sessionIdEnd = html.indexOf("\",\"accessLevel\":");
