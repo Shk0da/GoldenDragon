@@ -211,18 +211,17 @@ public class PulseFollower {
     private void executeSessionStatus(String sessionId, String cookies) {
         String response = executeHttpGet(SESSION_STATUS_API.replace("${sessionId}", sessionId));
         out.printf("SessionStatus: %s\n", response);
-        if (null == response) {
-            out.println("The session has expired... Exit.");
-            telegramNotifyService.sendMessage("PulseFollower: The session has expired...");
+        if (null == response) return;
+
+        JsonObject json = JsonParser.parseString(response).getAsJsonObject();
+        if (json.has("errorMessage")) {
+            telegramNotifyService.sendMessage("PulseFollower: " + json.get("plainMessage"));
             System.exit(-1);
         }
 
-        JsonObject payload = JsonParser.parseString(response)
-                .getAsJsonObject()
-                .get("payload")
-                .getAsJsonObject();
+        JsonObject payload = json.get("payload").getAsJsonObject();
         int ssoTokenExpiresIn = payload.get("ssoTokenExpiresIn").getAsInt();
-        if (ssoTokenExpiresIn <= 300) {
+        if (ssoTokenExpiresIn <= 2_000) {
             String html = executeHttpGet(AUTHORIZE_API, cookies.replace("${sessionId}", sessionId));
             out.printf("Authorize: %s\n", html);
             if (null != html && !html.isBlank()) {
