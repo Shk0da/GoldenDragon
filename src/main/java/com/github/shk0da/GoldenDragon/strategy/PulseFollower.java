@@ -210,7 +210,10 @@ public class PulseFollower {
     private void executeSessionStatus(String sessionId, String cookies) {
         String response = executeHttpGet(SESSION_STATUS_API.replace("${sessionId}", sessionId));
         out.printf("SessionStatus: %s\n", response);
-        if (null == response) return;
+        if (null == response) {
+            out.println("The session has expired... Exit.");
+            System.exit(-1);
+        }
 
         JsonObject payload = JsonParser.parseString(response)
                 .getAsJsonObject()
