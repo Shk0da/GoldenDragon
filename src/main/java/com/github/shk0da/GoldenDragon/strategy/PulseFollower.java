@@ -95,13 +95,8 @@ public class PulseFollower {
                             lastWatchedTrade.put(profileId, operationDateTme);
                             telegramNotifyService.sendMessage(
                                     String.format(
-                                            "PulseFollower: time=%s, profileId=%s, action=%s, ticker=%s, price=%f, yield=%f",
-                                            new Date(),
-                                            profileId,
-                                            operation.getAction(),
-                                            instrument.getTicker(),
-                                            operation.getAveragePrice(),
-                                            operation.getRelativeYield()
+                                            "PulseFollower: [%s] Operation [%s]: %s\n",
+                                            profileId, instrument.getTicker(), operation
                                     )
                             );
                             handleOperation(operation, instrument, maxPositions);
