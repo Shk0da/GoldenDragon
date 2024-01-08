@@ -167,7 +167,7 @@ public class TCSService {
         OrderDirection direction = "Buy".equals(operation) ? ORDER_DIRECTION_BUY : ORDER_DIRECTION_SELL;
         OrderType type = OrderType.ORDER_TYPE_MARKET;
         Quotation orderPrice = Quotation.newBuilder().build();
-        if (price >= 0.0) {
+        if (price > 0.0) {
             type = OrderType.ORDER_TYPE_LIMIT;
             orderPrice = Quotation.newBuilder()
                     .setUnits(Math.round((price - (price % 1))))
@@ -357,10 +357,11 @@ public class TCSService {
         }
 
         Map<TickerInfo.Key, PositionInfo> positionInfoList = new HashMap<>();
+        String type = TickerType.STOCK == tickerType ? "share" : tickerType.name();
         Portfolio portfolio = investApi.getOperationsService().getPortfolioSync(mainConfig.getTcsAccountId());
         portfolio.getPositions()
                 .stream()
-                .filter(it -> TickerType.ALL == tickerType || tickerType.name().equalsIgnoreCase(it.getInstrumentType()))
+                .filter(it -> TickerType.ALL == tickerType || type.equalsIgnoreCase(it.getInstrumentType()))
                 .forEach(it -> {
                     AtomicReference<TickerInfo.Key> tickerKey = new AtomicReference<>();
                     figiRepository.getAll().forEach((key, value) -> {
@@ -368,6 +369,14 @@ public class TCSService {
                             tickerKey.set(key);
                         }
                     });
+                    if (null == tickerKey.get()) {
+                        tickerRepository.getAll().values()
+                                .stream()
+                                .filter(ticker -> ticker.getFigi().equals(it.getFigi()))
+                                .findFirst()
+                                .map(ticker -> new TickerInfo.Key(ticker.getTicker(), ticker.getType()))
+                                .ifPresent(tickerKey::set);
+                    }
                     TickerInfo tickerInfo = searchTicker(tickerKey.get());
                     if (marketConfig.getCurrency().equals(tickerInfo.getCurrency())) {
                         PositionInfo positionInfo = new PositionInfo(
