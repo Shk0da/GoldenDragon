@@ -184,9 +184,11 @@ public class TCSService {
             case EXECUTION_REPORT_STATUS_FILL:
             case EXECUTION_REPORT_STATUS_PARTIALLYFILL: {
                 String message = String.format(
-                        "%s %s: %s[order=%s, status=%s, price=%f, commission=%f]\n",
+                        "%s %d %s by %f: %s [order=%s, status=%s, price=%f, commission=%f]\n",
                         operation,
+                        count,
                         key.getTicker(),
+                        price,
                         response.getMessage(),
                         response.getOrderId(),
                         response.getExecutionReportStatus(),
