@@ -71,7 +71,7 @@ public class PulseFollower {
 
         Map<String, OffsetDateTime> lastWatchedTrade = new HashMap<>();
         for (String profileId : profileIds) {
-            lastWatchedTrade.put(profileId, OffsetDateTime.now());
+            lastWatchedTrade.put(profileId, OffsetDateTime.now().minusHours(4));
         }
 
         while (true) {
@@ -102,7 +102,6 @@ public class PulseFollower {
                             handleOperation(operation, instrument, maxPositions);
                         }
                     });
-
                     TimeUnit.SECONDS.sleep(5);
                 } catch (Exception ex) {
                     out.println("Error: " + ex.getMessage());

@@ -170,8 +170,8 @@ public class TCSService {
         if (price >= 0.0) {
             type = OrderType.ORDER_TYPE_LIMIT;
             orderPrice = Quotation.newBuilder()
-                    .setUnits((long) (price - (price % 1)))
-                    .setNano((int) (price % 1))
+                    .setUnits(Math.round((price - (price % 1))))
+                    .setNano((int) (Math.round((price % 1) * 100)))
                     .build();
         }
         PostOrderResponse response = investApi.getOrdersService().postOrderSync(
