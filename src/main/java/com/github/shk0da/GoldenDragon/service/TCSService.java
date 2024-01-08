@@ -175,34 +175,31 @@ public class TCSService {
                     .setNano((int) (Math.round((price % 1) * 100)))
                     .build();
         }
-        PostOrderResponse response = investApi.getOrdersService().postOrderSync(
-                figi, quantity, orderPrice, direction, mainConfig.getTcsAccountId(), type, null
-        );
 
-        switch (response.getExecutionReportStatus()) {
-            case EXECUTION_REPORT_STATUS_NEW:
-            case EXECUTION_REPORT_STATUS_FILL:
-            case EXECUTION_REPORT_STATUS_PARTIALLYFILL: {
-                String message = String.format(
-                        "%s %d %s by %f: %s [order=%s, status=%s, price=%f, commission=%f]\n",
-                        operation,
-                        count,
-                        key.getTicker(),
-                        price,
-                        response.getMessage(),
-                        response.getOrderId(),
-                        response.getExecutionReportStatus(),
-                        toDouble(response.getExecutedOrderPrice().getUnits(), response.getExecutedOrderPrice().getNano()),
-                        toDouble(response.getExecutedCommission().getUnits(), response.getExecutedCommission().getNano())
-                );
-                out.println(message);
-                telegramNotifyService.sendMessage(message);
-                return 1;
-            }
-            default: {
-                out.println("Failed create order: " + response.getMessage());
-                return 0;
-            }
+        try {
+            PostOrderResponse response = investApi.getOrdersService().postOrderSync(
+                    figi, quantity, orderPrice, direction, mainConfig.getTcsAccountId(), type, null
+            );
+            String message = String.format(
+                    "%s %d %s by %f: %s [order=%s, status=%s, price=%f, commission=%f]\n",
+                    operation,
+                    count,
+                    key.getTicker(),
+                    price,
+                    response.getMessage(),
+                    response.getOrderId(),
+                    response.getExecutionReportStatus(),
+                    toDouble(response.getExecutedOrderPrice().getUnits(), response.getExecutedOrderPrice().getNano()),
+                    toDouble(response.getExecutedCommission().getUnits(), response.getExecutedCommission().getNano())
+            );
+            out.println(message);
+            telegramNotifyService.sendMessage(message);
+            return 1;
+        } catch (Exception ex) {
+            String message = "Failed create order: " + ex.getMessage();
+            out.println(message);
+            telegramNotifyService.sendMessage(message);
+            return 0;
         }
     }
 
