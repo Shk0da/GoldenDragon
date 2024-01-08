@@ -37,6 +37,7 @@ import static com.github.shk0da.GoldenDragon.config.MainConfig.httpClient;
 import static com.github.shk0da.GoldenDragon.service.TelegramNotifyService.telegramNotifyService;
 import static com.github.shk0da.GoldenDragon.utils.RequestUtils.requestWithRetry;
 import static java.lang.System.out;
+import static java.util.Map.entry;
 
 public class PulseFollower {
 
@@ -76,19 +77,20 @@ public class PulseFollower {
         while (true) {
             for (String profileId : profileIds) {
                 try {
-                    Set<InstrumentInfo> uniqueCheck = new HashSet<>();
                     Map<OffsetDateTime, OperationInfo> operationsByDateTime = new TreeMap<>();
                     Map<OffsetDateTime, InstrumentInfo> instrumentsByDateTime = getInstruments(profileId, sessionId.get());
                     instrumentsByDateTime.forEach((dateTme, item) -> {
-                        if (lastWatchedTrade.get(profileId).isBefore(dateTme) && !uniqueCheck.contains(item)) {
-                            uniqueCheck.add(item);
+                        if (lastWatchedTrade.get(profileId).isBefore(dateTme)) {
                             operationsByDateTime.putAll(getOperations(profileId, sessionId.get(), item));
                         }
                     });
 
+                    Set<Map.Entry<String, InstrumentInfo>> uniqueCheck = new HashSet<>();
                     operationsByDateTime.forEach((operationDateTme, operation) -> {
-                        if (lastWatchedTrade.get(profileId).isBefore(operationDateTme)) {
-                            InstrumentInfo instrument = operation.getInstrument();
+                        InstrumentInfo instrument = operation.getInstrument();
+                        boolean hasSameTrade = uniqueCheck.contains(entry(operation.getAction(), instrument));
+                        if (lastWatchedTrade.get(profileId).isBefore(operationDateTme) && !hasSameTrade) {
+                            uniqueCheck.add(entry(operation.getAction(), instrument));
                             out.printf("[%s] Operation [%s]: %s\n", profileId, instrument.getTicker(), operation);
                             lastWatchedTrade.put(profileId, operationDateTme);
                             telegramNotifyService.sendMessage(
