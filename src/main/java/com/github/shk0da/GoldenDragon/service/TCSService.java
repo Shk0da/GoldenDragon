@@ -66,6 +66,16 @@ public class TCSService {
         figiRepository.insert(new TickerInfo.Key("EUR", TickerType.CURRENCY), "BBG0013HJJ31");
     }
 
+    public void sellAllByMarket(TickerType type) {
+        getCurrentPositions(type).values().forEach(ticker -> {
+            int count = ticker.getBalance();
+            String name = ticker.getTicker();
+            String currentDate = dateFormat.format(new Date());
+            out.println("[" + currentDate + "] Sell: " + count + " " + name + " by Market");
+            createOrder(new TickerInfo.Key(name, type), 0.0, count, "Sell");
+        });
+    }
+
     public boolean sellAllByMarket(String name, TickerType type) {
         int count = getCountOfCurrentPositions(type, name);
         if (count > 0) {
@@ -346,7 +356,7 @@ public class TCSService {
         return getCurrentPositions(tickerType).values()
                 .stream()
                 .filter(it -> it.getTicker().equalsIgnoreCase(tickerName))
-                .map(it -> it.getLots())
+                .map(PositionInfo::getBalance)
                 .findFirst()
                 .orElse(0);
     }

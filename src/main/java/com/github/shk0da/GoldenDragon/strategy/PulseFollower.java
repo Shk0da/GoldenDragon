@@ -3,6 +3,7 @@ package com.github.shk0da.GoldenDragon.strategy;
 import com.github.shk0da.GoldenDragon.config.PulseConfig;
 import com.github.shk0da.GoldenDragon.model.InstrumentInfo;
 import com.github.shk0da.GoldenDragon.model.OperationInfo;
+import com.github.shk0da.GoldenDragon.model.TickerType;
 import com.github.shk0da.GoldenDragon.service.TCSService;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
@@ -196,9 +197,10 @@ public class PulseFollower {
     }
 
     private void runHttpServer(int serverPort) {
-        out.printf("Start http server: //0.0.0.0:%d/api/update?sessionId=${sessionId}\n", serverPort);
         try {
             HttpServer server = HttpServer.create(new InetSocketAddress(serverPort), 0);
+
+            out.printf("Start API: //0.0.0.0:%d/api/update?sessionId=${sessionId}\n", serverPort);
             server.createContext("/api/update", (exchange -> {
                 String newSessionId = exchange.getRequestURI().getQuery().split("=")[1];
                 sessionId.set(newSessionId);
@@ -210,6 +212,20 @@ public class PulseFollower {
                 output.flush();
                 exchange.close();
             }));
+
+            out.printf("Start API: //0.0.0.0:%d/api/sell_all?tickerType=${tickerType}\n", serverPort);
+            server.createContext("/api/sell_all", (exchange -> {
+                TickerType type = TickerType.byName(exchange.getRequestURI().getQuery().split("=")[1]);
+                tcsService.sellAllByMarket(type);
+
+                String respText = "Everything is sold";
+                exchange.sendResponseHeaders(200, respText.getBytes().length);
+                OutputStream output = exchange.getResponseBody();
+                output.write(respText.getBytes());
+                output.flush();
+                exchange.close();
+            }));
+
             server.setExecutor(httpServer);
             server.start();
         } catch (IOException ex) {
