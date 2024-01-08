@@ -103,7 +103,6 @@ public class PulseFollower {
     }
 
     private void handleOperation(OperationInfo operation, InstrumentInfo instrument, int maxPositions) {
-        boolean operationSuccess = false;
         switch (operation.getAction()) {
             case "buy":
                 int countOfCurrentPositions = tcsService.getCountOfCurrentPositions();
@@ -116,15 +115,12 @@ public class PulseFollower {
                             "availableCash=%f, totalPortfolioCost=%f, availablePositions=%d, cost=%f\n",
                             availableCash, totalPortfolioCost, availablePositions, cost
                     );
-                    operationSuccess = tcsService.buy(instrument.getTicker(), instrument.getTickerType(), cost);
+                    tcsService.buy(instrument.getTicker(), instrument.getTickerType(), cost);
                 }
                 break;
             case "sell":
-                operationSuccess = tcsService.sellAllByMarket(instrument.getTicker(), instrument.getTickerType());
+                tcsService.sellAllByMarket(instrument.getTicker(), instrument.getTickerType());
                 break;
-        }
-        if (operationSuccess) {
-            telegramNotifyService.sendMessage(String.format("PulseFollower: Operation [%s]: %s\n", instrument.getTicker(), operation));
         }
     }
 

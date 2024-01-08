@@ -37,6 +37,7 @@ import java.util.stream.Collectors;
 
 import static com.github.shk0da.GoldenDragon.config.MainConfig.dateFormat;
 import static com.github.shk0da.GoldenDragon.dictionary.CurrenciesDictionary.getTickerName;
+import static com.github.shk0da.GoldenDragon.service.TelegramNotifyService.telegramNotifyService;
 import static com.github.shk0da.GoldenDragon.utils.PrintUtils.printGlassOfPrices;
 import static java.lang.Math.round;
 import static java.lang.System.out;
@@ -182,15 +183,18 @@ public class TCSService {
             case EXECUTION_REPORT_STATUS_NEW:
             case EXECUTION_REPORT_STATUS_FILL:
             case EXECUTION_REPORT_STATUS_PARTIALLYFILL: {
-                out.printf(
-                        "Created %s order=%s [status=%s, price=%f, commission=%f]: %s\n",
-                        response.getDirection().name(),
+                String message = String.format(
+                        "%s %s: %s[order=%s, status=%s, price=%f, commission=%f]\n",
+                        operation,
+                        key.getTicker(),
+                        response.getMessage(),
                         response.getOrderId(),
                         response.getExecutionReportStatus(),
                         toDouble(response.getExecutedOrderPrice().getUnits(), response.getExecutedOrderPrice().getNano()),
-                        toDouble(response.getExecutedCommission().getUnits(), response.getExecutedCommission().getNano()),
-                        response.getMessage()
+                        toDouble(response.getExecutedCommission().getUnits(), response.getExecutedCommission().getNano())
                 );
+                out.println(message);
+                telegramNotifyService.sendMessage(message);
                 return 1;
             }
             default: {
