@@ -18,6 +18,7 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.OffsetDateTime;
 import java.util.Arrays;
+import java.util.Date;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.TreeMap;
@@ -85,6 +86,12 @@ public class PulseFollower {
                             InstrumentInfo instrument = operation.getInstrument();
                             out.printf("[%s] Operation [%s]: %s\n", profileId, instrument.getTicker(), operation);
                             lastWatchedTrade.put(profileId, operationDateTme);
+                            telegramNotifyService.sendMessage(
+                                    String.format(
+                                            "PulseFollower: time=%s, profileId=%s, action=%s, ticker=%s",
+                                            new Date(), profileId, operation.getAction(), instrument.getTicker()
+                                    )
+                            );
                             handleOperation(operation, instrument, maxPositions);
                         }
                     });
@@ -130,7 +137,7 @@ public class PulseFollower {
                 .get("payload")
                 .getAsJsonObject();
         if (null != payload.get("code") && "Error".equals(payload.get("code").getAsString())) {
-            throw new RuntimeException("Failed get instruments: " + payload.get("message").getAsString());
+            throw new RuntimeException("Failed get instruments [" + profileId + "]: " + payload.get("message").getAsString());
         }
 
         JsonArray instruments = payload.get("items").getAsJsonArray();
