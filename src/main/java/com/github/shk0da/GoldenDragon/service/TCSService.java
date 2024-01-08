@@ -69,6 +69,8 @@ public class TCSService {
     public boolean sellAllByMarket(String name, TickerType type) {
         int count = getCountOfCurrentPositions(type, name);
         if (count > 0) {
+            String currentDate = dateFormat.format(new Date());
+            out.println("[" + currentDate + "] Sell: " + count + " " + name + " by Market");
             return 1 == createOrder(new TickerInfo.Key(name, type), 0.0, count, "Sell");
         }
         return true;

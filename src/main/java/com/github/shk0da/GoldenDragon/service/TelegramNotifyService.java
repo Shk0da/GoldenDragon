@@ -9,7 +9,8 @@ import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.temporal.ChronoUnit;
-import java.util.concurrent.locks.ReentrantLock;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 import static com.github.shk0da.GoldenDragon.config.MainConfig.HEADER_USER_AGENT;
 import static com.github.shk0da.GoldenDragon.config.MainConfig.USER_AGENT;
@@ -26,9 +27,7 @@ public class TelegramNotifyService {
     private final String botToken;
     private final String chatId;
 
-    private final ReentrantLock lock = new ReentrantLock(true);
-
-    private long lastTimeSentTelegram = 0;
+    private final ExecutorService queue = Executors.newSingleThreadExecutor();
 
     public TelegramNotifyService() {
         try {
@@ -41,30 +40,21 @@ public class TelegramNotifyService {
     }
 
     public void sendMessage(String message) {
-        lock.lock();
-        try {
-            long now = System.currentTimeMillis();
-            if (lastTimeSentTelegram == 0 || (lastTimeSentTelegram + 5_000 < now)) {
-                requestWithRetry(() -> {
-                    String text = URLEncoder.encode(message, StandardCharsets.UTF_8);
-                    String uri = String.format(TELEGRAM_SEND_MESSAGE_URL, botToken, chatId, text);
-                    HttpRequest request = HttpRequest.newBuilder()
-                            .POST(HttpRequest.BodyPublishers.noBody())
-                            .uri(URI.create(uri))
-                            .setHeader(HEADER_USER_AGENT, USER_AGENT)
-                            .timeout(Duration.of(10, ChronoUnit.SECONDS))
-                            .build();
-                    try {
-                        return httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-                    } catch (Exception ex) {
-                        out.println("Error: " + ex.getMessage());
-                        return null;
-                    }
-                });
-                lastTimeSentTelegram = now;
+        queue.execute(() -> requestWithRetry(() -> {
+            String text = URLEncoder.encode(message, StandardCharsets.UTF_8);
+            String uri = String.format(TELEGRAM_SEND_MESSAGE_URL, botToken, chatId, text);
+            HttpRequest request = HttpRequest.newBuilder()
+                    .POST(HttpRequest.BodyPublishers.noBody())
+                    .uri(URI.create(uri))
+                    .setHeader(HEADER_USER_AGENT, USER_AGENT)
+                    .timeout(Duration.of(10, ChronoUnit.SECONDS))
+                    .build();
+            try {
+                return httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+            } catch (Exception ex) {
+                out.println("Error: " + ex.getMessage());
+                return null;
             }
-        } finally {
-            lock.unlock();
-        }
+        }));
     }
 }
