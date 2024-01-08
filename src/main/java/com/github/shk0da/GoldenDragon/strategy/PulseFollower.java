@@ -105,6 +105,11 @@ public class PulseFollower {
     private void handleOperation(OperationInfo operation, InstrumentInfo instrument, int maxPositions) {
         switch (operation.getAction()) {
             case "buy":
+                if (tcsService.getCountOfCurrentPositions(instrument.getTickerType(), instrument.getTicker()) > 0) {
+                    out.println("The portfolio also contains this ticker: " + instrument.getTicker());
+                    return;
+                }
+
                 int countOfCurrentPositions = tcsService.getCountOfCurrentPositions();
                 if (countOfCurrentPositions < maxPositions) {
                     double availableCash = tcsService.getAvailableCash();
