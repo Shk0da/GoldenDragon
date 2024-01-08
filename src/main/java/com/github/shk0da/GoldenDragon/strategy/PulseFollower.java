@@ -106,7 +106,7 @@ public class PulseFollower {
         switch (operation.getAction()) {
             case "buy":
                 if (tcsService.getCountOfCurrentPositions(instrument.getTickerType(), instrument.getTicker()) > 0) {
-                    out.println("The portfolio also contains this ticker: " + instrument.getTicker());
+                    out.println("The portfolio already contains this ticker: " + instrument.getTicker());
                     return;
                 }
 
