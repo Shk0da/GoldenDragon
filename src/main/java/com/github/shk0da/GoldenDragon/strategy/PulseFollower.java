@@ -17,9 +17,7 @@ import java.net.URI;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.OffsetDateTime;
-import java.time.temporal.ChronoUnit;
 import java.util.Arrays;
-import java.util.Date;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
@@ -93,12 +91,6 @@ public class PulseFollower {
                             uniqueCheck.add(entry(operation.getAction(), instrument));
                             out.printf("[%s] Operation [%s]: %s\n", profileId, instrument.getTicker(), operation);
                             lastWatchedTrade.put(profileId, operationDateTme);
-                            telegramNotifyService.sendMessage(
-                                    String.format(
-                                            "PulseFollower: [%s] Operation [%s]: %s\n",
-                                            profileId, instrument.getTicker(), operation
-                                    )
-                            );
                             handleOperation(operation, instrument, maxPositions);
                         }
                     });
@@ -111,6 +103,7 @@ public class PulseFollower {
     }
 
     private void handleOperation(OperationInfo operation, InstrumentInfo instrument, int maxPositions) {
+        boolean operationSuccess = false;
         switch (operation.getAction()) {
             case "buy":
                 int countOfCurrentPositions = tcsService.getCountOfCurrentPositions();
@@ -123,12 +116,15 @@ public class PulseFollower {
                             "availableCash=%f, totalPortfolioCost=%f, availablePositions=%d, cost=%f\n",
                             availableCash, totalPortfolioCost, availablePositions, cost
                     );
-                    tcsService.buy(instrument.getTicker(), instrument.getTickerType(), cost);
+                    operationSuccess = tcsService.buy(instrument.getTicker(), instrument.getTickerType(), cost);
                 }
                 break;
             case "sell":
-                tcsService.sellAllByMarket(instrument.getTicker(), instrument.getTickerType());
+                operationSuccess = tcsService.sellAllByMarket(instrument.getTicker(), instrument.getTickerType());
                 break;
+        }
+        if (operationSuccess) {
+            telegramNotifyService.sendMessage(String.format("PulseFollower: Operation [%s]: %s\n", instrument.getTicker(), operation));
         }
     }
 
