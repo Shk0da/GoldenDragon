@@ -22,7 +22,6 @@ import ru.tinkoff.piapi.contract.v1.Share;
 import ru.tinkoff.piapi.core.InvestApi;
 import ru.tinkoff.piapi.core.models.Money;
 import ru.tinkoff.piapi.core.models.Portfolio;
-import ru.tinkoff.piapi.core.models.Position;
 import ru.tinkoff.piapi.core.models.Positions;
 
 import java.math.BigDecimal;
@@ -183,7 +182,15 @@ public class TCSService {
             case EXECUTION_REPORT_STATUS_NEW:
             case EXECUTION_REPORT_STATUS_FILL:
             case EXECUTION_REPORT_STATUS_PARTIALLYFILL: {
-                out.println("Created order: " + response.getOrderId());
+                out.printf(
+                        "Created %s order=%s [status=%s, price=%f, commission=%f]: %s\n",
+                        response.getDirection().name(),
+                        response.getOrderId(),
+                        response.getExecutionReportStatus(),
+                        toDouble(response.getExecutedOrderPrice().getUnits(), response.getExecutedOrderPrice().getNano()),
+                        toDouble(response.getExecutedCommission().getUnits(), response.getExecutedCommission().getNano()),
+                        response.getMessage()
+                );
                 return 1;
             }
             default: {
@@ -472,6 +479,10 @@ public class TCSService {
     }
 
     private Double toDouble(Quotation quotation) {
-        return quotation.getUnits() + Double.parseDouble("0." + quotation.getNano());
+        return toDouble(quotation.getUnits(), quotation.getNano());
+    }
+
+    private Double toDouble(long units, int nano) {
+        return units + Double.parseDouble("0." + nano);
     }
 }
