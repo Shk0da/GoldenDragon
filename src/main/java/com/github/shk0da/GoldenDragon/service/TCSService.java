@@ -191,11 +191,12 @@ public class TCSService {
                     figi, quantity, orderPrice, direction, mainConfig.getTcsAccountId(), type, null
             );
             String message = String.format(
-                    "%s %d %s by %f: %s [order=%s, status=%s, price=%f, commission=%f]\n",
+                    "%s %d %s by %f (%f): %s [order=%s, status=%s, price=%f, commission=%f]\n",
                     operation,
                     count,
                     key.getTicker(),
                     price,
+                    count * price,
                     response.getMessage(),
                     response.getOrderId(),
                     response.getExecutionReportStatus(),
