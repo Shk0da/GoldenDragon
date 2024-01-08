@@ -226,6 +226,26 @@ public class PulseFollower {
                 exchange.close();
             }));
 
+            out.printf("Start API: //0.0.0.0:%d/api/balance\n", serverPort);
+            server.createContext("/api/balance", (exchange -> {
+                String respText = String.format("Balance: %f", tcsService.getTotalPortfolioCost());
+                exchange.sendResponseHeaders(200, respText.getBytes().length);
+                OutputStream output = exchange.getResponseBody();
+                output.write(respText.getBytes());
+                output.flush();
+                exchange.close();
+            }));
+
+            out.printf("Start API: //0.0.0.0:%d/api/ping\n", serverPort);
+            server.createContext("/api/ping", (exchange -> {
+                String respText = "OK";
+                exchange.sendResponseHeaders(200, respText.getBytes().length);
+                OutputStream output = exchange.getResponseBody();
+                output.write(respText.getBytes());
+                output.flush();
+                exchange.close();
+            }));
+
             server.setExecutor(httpServer);
             server.start();
         } catch (IOException ex) {
@@ -253,13 +273,11 @@ public class PulseFollower {
     }
 
     private void executePing(String sessionId) {
-        String response = executeHttpGet(PING_API.replace("${sessionId}", sessionId));
-        out.printf("Ping: %s\n", response);
+        executeHttpGet(PING_API.replace("${sessionId}", sessionId));
     }
 
     private void executeSessionStatus(String sessionId) {
         String response = executeHttpGet(SESSION_STATUS_API.replace("${sessionId}", sessionId));
-        out.printf("SessionStatus: %s\n", response);
         if (null == response) return;
 
         JsonObject json = JsonParser.parseString(response).getAsJsonObject();
