@@ -4,6 +4,7 @@ import com.google.gson.JsonObject;
 
 import java.time.OffsetDateTime;
 import java.util.LinkedHashMap;
+import java.util.Objects;
 import java.util.function.BiConsumer;
 import java.util.function.Supplier;
 
@@ -78,6 +79,19 @@ public class InstrumentInfo {
                 (String) values.get("currency"),
                 OffsetDateTime.parse(((JsonObject) values.get("statistics")).get("maxTradeDateTime").getAsString())
         );
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (o == null || getClass() != o.getClass()) return false;
+        InstrumentInfo that = (InstrumentInfo) o;
+        return Objects.equals(type, that.type) && Objects.equals(ticker, that.ticker) && Objects.equals(classCode, that.classCode) && Objects.equals(currency, that.currency);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(type, ticker, classCode, currency);
     }
 
     @Override

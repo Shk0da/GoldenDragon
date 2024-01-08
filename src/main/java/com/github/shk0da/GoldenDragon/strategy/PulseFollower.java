@@ -21,7 +21,9 @@ import java.time.temporal.ChronoUnit;
 import java.util.Arrays;
 import java.util.Date;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Map;
+import java.util.Set;
 import java.util.TreeMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -74,10 +76,12 @@ public class PulseFollower {
         while (true) {
             for (String profileId : profileIds) {
                 try {
+                    Set<InstrumentInfo> uniqueCheck = new HashSet<>();
                     Map<OffsetDateTime, OperationInfo> operationsByDateTime = new TreeMap<>();
                     Map<OffsetDateTime, InstrumentInfo> instrumentsByDateTime = getInstruments(profileId, sessionId.get());
                     instrumentsByDateTime.forEach((dateTme, item) -> {
-                        if (lastWatchedTrade.get(profileId).isBefore(dateTme)) {
+                        if (lastWatchedTrade.get(profileId).isBefore(dateTme) && !uniqueCheck.contains(item)) {
+                            uniqueCheck.add(item);
                             operationsByDateTime.putAll(getOperations(profileId, sessionId.get(), item));
                         }
                     });
