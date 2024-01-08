@@ -90,7 +90,7 @@ public class TickerInfo {
     }
 
     public String getCurrency() {
-        return currency;
+        return currency.toUpperCase();
     }
 
     public String getName() {

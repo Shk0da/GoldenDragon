@@ -17,6 +17,7 @@ import java.net.URI;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.OffsetDateTime;
+import java.time.temporal.ChronoUnit;
 import java.util.Arrays;
 import java.util.Date;
 import java.util.HashMap;
@@ -112,7 +113,11 @@ public class PulseFollower {
                     double availableCash = tcsService.getAvailableCash();
                     double totalPortfolioCost = tcsService.getTotalPortfolioCost();
                     int availablePositions = maxPositions - countOfCurrentPositions;
-                    double cost = Math.min(availableCash, Math.abs(totalPortfolioCost / availablePositions));
+                    double cost = Math.min(totalPortfolioCost / availablePositions, availableCash);
+                    out.printf(
+                            "availableCash=%f, totalPortfolioCost=%f, availablePositions=%d, cost=%f\n",
+                            availableCash, totalPortfolioCost, availablePositions, cost
+                    );
                     tcsService.buy(instrument.getTicker(), instrument.getTickerType(), cost);
                 }
                 break;
