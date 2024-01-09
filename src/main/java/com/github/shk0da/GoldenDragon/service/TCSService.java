@@ -35,7 +35,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 
-import static com.github.shk0da.GoldenDragon.config.MainConfig.dateFormat;
+import static com.github.shk0da.GoldenDragon.config.MainConfig.dateTimeFormat;
 import static com.github.shk0da.GoldenDragon.dictionary.CurrenciesDictionary.getTickerName;
 import static com.github.shk0da.GoldenDragon.service.TelegramNotifyService.telegramNotifyService;
 import static com.github.shk0da.GoldenDragon.utils.PrintUtils.printGlassOfPrices;
@@ -70,7 +70,7 @@ public class TCSService {
         getCurrentPositions(type).values().forEach(ticker -> {
             int count = ticker.getBalance();
             String name = ticker.getTicker();
-            String currentDate = dateFormat.format(new Date());
+            String currentDate = dateTimeFormat.format(new Date());
             out.println("[" + currentDate + "] Sell: " + count + " " + name + " by Market");
 
             if (mainConfig.isTestMode()) return;
@@ -81,7 +81,7 @@ public class TCSService {
     public boolean sellAllByMarket(String name, TickerType type) {
         int count = getCountOfCurrentPositions(type, name);
         if (count > 0) {
-            String currentDate = dateFormat.format(new Date());
+            String currentDate = dateTimeFormat.format(new Date());
             out.println("[" + currentDate + "] Sell: " + count + " " + name + " by Market");
 
             if (mainConfig.isTestMode()) return true;
@@ -123,7 +123,7 @@ public class TCSService {
             out.println("Warn: sale will be used Market Price - " + name);
         }
 
-        String currentDate = dateFormat.format(new Date());
+        String currentDate = dateTimeFormat.format(new Date());
         out.println("[" + currentDate + "] Sell: " + count + " " + key.getTicker() + " by " + tickerPrice + " (" + cost + " " + currency + ")");
         if (mainConfig.isTestMode()) {
             return true;
@@ -175,7 +175,7 @@ public class TCSService {
         }
         double cost = count * tickerPrice;
 
-        String currentDate = dateFormat.format(new Date());
+        String currentDate = dateTimeFormat.format(new Date());
         out.println("[" + currentDate + "] Buy: " + count + " " + key.getTicker() + " by " + (byMarket ? "Market" : tickerPrice + " (" + cost + " " + currency + ")"));
         if (mainConfig.isTestMode()) {
             return true;

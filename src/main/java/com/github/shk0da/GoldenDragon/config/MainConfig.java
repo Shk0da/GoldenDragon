@@ -25,6 +25,7 @@ public class MainConfig {
     }};
 
     public static final DateFormat dateFormat = new SimpleDateFormat("dd.MM.yyyy");
+    public static final DateFormat dateTimeFormat = new SimpleDateFormat("dd.MM.yyyy HH:mm:ss");
     public static final DateFormat dateFormatUs = new SimpleDateFormat("yyyy-MM-dd");
 
     public static final HttpClient httpClient = HttpClient.newBuilder()
