@@ -25,6 +25,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadLocalRandom;
@@ -52,7 +53,7 @@ public class PulseFollower {
 
     private final AtomicReference<Boolean> tradeStart = new AtomicReference<>();
     private final AtomicReference<String> sessionId = new AtomicReference<>();
-    private final AtomicReference<Map<String, OffsetDateTime>> profileIds = new AtomicReference<>();
+    private final Map<String, OffsetDateTime> profileIds = new ConcurrentHashMap<>();
 
     private final ExecutorService sessionWatcher = Executors.newSingleThreadExecutor();
     private final ExecutorService httpServer = Executors.newSingleThreadExecutor();
@@ -65,7 +66,7 @@ public class PulseFollower {
         for (String profileId : pulseConfig.getFollowProfileId()) {
             lastWatchedTrade.put(profileId, OffsetDateTime.now());
         }
-        this.profileIds.set(lastWatchedTrade);
+        this.profileIds.putAll(lastWatchedTrade);
         this.sessionId.set(pulseConfig.getFollowSessionId());
         this.tradeStart.set(true);
     }
@@ -77,15 +78,15 @@ public class PulseFollower {
     }
 
     private void runFollow(int maxPositions) {
-        out.printf("Start follow for profileIds=%s\n", profileIds.get().keySet());
+        out.printf("Start follow for profileIds=%s\n", profileIds.keySet());
         while (true) {
             if (!tradeStart.get()) continue;
-            for (String profileId : profileIds.get().keySet()) {
+            for (String profileId : profileIds.keySet()) {
                 try {
                     Map<OffsetDateTime, OperationInfo> operationsByDateTime = new TreeMap<>();
                     Map<OffsetDateTime, InstrumentInfo> instrumentsByDateTime = getInstruments(profileId, sessionId.get());
                     instrumentsByDateTime.forEach((dateTme, item) -> {
-                        if (profileIds.get().get(profileId).isBefore(dateTme)) {
+                        if (profileIds.get(profileId).isBefore(dateTme)) {
                             operationsByDateTime.putAll(getOperations(profileId, sessionId.get(), item));
                         }
                     });
@@ -94,10 +95,10 @@ public class PulseFollower {
                     operationsByDateTime.forEach((operationDateTme, operation) -> {
                         InstrumentInfo instrument = operation.getInstrument();
                         boolean hasSameTrade = uniqueCheck.contains(entry(operation.getAction(), instrument));
-                        if (profileIds.get().get(profileId).isBefore(operationDateTme) && !hasSameTrade) {
+                        if (profileIds.get(profileId).isBefore(operationDateTme) && !hasSameTrade) {
                             uniqueCheck.add(entry(operation.getAction(), instrument));
                             out.printf("[%s] Operation [%s]: %s\n", profileId, instrument.getTicker(), operation);
-                            profileIds.get().put(profileId, operationDateTme);
+                            profileIds.put(profileId, operationDateTme);
                             handleOperation(operation, instrument, maxPositions);
                         }
                     });
@@ -222,7 +223,7 @@ public class PulseFollower {
             out.printf("Start API: //0.0.0.0:%d/api/add_profileId?profileId=${profileId}\n", serverPort);
             server.createContext("/api/add_profileId", (exchange -> {
                 String profileId = exchange.getRequestURI().getQuery().split("=")[1];
-                profileIds.get().put(profileId, OffsetDateTime.now());
+                profileIds.put(profileId, OffsetDateTime.now());
 
                 String respText = "Add profileId=" + profileId;
                 exchange.sendResponseHeaders(200, respText.getBytes().length);
@@ -235,7 +236,7 @@ public class PulseFollower {
             out.printf("Start API: //0.0.0.0:%d/api/remove_profileId?profileId=${profileId}\n", serverPort);
             server.createContext("/api/remove_profileId", (exchange -> {
                 String profileId = exchange.getRequestURI().getQuery().split("=")[1];
-                profileIds.get().remove(profileId);
+                profileIds.remove(profileId);
 
                 String respText = "Remove profileId=" + profileId;
                 exchange.sendResponseHeaders(200, respText.getBytes().length);
