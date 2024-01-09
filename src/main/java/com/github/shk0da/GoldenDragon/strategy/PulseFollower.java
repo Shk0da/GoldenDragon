@@ -137,7 +137,7 @@ public class PulseFollower {
         }
     }
 
-    private static Map<OffsetDateTime, InstrumentInfo> getInstruments(String profileId, String sessionId) {
+    private Map<OffsetDateTime, InstrumentInfo> getInstruments(String profileId, String sessionId) {
         String instrumentsJson = executeHttpGet(
                 PULSE_INSTRUMENT_API
                         .replace("${profileId}", profileId)
@@ -152,7 +152,12 @@ public class PulseFollower {
                 .get("payload")
                 .getAsJsonObject();
         if (null != payload.get("code") && "Error".equals(payload.get("code").getAsString())) {
-            throw new RuntimeException("Failed get instruments [" + profileId + "]: " + payload.get("message").getAsString());
+            String errorMessage = payload.get("message").getAsString();
+            if ("Необходимо наличие публичного профиля".equals(errorMessage)) {
+                profileIds.remove(profileId);
+                telegramNotifyService.sendMessage("Profile [" + profileId + "] was removed from the following");
+            }
+            throw new RuntimeException("Failed get instruments [" + profileId + "]: " + errorMessage);
         }
 
         JsonArray instruments = payload.get("items").getAsJsonArray();
@@ -169,7 +174,7 @@ public class PulseFollower {
         return instrumentsByDateTime;
     }
 
-    private static Map<OffsetDateTime, OperationInfo> getOperations(String profileId, String sessionId, InstrumentInfo instrumentInfo) {
+    private Map<OffsetDateTime, OperationInfo> getOperations(String profileId, String sessionId, InstrumentInfo instrumentInfo) {
         String operationsJson = executeHttpGet(
                 PULSE_OPERATION_API
                         .replace("${profileId}", profileId)
