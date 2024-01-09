@@ -21,6 +21,7 @@ import java.time.OffsetDateTime;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
@@ -49,37 +50,42 @@ public class PulseFollower {
     private final PulseConfig pulseConfig;
     private final TCSService tcsService;
 
+    private final AtomicReference<Boolean> tradeStart = new AtomicReference<>();
     private final AtomicReference<String> sessionId = new AtomicReference<>();
+    private final AtomicReference<Map<String, OffsetDateTime>> profileIds = new AtomicReference<>();
+
     private final ExecutorService sessionWatcher = Executors.newSingleThreadExecutor();
     private final ExecutorService httpServer = Executors.newSingleThreadExecutor();
 
     public PulseFollower(PulseConfig pulseConfig, TCSService tcsService) {
         this.pulseConfig = pulseConfig;
         this.tcsService = tcsService;
+
+        Map<String, OffsetDateTime> lastWatchedTrade = new HashMap<>();
+        for (String profileId : pulseConfig.getFollowProfileId()) {
+            lastWatchedTrade.put(profileId, OffsetDateTime.now());
+        }
+        this.profileIds.set(lastWatchedTrade);
         this.sessionId.set(pulseConfig.getFollowSessionId());
+        this.tradeStart.set(true);
     }
 
     public void run() {
         runSessionWatcher();
         runHttpServer(pulseConfig.getHttpPort());
-        runFollow(pulseConfig.getFollowProfileId(), pulseConfig.getMaxPositions());
+        runFollow(pulseConfig.getMaxPositions());
     }
 
-    private void runFollow(String[] profileIds, int maxPositions) {
-        out.printf("Start follow for profileIds=%s\n", Arrays.toString(profileIds));
-
-        Map<String, OffsetDateTime> lastWatchedTrade = new HashMap<>();
-        for (String profileId : profileIds) {
-            lastWatchedTrade.put(profileId, OffsetDateTime.now());
-        }
-
+    private void runFollow(int maxPositions) {
+        out.printf("Start follow for profileIds=%s\n", profileIds.get().keySet());
         while (true) {
-            for (String profileId : profileIds) {
+            if (!tradeStart.get()) continue;
+            for (String profileId : profileIds.get().keySet()) {
                 try {
                     Map<OffsetDateTime, OperationInfo> operationsByDateTime = new TreeMap<>();
                     Map<OffsetDateTime, InstrumentInfo> instrumentsByDateTime = getInstruments(profileId, sessionId.get());
                     instrumentsByDateTime.forEach((dateTme, item) -> {
-                        if (lastWatchedTrade.get(profileId).isBefore(dateTme)) {
+                        if (profileIds.get().get(profileId).isBefore(dateTme)) {
                             operationsByDateTime.putAll(getOperations(profileId, sessionId.get(), item));
                         }
                     });
@@ -88,10 +94,10 @@ public class PulseFollower {
                     operationsByDateTime.forEach((operationDateTme, operation) -> {
                         InstrumentInfo instrument = operation.getInstrument();
                         boolean hasSameTrade = uniqueCheck.contains(entry(operation.getAction(), instrument));
-                        if (lastWatchedTrade.get(profileId).isBefore(operationDateTme) && !hasSameTrade) {
+                        if (profileIds.get().get(profileId).isBefore(operationDateTme) && !hasSameTrade) {
                             uniqueCheck.add(entry(operation.getAction(), instrument));
                             out.printf("[%s] Operation [%s]: %s\n", profileId, instrument.getTicker(), operation);
-                            lastWatchedTrade.put(profileId, operationDateTme);
+                            profileIds.get().put(profileId, operationDateTme);
                             handleOperation(operation, instrument, maxPositions);
                         }
                     });
@@ -213,6 +219,32 @@ public class PulseFollower {
                 exchange.close();
             }));
 
+            out.printf("Start API: //0.0.0.0:%d/api/add_profileId?profileId=${profileId}\n", serverPort);
+            server.createContext("/api/add_profileId", (exchange -> {
+                String profileId = exchange.getRequestURI().getQuery().split("=")[1];
+                profileIds.get().put(profileId, OffsetDateTime.now());
+
+                String respText = "Add profileId=" + profileId;
+                exchange.sendResponseHeaders(200, respText.getBytes().length);
+                OutputStream output = exchange.getResponseBody();
+                output.write(respText.getBytes());
+                output.flush();
+                exchange.close();
+            }));
+
+            out.printf("Start API: //0.0.0.0:%d/api/remove_profileId?profileId=${profileId}\n", serverPort);
+            server.createContext("/api/remove_profileId", (exchange -> {
+                String profileId = exchange.getRequestURI().getQuery().split("=")[1];
+                profileIds.get().remove(profileId);
+
+                String respText = "Remove profileId=" + profileId;
+                exchange.sendResponseHeaders(200, respText.getBytes().length);
+                OutputStream output = exchange.getResponseBody();
+                output.write(respText.getBytes());
+                output.flush();
+                exchange.close();
+            }));
+
             out.printf("Start API: //0.0.0.0:%d/api/sell_all?tickerType=${tickerType}\n", serverPort);
             server.createContext("/api/sell_all", (exchange -> {
                 TickerType type = TickerType.byName(exchange.getRequestURI().getQuery().split("=")[1]);
@@ -239,6 +271,19 @@ public class PulseFollower {
             out.printf("Start API: //0.0.0.0:%d/api/ping\n", serverPort);
             server.createContext("/api/ping", (exchange -> {
                 String respText = "OK";
+                exchange.sendResponseHeaders(200, respText.getBytes().length);
+                OutputStream output = exchange.getResponseBody();
+                output.write(respText.getBytes());
+                output.flush();
+                exchange.close();
+            }));
+
+            out.printf("Start API: //0.0.0.0:%d/api/trade_start={true|false}\n", serverPort);
+            server.createContext("/api/trade_start", (exchange -> {
+                String tradeStart = exchange.getRequestURI().getQuery().split("=")[1];
+                this.tradeStart.set(Boolean.valueOf(tradeStart));
+
+                String respText = "Trade=" + tradeStart;
                 exchange.sendResponseHeaders(200, respText.getBytes().length);
                 OutputStream output = exchange.getResponseBody();
                 output.write(respText.getBytes());
