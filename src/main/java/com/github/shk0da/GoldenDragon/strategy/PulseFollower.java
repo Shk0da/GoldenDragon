@@ -96,6 +96,7 @@ public class PulseFollower {
                         InstrumentInfo instrument = operation.getInstrument();
                         boolean hasSameTrade = uniqueCheck.contains(entry(operation.getAction(), instrument));
                         if (profileIds.get(profileId).isBefore(operationDateTme) && !hasSameTrade) {
+                            out.printf("[%s] Operation [%s]: %s\n", profileId, instrument.getTicker(), operation);
                             if ("sell".equals(operation.getAction()) && uniqueCheck.contains(entry("buy", instrument))) {
                                 OperationInfo opToRemove = null;
                                 OffsetDateTime keyToRemove = null;
@@ -113,13 +114,8 @@ public class PulseFollower {
                             }
                             uniqueCheck.add(entry(operation.getAction(), instrument));
                             operationsWithoutDuplicates.put(operationDateTme, operation);
+                            profileIds.put(profileId, operationDateTme);
                         }
-                    });
-
-                    operationsWithoutDuplicates.forEach((operationDateTme, operation) -> {
-                        InstrumentInfo instrument = operation.getInstrument();
-                        out.printf("[%s] Operation [%s]: %s\n", profileId, instrument.getTicker(), operation);
-                        profileIds.put(profileId, operationDateTme);
                     });
                     TimeUnit.SECONDS.sleep(5);
                 } catch (Exception ex) {
