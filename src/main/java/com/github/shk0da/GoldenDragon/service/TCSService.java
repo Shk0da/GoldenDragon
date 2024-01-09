@@ -72,6 +72,8 @@ public class TCSService {
             String name = ticker.getTicker();
             String currentDate = dateFormat.format(new Date());
             out.println("[" + currentDate + "] Sell: " + count + " " + name + " by Market");
+
+            if (mainConfig.isTestMode()) return;
             createOrder(new TickerInfo.Key(name, type), 0.0, count, "Sell");
         });
     }
@@ -81,6 +83,8 @@ public class TCSService {
         if (count > 0) {
             String currentDate = dateFormat.format(new Date());
             out.println("[" + currentDate + "] Sell: " + count + " " + name + " by Market");
+
+            if (mainConfig.isTestMode()) return true;
             return 1 == createOrder(new TickerInfo.Key(name, type), 0.0, count, "Sell");
         }
         return false;
@@ -127,7 +131,15 @@ public class TCSService {
         return 1 == createOrder(key, tickerPrice, count, "Sell");
     }
 
+    public boolean buyByMarket(String name, TickerType type, double cashToBuy) {
+        return buy(name, type, cashToBuy, true);
+    }
+
     public boolean buy(String name, TickerType type, double cashToBuy) {
+        return buy(name, type, cashToBuy, false);
+    }
+
+    public boolean buy(String name, TickerType type, double cashToBuy, boolean byMarket) {
         var key = new TickerInfo.Key(name, type);
 
         String basicCurrency = marketConfig.getCurrency();
@@ -164,11 +176,11 @@ public class TCSService {
         double cost = count * tickerPrice;
 
         String currentDate = dateFormat.format(new Date());
-        out.println("[" + currentDate + "] Buy: " + count + " " + key.getTicker() + " by " + tickerPrice + " (" + cost + " " + currency + ")");
+        out.println("[" + currentDate + "] Buy: " + count + " " + key.getTicker() + " by " + (byMarket ? "Market" : tickerPrice + " (" + cost + " " + currency + ")"));
         if (mainConfig.isTestMode()) {
             return true;
         }
-        return 1 == createOrder(key, tickerPrice, count, "Buy");
+        return 1 == createOrder(key, byMarket ? 0.0 : tickerPrice, count, "Buy");
     }
 
     public int createOrder(TickerInfo.Key key, double price, int count, String operation) {

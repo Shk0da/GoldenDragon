@@ -128,7 +128,7 @@ public class PulseFollower {
                             "availableCash=%f, totalPortfolioCost=%f, availablePositions=%d, cost=%f\n",
                             availableCash, totalPortfolioCost, availablePositions, cost
                     );
-                    tcsService.buy(instrument.getTicker(), instrument.getTickerType(), cost);
+                    tcsService.buyByMarket(instrument.getTicker(), instrument.getTickerType(), cost);
                 }
                 break;
             case "sell":
