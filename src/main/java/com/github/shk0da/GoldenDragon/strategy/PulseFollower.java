@@ -18,10 +18,8 @@ import java.net.URI;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.OffsetDateTime;
-import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
-import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
@@ -92,15 +90,37 @@ public class PulseFollower {
                     });
 
                     Set<Map.Entry<String, InstrumentInfo>> uniqueCheck = new HashSet<>();
+                    Map<OffsetDateTime, OperationInfo> operationsWithoutDuplicates = new TreeMap<>();
                     operationsByDateTime.forEach((operationDateTme, operation) -> {
                         InstrumentInfo instrument = operation.getInstrument();
                         boolean hasSameTrade = uniqueCheck.contains(entry(operation.getAction(), instrument));
                         if (profileIds.get(profileId).isBefore(operationDateTme) && !hasSameTrade) {
-                            uniqueCheck.add(entry(operation.getAction(), instrument));
-                            out.printf("[%s] Operation [%s]: %s\n", profileId, instrument.getTicker(), operation);
-                            profileIds.put(profileId, operationDateTme);
-                            handleOperation(operation, instrument, maxPositions);
+                            if ("sell".equals(operation.getAction()) && uniqueCheck.contains(entry("buy", instrument))) {
+                                OperationInfo opToRemove = null;
+                                OffsetDateTime keyToRemove = null;
+                                for (Map.Entry<OffsetDateTime, OperationInfo> entry : operationsWithoutDuplicates.entrySet()) {
+                                    OperationInfo op = entry.getValue();
+                                    if (op.getAction().equals("buy") && op.getInstrument().equals(instrument)) {
+                                        opToRemove = op;
+                                        keyToRemove = op.getTradeDateTime();
+                                        break;
+                                    }
+                                }
+                                if (null != keyToRemove) {
+                                    operationsWithoutDuplicates.remove(keyToRemove, opToRemove);
+                                }
+                            } else {
+                                uniqueCheck.add(entry(operation.getAction(), instrument));
+                                operationsWithoutDuplicates.put(operationDateTme, operation);
+                            }
                         }
+                    });
+
+                    operationsWithoutDuplicates.forEach((operationDateTme, operation) -> {
+                        InstrumentInfo instrument = operation.getInstrument();
+                        out.printf("[%s] Operation [%s]: %s\n", profileId, instrument.getTicker(), operation);
+                        profileIds.put(profileId, operationDateTme);
+                        handleOperation(operation, instrument, maxPositions);
                     });
                     TimeUnit.SECONDS.sleep(5);
                 } catch (Exception ex) {
