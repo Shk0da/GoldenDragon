@@ -79,6 +79,8 @@ public class PulseFollower {
         out.printf("Start follow for profileIds=%s\n", profileIds.keySet());
         while (true) {
             if (!tradeStart.get()) continue;
+
+            Map<OffsetDateTime, OperationInfo> operationsWithoutDuplicates = new TreeMap<>();
             for (String profileId : profileIds.keySet()) {
                 try {
                     Map<OffsetDateTime, OperationInfo> operationsByDateTime = new TreeMap<>();
@@ -90,7 +92,6 @@ public class PulseFollower {
                     });
 
                     Set<Map.Entry<String, InstrumentInfo>> uniqueCheck = new HashSet<>();
-                    Map<OffsetDateTime, OperationInfo> operationsWithoutDuplicates = new TreeMap<>();
                     operationsByDateTime.forEach((operationDateTme, operation) -> {
                         InstrumentInfo instrument = operation.getInstrument();
                         boolean hasSameTrade = uniqueCheck.contains(entry(operation.getAction(), instrument));
@@ -109,10 +110,9 @@ public class PulseFollower {
                                 if (null != keyToRemove) {
                                     operationsWithoutDuplicates.remove(keyToRemove, opToRemove);
                                 }
-                            } else {
-                                uniqueCheck.add(entry(operation.getAction(), instrument));
-                                operationsWithoutDuplicates.put(operationDateTme, operation);
                             }
+                            uniqueCheck.add(entry(operation.getAction(), instrument));
+                            operationsWithoutDuplicates.put(operationDateTme, operation);
                         }
                     });
 
@@ -120,13 +120,17 @@ public class PulseFollower {
                         InstrumentInfo instrument = operation.getInstrument();
                         out.printf("[%s] Operation [%s]: %s\n", profileId, instrument.getTicker(), operation);
                         profileIds.put(profileId, operationDateTme);
-                        handleOperation(operation, instrument, maxPositions);
                     });
                     TimeUnit.SECONDS.sleep(5);
                 } catch (Exception ex) {
                     out.println("Error: " + ex.getMessage());
                 }
             }
+
+            operationsWithoutDuplicates.forEach((operationDateTme, operation) -> {
+                InstrumentInfo instrument = operation.getInstrument();
+                handleOperation(operation, instrument, maxPositions);
+            });
         }
     }
 
