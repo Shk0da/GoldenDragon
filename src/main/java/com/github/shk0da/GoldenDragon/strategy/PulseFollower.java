@@ -143,7 +143,7 @@ public class PulseFollower {
                     double availableCash = tcsService.getAvailableCash();
                     double totalPortfolioCost = tcsService.getTotalPortfolioCost();
                     int availablePositions = maxPositions - countOfCurrentPositions;
-                    double cost = Math.min(totalPortfolioCost / availablePositions, availableCash);
+                    double cost = Math.min(totalPortfolioCost / maxPositions, availableCash / availablePositions);
                     out.printf(
                             "availableCash=%f, totalPortfolioCost=%f, availablePositions=%d, cost=%f\n",
                             availableCash, totalPortfolioCost, availablePositions, cost
