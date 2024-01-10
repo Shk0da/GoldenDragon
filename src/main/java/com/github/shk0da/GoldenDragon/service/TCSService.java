@@ -25,6 +25,7 @@ import ru.tinkoff.piapi.core.models.Portfolio;
 import ru.tinkoff.piapi.core.models.Positions;
 
 import java.math.BigDecimal;
+import java.math.MathContext;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -43,6 +44,10 @@ import static java.lang.Math.round;
 import static java.lang.System.out;
 import static ru.tinkoff.piapi.contract.v1.OrderDirection.ORDER_DIRECTION_BUY;
 import static ru.tinkoff.piapi.contract.v1.OrderDirection.ORDER_DIRECTION_SELL;
+import static ru.tinkoff.piapi.contract.v1.OrderExecutionReportStatus.EXECUTION_REPORT_STATUS_FILL;
+import static ru.tinkoff.piapi.contract.v1.StopOrderDirection.STOP_ORDER_DIRECTION_SELL;
+import static ru.tinkoff.piapi.contract.v1.StopOrderType.STOP_ORDER_TYPE_STOP_LOSS;
+import static ru.tinkoff.piapi.contract.v1.StopOrderType.STOP_ORDER_TYPE_TAKE_PROFIT;
 
 public class TCSService {
 
@@ -132,14 +137,18 @@ public class TCSService {
     }
 
     public boolean buyByMarket(String name, TickerType type, double cashToBuy) {
-        return buy(name, type, cashToBuy, true);
+        return buyByMarket(name, type, cashToBuy, 0.0, 0.0);
+    }
+
+    public boolean buyByMarket(String name, TickerType type, double cashToBuy, double takeProfit, double stopLose) {
+        return buy(name, type, cashToBuy, true, takeProfit, stopLose);
     }
 
     public boolean buy(String name, TickerType type, double cashToBuy) {
-        return buy(name, type, cashToBuy, false);
+        return buy(name, type, cashToBuy, false, 0.0, 0.0);
     }
 
-    public boolean buy(String name, TickerType type, double cashToBuy, boolean byMarket) {
+    public boolean buy(String name, TickerType type, double cashToBuy, boolean byMarket, double takeProfit, double stopLose) {
         var key = new TickerInfo.Key(name, type);
 
         String basicCurrency = marketConfig.getCurrency();
@@ -180,12 +189,17 @@ public class TCSService {
         if (mainConfig.isTestMode()) {
             return true;
         }
-        return 1 == createOrder(key, byMarket ? 0.0 : tickerPrice, count, "Buy");
+        return 1 == createOrder(key, byMarket ? 0.0 : tickerPrice, count, "Buy", takeProfit, stopLose);
     }
 
     public int createOrder(TickerInfo.Key key, double price, int count, String operation) {
+        return createOrder(key, price, count, operation, 0.0, 0.0);
+    }
+
+    public int createOrder(TickerInfo.Key key, double price, int count, String operation, double takeProfit, double stopLose) {
         String figi = figiByName(key);
-        int lot = searchTicker(key).getLot();
+        TickerInfo tickerInfo = searchTicker(key);
+        int lot = tickerInfo.getLot();
         int quantity = (count / lot);
         OrderDirection direction = "Buy".equals(operation) ? ORDER_DIRECTION_BUY : ORDER_DIRECTION_SELL;
         OrderType type = OrderType.ORDER_TYPE_MARKET;
@@ -202,6 +216,11 @@ public class TCSService {
             PostOrderResponse response = investApi.getOrdersService().postOrderSync(
                     figi, quantity, orderPrice, direction, mainConfig.getTcsAccountId(), type, null
             );
+            double executedPrice = toDouble(
+                    response.getExecutedOrderPrice().getUnits(),
+                    response.getExecutedOrderPrice().getNano()
+            );
+
             String message = String.format(
                     "%s %d %s by %f (%f): %s [order=%s, status=%s, price=%f, commission=%f]\n",
                     operation,
@@ -212,10 +231,40 @@ public class TCSService {
                     response.getMessage(),
                     response.getOrderId(),
                     response.getExecutionReportStatus(),
-                    toDouble(response.getExecutedOrderPrice().getUnits(), response.getExecutedOrderPrice().getNano()),
+                    executedPrice,
                     toDouble(response.getExecutedCommission().getUnits(), response.getExecutedCommission().getNano())
             );
             out.println(message);
+
+            if (takeProfit > 0.0 && response.getExecutionReportStatus().equals(EXECUTION_REPORT_STATUS_FILL)) {
+                double takePrice = normalizePrice(executedPrice, executedPrice + ((executedPrice / 100) * takeProfit));
+                Quotation takeProfitPrice = Quotation.newBuilder()
+                        .setUnits(Math.round((takePrice - (takePrice % 1))))
+                        .setNano((int) (Math.round((takePrice % 1) * 100)))
+                        .build();
+                investApi.getStopOrdersService().postStopOrderGoodTillCancel(
+                        figi, quantity, orderPrice, takeProfitPrice,
+                        STOP_ORDER_DIRECTION_SELL,
+                        mainConfig.getTcsAccountId(),
+                        STOP_ORDER_TYPE_TAKE_PROFIT
+                );
+                out.println(key.getTicker() + " TakeProfit target: " + takePrice);
+            }
+            if (stopLose > 0.0 && response.getExecutionReportStatus().equals(EXECUTION_REPORT_STATUS_FILL)) {
+                double stopPrice = normalizePrice(executedPrice, executedPrice - ((executedPrice / 100) * stopLose));
+                Quotation stopLosePrice = Quotation.newBuilder()
+                        .setUnits(Math.round((stopPrice - (stopPrice % 1))))
+                        .setNano((int) (Math.round((stopPrice % 1) * 100)))
+                        .build();
+                investApi.getStopOrdersService().postStopOrderGoodTillCancel(
+                        figi, quantity, orderPrice, stopLosePrice,
+                        STOP_ORDER_DIRECTION_SELL,
+                        mainConfig.getTcsAccountId(),
+                        STOP_ORDER_TYPE_STOP_LOSS
+                );
+                out.println(key.getTicker() + " StopLose target: " + stopPrice);
+            }
+
             telegramNotifyService.sendMessage(message);
             return 1;
         } catch (Exception ex) {
@@ -513,11 +562,19 @@ public class TCSService {
         return price;
     }
 
-    private Double toDouble(Quotation quotation) {
+    private static Double toDouble(Quotation quotation) {
         return toDouble(quotation.getUnits(), quotation.getNano());
     }
 
-    private Double toDouble(long units, int nano) {
+    private static Double toDouble(long units, int nano) {
         return units + Double.parseDouble("0." + nano);
+    }
+
+    private static Double normalizePrice(double originalPrice, double targetPrice) {
+        String printable = String.valueOf(originalPrice);
+        int precision = printable.substring(printable.lastIndexOf(".")).length();
+        BigDecimal converter = new BigDecimal(targetPrice);
+        converter = converter.round(new MathContext(precision));
+        return converter.round(new MathContext(precision)).doubleValue();
     }
 }

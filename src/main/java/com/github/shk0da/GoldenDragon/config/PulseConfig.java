@@ -10,6 +10,8 @@ public class PulseConfig {
     private final String followSessionId;
     private final String[] followProfileIds;
     private final int maxPositions;
+    private final double takeProfit;
+    private final double stopLose;
 
     public PulseConfig() throws Exception {
         final Properties properties = PropertiesUtils.loadProperties();
@@ -17,6 +19,8 @@ public class PulseConfig {
         this.followSessionId = properties.getProperty("pulse.follow.sessionId");
         this.followProfileIds = properties.getProperty("pulse.follow.profileIds").split(";");
         this.maxPositions = Integer.parseInt(properties.getProperty("pulse.follow.maxPositions"));
+        this.takeProfit = Double.parseDouble(properties.getProperty("pulse.follow.takeProfit"));
+        this.stopLose = Double.parseDouble(properties.getProperty("pulse.follow.stopLose"));
     }
 
     public int getHttpPort() {
@@ -33,5 +37,13 @@ public class PulseConfig {
 
     public int getMaxPositions() {
         return maxPositions;
+    }
+
+    public double getTakeProfit() {
+        return takeProfit;
+    }
+
+    public double getStopLose() {
+        return stopLose;
     }
 }
