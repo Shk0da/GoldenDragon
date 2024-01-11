@@ -125,7 +125,11 @@ public class PulseFollower {
 
             operationsWithoutDuplicates.forEach((operationDateTme, operation) -> {
                 InstrumentInfo instrument = operation.getInstrument();
-                handleOperation(operation, instrument, maxPositions);
+                try {
+                    handleOperation(operation, instrument, maxPositions);
+                } catch (Exception ex) {
+                    out.println("Failed handle " + instrument.getTicker() + ": " + ex.getMessage());
+                }
             });
         }
     }
