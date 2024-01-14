@@ -117,7 +117,7 @@ public class PulseFollower {
                             profileIds.put(profileId, operationDateTme);
                         }
                     });
-                    TimeUnit.SECONDS.sleep(5);
+                    TimeUnit.MILLISECONDS.sleep(3_000);
                 } catch (Exception ex) {
                     out.println("Error: " + ex.getMessage());
                 }

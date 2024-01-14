@@ -62,13 +62,13 @@ public class GoldenDragon {
             if (!mainConfig.isTestMode()) {
                 if (!CALENDAR_WORK_DAYS.contains(currentCalendar.get(Calendar.DAY_OF_WEEK))) {
                     out.println("Not working day! Day of Week: " + currentCalendar.get(Calendar.DAY_OF_WEEK) + ". Exit...");
-                    return;
+                    if (!"PulseFollower".equals(strategy)) return;
                 }
                 int currentHour = currentCalendar.get(Calendar.HOUR_OF_DAY);
                 if (currentHour < marketConfig.getStartWorkHour() || currentHour >= marketConfig.getEndWorkHour()) {
                     int currentMinute = currentCalendar.get(Calendar.MINUTE);
                     out.println("Not working hours! Current Time: " + currentHour + ":" + currentMinute + ". Exit...");
-                    return;
+                    if (!"PulseFollower".equals(strategy)) return;
                 }
             }
 
