@@ -161,6 +161,8 @@ public class PulseFollower {
                             instrument.getTicker(), instrument.getTickerType(),
                             cost, pulseConfig.getTakeProfit(), pulseConfig.getStopLose()
                     );
+                } else {
+                    out.printf("Portfolio positions: %d out of %d\n", countOfCurrentPositions, maxPositions);
                 }
                 break;
             case "sell":
