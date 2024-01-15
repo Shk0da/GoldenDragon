@@ -75,9 +75,9 @@ public class PulseFollower {
 
     public void run() {
         runSessionWatcher();
+        runNewsFeeder(pulseConfig.getAlorNewsApi());
         runHttpServer(pulseConfig.getHttpPort());
         runFollow(pulseConfig.getMaxPositions());
-        runNewsFeeder(pulseConfig.getAlorNewsApi());
     }
 
     private void runFollow(int maxPositions) {
