@@ -389,12 +389,9 @@ public class PulseFollower {
                                 var tickers = new StringBuilder();
                                 symbols.forEach(symbol -> tickers.append("#").append(symbol).append(" "));
                                 var header = it.getAsJsonObject().get("header").getAsString();
-                                var content = it.getAsJsonObject().get("content").getAsString();
-                                telegramNotifyService.sendMessage(String.format(
-                                        "%s\n%s\n%s",
-                                        tickers, header, content
-                                ));
-                                out.printf("News: %s %s [%s]\n", publishDate, header, tickers);
+                                var message = String.format("News: %s %s [%s]", publishDate, header, tickers);
+                                telegramNotifyService.sendMessage(message);
+                                out.println(message);
                             }
                             lastWatch.set(publishDate);
                         }
