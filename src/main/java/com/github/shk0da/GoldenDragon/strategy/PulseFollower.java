@@ -96,7 +96,7 @@ public class PulseFollower {
                         InstrumentInfo instrument = operation.getInstrument();
                         boolean hasSameTrade = uniqueCheck.contains(entry(operation.getAction(), instrument));
                         if (profileIds.get(profileId).isBefore(operationDateTme) && !hasSameTrade) {
-                            out.printf("[%s] Operation [%s]: %s\n", profileId, instrument.getTicker(), operation);
+                            out.printf("%s [%s] Operation [%s]: %s\n", OffsetDateTime.now(), profileId, instrument.getTicker(), operation);
                             if ("sell".equals(operation.getAction()) && uniqueCheck.contains(entry("buy", instrument))) {
                                 OperationInfo opToRemove = null;
                                 OffsetDateTime keyToRemove = null;
