@@ -394,7 +394,7 @@ public class PulseFollower {
                                         "%s\n%s\n%s",
                                         tickers, header, content
                                 ));
-                                out.printf("News: %s %s\n", publishDate, header);
+                                out.printf("News: %s %s [%s]\n", publishDate, header, tickers);
                             }
                             lastWatch.set(publishDate);
                         }
