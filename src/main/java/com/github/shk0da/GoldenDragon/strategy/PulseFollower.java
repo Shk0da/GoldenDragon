@@ -17,7 +17,9 @@ import java.net.InetSocketAddress;
 import java.net.URI;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
@@ -36,6 +38,7 @@ import static com.github.shk0da.GoldenDragon.config.MainConfig.httpClient;
 import static com.github.shk0da.GoldenDragon.service.TelegramNotifyService.telegramNotifyService;
 import static com.github.shk0da.GoldenDragon.utils.RequestUtils.requestWithRetry;
 import static java.lang.System.out;
+import static java.time.format.DateTimeFormatter.ISO_LOCAL_DATE_TIME;
 import static java.util.Map.entry;
 
 public class PulseFollower {
@@ -55,6 +58,7 @@ public class PulseFollower {
 
     private final ExecutorService sessionWatcher = Executors.newSingleThreadExecutor();
     private final ExecutorService httpServer = Executors.newSingleThreadExecutor();
+    private final ExecutorService newsFeeder = Executors.newSingleThreadExecutor();
 
     public PulseFollower(PulseConfig pulseConfig, TCSService tcsService) {
         this.pulseConfig = pulseConfig;
@@ -73,6 +77,7 @@ public class PulseFollower {
         runSessionWatcher();
         runHttpServer(pulseConfig.getHttpPort());
         runFollow(pulseConfig.getMaxPositions());
+        runNewsFeeder(pulseConfig.getAlorNewsApi());
     }
 
     private void runFollow(int maxPositions) {
@@ -343,6 +348,55 @@ public class PulseFollower {
                         startTime = System.currentTimeMillis();
                     }
                     TimeUnit.MINUTES.sleep(1);
+                } catch (InterruptedException ex) {
+                    out.println("Error: " + ex.getMessage());
+                }
+            }
+        });
+    }
+
+    private void runNewsFeeder(String alorNewsApi) {
+        if (null == alorNewsApi || alorNewsApi.isBlank()) return;
+
+        out.printf("Start news feeder for=%s\n", alorNewsApi);
+        newsFeeder.execute(() -> {
+            AtomicReference<LocalDateTime> lastWatch = new AtomicReference<>(LocalDateTime.now());
+            while (true) {
+                try {
+                    TimeUnit.SECONDS.sleep(1);
+
+                    String response = executeHttpGet(alorNewsApi);
+                    if (null == response) continue;
+
+                    Map<LocalDateTime, JsonObject> news = new TreeMap<>((k1, k2) -> k2.isBefore(k1) ? 1 : k2.equals(k1) ? 0 : -1);
+                    JsonArray items = JsonParser.parseString(response).getAsJsonArray();
+                    items.forEach(item -> {
+                        var publishDate = LocalDateTime.parse(item.getAsJsonObject().get("publishDate").getAsString(), ISO_LOCAL_DATE_TIME);
+                        news.put(publishDate, item.getAsJsonObject());
+                    });
+
+                    news.forEach((publishDate, it) -> {
+                        if (publishDate.isAfter(lastWatch.get())) {
+                            var symbols = new ArrayList<String>();
+                            for (JsonElement symbol : it.getAsJsonObject().get("symbols").getAsJsonArray()) {
+                                if (!symbol.getAsString().isBlank()) {
+                                    symbols.add(symbol.getAsString());
+                                }
+                            }
+                            if (!symbols.isEmpty()) {
+                                var tickers = new StringBuilder();
+                                symbols.forEach(symbol -> tickers.append("#").append(symbol).append(" "));
+                                var header = it.getAsJsonObject().get("header").getAsString();
+                                var content = it.getAsJsonObject().get("content").getAsString();
+                                telegramNotifyService.sendMessage(String.format(
+                                        "%s\n%s\n%s",
+                                        tickers, header, content
+                                ));
+                                out.printf("News: %s %s\n", publishDate, header);
+                            }
+                            lastWatch.set(publishDate);
+                        }
+                    });
                 } catch (InterruptedException ex) {
                     out.println("Error: " + ex.getMessage());
                 }
