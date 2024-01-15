@@ -180,7 +180,7 @@ public class PulseFollower {
                 .getAsJsonObject();
         if (null != payload.get("code") && "Error".equals(payload.get("code").getAsString())) {
             String errorMessage = payload.get("message").getAsString();
-            if ("Необходимо наличие публичного профиля".equals(errorMessage)) {
+            if ("Необходимо наличие публичного профиля".equals(errorMessage) && profileIds.size() > 1) {
                 profileIds.remove(profileId);
                 telegramNotifyService.sendMessage("Profile [" + profileId + "] was removed from the following");
             }

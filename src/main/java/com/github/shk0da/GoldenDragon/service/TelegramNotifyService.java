@@ -24,6 +24,7 @@ public class TelegramNotifyService {
 
     private static final String TELEGRAM_SEND_MESSAGE_URL = "https://api.telegram.org/bot%s/sendMessage?chat_id=%s&text=%s";
 
+    private final Boolean enable;
     private final String botToken;
     private final String chatId;
 
@@ -32,6 +33,7 @@ public class TelegramNotifyService {
     public TelegramNotifyService() {
         try {
             TelegramNotifyConfig telegramNotifyConfig = new TelegramNotifyConfig();
+            this.enable = telegramNotifyConfig.getEnable();
             this.botToken = telegramNotifyConfig.getBotToken();
             this.chatId = telegramNotifyConfig.getChatId();
         } catch (Exception ex) {
@@ -40,6 +42,8 @@ public class TelegramNotifyService {
     }
 
     public void sendMessage(String message) {
+        if (!enable) return;
+
         queue.execute(() -> requestWithRetry(() -> {
             String text = URLEncoder.encode(message, StandardCharsets.UTF_8);
             String uri = String.format(TELEGRAM_SEND_MESSAGE_URL, botToken, chatId, text);
