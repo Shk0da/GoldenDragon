@@ -15,6 +15,7 @@ dependencies {
     implementation 'ru.tinkoff.piapi:java-sdk-core:1.5'
     implementation 'com.google.code.gson:gson:2.8.9'
     implementation 'org.jsoup:jsoup:1.15.3'
+    implementation 'com.tictactec:ta-lib:0.4.0'
 }
 
 task uberJar(type: Jar) {

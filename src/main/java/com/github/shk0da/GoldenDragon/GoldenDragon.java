@@ -11,6 +11,7 @@ import com.github.shk0da.GoldenDragon.repository.Repository;
 import com.github.shk0da.GoldenDragon.repository.TickerRepository;
 import com.github.shk0da.GoldenDragon.service.TCSService;
 import com.github.shk0da.GoldenDragon.strategy.DivFlow;
+import com.github.shk0da.GoldenDragon.strategy.IndicatorTrader;
 import com.github.shk0da.GoldenDragon.strategy.PulseFollower;
 import com.github.shk0da.GoldenDragon.strategy.RSX;
 import com.github.shk0da.GoldenDragon.strategy.Rebalance;
@@ -23,6 +24,7 @@ import java.util.Calendar;
 import java.util.Date;
 import java.util.GregorianCalendar;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.TimeZone;
 import java.util.concurrent.Callable;
@@ -62,13 +64,13 @@ public class GoldenDragon {
             if (!mainConfig.isTestMode()) {
                 if (!CALENDAR_WORK_DAYS.contains(currentCalendar.get(Calendar.DAY_OF_WEEK))) {
                     out.println("Not working day! Day of Week: " + currentCalendar.get(Calendar.DAY_OF_WEEK) + ". Exit...");
-                    if (!"PulseFollower".equals(strategy)) return;
+                    if (!List.of("PulseFollower", "IndicatorTrader").contains(strategy)) return;
                 }
                 int currentHour = currentCalendar.get(Calendar.HOUR_OF_DAY);
                 if (currentHour < marketConfig.getStartWorkHour() || currentHour >= marketConfig.getEndWorkHour()) {
                     int currentMinute = currentCalendar.get(Calendar.MINUTE);
                     out.println("Not working hours! Current Time: " + currentHour + ":" + currentMinute + ". Exit...");
-                    if (!"PulseFollower".equals(strategy)) return;
+                    if (!List.of("PulseFollower", "IndicatorTrader").contains(strategy)) return;
                 }
             }
 
@@ -76,22 +78,18 @@ public class GoldenDragon {
             updateTickerRepository(tcsService);
 
             // 1. Rebalance
-            // CRON MOEX: Every Mon at 10:01 MSK
             if ("Rebalance".equals(strategy)) {
                 final RebalanceConfig rebalanceConfig = new RebalanceConfig();
                 new Rebalance(mainConfig, marketConfig, rebalanceConfig, tcsService).run();
             }
 
             // 2. RSX
-            // CRON SPB: Every Mon at 17:00 MSK
             if ("RSX".equals(strategy)) {
                 final RSXConfig rsxConfig = new RSXConfig();
                 new RSX(mainConfig, marketConfig, rsxConfig, tcsService).run();
             }
 
             // 3. DivFlow
-            // CRON MOEX: Every Mon-Fri at 10:01 MSK
-            // CRON SPB: Every Mon-Fri at 16:31 MSK
             if ("DivFlow".equals(strategy)) {
                 new DivFlow(mainConfig, marketConfig, tcsService).run();
             }
@@ -100,6 +98,11 @@ public class GoldenDragon {
             if ("PulseFollower".equals(strategy)) {
                 final PulseConfig pulseConfig = new PulseConfig();
                 new PulseFollower(pulseConfig, tcsService).run();
+            }
+
+            // 5. IndicatorTrader
+            if ("IndicatorTrader".equals(strategy)) {
+                new IndicatorTrader(tcsService).run();
             }
         } catch (Exception ex) {
             out.printf("Error: %s%n", ex.getMessage());

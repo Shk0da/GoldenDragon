@@ -10,9 +10,11 @@ import com.github.shk0da.GoldenDragon.repository.PricesRepository;
 import com.github.shk0da.GoldenDragon.repository.Repository;
 import com.github.shk0da.GoldenDragon.repository.TickerRepository;
 import ru.tinkoff.piapi.contract.v1.Bond;
+import ru.tinkoff.piapi.contract.v1.CandleInterval;
 import ru.tinkoff.piapi.contract.v1.Currency;
 import ru.tinkoff.piapi.contract.v1.Etf;
 import ru.tinkoff.piapi.contract.v1.GetOrderBookResponse;
+import ru.tinkoff.piapi.contract.v1.HistoricCandle;
 import ru.tinkoff.piapi.contract.v1.Order;
 import ru.tinkoff.piapi.contract.v1.OrderDirection;
 import ru.tinkoff.piapi.contract.v1.OrderType;
@@ -26,6 +28,7 @@ import ru.tinkoff.piapi.core.models.Positions;
 
 import java.math.BigDecimal;
 import java.math.MathContext;
+import java.time.OffsetDateTime;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -69,6 +72,17 @@ public class TCSService {
         figiRepository.insert(new TickerInfo.Key("RUB", TickerType.CURRENCY), "RUB000UTSTOM");
         figiRepository.insert(new TickerInfo.Key("USD", TickerType.CURRENCY), "BBG0013HGFT4");
         figiRepository.insert(new TickerInfo.Key("EUR", TickerType.CURRENCY), "BBG0013HJJ31");
+    }
+
+    public List<Share> getMoexShares() {
+        return investApi.getInstrumentsService().getTradableSharesSync()
+                .stream()
+                .filter(it -> it.getCurrency().equals("rub"))
+                .collect(Collectors.toList());
+    }
+
+    public List<HistoricCandle> getCandles(String figi, OffsetDateTime start, OffsetDateTime end, CandleInterval interval) {
+        return investApi.getMarketDataService().getCandlesSync(figi, start.toInstant(), end.toInstant(), interval);
     }
 
     public void sellAllByMarket(TickerType type) {
