@@ -318,7 +318,7 @@ public class PulseFollower {
                 exchange.close();
             }));
 
-            out.printf("Start API: //0.0.0.0:%d/api/trade_start={true|false}\n", serverPort);
+            out.printf("Start API: //0.0.0.0:%d/api/trade_start?enable={true|false}\n", serverPort);
             server.createContext("/api/trade_start", (exchange -> {
                 String tradeStart = exchange.getRequestURI().getQuery().split("=")[1];
                 this.tradeStart.set(Boolean.valueOf(tradeStart));
@@ -343,6 +343,7 @@ public class PulseFollower {
         sessionWatcher.execute(() -> {
             long startTime = 0L;
             while (true) {
+                if (!tradeStart.get()) continue;
                 try {
                     executePing(sessionId.get());
                     if (0L == startTime || System.currentTimeMillis() - startTime >= 2 * 60 * 1000) {
