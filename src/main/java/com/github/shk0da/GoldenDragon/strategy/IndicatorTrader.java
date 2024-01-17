@@ -51,18 +51,20 @@ public class IndicatorTrader {
                                 OffsetDateTime.now(),
                                 CandleInterval.CANDLE_INTERVAL_5_MIN
                         );
-                        boolean isM5SignalUp = calculateSignalUp(m5candles, 30.0, stock.getName() + " M5", false);
-                        if (isM5SignalUp) {
+                        int isM5SignalUp = calculateSignalUp(m5candles, 30.0);
+                        if (isM5SignalUp > 0) {
                             List<HistoricCandle> h1candles = tcsService.getCandles(
                                     stock.getFigi(),
                                     OffsetDateTime.now().minusDays(7),
                                     OffsetDateTime.now(),
                                     CandleInterval.CANDLE_INTERVAL_HOUR
                             );
-                            boolean isH1SignalUp = calculateSignalUp(h1candles, 20.0, stock.getName() + " H1", true);
-                            if (isH1SignalUp) {
+                            int isH1SignalUp = calculateSignalUp(h1candles, 20.0);
+                            if (isH1SignalUp > 0) {
                                 purchases.add(stock.getFigi());
-                                telegramNotifyService.sendMessage(stock.getName() + ": BUY");
+                                telegramNotifyService.sendMessage(
+                                        stock.getName() + ": BUY (M5:" + isM5SignalUp + ",H1:" + isH1SignalUp + ")"
+                                );
                             }
                         }
                     }
@@ -93,46 +95,69 @@ public class IndicatorTrader {
         return maTrendDown && rsiTrendDown && rsiCrossoverSma && obvTrendDown && obvCrossoverSma;
     }
 
-    private boolean calculateSignalUp(List<HistoricCandle> candles, double adxLevel, String name, boolean isPrintable) {
-        if (candles.size() < 80) return false;
+    private int calculateSignalUp(List<HistoricCandle> candles, double adxLevel) {
+        if (candles.size() < 80) return 0;
 
         var indicators = IndicatorsUtil.initializeIndicators(candles);
 
         var maWhite = indicators.get("MAWhite");
         var maBlack = indicators.get("MABlack");
         boolean maTrendUp = maWhite.get(maWhite.size() - 3).getValue() < maWhite.get(maWhite.size() - 1).getValue();
+        boolean maSuperTrendUp =
+                maWhite.get(maWhite.size() - 3).getValue() < maWhite.get(maWhite.size() - 2).getValue() &&
+                        maWhite.get(maWhite.size() - 2).getValue() < maWhite.get(maWhite.size() - 1).getValue();
         boolean maWhiteUpperBlack = maWhite.get(maWhite.size() - 1).getValue() > maBlack.get(maBlack.size() - 1).getValue();
         boolean closeCrossoverMa = maWhite.get(maWhite.size() - 1).getClose() > maWhite.get(maWhite.size() - 1).getValue();
 
         var macd = indicators.get("MACD");
         var macdSign = indicators.get("MACD_SIGN");
         boolean macdTrendUp = macdSign.get(macdSign.size() - 3).getValue() < macdSign.get(macdSign.size() - 1).getValue();
+        boolean macdSuperTrendUp =
+                macdSign.get(macdSign.size() - 3).getValue() < macdSign.get(macdSign.size() - 2).getValue() &&
+                        macdSign.get(macdSign.size() - 2).getValue() < macdSign.get(macdSign.size() - 1).getValue();
         boolean macdUpperZero = macd.get(macd.size() - 1).getValue() > 0.000;
         boolean macdCrossoverSignal = macd.get(macd.size() - 1).getValue() >= macdSign.get(macdSign.size() - 1).getValue();
 
         var rsi = indicators.get("RSI");
         var rsiSma = indicators.get("RSI_SMA");
         boolean rsiTrendUp = rsiSma.get(rsiSma.size() - 3).getValue() < rsiSma.get(rsiSma.size() - 3).getValue();
+        boolean rsiSuperTrendUp =
+                rsiSma.get(rsiSma.size() - 3).getValue() < rsiSma.get(rsiSma.size() - 2).getValue() &&
+                        rsiSma.get(rsiSma.size() - 2).getValue() < rsiSma.get(rsiSma.size() - 1).getValue();
         boolean rsiUpper50 = rsi.get(rsi.size() - 1).getValue() >= 50.0;
         boolean rsiCrossoverSma = rsi.get(rsi.size() - 1).getValue() > rsiSma.get(rsiSma.size() - 1).getValue();
 
         var obv = indicators.get("OBV");
         var obvSma = indicators.get("OBV_SMA");
         boolean obvTrendUp = obvSma.get(obvSma.size() - 3).getValue() < obvSma.get(obvSma.size() - 1).getValue();
+        boolean obvSuperTrendUp =
+                obvSma.get(obvSma.size() - 3).getValue() < obvSma.get(obvSma.size() - 2).getValue() &&
+                        obvSma.get(obvSma.size() - 2).getValue() < obvSma.get(obvSma.size() - 1).getValue();
         boolean obvUpperZero = obv.get(obv.size() - 1).getValue() > 0.0;
         boolean obvCrossoverSma = obv.get(obv.size() - 1).getValue() > obvSma.get(obvSma.size() - 1).getValue();
 
         var adx = indicators.get("ADX");
         boolean adxUpper30 = adx.get(adx.size() - 1).getValue() >= adxLevel;
 
+        if (maSuperTrendUp && maWhiteUpperBlack && closeCrossoverMa &&
+                macdSuperTrendUp && macdUpperZero && macdCrossoverSignal &&
+                rsiSuperTrendUp && rsiUpper50 && rsiCrossoverSma &&
+                obvSuperTrendUp && obvUpperZero && obvCrossoverSma &&
+                adxUpper30) {
+            return 2;
+        }
+
         boolean rsiIndic = rsiTrendUp && rsiUpper50 && rsiCrossoverSma;
         boolean obvIndic = obvTrendUp && obvUpperZero && obvCrossoverSma;
-
-        return maTrendUp && maWhiteUpperBlack && closeCrossoverMa &&
+        if (maTrendUp && maWhiteUpperBlack && closeCrossoverMa &&
                 macdTrendUp && macdUpperZero && macdCrossoverSignal &&
                 (obvIndic || rsiTrendUp) && rsiUpper50 && rsiCrossoverSma &&
                 (rsiIndic || obvTrendUp) && obvUpperZero && obvCrossoverSma &&
-                adxUpper30;
+                adxUpper30) {
+            return 1;
+        }
+
+        return 0;
     }
 
     private static void sleep(int start, int end) {
