@@ -2,6 +2,7 @@ package com.github.shk0da.GoldenDragon;
 
 import com.github.shk0da.GoldenDragon.config.MainConfig;
 import com.github.shk0da.GoldenDragon.config.MarketConfig;
+import com.github.shk0da.GoldenDragon.config.NewsPusherConfig;
 import com.github.shk0da.GoldenDragon.config.PulseConfig;
 import com.github.shk0da.GoldenDragon.config.RSXConfig;
 import com.github.shk0da.GoldenDragon.config.RebalanceConfig;
@@ -12,6 +13,7 @@ import com.github.shk0da.GoldenDragon.repository.TickerRepository;
 import com.github.shk0da.GoldenDragon.service.TCSService;
 import com.github.shk0da.GoldenDragon.strategy.DivFlow;
 import com.github.shk0da.GoldenDragon.strategy.IndicatorTrader;
+import com.github.shk0da.GoldenDragon.strategy.NewsPusher;
 import com.github.shk0da.GoldenDragon.strategy.PulseFollower;
 import com.github.shk0da.GoldenDragon.strategy.RSX;
 import com.github.shk0da.GoldenDragon.strategy.Rebalance;
@@ -103,6 +105,12 @@ public class GoldenDragon {
             // 5. IndicatorTrader
             if ("IndicatorTrader".equals(strategy)) {
                 new IndicatorTrader(tcsService).run();
+            }
+
+            // 6. NewsPusher
+            if ("NewsPusher".equals(strategy)) {
+                final NewsPusherConfig newsPusherConfig = new NewsPusherConfig();
+                new NewsPusher(newsPusherConfig).run();
             }
         } catch (Exception ex) {
             out.printf("Error: %s%n", ex.getMessage());

@@ -12,7 +12,6 @@ public class PulseConfig {
     private final int maxPositions;
     private final double takeProfit;
     private final double stopLose;
-    private final String alorNewsApi;
 
     public PulseConfig() throws Exception {
         final Properties properties = PropertiesUtils.loadProperties();
@@ -22,7 +21,6 @@ public class PulseConfig {
         this.maxPositions = Integer.parseInt(properties.getProperty("pulse.follow.maxPositions"));
         this.takeProfit = Double.parseDouble(properties.getProperty("pulse.follow.takeProfit"));
         this.stopLose = Double.parseDouble(properties.getProperty("pulse.follow.stopLose"));
-        this.alorNewsApi = properties.getProperty("pulse.news.alorApi");
     }
 
     public int getHttpPort() {
@@ -47,9 +45,5 @@ public class PulseConfig {
 
     public double getStopLose() {
         return stopLose;
-    }
-
-    public String getAlorNewsApi() {
-        return alorNewsApi;
     }
 }
