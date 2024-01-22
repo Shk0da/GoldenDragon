@@ -3,24 +3,34 @@ package com.github.shk0da.GoldenDragon.strategy;
 import com.github.shk0da.GoldenDragon.service.TCSService;
 import com.github.shk0da.GoldenDragon.utils.IndicatorsUtil;
 import ru.tinkoff.piapi.contract.v1.CandleInterval;
+import ru.tinkoff.piapi.contract.v1.GetOrderBookResponse;
 import ru.tinkoff.piapi.contract.v1.HistoricCandle;
+import ru.tinkoff.piapi.contract.v1.Order;
 import ru.tinkoff.piapi.contract.v1.Share;
 
 import java.time.OffsetDateTime;
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 
 import static com.github.shk0da.GoldenDragon.service.TelegramNotifyService.telegramNotifyService;
+import static com.github.shk0da.GoldenDragon.utils.IndicatorsUtil.toDouble;
 import static java.lang.System.out;
+import static java.time.OffsetDateTime.now;
+import static java.util.Collections.max;
+import static java.util.stream.Collectors.toList;
 
 public class IndicatorTrader {
 
     private final TCSService tcsService;
 
     private final Set<String> purchases = new HashSet<>();
+    private final Map<String, OffsetDateTime> anomalies = new HashMap<>();
 
     public IndicatorTrader(TCSService tcsService) {
         this.tcsService = tcsService;
@@ -30,13 +40,24 @@ public class IndicatorTrader {
         List<Share> stocks = tcsService.getMoexShares();
         while (true) {
             stocks.forEach(stock -> {
+
+                boolean hasNotActiveDetectAnomaly = null == anomalies.get(stock.getFigi()) || anomalies.get(stock.getFigi()).isBefore(now().minusMinutes(5));
+                if (hasNotActiveDetectAnomaly) {
+                    var orderBook = tcsService.getOrderBook(stock.getFigi(), 10);
+                    boolean hasGlassAnomaly = hasGlassAnomaly(orderBook);
+                    if (hasGlassAnomaly) {
+                        telegramNotifyService.sendMessage(stock.getName() + ": ANOMALY");
+                        anomalies.put(stock.getFigi(), now());
+                    }
+                }
+
                 sleep(300, 450);
                 try {
                     if (purchases.contains(stock.getFigi())) {
                         List<HistoricCandle> m15candles = tcsService.getCandles(
                                 stock.getFigi(),
-                                OffsetDateTime.now().minusHours(24),
-                                OffsetDateTime.now(),
+                                now().minusHours(24),
+                                now(),
                                 CandleInterval.CANDLE_INTERVAL_15_MIN
                         );
                         boolean isM15SignalDown = calculateSignalDown(m15candles);
@@ -47,16 +68,16 @@ public class IndicatorTrader {
                     } else {
                         List<HistoricCandle> m5candles = tcsService.getCandles(
                                 stock.getFigi(),
-                                OffsetDateTime.now().minusHours(24),
-                                OffsetDateTime.now(),
+                                now().minusHours(24),
+                                now(),
                                 CandleInterval.CANDLE_INTERVAL_5_MIN
                         );
                         boolean isM5SignalUp = calculateSignalUp(m5candles, 30.0);
                         if (isM5SignalUp) {
                             List<HistoricCandle> h1candles = tcsService.getCandles(
                                     stock.getFigi(),
-                                    OffsetDateTime.now().minusDays(7),
-                                    OffsetDateTime.now(),
+                                    now().minusDays(7),
+                                    now(),
                                     CandleInterval.CANDLE_INTERVAL_HOUR
                             );
                             boolean isH1SignalUp = calculateSignalUp(h1candles, 20.0);
@@ -71,6 +92,65 @@ public class IndicatorTrader {
                 }
             });
         }
+    }
+
+    private boolean hasGlassAnomaly(GetOrderBookResponse orderBook) {
+        if (orderBook.getAsksCount() == 0 || orderBook.getBidsCount() == 0) {
+            return false;
+        }
+
+        // Покупка
+        Double maxAsk = max(orderBook.getAsksList().stream().map(it -> toDouble(it.getPrice())).collect(toList()));
+        // Продажа
+        Double maxBid = max(orderBook.getBidsList().stream().map(it -> toDouble(it.getPrice())).collect(toList()));
+
+        // Spread-Based Strategy
+        var spread = maxAsk - maxBid;
+        var spreadThreshold = (maxAsk / 100) * 0.05;
+        if (Math.abs(spread) < Math.abs(spreadThreshold)) {
+            return true;
+        }
+
+        // Volume-Based Strategy
+        var totalBidVolume = 0.0;
+        for (Order order : orderBook.getBidsList()) {
+            totalBidVolume += order.getQuantity();
+        }
+
+        var totalAskVolume = 0.0;
+        for (Order order : orderBook.getAsksList()) {
+            totalAskVolume += order.getQuantity();
+        }
+
+        var meanBidVolume = totalBidVolume / orderBook.getBidsList().size();
+        var meanAskVolume = totalAskVolume / orderBook.getAsksList().size();
+        var meanVolume = (meanBidVolume + meanAskVolume) / 2;
+
+        double squaredDifferencesSum = 0.0;
+
+        var allOrders = new ArrayList<Order>();
+        allOrders.addAll(orderBook.getBidsList());
+        allOrders.addAll(orderBook.getAsksList());
+        for (Order order : allOrders) {
+            squaredDifferencesSum += Math.pow(order.getQuantity() - meanVolume, 2);
+        }
+        var stdVolume = Math.sqrt(squaredDifferencesSum / allOrders.size());
+
+        double threshold = ((meanBidVolume + meanAskVolume) / 2) + 5 * stdVolume;
+        for (Order order : allOrders) {
+            if (order.getQuantity() > threshold) {
+                return true;
+            }
+        }
+
+        // Side Dominance Strategy
+        var totalVolume = totalBidVolume + totalAskVolume;
+        var bidDominance = totalBidVolume / totalVolume;
+        if (bidDominance > threshold || (1 - bidDominance) > threshold) {
+            return true;
+        }
+
+        return false;
     }
 
     public static boolean calculateSignalDown(List<HistoricCandle> candles) {

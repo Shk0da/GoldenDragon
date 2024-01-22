@@ -80,6 +80,10 @@ public class TCSService {
                 .collect(Collectors.toList());
     }
 
+    public GetOrderBookResponse getOrderBook(String figi, int depth /*1, 10, 20, 30, 40, 50*/) {
+        return investApi.getMarketDataService().getOrderBookSync(figi, depth);
+    }
+
     public List<HistoricCandle> getCandles(String figi, OffsetDateTime start, OffsetDateTime end, CandleInterval interval) {
         return investApi.getMarketDataService().getCandlesSync(figi, start.toInstant(), end.toInstant(), interval);
     }
