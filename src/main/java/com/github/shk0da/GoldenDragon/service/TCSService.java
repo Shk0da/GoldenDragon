@@ -27,7 +27,6 @@ import ru.tinkoff.piapi.core.models.Portfolio;
 import ru.tinkoff.piapi.core.models.Positions;
 
 import java.math.BigDecimal;
-import java.math.MathContext;
 import java.time.OffsetDateTime;
 import java.util.Date;
 import java.util.HashMap;
@@ -150,10 +149,6 @@ public class TCSService {
         return 1 == createOrder(key, tickerPrice, count, "Sell");
     }
 
-    public boolean buyByMarket(String name, TickerType type, double cashToBuy) {
-        return buyByMarket(name, type, cashToBuy, 0.0, 0.0);
-    }
-
     public boolean buyByMarket(String name, TickerType type, double cashToBuy, double takeProfit, double stopLose) {
         return buy(name, type, cashToBuy, true, takeProfit, stopLose);
     }
@@ -251,7 +246,7 @@ public class TCSService {
             out.println(message);
 
             if (takeProfit > 0.0 && response.getExecutionReportStatus().equals(EXECUTION_REPORT_STATUS_FILL)) {
-                double takePrice = normalizePrice(executedPrice, executedPrice + ((executedPrice / 100) * takeProfit));
+                double takePrice = normalizePrice(executedPrice + ((executedPrice / 100) * takeProfit), tickerInfo.getMinPriceIncrement());
                 Quotation takeProfitPrice = Quotation.newBuilder()
                         .setUnits(Math.round((takePrice - (takePrice % 1))))
                         .setNano((int) (Math.round((takePrice % 1) * 100)))
@@ -265,7 +260,7 @@ public class TCSService {
                 out.println(key.getTicker() + " TakeProfit target: " + takePrice);
             }
             if (stopLose > 0.0 && response.getExecutionReportStatus().equals(EXECUTION_REPORT_STATUS_FILL)) {
-                double stopPrice = normalizePrice(executedPrice, executedPrice - ((executedPrice / 100) * stopLose));
+                double stopPrice = normalizePrice(executedPrice - ((executedPrice / 100) * stopLose), tickerInfo.getMinPriceIncrement());
                 Quotation stopLosePrice = Quotation.newBuilder()
                         .setUnits(Math.round((stopPrice - (stopPrice % 1))))
                         .setNano((int) (Math.round((stopPrice % 1) * 100)))
@@ -584,11 +579,7 @@ public class TCSService {
         return units + Double.parseDouble("0." + nano);
     }
 
-    private static Double normalizePrice(double originalPrice, double targetPrice) {
-        String printable = String.valueOf(originalPrice);
-        int precision = printable.substring(printable.lastIndexOf(".")).length();
-        BigDecimal converter = new BigDecimal(targetPrice);
-        converter = converter.round(new MathContext(precision));
-        return converter.round(new MathContext(precision)).doubleValue();
+    private static Double normalizePrice(double price, double priceStep) {
+        return Math.round(price / priceStep) * priceStep;
     }
 }

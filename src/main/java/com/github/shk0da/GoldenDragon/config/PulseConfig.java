@@ -10,6 +10,7 @@ public class PulseConfig {
     private final String followSessionId;
     private final String[] followProfileIds;
     private final int maxPositions;
+    private final Double maxPurchaseAmount;
     private final double takeProfit;
     private final double stopLose;
 
@@ -19,6 +20,7 @@ public class PulseConfig {
         this.followSessionId = properties.getProperty("pulse.follow.sessionId");
         this.followProfileIds = properties.getProperty("pulse.follow.profileIds").split(";");
         this.maxPositions = Integer.parseInt(properties.getProperty("pulse.follow.maxPositions"));
+        this.maxPurchaseAmount = Double.parseDouble(properties.getProperty("pulse.follow.maxPurchaseAmount"));
         this.takeProfit = Double.parseDouble(properties.getProperty("pulse.follow.takeProfit"));
         this.stopLose = Double.parseDouble(properties.getProperty("pulse.follow.stopLose"));
     }
@@ -37,6 +39,10 @@ public class PulseConfig {
 
     public int getMaxPositions() {
         return maxPositions;
+    }
+
+    public double getMaxPurchaseAmount() {
+        return maxPurchaseAmount;
     }
 
     public double getTakeProfit() {

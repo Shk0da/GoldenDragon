@@ -43,8 +43,8 @@ public class PulseFollower {
     public static final String PING_API = "https://www.tinkoff.ru/api/common/v1/ping?appName=invest&appVersion=2.0.0&sessionid=${sessionId}";
     public static final String SESSION_STATUS_API = "https://www.tinkoff.ru/api/common/v1/session_status?appName=invest&appVersion=2.0.0&sessionid=${sessionId}";
 
-    public static final String PULSE_INSTRUMENT_API = "https://api-invest-gw.tinkoff.ru/social/v1/profile/${profileId}/instrument?limit=30&sessionId=${sessionId}&appName=socialweb&appVersion=1.383.0&origin=web&platform=web";
-    public static final String PULSE_OPERATION_API = "https://api-invest-gw.tinkoff.ru/social/v1/profile/${profileId}/operation/instrument/${tickerName}/${tickerClass}?limit=30&sessionId=${sessionId}&appName=socialweb&appVersion=1.383.0&origin=web&platform=web";
+    public static final String PULSE_INSTRUMENT_API = "https://api-invest-gw.tinkoff.ru/social/v1/profile/${profileId}/instrument?limit=1&sessionId=${sessionId}&appName=socialweb&appVersion=1.383.0&origin=web&platform=web";
+    public static final String PULSE_OPERATION_API = "https://api-invest-gw.tinkoff.ru/social/v1/profile/${profileId}/operation/instrument/${tickerName}/${tickerClass}?limit=1&sessionId=${sessionId}&appName=socialweb&appVersion=1.383.0&origin=web&platform=web";
 
     private final PulseConfig pulseConfig;
     private final TCSService tcsService;
@@ -114,10 +114,10 @@ public class PulseFollower {
                             }
                             uniqueCheck.add(entry(operation.getAction(), instrument));
                             operationsWithoutDuplicates.put(operationDateTme, operation);
-                            profileIds.put(profileId, operationDateTme);
+                            profileIds.put(profileId, OffsetDateTime.now());
                         }
                     });
-                    TimeUnit.MILLISECONDS.sleep(3_000);
+                    TimeUnit.MILLISECONDS.sleep(2_500);
                 } catch (Exception ex) {
                     out.println("Error: " + ex.getMessage());
                 }
@@ -148,6 +148,9 @@ public class PulseFollower {
                     double totalPortfolioCost = tcsService.getTotalPortfolioCost();
                     int availablePositions = maxPositions - countOfCurrentPositions;
                     double cost = Math.min(totalPortfolioCost / maxPositions, availableCash / availablePositions);
+                    if (pulseConfig.getMaxPurchaseAmount() != 0.0) {
+                        cost = Math.min(cost, pulseConfig.getMaxPurchaseAmount());
+                    }
                     out.printf(
                             "availableCash=%f, totalPortfolioCost=%f, availablePositions=%d, cost=%f\n",
                             availableCash, totalPortfolioCost, availablePositions, cost
