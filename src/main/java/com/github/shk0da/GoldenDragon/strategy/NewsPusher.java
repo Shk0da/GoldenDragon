@@ -65,13 +65,12 @@ public class NewsPusher {
                         if (publishDate.isAfter(lastWatch.get())) {
                             var symbols = new ArrayList<String>();
                             for (JsonElement symbol : it.getAsJsonObject().get("symbols").getAsJsonArray()) {
-                                if (!symbol.getAsString().isBlank()) {
-                                    symbols.add(symbol.getAsString());
+                                if (!symbol.getAsString().isBlank() && !symbol.getAsString().contains(":SPB")) {
+                                    symbols.add("#" + symbol.getAsString());
                                 }
                             }
                             if (!symbols.isEmpty()) {
-                                var tickers = new StringBuilder();
-                                symbols.forEach(symbol -> tickers.append("#").append(symbol).append(" "));
+                                var tickers =  String.join(" ", symbols);
                                 var header = it.getAsJsonObject().get("header").getAsString();
                                 var message = String.format("News: %s %s [%s]", publishDate, header, tickers);
                                 telegramNotifyService.sendMessage(message);
