@@ -99,6 +99,8 @@ public class IndicatorTrader {
             return false;
         }
 
+        int result = 0;
+
         // Покупка
         Double maxAsk = max(orderBook.getAsksList().stream().map(it -> toDouble(it.getPrice())).collect(toList()));
         // Продажа
@@ -108,7 +110,7 @@ public class IndicatorTrader {
         var spread = maxAsk - maxBid;
         var spreadThreshold = (maxAsk / 100) * 0.05;
         if (Math.abs(spread) < Math.abs(spreadThreshold)) {
-            return true;
+            result++;
         }
 
         // Volume-Based Strategy
@@ -139,7 +141,8 @@ public class IndicatorTrader {
         double threshold = ((meanBidVolume + meanAskVolume) / 2) + 5 * stdVolume;
         for (Order order : allOrders) {
             if (order.getQuantity() > threshold) {
-                return true;
+                result++;
+                break;
             }
         }
 
@@ -147,10 +150,10 @@ public class IndicatorTrader {
         var totalVolume = totalBidVolume + totalAskVolume;
         var bidDominance = totalBidVolume / totalVolume;
         if (bidDominance > threshold || (1 - bidDominance) > threshold) {
-            return true;
+            result++;
         }
 
-        return false;
+        return result >= 2;
     }
 
     public static boolean calculateSignalDown(List<HistoricCandle> candles) {
