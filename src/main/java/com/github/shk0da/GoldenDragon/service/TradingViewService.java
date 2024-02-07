@@ -44,13 +44,13 @@ public class TradingViewService {
         if (Market.MOEX == market) {
             filters.addAll(List.of(
                     new Filter("debt_to_equity", "nempty"),
-                    new Filter("Recommend.All|1M", "nempty"),
+                    new Filter("Recommend.All|1W", "nempty"),
                     new Filter("total_debt", "nequal", 0.0),
                     new Filter("type", "in_range", List.of("stock")),
                     new Filter("subtype", "in_range", List.of("common")),
                     new Filter("exchange", "in_range", List.of("MOEX")),
                     new Filter("market_cap_basic", "egreater", 50_000_000),
-                    new Filter("Recommend.All|1M", "egreater", 0.4),
+                    new Filter("Recommend.All|1W", "egreater", 0.4),
                     new Filter("debt_to_equity", "in_range", List.of(-50, 3)),
                     new Filter("total_revenue", "egreater", 0)
             ));
