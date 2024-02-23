@@ -16,6 +16,8 @@ dependencies {
     implementation 'com.google.code.gson:gson:2.8.9'
     implementation 'org.jsoup:jsoup:1.15.3'
     implementation 'com.tictactec:ta-lib:0.4.0'
+    implementation 'org.jfree:jfreechart:1.0.19'
+    implementation 'org.postgresql:postgresql:42.7.2'
 }
 
 task uberJar(type: Jar) {
