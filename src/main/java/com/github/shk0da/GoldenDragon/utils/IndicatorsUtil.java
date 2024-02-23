@@ -1,5 +1,6 @@
 package com.github.shk0da.GoldenDragon.utils;
 
+import com.github.shk0da.GoldenDragon.model.TickerCandle;
 import com.tictactec.ta.lib.Core;
 import com.tictactec.ta.lib.MInteger;
 import com.tictactec.ta.lib.RetCode;
@@ -9,6 +10,7 @@ import ru.tinkoff.piapi.contract.v1.Quotation;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -68,6 +70,226 @@ public class IndicatorsUtil {
                     ", close=" + close +
                     '}';
         }
+    }
+
+    public static Map<String, List<Indicator>> getIndicators(List<TickerCandle> candles) {
+        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+        Map<String, List<Indicator>> indicators = new HashMap<>();
+
+        // MA Black
+        List<Indicator> MABlack = new ArrayList<>();
+        for (int i = MA_BLACK_PERIOD; i < candles.size(); i++) {
+            double[] inClose = new double[MA_BLACK_PERIOD];
+            int k = 0;
+            int j = i - MA_BLACK_PERIOD;
+            while (k < MA_BLACK_PERIOD) {
+                inClose[k] = candles.get(j).getClose();
+                k++;
+                j++;
+            }
+            double value = movingAverageBlack(inClose);
+            MABlack.add(new Indicator(
+                    "MABlack",
+                    value,
+                    LocalDateTime.parse(candles.get(j).getDate(), formatter),
+                    candles.get(j).getClose()));
+        }
+        indicators.put("MABlack", MABlack);
+
+        // MA White
+        List<Indicator> MAWhite = new ArrayList<>();
+        for (int i = MA_WHITE_PERIOD; i < candles.size(); i++) {
+            double[] inClose = new double[MA_WHITE_PERIOD];
+            int k = 0;
+            int j = i - MA_WHITE_PERIOD;
+            while (k < MA_WHITE_PERIOD) {
+                inClose[k] = candles.get(j).getClose();
+                k++;
+                j++;
+            }
+            double value = movingAverageWhite(inClose);
+            MAWhite.add(new Indicator(
+                    "MAWhite",
+                    value,
+                    LocalDateTime.parse(candles.get(j).getDate(), formatter),
+                    candles.get(j).getClose()));
+        }
+        indicators.put("MAWhite", MAWhite);
+
+        // MACD
+        int chunkMacdSize = MACD_SLOW_PERIOD + SHIFT_SIZE;
+        List<Indicator> MACD = new ArrayList<>();
+        for (int i = chunkMacdSize; i < candles.size(); i++) {
+            double[] inClose = new double[chunkMacdSize];
+            int k = 0;
+            int j = i - chunkMacdSize;
+            while (k < chunkMacdSize) {
+                inClose[k] = candles.get(j).getClose();
+                k++;
+                j++;
+            }
+            double value = macd(inClose);
+            MACD.add(new Indicator(
+                    "MACD",
+                    value,
+                    LocalDateTime.parse(candles.get(j).getDate(), formatter),
+                    candles.get(j).getClose()));
+        }
+        indicators.put("MACD", MACD);
+
+        // MACD SIGN
+        int chunkMacdSignSize = MACD_SLOW_PERIOD + SHIFT_SIZE;
+        List<Indicator> MACD_SIGN = new ArrayList<>();
+        for (int i = chunkMacdSignSize; i < candles.size(); i++) {
+            double[] inClose = new double[chunkMacdSignSize];
+            int k = 0;
+            int j = i - chunkMacdSignSize;
+            while (k < chunkMacdSignSize) {
+                inClose[k] = candles.get(j).getClose();
+                k++;
+                j++;
+            }
+            double value = macdSign(inClose);
+            MACD_SIGN.add(new Indicator(
+                    "MACD_SIGN",
+                    value,
+                    LocalDateTime.parse(candles.get(j).getDate(), formatter),
+                    candles.get(j).getClose()));
+        }
+        indicators.put("MACD_SIGN", MACD_SIGN);
+
+        // MACD SMA
+        int chunkSmaMacdSize = SMA_PERIOD;
+        List<Indicator> MACD_SMA = new ArrayList<>();
+        for (int i = chunkSmaMacdSize; i < MACD.size(); i++) {
+            double[] inClose = new double[chunkSmaMacdSize];
+            int k = 0;
+            int j = i - chunkSmaMacdSize;
+            while (k < chunkSmaMacdSize) {
+                inClose[k] = MACD.get(j).getValue();
+                k++;
+                j++;
+            }
+            double value = sma(inClose);
+            MACD_SMA.add(new Indicator(
+                    "MACD_SMA",
+                    value,
+                    MACD.get(j).getDateTime(),
+                    MACD.get(j).getValue()));
+        }
+        indicators.put("MACD_SMA", MACD_SMA);
+
+        // RSI
+        List<Indicator> RSI = new ArrayList<>();
+        int chunkRsiSize = RSI_PERIOD + SHIFT_SIZE;
+        for (int i = chunkRsiSize; i < candles.size(); i++) {
+            double[] inClose = new double[chunkRsiSize];
+            int k = 0;
+            int j = i - chunkRsiSize;
+            while (k < chunkRsiSize) {
+                inClose[k] = candles.get(j).getClose();
+                k++;
+                j++;
+            }
+            double value = rsi(inClose);
+            RSI.add(new Indicator(
+                    "RSI",
+                    value,
+                    LocalDateTime.parse(candles.get(j).getDate(), formatter),
+                    candles.get(j).getClose()));
+        }
+        indicators.put("RSI", RSI);
+
+        // RSI SMA
+        List<Indicator> RSI_SMA = new ArrayList<>();
+        int chunkRsiSmaSize = SMA_PERIOD;
+        for (int i = chunkRsiSmaSize; i < RSI.size(); i++) {
+            double[] inClose = new double[chunkRsiSmaSize];
+            int k = 0;
+            int j = i - chunkRsiSmaSize;
+            while (k < chunkRsiSmaSize) {
+                inClose[k] = RSI.get(j).getValue();
+                k++;
+                j++;
+            }
+            double value = sma(inClose);
+            RSI_SMA.add(new Indicator(
+                    "RSI_SMA",
+                    value,
+                    RSI.get(j).getDateTime(),
+                    RSI.get(j).getValue()));
+        }
+        indicators.put("RSI_SMA", RSI_SMA);
+
+        // OBV
+        List<Indicator> OBV = new ArrayList<>();
+        for (int i = OBV_PERIOD; i < candles.size(); i++) {
+            double[] inClose = new double[OBV_PERIOD];
+            double[] inVolume = new double[OBV_PERIOD];
+            int k = 0;
+            int j = i - OBV_PERIOD;
+            while (k < OBV_PERIOD) {
+                inClose[k] = candles.get(j).getClose();
+                inVolume[k] = candles.get(j).getVolume();
+                k++;
+                j++;
+            }
+            double value = obv(inClose, inVolume);
+            OBV.add(new Indicator(
+                    "OBV",
+                    value,
+                    LocalDateTime.parse(candles.get(j).getDate(), formatter),
+                    candles.get(j).getClose()));
+        }
+        indicators.put("OBV", OBV);
+
+        // OBV SMA
+        List<Indicator> OBV_SMA = new ArrayList<>();
+        int chunkObvSmaSize = SMA_PERIOD;
+        for (int i = chunkObvSmaSize; i < OBV.size(); i++) {
+            double[] inClose = new double[chunkObvSmaSize];
+            int k = 0;
+            int j = i - chunkRsiSmaSize;
+            while (k < chunkRsiSmaSize) {
+                inClose[k] = OBV.get(j).getValue();
+                k++;
+                j++;
+            }
+            double value = sma(inClose);
+            OBV_SMA.add(new Indicator(
+                    "OBV_SMA",
+                    value,
+                    OBV.get(j).getDateTime(),
+                    OBV.get(j).getValue()));
+        }
+        indicators.put("OBV_SMA", OBV_SMA);
+
+        // ADX
+        List<Indicator> ADX = new ArrayList<>();
+        int chunkAdxSize = ADX_PERIOD + SHIFT_SIZE;
+        for (int i = chunkAdxSize; i < candles.size(); i++) {
+            double[] inClose = new double[chunkAdxSize];
+            double[] inHigh = new double[chunkAdxSize];
+            double[] inLow = new double[chunkAdxSize];
+            int k = 0;
+            int j = i - chunkAdxSize;
+            while (k < chunkAdxSize) {
+                inClose[k] = candles.get(j).getClose();
+                inHigh[k] = candles.get(j).getHigh();
+                inLow[k] = candles.get(j).getLow();
+                k++;
+                j++;
+            }
+            double value = adx(inClose, inLow, inHigh);
+            ADX.add(new Indicator(
+                    "ADX",
+                    value,
+                    LocalDateTime.parse(candles.get(j).getDate(), formatter),
+                    candles.get(j).getClose()));
+        }
+        indicators.put("ADX", ADX);
+
+        return indicators;
     }
 
     public static Map<String, List<Indicator>> initializeIndicators(List<HistoricCandle> candles) {
