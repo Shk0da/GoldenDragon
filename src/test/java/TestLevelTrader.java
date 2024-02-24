@@ -32,10 +32,10 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 import static com.github.shk0da.GoldenDragon.utils.SerializationUtils.loadDataFromDisk;
 import static java.lang.System.out;
-import static java.util.concurrent.CompletableFuture.runAsync;
 import static java.util.stream.Collectors.toList;
 
 public class TestLevelTrader {
@@ -71,12 +71,13 @@ public class TestLevelTrader {
         Boolean hasTrendUp = null;
         double atr = calculateATR(D1, 7);
         out.println("ATR: " + atr);
-        List<Double> levelValues = findSupportAndResistanceLevels(H1.subList(0, (int) (H1.size() * 0.75)), atr);
+
+        List<Double> levelValues = findSupportAndResistanceLevels(H1.subList(0, (int) (H1.size() * 0.5)), atr);
         out.println("LEVELS: " + Arrays.toString(levelValues.toArray(new Double[]{})));
 
         DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
-        M5 = M5.subList(M5.size() / 2, M5.size());
+        M5 = M5.subList((int) (M5.size() - (M5.size() * 0.5)), M5.size());
         if (M5.isEmpty()) {
             return balance;
         }
@@ -84,6 +85,7 @@ public class TestLevelTrader {
         List<Integer> longTrades = new ArrayList<>();
         List<Integer> shortTrades = new ArrayList<>();
         TickerCandle startOfDay = M5.get(0);
+
         for (int i = 5, x = 0; i < M5.size(); i++, x++) {
             LocalDateTime currentDateTime = LocalDateTime.parse(M5.get(x).getDate(), formatter);
             LocalDateTime startOfDayDateTime = LocalDateTime.parse(startOfDay.getDate(), formatter);
@@ -99,160 +101,83 @@ public class TestLevelTrader {
 
             if (x > 80) {
                 var subList = M5.subList(x - 80, x);
-                if (calculateSignalUp(subList, 40)) {
-                    hasTrendUp = true;
-                } else if (calculateSignalDown(subList)) {
-                    hasTrendUp = false;
-                } else {
-                    hasTrendUp = null;
-                }
+                hasTrendUp = isHasTrendUp(subList);
             }
 
             var tp = (candle5.getClose() / 100) * tpPercent;
             var hasUpATR = (startOfDay.getLow() + (atr - (atr * 0.2))) > (candle5.getClose() + tp);
-            var hasDownATR = (candle5.getClose() - tp) > (atr - (atr * 0.2));
+            var hasDownATR = (candle5.getClose() - tp) + (atr - (atr * 0.2)) < startOfDay.getHigh();
 
-            // пробитие уровня
-            if (Boolean.TRUE.equals(hasTrendUp)) {
-                var resistLevel = levelValues.stream()
-                        .filter(it -> it > candle1.getHigh())
-                        .filter(it -> it <= candle2.getClose() && candle2.getVolume() > candle1.getVolume())
-                        .findFirst()
-                        .orElse(null);
-                if (null != resistLevel) {
-                    var pinning = candle3.getClose() > resistLevel && candle3.getVolume() > candle2.getVolume();
-                    var levelTest = candle4.getLow() >= resistLevel && candle5.getLow() >= resistLevel;
-                    if (pinning && levelTest) {
-                        var nextResistLevel = levelValues.stream().filter(it -> it > resistLevel).findFirst().orElse(null);
-                        var hasRangeATR = null != nextResistLevel && (nextResistLevel - resistLevel) > tp;
-                        if (hasUpATR && hasRangeATR) {
-                            longTrades.add(i);
-                        }
-                    }
-                }
-            }
-            if (Boolean.FALSE.equals(hasTrendUp)) {
-                var resistLevel = levelValues.stream()
-                        .filter(it -> it < candle1.getClose())
-                        .filter(it -> it >= candle2.getClose() && candle2.getVolume() > candle1.getVolume())
-                        .findFirst()
-                        .orElse(null);
-                if (null != resistLevel) {
-                    var pinning = candle3.getClose() < resistLevel && candle3.getVolume() > candle2.getVolume();
-                    var levelTest = candle4.getHigh() <= resistLevel && candle5.getHigh() <= resistLevel;
-                    if (pinning && levelTest) {
-                        Double nextSupportLevel = null;
-                        for (int y = levelValues.size() - 1; y >= 0; y--) {
-                            if (levelValues.get(y) < resistLevel) {
-                                nextSupportLevel = levelValues.get(y);
-                                break;
-                            }
-                        }
-                        var hasRangeATR = null != nextSupportLevel && (resistLevel - nextSupportLevel) > tp;
-                        if (hasDownATR && hasRangeATR) {
-                            shortTrades.add(i);
-                        }
-                    }
-                }
-            }
-
-            // импульсное пробитие
-            if (Boolean.TRUE.equals(hasTrendUp)) {
+            if (Boolean.TRUE.equals(hasTrendUp) && hasUpATR) {
                 var barSize1 = candle1.getHigh() - candle1.getLow();
                 var barSize2 = candle2.getHigh() - candle2.getLow();
                 var barSize3 = candle3.getHigh() - candle3.getLow();
                 var barSize4 = candle4.getHigh() - candle4.getLow();
-                var resistLevel = levelValues.stream()
-                        .filter(it -> it > candle1.getHigh() && candle4.getVolume() > candle1.getVolume())
-                        .filter(it -> it > candle2.getHigh() && candle1.getLow() <= candle2.getLow() && barSize2 <= barSize1)
-                        .filter(it -> it > candle3.getHigh() && candle2.getLow() <= candle3.getLow() && barSize3 <= barSize2)
-                        .filter(it -> it > candle4.getHigh() && candle3.getLow() <= candle4.getLow() && barSize4 <= barSize3)
-                        .findFirst()
-                        .orElse(null);
-                if (null != resistLevel) {
-                    var levelTest = candle5.getClose() >= resistLevel;
+
+                var hasResistLevel = true;
+                hasResistLevel &= candle1.getLow() <= candle2.getLow() && barSize2 <= barSize1;
+                hasResistLevel &= candle2.getLow() <= candle3.getLow() && barSize3 <= barSize2;
+                hasResistLevel &= candle3.getLow() <= candle4.getLow() && barSize4 <= barSize3;
+
+                if (hasResistLevel) {
+                    var resistLevel = Stream.of(
+                                    candle1.getHigh(),
+                                    candle2.getHigh(),
+                                    candle3.getHigh(),
+                                    candle4.getHigh()
+                            )
+                            .filter(it -> {
+                                var str = it.toString();
+                                return str.charAt(str.length() - 1) == '0';
+                            })
+                            .mapToDouble(Double::doubleValue)
+                            .summaryStatistics()
+                            .getMax();
+                    var levelTest = candle5.getLow() == resistLevel;
                     if (levelTest) {
-                        var nextResistLevel = levelValues.stream().filter(it -> it > resistLevel).findFirst().orElse(null);
-                        var hasRangeATR = null != nextResistLevel && (nextResistLevel - resistLevel) > tp;
-                        if (hasUpATR && hasRangeATR) {
-                            longTrades.add(i);
-                        }
-                    }
-                }
-            }
-            if (Boolean.FALSE.equals(hasTrendUp)) {
-                var barSize1 = candle1.getHigh() - candle1.getLow();
-                var barSize2 = candle2.getHigh() - candle2.getLow();
-                var barSize3 = candle3.getHigh() - candle3.getLow();
-                var barSize4 = candle4.getHigh() - candle4.getLow();
-                var resistLevel = levelValues.stream()
-                        .filter(it -> it < candle1.getLow() && candle4.getVolume() > candle1.getVolume())
-                        .filter(it -> it < candle2.getLow() && candle1.getHigh() >= candle2.getHigh() && barSize2 <= barSize1)
-                        .filter(it -> it < candle3.getLow() && candle2.getHigh() >= candle3.getHigh() && barSize3 <= barSize2)
-                        .filter(it -> it < candle4.getLow() && candle3.getHigh() >= candle4.getHigh() && barSize4 <= barSize3)
-                        .findFirst()
-                        .orElse(null);
-                if (null != resistLevel) {
-                    var levelTest = candle5.getClose() <= resistLevel;
-                    if (levelTest) {
-                        Double nextSupportLevel = null;
-                        for (int y = levelValues.size() - 1; y >= 0; y--) {
-                            if (levelValues.get(y) < resistLevel) {
-                                nextSupportLevel = levelValues.get(y);
-                                break;
-                            }
-                        }
-                        var hasRangeATR = null != nextSupportLevel && (resistLevel - nextSupportLevel) > tp;
-                        if (hasDownATR && hasRangeATR) {
-                            shortTrades.add(i);
-                        }
+                        longTrades.add(i);
                     }
                 }
             }
 
-            // ложный пробой
-            if (Boolean.TRUE.equals(hasTrendUp)) {
-                var resistLevel = levelValues.stream()
-                        .filter(it -> it < candle1.getHigh())
-                        .filter(it -> it < candle2.getHigh() && candle2.getClose() <= candle1.getClose())
-                        .filter(it -> candle4.getHigh() < it && candle4.getClose() > it && candle4.getOpen() > it)
-                        .findFirst()
-                        .orElse(null);
-                if (null != resistLevel) {
-                    var levelTest = candle5.getLow() >= resistLevel;
-                    if (levelTest) {
-                        var nextResistLevel = levelValues.stream().filter(it -> it > resistLevel).findFirst().orElse(null);
-                        var hasRangeATR = null != nextResistLevel && (nextResistLevel - resistLevel) > tp;
-                        if (hasUpATR && hasRangeATR) {
-                            longTrades.add(i);
-                        }
-                    }
-                }
-            }
-            if (Boolean.FALSE.equals(hasTrendUp)) {
-                double localAtr = x > 8 ? calculateATR(M5.subList(x - 8, x), 7) : atr;
+            if (Boolean.FALSE.equals(hasTrendUp) && hasDownATR) {
                 var barSize1 = candle1.getHigh() - candle1.getLow();
                 var barSize2 = candle2.getHigh() - candle2.getLow();
-                var resistLevel = levelValues.stream()
-                        .filter(it -> it > candle1.getHigh() && barSize1 > localAtr * 1.5)
-                        .filter(it -> it > candle2.getHigh() && barSize2 > barSize1 && candle2.getClose() > candle1.getClose())
-                        .filter(it -> candle3.getHigh() > it && candle3.getClose() < it && candle3.getOpen() < it)
-                        .findFirst()
-                        .orElse(null);
-                if (null != resistLevel) {
-                    var levelTest = candle4.getOpen() < resistLevel && candle5.getHigh() < resistLevel;
-                    if (levelTest) {
-                        Double nextSupportLevel = null;
-                        for (int y = levelValues.size() - 1; y >= 0; y--) {
-                            if (levelValues.get(y) < resistLevel) {
-                                nextSupportLevel = levelValues.get(y);
-                                break;
-                            }
+                var barSize3 = candle3.getHigh() - candle3.getLow();
+                var barSize4 = candle4.getHigh() - candle4.getLow();
+
+                var hasResistLevel = true;
+                hasResistLevel &= candle1.getHigh() >= candle2.getHigh() && barSize2 <= barSize1;
+                hasResistLevel &= candle2.getHigh() >= candle3.getHigh() && barSize3 <= barSize2;
+                hasResistLevel &= candle3.getHigh() >= candle4.getHigh() && barSize4 <= barSize3;
+
+                if (hasResistLevel) {
+                    Set<Double> duplicate = new HashSet<>();
+                    var resistLevel = Stream.of(
+                                    candle1.getLow(),
+                                    candle2.getLow(),
+                                    candle3.getLow(),
+                                    candle4.getLow()
+                            )
+                            .filter(it -> {
+                                var str = it.toString();
+                                return str.charAt(str.length() - 1) == '0';
+                            })
+                            .filter(n -> !duplicate.add(n))
+                            .mapToDouble(Double::doubleValue)
+                            .summaryStatistics()
+                            .getMin();
+                    var levelTest = candle5.getHigh() == resistLevel;
+                    Double nextSupportLevel = null;
+                    for (int y = levelValues.size() - 1; y >= 0; y--) {
+                        if (levelValues.get(y) < resistLevel) {
+                            nextSupportLevel = levelValues.get(y);
+                            break;
                         }
-                        var hasRangeATR = null != nextSupportLevel && (resistLevel - nextSupportLevel) > tp;
-                        if (hasDownATR && hasRangeATR) {
-                            shortTrades.add(i);
-                        }
+                    }
+                    var hasRangeATR = null != nextSupportLevel && (resistLevel - nextSupportLevel) > tp;
+                    if (levelTest && hasRangeATR) {
+                        shortTrades.add(i);
                     }
                 }
             }
@@ -263,8 +188,8 @@ public class TestLevelTrader {
         allTrades.addAll(shortTrades);
         out.println("TRADES: " + Arrays.toString(allTrades.toArray(new Integer[]{})));
 
-        List<TickerCandle> finalM = M5;
-        runAsync(() -> plotChart(ticker, finalM, levelValues, longTrades, shortTrades));
+        //List<TickerCandle> finalM = M5;
+        //runAsync(() -> plotChart(ticker, finalM, levelValues, longTrades, shortTrades));
 
         return calculateTrades(M5, longTrades, shortTrades, balance, tpPercent);
     }
@@ -386,7 +311,7 @@ public class TestLevelTrader {
                 "jdbc:postgresql://localhost:5432/postgres", "postgres", "postgres"
         )) {
             Statement stmt = con.createStatement();
-            String selectSql = "SELECT * FROM candle WHERE tf = '" + period + "' AND name = '" + ticker + "'";
+            String selectSql = "SELECT * FROM candle WHERE tf = '" + period + "' AND name = '" + ticker + "' ORDER BY date_time";
             try (ResultSet resultSet = stmt.executeQuery(selectSql)) {
                 while (resultSet.next()) {
                     TickerCandle candle = new TickerCandle(
@@ -460,6 +385,19 @@ public class TestLevelTrader {
         return atr / period;
     }
 
+    private static boolean isHasTrendUp(List<TickerCandle> candles) {
+        boolean hasTrendUp;
+        int idx = 0;
+        double[] inClose = new double[candles.size()];
+        for (TickerCandle candle : candles) {
+            inClose[idx++] = candle.getClose();
+        }
+        var maWhite = IndicatorsUtil.movingAverageWhite(inClose);
+        var maBlack = IndicatorsUtil.movingAverageBlack(inClose);
+        hasTrendUp = maWhite >= maBlack;
+        return hasTrendUp;
+    }
+
     public static List<Double> findSupportAndResistanceLevels(List<TickerCandle> candles, double threshold) {
         List<Double> lows = candles.stream().map(TickerCandle::getLow).collect(Collectors.toList());
         List<Double> highs = candles.stream().map(TickerCandle::getHigh).collect(Collectors.toList());
@@ -521,72 +459,5 @@ public class TestLevelTrader {
                 .sorted()
                 .distinct()
                 .collect(toList());
-    }
-
-    public static boolean calculateSignalDown(List<TickerCandle> candles) {
-        if (candles.size() < 30) return false;
-        var indicators = IndicatorsUtil.getIndicators(candles);
-
-        var maWhite = indicators.get("MAWhite");
-        boolean maTrendDown = maWhite.get(maWhite.size() - 1).getClose() < maWhite.get(maWhite.size() - 1).getValue();
-
-        var rsi = indicators.get("RSI");
-        var rsiSma = indicators.get("RSI_SMA");
-        boolean rsiTrendDown = rsi.get(rsi.size() - 1).getValue() < rsi.get(rsi.size() - 2).getValue();
-        boolean rsiCrossoverSma = rsi.get(rsi.size() - 1).getValue() < rsiSma.get(rsiSma.size() - 1).getValue();
-
-        var obv = indicators.get("OBV");
-        var obvSma = indicators.get("OBV_SMA");
-        boolean obvTrendDown = obv.get(obv.size() - 1).getValue() < obv.get(obv.size() - 2).getValue();
-        boolean obvCrossoverSma = obv.get(obv.size() - 1).getValue() < obvSma.get(obvSma.size() - 1).getValue();
-
-        return maTrendDown && rsiTrendDown && rsiCrossoverSma && obvTrendDown && obvCrossoverSma;
-    }
-
-    public static boolean calculateSignalUp(List<TickerCandle> candles, double adxLevel) {
-        if (candles.size() < 80) return false;
-
-        var indicators = IndicatorsUtil.getIndicators(candles);
-
-        var maWhite = indicators.get("MAWhite");
-        var maBlack = indicators.get("MABlack");
-        boolean maSuperTrendUp =
-                maWhite.get(maWhite.size() - 3).getValue() < maWhite.get(maWhite.size() - 2).getValue() &&
-                        maWhite.get(maWhite.size() - 2).getValue() < maWhite.get(maWhite.size() - 1).getValue();
-        boolean maWhiteUpperBlack = maWhite.get(maWhite.size() - 1).getValue() > maBlack.get(maBlack.size() - 1).getValue();
-        boolean closeCrossoverMa = maWhite.get(maWhite.size() - 1).getClose() > maWhite.get(maWhite.size() - 1).getValue();
-
-        var macd = indicators.get("MACD");
-        var macdSign = indicators.get("MACD_SIGN");
-        boolean macdSuperTrendUp =
-                macdSign.get(macdSign.size() - 3).getValue() < macdSign.get(macdSign.size() - 2).getValue() &&
-                        macdSign.get(macdSign.size() - 2).getValue() < macdSign.get(macdSign.size() - 1).getValue();
-        boolean macdUpperZero = macd.get(macd.size() - 1).getValue() > 0.000;
-        boolean macdCrossoverSignal = macd.get(macd.size() - 1).getValue() >= macdSign.get(macdSign.size() - 1).getValue();
-
-        var rsi = indicators.get("RSI");
-        var rsiSma = indicators.get("RSI_SMA");
-        boolean rsiSuperTrendUp =
-                rsiSma.get(rsiSma.size() - 3).getValue() < rsiSma.get(rsiSma.size() - 2).getValue() &&
-                        rsiSma.get(rsiSma.size() - 2).getValue() < rsiSma.get(rsiSma.size() - 1).getValue();
-        boolean rsiUpper50 = rsi.get(rsi.size() - 1).getValue() >= 50.0;
-        boolean rsiCrossoverSma = rsi.get(rsi.size() - 1).getValue() > rsiSma.get(rsiSma.size() - 1).getValue();
-
-        var obv = indicators.get("OBV");
-        var obvSma = indicators.get("OBV_SMA");
-        boolean obvSuperTrendUp =
-                obvSma.get(obvSma.size() - 3).getValue() < obvSma.get(obvSma.size() - 2).getValue() &&
-                        obvSma.get(obvSma.size() - 2).getValue() < obvSma.get(obvSma.size() - 1).getValue();
-        boolean obvUpperZero = obv.get(obv.size() - 1).getValue() > 0.0;
-        boolean obvCrossoverSma = obv.get(obv.size() - 1).getValue() > obvSma.get(obvSma.size() - 1).getValue();
-
-        var adx = indicators.get("ADX");
-        boolean adxUpper30 = adx.get(adx.size() - 1).getValue() >= adxLevel;
-
-        return maSuperTrendUp && maWhiteUpperBlack && closeCrossoverMa &&
-                macdSuperTrendUp && macdUpperZero && macdCrossoverSignal &&
-                rsiSuperTrendUp && rsiUpper50 && rsiCrossoverSma &&
-                obvSuperTrendUp && obvUpperZero && obvCrossoverSma &&
-                adxUpper30;
     }
 }
