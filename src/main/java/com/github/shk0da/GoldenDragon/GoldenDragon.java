@@ -1,23 +1,14 @@
 package com.github.shk0da.GoldenDragon;
 
-import com.github.shk0da.GoldenDragon.config.MainConfig;
-import com.github.shk0da.GoldenDragon.config.MarketConfig;
-import com.github.shk0da.GoldenDragon.config.NewsPusherConfig;
-import com.github.shk0da.GoldenDragon.config.PulseConfig;
-import com.github.shk0da.GoldenDragon.config.RSXConfig;
-import com.github.shk0da.GoldenDragon.config.RebalanceConfig;
-import com.github.shk0da.GoldenDragon.model.Market;
-import com.github.shk0da.GoldenDragon.model.TickerInfo;
-import com.github.shk0da.GoldenDragon.repository.Repository;
-import com.github.shk0da.GoldenDragon.repository.TickerRepository;
-import com.github.shk0da.GoldenDragon.service.TCSService;
-import com.github.shk0da.GoldenDragon.strategy.DivFlow;
-import com.github.shk0da.GoldenDragon.strategy.IndicatorTrader;
-import com.github.shk0da.GoldenDragon.strategy.NewsPusher;
-import com.github.shk0da.GoldenDragon.strategy.PulseFollower;
-import com.github.shk0da.GoldenDragon.strategy.RSX;
-import com.github.shk0da.GoldenDragon.strategy.Rebalance;
-import com.google.gson.reflect.TypeToken;
+import static com.github.shk0da.GoldenDragon.config.MainConfig.CALENDAR_WORK_DAYS;
+import static com.github.shk0da.GoldenDragon.utils.SerializationUtils.getDateOfContentOnDisk;
+import static com.github.shk0da.GoldenDragon.utils.SerializationUtils.loadDataFromDisk;
+import static com.github.shk0da.GoldenDragon.utils.SerializationUtils.saveDataToDisk;
+import static java.lang.System.currentTimeMillis;
+import static java.lang.System.out;
+import static java.lang.System.setOut;
+import static java.nio.charset.StandardCharsets.UTF_8;
+import static java.util.TimeZone.setDefault;
 
 import java.io.FileDescriptor;
 import java.io.FileOutputStream;
@@ -33,15 +24,26 @@ import java.util.concurrent.Callable;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
-import static com.github.shk0da.GoldenDragon.config.MainConfig.CALENDAR_WORK_DAYS;
-import static com.github.shk0da.GoldenDragon.utils.SerializationUtils.getDateOfContentOnDisk;
-import static com.github.shk0da.GoldenDragon.utils.SerializationUtils.loadDataFromDisk;
-import static com.github.shk0da.GoldenDragon.utils.SerializationUtils.saveDataToDisk;
-import static java.lang.System.currentTimeMillis;
-import static java.lang.System.out;
-import static java.lang.System.setOut;
-import static java.nio.charset.StandardCharsets.UTF_8;
-import static java.util.TimeZone.setDefault;
+import com.github.shk0da.GoldenDragon.config.DatabaseConfig;
+import com.github.shk0da.GoldenDragon.config.MainConfig;
+import com.github.shk0da.GoldenDragon.config.MarketConfig;
+import com.github.shk0da.GoldenDragon.config.NewsPusherConfig;
+import com.github.shk0da.GoldenDragon.config.PulseConfig;
+import com.github.shk0da.GoldenDragon.config.RSXConfig;
+import com.github.shk0da.GoldenDragon.config.RebalanceConfig;
+import com.github.shk0da.GoldenDragon.model.Market;
+import com.github.shk0da.GoldenDragon.model.TickerInfo;
+import com.github.shk0da.GoldenDragon.repository.Repository;
+import com.github.shk0da.GoldenDragon.repository.TickerRepository;
+import com.github.shk0da.GoldenDragon.service.TCSService;
+import com.github.shk0da.GoldenDragon.strategy.CandleLoader;
+import com.github.shk0da.GoldenDragon.strategy.DivFlow;
+import com.github.shk0da.GoldenDragon.strategy.IndicatorTrader;
+import com.github.shk0da.GoldenDragon.strategy.NewsPusher;
+import com.github.shk0da.GoldenDragon.strategy.PulseFollower;
+import com.github.shk0da.GoldenDragon.strategy.RSX;
+import com.github.shk0da.GoldenDragon.strategy.Rebalance;
+import com.google.gson.reflect.TypeToken;
 
 public class GoldenDragon {
 
@@ -111,6 +113,12 @@ public class GoldenDragon {
             if ("NewsPusher".equals(strategy)) {
                 final NewsPusherConfig newsPusherConfig = new NewsPusherConfig();
                 new NewsPusher(newsPusherConfig).run();
+            }
+
+            // 7. CandleLoader
+            if ("CandleLoader".equals(strategy)) {
+                final DatabaseConfig databaseConfig = new DatabaseConfig();
+                new CandleLoader(mainConfig, databaseConfig, tcsService).run();
             }
         } catch (Exception ex) {
             out.printf("Error: %s%n", ex.getMessage());
