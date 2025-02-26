@@ -1,14 +1,14 @@
 package com.github.shk0da.GoldenDragon;
 
-import static com.github.shk0da.GoldenDragon.config.MainConfig.CALENDAR_WORK_DAYS;
-import static com.github.shk0da.GoldenDragon.utils.SerializationUtils.getDateOfContentOnDisk;
-import static com.github.shk0da.GoldenDragon.utils.SerializationUtils.loadDataFromDisk;
-import static com.github.shk0da.GoldenDragon.utils.SerializationUtils.saveDataToDisk;
-import static java.lang.System.currentTimeMillis;
-import static java.lang.System.out;
-import static java.lang.System.setOut;
-import static java.nio.charset.StandardCharsets.UTF_8;
-import static java.util.TimeZone.setDefault;
+import com.github.shk0da.GoldenDragon.config.MainConfig;
+import com.github.shk0da.GoldenDragon.config.MarketConfig;
+import com.github.shk0da.GoldenDragon.model.Market;
+import com.github.shk0da.GoldenDragon.model.TickerInfo;
+import com.github.shk0da.GoldenDragon.repository.Repository;
+import com.github.shk0da.GoldenDragon.repository.TickerRepository;
+import com.github.shk0da.GoldenDragon.service.TCSService;
+import com.github.shk0da.GoldenDragon.strategy.DataCollector;
+import com.google.gson.reflect.TypeToken;
 
 import java.io.FileDescriptor;
 import java.io.FileOutputStream;
@@ -24,26 +24,15 @@ import java.util.concurrent.Callable;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
-import com.github.shk0da.GoldenDragon.config.DatabaseConfig;
-import com.github.shk0da.GoldenDragon.config.MainConfig;
-import com.github.shk0da.GoldenDragon.config.MarketConfig;
-import com.github.shk0da.GoldenDragon.config.NewsPusherConfig;
-import com.github.shk0da.GoldenDragon.config.PulseConfig;
-import com.github.shk0da.GoldenDragon.config.RSXConfig;
-import com.github.shk0da.GoldenDragon.config.RebalanceConfig;
-import com.github.shk0da.GoldenDragon.model.Market;
-import com.github.shk0da.GoldenDragon.model.TickerInfo;
-import com.github.shk0da.GoldenDragon.repository.Repository;
-import com.github.shk0da.GoldenDragon.repository.TickerRepository;
-import com.github.shk0da.GoldenDragon.service.TCSService;
-import com.github.shk0da.GoldenDragon.strategy.CandleLoader;
-import com.github.shk0da.GoldenDragon.strategy.DivFlow;
-import com.github.shk0da.GoldenDragon.strategy.IndicatorTrader;
-import com.github.shk0da.GoldenDragon.strategy.NewsPusher;
-import com.github.shk0da.GoldenDragon.strategy.PulseFollower;
-import com.github.shk0da.GoldenDragon.strategy.RSX;
-import com.github.shk0da.GoldenDragon.strategy.Rebalance;
-import com.google.gson.reflect.TypeToken;
+import static com.github.shk0da.GoldenDragon.config.MainConfig.CALENDAR_WORK_DAYS;
+import static com.github.shk0da.GoldenDragon.utils.SerializationUtils.getDateOfContentOnDisk;
+import static com.github.shk0da.GoldenDragon.utils.SerializationUtils.loadDataFromDisk;
+import static com.github.shk0da.GoldenDragon.utils.SerializationUtils.saveDataToDisk;
+import static java.lang.System.currentTimeMillis;
+import static java.lang.System.out;
+import static java.lang.System.setOut;
+import static java.nio.charset.StandardCharsets.UTF_8;
+import static java.util.TimeZone.setDefault;
 
 public class GoldenDragon {
 
@@ -56,7 +45,7 @@ public class GoldenDragon {
 
         try {
             MainConfig mainConfig = new MainConfig();
-            String strategy = (args.length >= 1) ? args[0] : "Rebalance";
+            String strategy = (args.length >= 1) ? args[0] : "DataCollector";
             Market market = (args.length >= 2) ? Market.valueOf(args[1]) : Market.MOEX;
             String accountId = (args.length >= 3) ? args[2] : mainConfig.getTcsAccountId();
             out.println("Run: " + strategy + " " + market.name() + " [" + accountId + "]");
@@ -81,44 +70,9 @@ public class GoldenDragon {
             TCSService tcsService = new TCSService(mainConfig.withAccountId(accountId), marketConfig);
             updateTickerRepository(tcsService);
 
-            // 1. Rebalance
-            if ("Rebalance".equals(strategy)) {
-                final RebalanceConfig rebalanceConfig = new RebalanceConfig();
-                new Rebalance(mainConfig, marketConfig, rebalanceConfig, tcsService).run();
-            }
-
-            // 2. RSX
-            if ("RSX".equals(strategy)) {
-                final RSXConfig rsxConfig = new RSXConfig();
-                new RSX(mainConfig, marketConfig, rsxConfig, tcsService).run();
-            }
-
-            // 3. DivFlow
-            if ("DivFlow".equals(strategy)) {
-                new DivFlow(mainConfig, marketConfig, tcsService).run();
-            }
-
-            // 4. PulseFollower
-            if ("PulseFollower".equals(strategy)) {
-                final PulseConfig pulseConfig = new PulseConfig();
-                new PulseFollower(pulseConfig, tcsService).run();
-            }
-
-            // 5. IndicatorTrader
-            if ("IndicatorTrader".equals(strategy)) {
-                new IndicatorTrader(tcsService).run();
-            }
-
-            // 6. NewsPusher
-            if ("NewsPusher".equals(strategy)) {
-                final NewsPusherConfig newsPusherConfig = new NewsPusherConfig();
-                new NewsPusher(newsPusherConfig).run();
-            }
-
-            // 7. CandleLoader
-            if ("CandleLoader".equals(strategy)) {
-                final DatabaseConfig databaseConfig = new DatabaseConfig();
-                new CandleLoader(mainConfig, databaseConfig, tcsService).run();
+            // 1. DataCollector
+            if ("DataCollector".equals(strategy)) {
+                new DataCollector(mainConfig, tcsService).run();
             }
         } catch (Exception ex) {
             out.printf("Error: %s%n", ex.getMessage());
