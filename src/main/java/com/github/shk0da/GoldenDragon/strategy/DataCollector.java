@@ -1,5 +1,6 @@
 package com.github.shk0da.GoldenDragon.strategy;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.shk0da.GoldenDragon.config.MainConfig;
 import com.github.shk0da.GoldenDragon.model.TickerCandle;
 import com.github.shk0da.GoldenDragon.model.TickerInfo;
@@ -17,25 +18,30 @@ import java.io.FileWriter;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.sql.Timestamp;
+import java.text.DateFormat;
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
 import static com.github.shk0da.GoldenDragon.utils.IndicatorsUtil.toDouble;
 import static java.lang.System.out;
-import static java.nio.file.Files.copy;
 import static java.nio.file.Files.createDirectories;
-import static java.nio.file.Files.deleteIfExists;
 import static java.nio.file.Files.exists;
+import static java.nio.file.Files.move;
 import static java.nio.file.StandardCopyOption.REPLACE_EXISTING;
 import static java.time.OffsetDateTime.now;
 
 public class DataCollector {
 
-    private static final String DATA_DIR = "data2";
-    private static final List<String> TICKERS = List.of("GAZP", "ROSN", "LKOH", "NLMK", "SBER", "PIKK", "RTKM", "MGNT");
+    public static final String DATA_DIR = "data";
+    public static final List<String> TICKERS = List.of("GAZP", "ROSN", "LKOH", "NLMK", "SBER", "PIKK", "RTKM", "MGNT");
 
-    Repository<TickerInfo.Key, TickerInfo> tickerRepository = TickerRepository.INSTANCE;
+    private static final ObjectMapper objectMapper = new ObjectMapper();
+    private static final DateFormat dateTimeFormat = new SimpleDateFormat("dd.MM.yyyy HH:mm:ss");
+    private static final Repository<TickerInfo.Key, TickerInfo> tickerRepository = TickerRepository.INSTANCE;
 
     private final TCSService tcsService;
     private final MainConfig mainConfig;
@@ -52,10 +58,41 @@ public class DataCollector {
                 createDirectories(Paths.get(DATA_DIR + "/" + name));
                 createCandlesFile(name, DATA_DIR);
                 calculatePriceLevels(name, DATA_DIR);
-                readLevels(name, DATA_DIR);
+                var levels = readLevels(name, DATA_DIR);
+                createTickerJson(name, DATA_DIR, levels);
             } catch (Exception ex) {
                 out.println(ex.getMessage());
             }
+        }
+    }
+
+    private void createCandlesFile(String name, String dir) {
+        if (exists(Path.of(dir + "/" + name + "/candles.txt"))) {
+            out.println("Candles file exists: " + name);
+            return;
+        }
+
+        out.println("Create candles file: " + name);
+        List<TickerCandle> H1 = getTickerCandles(name.toLowerCase(), CandleInterval.CANDLE_INTERVAL_HOUR, 0);
+        if (H1.isEmpty()) {
+            throw new RuntimeException("empty candles");
+        }
+        try (FileWriter writer = new FileWriter(dir + "/" + name + "/candles.txt")) {
+            writer.write("Datetime,Open,High,Low,Close,Volume" + System.lineSeparator());
+            for (TickerCandle candle : H1) {
+                writer.write(String.format(
+                        "%s,%s,%s,%s,%s,%s",
+                        candle.getDate(),
+                        candle.getOpen(),
+                        candle.getHigh(),
+                        candle.getLow(),
+                        candle.getClose(),
+                        candle.getVolume()
+                ) + System.lineSeparator());
+            }
+        } catch (Exception ex) {
+            out.println(ex.getMessage());
+            throw new RuntimeException(ex);
         }
     }
 
@@ -90,7 +127,7 @@ public class DataCollector {
                         candles.add(
                                 new TickerCandle(
                                         stock.getFigi(),
-                                        dateTime.toLocalDateTime().toString(),
+                                        dateTimeFormat.format(dateTime),
                                         open,
                                         high,
                                         low,
@@ -117,62 +154,36 @@ public class DataCollector {
         return candles;
     }
 
-    public void createCandlesFile(String name, String dir) {
-        if (exists(Path.of(dir + "/candles.txt"))) {
-            out.println("Candles file exists: " + name);
+    private void calculatePriceLevels(String name, String dir) {
+        if (exists(Path.of(dir + "/" + name + "/levels.txt"))) {
+            out.println("Price levels file exists: " + name);
             return;
         }
 
-        out.println("Create candles file: " + name);
-        List<TickerCandle> H1 = getTickerCandles(name.toLowerCase(), CandleInterval.CANDLE_INTERVAL_HOUR, 0);
-        if (H1.isEmpty()) {
-            throw new RuntimeException("empty candles");
-        }
-        try (FileWriter writer = new FileWriter(dir + "/" + name + "/candles.txt")) {
-            writer.write("Datetime,Open,High,Low,Close,Volume" + System.lineSeparator());
-            for (TickerCandle candle : H1) {
-                writer.write(String.format(
-                        "%s,%s,%s,%s,%s,%s",
-                        candle.getDate(),
-                        candle.getOpen(),
-                        candle.getHigh(),
-                        candle.getLow(),
-                        candle.getClose(),
-                        candle.getVolume()
-                ) + System.lineSeparator());
-            }
-        } catch (Exception ex) {
-            out.println(ex.getMessage());
-            throw new RuntimeException(ex);
-        }
-    }
-
-    public void calculatePriceLevels(String name, String dir) {
         out.println("Calculate price levels: " + name);
         String command;
+        String os = System.getProperty("os.name").toLowerCase();
+        if (os.contains("windows")) {
+            command = "calculate_levels.exe";
+        } else if (os.contains("arm")) {
+            command = "calculate_levels_arm";
+        } else {
+            command = "calculate_levels";
+        }
         try {
-            String os = System.getProperty("os.name").toLowerCase();
-            if (os.contains("windows")) {
-                command = "calculate_levels.exe";
-            } else if (os.contains("arm")) {
-                command = "calculate_levels_arm";
-            } else {
-                command = "calculate_levels";
-            }
-            String commandTarget = dir + "/" + name + "/" + command;
-            Path commandTargetPath = Paths.get(commandTarget);
-            copy(Paths.get(command), commandTargetPath, REPLACE_EXISTING);
-            if (0 != Runtime.getRuntime().exec(commandTarget).waitFor()) {
+            move(Paths.get(dir + "/" + name + "/candles.txt"), Paths.get("candles.txt"), REPLACE_EXISTING);
+            if (0 != Runtime.getRuntime().exec(command).waitFor()) {
                 throw new RuntimeException("Not executed: calculate_levels");
             }
-            deleteIfExists(commandTargetPath);
+            move(Paths.get("candles.txt"), Paths.get(dir + "/" + name + "/candles.txt"), REPLACE_EXISTING);
+            move(Paths.get("levels.txt"), Paths.get(dir + "/" + name + "/levels.txt"), REPLACE_EXISTING);
         } catch (Exception ex) {
             out.println(ex.getMessage());
             throw new RuntimeException(ex);
         }
     }
 
-    public List<Double> readLevels(String name, String dir) {
+    private List<Double> readLevels(String name, String dir) {
         out.println("Read levels: " + name);
         List<Double> levels = new ArrayList<>();
         try (BufferedReader br = new BufferedReader(new FileReader(dir + "/" + name + "/levels.txt"))) {
@@ -186,5 +197,29 @@ public class DataCollector {
             throw new RuntimeException(ex);
         }
         return levels;
+    }
+
+    private void createTickerJson(String name, String dir, List<Double> levels) {
+        if (exists(Path.of(dir + "/" + name + "/ticker.json"))) {
+            out.println("Ticker json file exists: " + name);
+            return;
+        }
+
+        try (FileWriter writer = new FileWriter(dir + "/" + name + "/ticker.json")) {
+            TickerInfo ticker = tickerRepository.getAll().values().stream()
+                    .filter(it -> it.getType().equals(TickerType.STOCK))
+                    .filter(it -> it.getName().toLowerCase().contains(name.toLowerCase())
+                            || it.getTicker().toLowerCase().contains(name.toLowerCase()))
+                    .findFirst()
+                    .orElseThrow();
+            Map<String, Object> json = new HashMap<>() {{
+                put("ticker", ticker);
+                put("levels", levels);
+            }};
+            objectMapper.writeValue(writer, json);
+        } catch (Exception ex) {
+            out.println(ex.getMessage());
+            throw new RuntimeException(ex);
+        }
     }
 }

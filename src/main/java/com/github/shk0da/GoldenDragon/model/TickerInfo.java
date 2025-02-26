@@ -1,5 +1,7 @@
 package com.github.shk0da.GoldenDragon.model;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
+
 import java.util.Objects;
 
 public class TickerInfo {
@@ -101,6 +103,7 @@ public class TickerInfo {
         return type;
     }
 
+    @JsonIgnore
     public TickerInfo.Key getKey() {
         return new TickerInfo.Key(ticker, type);
     }
