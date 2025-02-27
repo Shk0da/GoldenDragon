@@ -21,10 +21,9 @@ import java.nio.file.Paths;
 import java.sql.Timestamp;
 import java.text.DateFormat;
 import java.text.SimpleDateFormat;
-import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
+import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -37,7 +36,9 @@ import static java.nio.file.Files.deleteIfExists;
 import static java.nio.file.Files.exists;
 import static java.nio.file.Files.move;
 import static java.nio.file.StandardCopyOption.REPLACE_EXISTING;
+import static java.time.LocalDateTime.ofInstant;
 import static java.time.OffsetDateTime.now;
+import static java.time.ZoneId.systemDefault;
 
 public class DataCollector {
 
@@ -116,7 +117,7 @@ public class DataCollector {
                 }
 
                 String[] values = line.split(",");
-                new TickerCandle(
+                tickers.add(new TickerCandle(
                         name,
                         values[0],
                         Double.valueOf(values[1]),
@@ -125,7 +126,7 @@ public class DataCollector {
                         Double.valueOf(values[4]),
                         Double.valueOf(values[4]),
                         Integer.valueOf(values[5])
-                );
+                ));
                 line = br.readLine();
             }
         } catch (Exception ex) {
@@ -240,7 +241,7 @@ public class DataCollector {
         return levels;
     }
 
-    private Double calculateATR(String name, List<TickerCandle> candles, int period) {
+    private Double calculateATR(String name, List<TickerCandle> candles, int period) throws Exception {
         out.println("Calculate ATR: " + name);
         List<TickerCandle> D1 = convertCandles(candles, 24, ChronoUnit.HOURS);
         if (D1.size() < period + 1) {
@@ -253,25 +254,23 @@ public class DataCollector {
         return atr / period;
     }
 
-    private List<TickerCandle> convertCandles(List<TickerCandle> candles, long newTimeFrame, ChronoUnit unit) {
+    private List<TickerCandle> convertCandles(List<TickerCandle> candles, long newTimeFrame, ChronoUnit unit) throws Exception {
         List<TickerCandle> newCandles = new ArrayList<>();
         if (candles.isEmpty()) return newCandles;
-
-        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
-        LocalDateTime currentTimestamp = LocalDateTime.parse(candles.get(0).getDate(), formatter);
 
         double open = 0.0;
         double high = Double.MIN_VALUE;
         double low = Double.MAX_VALUE;
         int volume = 0;
 
+        var currentTimestamp = ofInstant(dateTimeFormat.parse(candles.get(0).getDate()).toInstant(), systemDefault());
         for (TickerCandle candle : candles) {
             open = 0.0 == open ? candle.getOpen() : open;
-            LocalDateTime timestamp = LocalDateTime.parse(candle.getDate(), formatter);
+            var timestamp = ofInstant(dateTimeFormat.parse(candle.getDate()).toInstant(), systemDefault());
             if (timestamp.isEqual(currentTimestamp.plus(newTimeFrame, unit))) {
                 newCandles.add(new TickerCandle(
                         candle.getSymbol(),
-                        formatter.format(currentTimestamp),
+                        dateTimeFormat.format(Date.from(currentTimestamp.atZone(systemDefault()).toInstant())),
                         open,
                         high,
                         low,
