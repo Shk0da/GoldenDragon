@@ -1,5 +1,6 @@
 package com.github.shk0da.GoldenDragon;
 
+import com.github.shk0da.GoldenDragon.config.AILConfig;
 import com.github.shk0da.GoldenDragon.config.MainConfig;
 import com.github.shk0da.GoldenDragon.config.MarketConfig;
 import com.github.shk0da.GoldenDragon.model.Market;
@@ -72,7 +73,8 @@ public class GoldenDragon {
 
             // 1. DataCollector
             if ("DataCollector".equals(strategy)) {
-                new DataCollector(mainConfig, tcsService).run();
+                AILConfig ailConfig = new AILConfig();
+                new DataCollector(ailConfig, tcsService).run();
             }
         } catch (Exception ex) {
             out.printf("Error: %s%n", ex.getMessage());

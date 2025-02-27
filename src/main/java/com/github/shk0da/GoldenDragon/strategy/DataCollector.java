@@ -1,7 +1,7 @@
 package com.github.shk0da.GoldenDragon.strategy;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.github.shk0da.GoldenDragon.config.MainConfig;
+import com.github.shk0da.GoldenDragon.config.AILConfig;
 import com.github.shk0da.GoldenDragon.model.TickerCandle;
 import com.github.shk0da.GoldenDragon.model.TickerInfo;
 import com.github.shk0da.GoldenDragon.model.TickerType;
@@ -42,30 +42,29 @@ import static java.time.ZoneId.systemDefault;
 
 public class DataCollector {
 
-    public static final String DATA_DIR = "data";
-    public static final List<String> TICKERS = List.of("GAZP", "ROSN", "LKOH", "NLMK", "SBER", "PIKK", "RTKM", "MGNT");
-
     private static final ObjectMapper objectMapper = new ObjectMapper();
     private static final DateFormat dateTimeFormat = new SimpleDateFormat("dd.MM.yyyy HH:mm:ss");
     private static final Repository<TickerInfo.Key, TickerInfo> tickerRepository = TickerRepository.INSTANCE;
 
     private final TCSService tcsService;
-    private final MainConfig mainConfig;
+    private final AILConfig ailConfig;
 
-    public DataCollector(MainConfig mainConfig, TCSService tcsService) {
+    public DataCollector(AILConfig ailConfig, TCSService tcsService) {
         this.tcsService = tcsService;
-        this.mainConfig = mainConfig;
+        this.ailConfig = ailConfig;
     }
 
     public void run() throws Exception {
-        createDirectories(Paths.get(DATA_DIR));
-        for (String name : TICKERS) {
+        var dataDir = ailConfig.getDataDir();
+        var tickers = ailConfig.getStocks();
+        createDirectories(Paths.get(dataDir));
+        for (String name : tickers) {
             try {
-                createDirectories(Paths.get(DATA_DIR + "/" + name));
-                var candles = createCandlesFile(name, DATA_DIR);
-                var levels = calculatePriceLevels(name, DATA_DIR);
+                createDirectories(Paths.get(dataDir + "/" + name));
+                var candles = createCandlesFile(name, dataDir);
+                var levels = calculatePriceLevels(name, dataDir);
                 var atr = calculateATR(name, candles, 7);
-                createTickerJson(name, DATA_DIR, levels, atr);
+                createTickerJson(name, dataDir, levels, atr);
             } catch (Exception ex) {
                 out.println(ex.getMessage());
             }
@@ -197,7 +196,7 @@ public class DataCollector {
     private List<Double> calculatePriceLevels(String name, String dir) {
         if (exists(Path.of(dir + "/" + name + "/levels.txt"))) {
             out.println("Price levels file exists: " + name);
-            return readLevels(name, DATA_DIR);
+            return readLevels(name, dir);
         }
 
         out.println("Calculate price levels: " + name);
@@ -222,7 +221,7 @@ public class DataCollector {
             throw new RuntimeException(ex);
         }
 
-        return readLevels(name, DATA_DIR);
+        return readLevels(name, dir);
     }
 
     private List<Double> readLevels(String name, String dir) {
