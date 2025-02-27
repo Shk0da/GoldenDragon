@@ -3,12 +3,18 @@ package com.github.shk0da.GoldenDragon;
 import com.github.shk0da.GoldenDragon.config.AILConfig;
 import com.github.shk0da.GoldenDragon.config.MainConfig;
 import com.github.shk0da.GoldenDragon.config.MarketConfig;
+import com.github.shk0da.GoldenDragon.config.RSXConfig;
+import com.github.shk0da.GoldenDragon.config.RebalanceConfig;
 import com.github.shk0da.GoldenDragon.model.Market;
 import com.github.shk0da.GoldenDragon.model.TickerInfo;
 import com.github.shk0da.GoldenDragon.repository.Repository;
 import com.github.shk0da.GoldenDragon.repository.TickerRepository;
 import com.github.shk0da.GoldenDragon.service.TCSService;
 import com.github.shk0da.GoldenDragon.strategy.DataCollector;
+import com.github.shk0da.GoldenDragon.strategy.DivFlow;
+import com.github.shk0da.GoldenDragon.strategy.IndicatorTrader;
+import com.github.shk0da.GoldenDragon.strategy.RSX;
+import com.github.shk0da.GoldenDragon.strategy.Rebalance;
 import com.google.gson.reflect.TypeToken;
 
 import java.io.FileDescriptor;
@@ -26,6 +32,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static com.github.shk0da.GoldenDragon.config.MainConfig.CALENDAR_WORK_DAYS;
+import static com.github.shk0da.GoldenDragon.repository.TickerRepository.SERIALIZE_NAME;
 import static com.github.shk0da.GoldenDragon.utils.SerializationUtils.getDateOfContentOnDisk;
 import static com.github.shk0da.GoldenDragon.utils.SerializationUtils.loadDataFromDisk;
 import static com.github.shk0da.GoldenDragon.utils.SerializationUtils.saveDataToDisk;
@@ -71,7 +78,29 @@ public class GoldenDragon {
             TCSService tcsService = new TCSService(mainConfig.withAccountId(accountId), marketConfig);
             updateTickerRepository(tcsService);
 
-            // 1. DataCollector
+            // 1. Rebalance
+            if ("Rebalance".equals(strategy)) {
+                final RebalanceConfig rebalanceConfig = new RebalanceConfig();
+                new Rebalance(mainConfig, marketConfig, rebalanceConfig, tcsService).run();
+            }
+
+            // 2. RSX
+            if ("RSX".equals(strategy)) {
+                final RSXConfig rsxConfig = new RSXConfig();
+                new RSX(mainConfig, marketConfig, rsxConfig, tcsService).run();
+            }
+
+            // 3. DivFlow
+            if ("DivFlow".equals(strategy)) {
+                new DivFlow(mainConfig, marketConfig, tcsService).run();
+            }
+
+            // 4. IndicatorTrader
+            if ("IndicatorTrader".equals(strategy)) {
+                new IndicatorTrader(tcsService).run();
+            }
+
+            // 5. DataCollector
             if ("DataCollector".equals(strategy)) {
                 AILConfig ailConfig = new AILConfig();
                 new DataCollector(ailConfig, tcsService).run();
@@ -87,7 +116,7 @@ public class GoldenDragon {
         AtomicReference<Map<TickerInfo.Key, TickerInfo>> tickerRegister = new AtomicReference<>(new HashMap<>());
 
         Callable<Boolean> isEmpty = () -> {
-            Map<TickerInfo.Key, TickerInfo> dataFromDisk = loadDataFromDisk(TickerRepository.SERIALIZE_NAME, new TypeToken<>() {
+            Map<TickerInfo.Key, TickerInfo> dataFromDisk = loadDataFromDisk(SERIALIZE_NAME, new TypeToken<>() {
             });
             if (null == dataFromDisk) {
                 return true;
@@ -98,7 +127,7 @@ public class GoldenDragon {
 
         Callable<Boolean> isOld = () -> {
             Date weekAgo = new Date(currentTimeMillis() - TimeUnit.DAYS.toMillis(7));
-            return getDateOfContentOnDisk(TickerRepository.SERIALIZE_NAME).before(weekAgo);
+            return getDateOfContentOnDisk(SERIALIZE_NAME).before(weekAgo);
         };
 
         if (isEmpty.call() || isOld.call()) {
@@ -106,7 +135,7 @@ public class GoldenDragon {
             tickerRepository.putAll(tcsService.getEtfList());
             tickerRepository.putAll(tcsService.getStockList());
             tickerRepository.putAll(tcsService.getBondList());
-            saveDataToDisk(TickerRepository.SERIALIZE_NAME, tickerRepository.getAll());
+            saveDataToDisk(SERIALIZE_NAME, tickerRepository.getAll());
         } else {
             tickerRepository.putAll(tickerRegister.get());
         }
