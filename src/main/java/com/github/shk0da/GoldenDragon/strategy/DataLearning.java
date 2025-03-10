@@ -9,6 +9,9 @@ import com.github.shk0da.GoldenDragon.model.TickerType;
 import com.github.shk0da.GoldenDragon.repository.Repository;
 import com.github.shk0da.GoldenDragon.repository.TickerRepository;
 import com.github.shk0da.GoldenDragon.service.TCSService;
+import com.github.shk0da.GoldenDragon.utils.DeepLearningUtils.StockDataSetIterator;
+import org.deeplearning4j.nn.multilayer.MultiLayerNetwork;
+import org.deeplearning4j.util.ModelSerializer;
 import ru.tinkoff.piapi.contract.v1.CandleInterval;
 import ru.tinkoff.piapi.contract.v1.HistoricCandle;
 import ru.tinkoff.piapi.contract.v1.Share;
@@ -17,6 +20,7 @@ import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileReader;
 import java.io.FileWriter;
+import java.io.IOException;
 import java.nio.file.Path;
 import java.sql.Timestamp;
 import java.text.DateFormat;
@@ -25,6 +29,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 
+import static com.github.shk0da.GoldenDragon.utils.DeepLearningUtils.LSTMNetwork.buildLstmNetworks;
 import static com.github.shk0da.GoldenDragon.utils.IndicatorsUtil.toDouble;
 import static java.lang.System.out;
 import static java.nio.file.Files.exists;
@@ -51,15 +56,27 @@ public class DataLearning {
             try {
                 var ticker = readTickerFile(name, dataDir);
                 var candles = createCandlesFile(name, dataDir);
-                learnNetwork(ticker, candles);
+                learnNetwork(dataDir, ticker, candles);
             } catch (Exception ex) {
                 out.println(ex.getMessage());
             }
         }
     }
 
-    private void learnNetwork(TickerJson ticker, List<TickerCandle> candles) {
-        // https://yandex.ru/search/?text=deeplearning4j+reinforcement+learning&lr=2
+    private void learnNetwork(String dataDir, TickerJson ticker, List<TickerCandle> candles) throws Exception {
+        String name = ticker.getTicker().getTicker().toUpperCase();
+        out.println("Learn network: " + name);
+        StockDataSetIterator dataSetIterator = new StockDataSetIterator(ticker, candles);
+        MultiLayerNetwork neuralNetwork = buildLstmNetworks(dataSetIterator);
+
+        String filePath = dataDir + "/" + name + "/network.nn";
+        ModelSerializer.writeModel(neuralNetwork, filePath, true);
+    }
+
+    private MultiLayerNetwork getNetwork(String dataDir, String name) throws IOException {
+        out.println("Get network: " + name);
+        String filePath = dataDir + "/" + name + "/network.nn";
+        return ModelSerializer.restoreMultiLayerNetwork(filePath);
     }
 
     private TickerJson readTickerFile(String name, String dataDir) throws Exception {
