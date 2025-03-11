@@ -99,12 +99,14 @@ public class TestLevelTrader {
         double atr = calculateATR(D1, 7);
         out.println("ATR: " + atr);
 
+        out.println("LEVELS 1: " + Arrays.toString(levels.toArray(new Double[]{})));
+
         List<Double> levelValues = new ArrayList<>(levels);
         if (ALL_LEVELS) {
             levelValues.addAll(findSupportAndResistanceLevels(H1.subList(0, (int) (H1.size() * K1)), atr));
         }
         levelValues = levelValues.stream().sorted().collect(toList());
-        out.println("LEVELS: " + Arrays.toString(levelValues.toArray(new Double[]{})));
+        out.println("LEVELS 2: " + Arrays.toString(levelValues.toArray(new Double[]{})));
 
         M5 = M5.subList((int) (M5.size() - (M5.size() * K2)), M5.size());
         if (M5.isEmpty()) {
@@ -131,17 +133,13 @@ public class TestLevelTrader {
 
             var tp = (candle5.getClose() / 100) * tpPercent;
             var hasUpATR = (startOfDay.getLow() + (atr - (atr * 0.2))) > (candle5.getClose() + tp);
-            var hasDownATR = (candle5.getClose() - tp) + (atr - (atr * 0.2)) < startOfDay.getHigh();
 
-            var input = getNetworkInput(M5, i, startOfDay.getClose(), levels, atr);
-            var output = network.rnnTimeStep(Nd4j.create(input));
-
-            if (Boolean.TRUE.equals(hasTrendUp) && hasUpATR && output.getDouble(0) > 0.95) {
-                longTrades.add(i);
-            }
-
-            if (Boolean.FALSE.equals(hasTrendUp) && hasDownATR && output.getDouble(0) < 0.05) {
-                shortTrades.add(i);
+            if (Boolean.TRUE.equals(hasTrendUp) && hasUpATR) {
+                var input = getNetworkInput(M5, i, startOfDay.getClose(), levels, atr);
+                var output = network.rnnTimeStep(Nd4j.create(input));
+                if (output.getDouble(0) > 0.75) {
+                    longTrades.add(i);
+                }
             }
         }
 
