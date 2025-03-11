@@ -101,16 +101,67 @@ public class DeepLearningUtils {
 
         private static final DateTimeFormatter formatter = DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm:ss");
 
-        public static float normalize(Integer input) {
-            return normalize(input.doubleValue());
-        }
-
         public static float normalize(Double input) {
             var sizeMin = String.valueOf(input.intValue() / 10).length();
             var sizeMax = String.valueOf(input.intValue() * 10).length();
             var min = Float.parseFloat(String.format("1%0" + sizeMin + "d", 0));
             var max = Float.parseFloat(String.format("1%0" + sizeMax + "d", 0));
             return (input.floatValue() - min) / (max - min);
+        }
+
+        public static float[] getNetworkInput(List<TickerCandle> stockDataList, int i,
+                                              Double startPrice, List<Double> levels, Double atr) {
+            var candle5 = stockDataList.get(i - 5); // свеча 5 назад
+            var candle4 = stockDataList.get(i - 4); // свеча 4 назад
+            var candle3 = stockDataList.get(i - 3); // свеча 3 назад
+            var candle2 = stockDataList.get(i - 2); // свеча 2 назад
+            var candle1 = stockDataList.get(i - 1); // свеча 1 назад
+
+            var min5 = candle5.getLow(); // лой 5 свечей назад (25 мин)
+            var min4 = candle4.getLow(); // лой 4 свечей назад (20 мин)
+            var min3 = candle3.getLow(); // лой 3 свечей назад (15 мин)
+            var min2 = candle2.getLow(); // лой 2 свечей назад (10 мин)
+            var min1 = candle1.getLow(); // лой 1 свечей назад (5 мин)
+
+            var max5 = candle5.getHigh(); // хай 5 свечей назад (25 мин)
+            var max4 = candle4.getHigh(); // хай 4 свечей назад (20 мин)
+            var max3 = candle3.getHigh(); // хай 3 свечей назад (15 мин)
+            var max2 = candle2.getHigh(); // хай 2 свечей назад (10 мин)
+            var max1 = candle1.getHigh(); // хай 1 свечей назад (5 мин)
+
+            var volume5 = candle5.getVolume().doubleValue(); // объем 5 свечей назад (25 мин)
+            var volume4 = candle4.getVolume().doubleValue(); // объем 4 свечей назад (20 мин)
+            var volume3 = candle3.getVolume().doubleValue(); // объем 3 свечей назад (15 мин)
+            var volume2 = candle2.getVolume().doubleValue(); // объем 2 свечей назад (10 мин)
+            var volume1 = candle1.getVolume().doubleValue(); // объем 1 свечей назад (5 мин)
+
+            var currentPrice = stockDataList.get(i).getClose(); // тек.цена
+
+            var supportLevel = 0.0; // уровень снизу
+            var resistanceLevel = 0.0; // уровень сверху
+            for (Double level : levels) {
+                if (level < currentPrice) {
+                    supportLevel = level;
+                }
+                if (level > currentPrice) {
+                    resistanceLevel = level;
+                    break;
+                }
+            }
+
+            var potentialToSupportLevel = currentPrice - supportLevel; // потенциал до уровня снизу
+            var potentialToResistanceLevel = resistanceLevel - currentPrice; // потенциал до уровня сверху
+
+            return new float[]{
+                    normalize(startPrice),
+                    normalize(min5), normalize(min4), normalize(min3), normalize(min2), normalize(min1),
+                    normalize(max5), normalize(max4), normalize(max3), normalize(max2), normalize(max1),
+                    normalize(volume5), normalize(volume4), normalize(volume3), normalize(volume2), normalize(volume1),
+                    normalize(currentPrice),
+                    normalize(supportLevel), normalize(resistanceLevel),
+                    normalize(atr),
+                    normalize(potentialToSupportLevel), normalize(potentialToResistanceLevel)
+            };
         }
 
         public static DataSetIterator createStockDataSetIterator(TickerJson ticker, List<TickerCandle> stockDataList) {
@@ -123,47 +174,7 @@ public class DeepLearningUtils {
                     startPrice = stockDataList.get(i).getClose(); // цена начала дня
                 }
 
-                var candle5 = stockDataList.get(i - 5); // свеча 5 назад
-                var candle4 = stockDataList.get(i - 4); // свеча 4 назад
-                var candle3 = stockDataList.get(i - 3); // свеча 3 назад
-                var candle2 = stockDataList.get(i - 2); // свеча 2 назад
-                var candle1 = stockDataList.get(i - 1); // свеча 1 назад
-
-                var min5 = candle5.getLow(); // лой 5 свечей назад (25 мин)
-                var min4 = candle4.getLow(); // лой 4 свечей назад (20 мин)
-                var min3 = candle3.getLow(); // лой 3 свечей назад (15 мин)
-                var min2 = candle2.getLow(); // лой 2 свечей назад (10 мин)
-                var min1 = candle1.getLow(); // лой 1 свечей назад (5 мин)
-
-                var max5 = candle5.getHigh(); // хай 5 свечей назад (25 мин)
-                var max4 = candle4.getHigh(); // хай 4 свечей назад (20 мин)
-                var max3 = candle3.getHigh(); // хай 3 свечей назад (15 мин)
-                var max2 = candle2.getHigh(); // хай 2 свечей назад (10 мин)
-                var max1 = candle1.getHigh(); // хай 1 свечей назад (5 мин)
-
-                var volume5 = candle5.getVolume(); // объем 5 свечей назад (25 мин)
-                var volume4 = candle4.getVolume(); // объем 4 свечей назад (20 мин)
-                var volume3 = candle3.getVolume(); // объем 3 свечей назад (15 мин)
-                var volume2 = candle2.getVolume(); // объем 2 свечей назад (10 мин)
-                var volume1 = candle1.getVolume(); // объем 1 свечей назад (5 мин)
-
-                var currentPrice = stockDataList.get(i).getClose(); // тек.цена
-
-                var supportLevel = 0.0; // уровень снизу
-                var resistanceLevel = 0.0; // уровень сверху
-                for (Double level : ticker.getLevels()) {
-                    if (level < currentPrice) {
-                        supportLevel = level;
-                    }
-                    if (level > currentPrice) {
-                        resistanceLevel = level;
-                        break;
-                    }
-                }
-
-                var atr = ticker.getAtr(); // atr
-                var potentialToSupportLevel = currentPrice - supportLevel; // потенциал до уровня снизу
-                var potentialToResistanceLevel = resistanceLevel - currentPrice; // потенциал до уровня сверху
+                var networkInput = getNetworkInput(stockDataList, i, startPrice, ticker.getLevels(), ticker.getAtr());
 
                 var action = 0.0; // нейтрально
 
@@ -182,6 +193,7 @@ public class DeepLearningUtils {
                 var targetMax = Collections.max(targets);
                 var targetMin = Collections.min(targets);
 
+                var currentPrice = stockDataList.get(i).getClose(); // тек.цена
                 if (targetMax > currentPrice && targetMin > currentPrice) {
                     if (((targetMax - currentPrice) * 100 / targetMax) > 1) {
                         action = 0.6; // покупка с тп
@@ -218,16 +230,7 @@ public class DeepLearningUtils {
                     }
                 }
 
-                var input = Nd4j.create(new float[]{
-                        normalize(startPrice),
-                        normalize(min5), normalize(min4), normalize(min3), normalize(min2), normalize(min1),
-                        normalize(max5), normalize(max4), normalize(max3), normalize(max2), normalize(max1),
-                        normalize(volume5), normalize(volume4), normalize(volume3), normalize(volume2), normalize(volume1),
-                        normalize(currentPrice),
-                        normalize(supportLevel), normalize(resistanceLevel),
-                        normalize(atr),
-                        normalize(potentialToSupportLevel), normalize(potentialToResistanceLevel)
-                });
+                var input = Nd4j.create(networkInput);
                 var label = Nd4j.create(new double[]{action});
                 dataSets.add(new DataSet(input, label));
             }
