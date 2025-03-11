@@ -38,6 +38,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 import static com.github.shk0da.GoldenDragon.repository.TickerRepository.SERIALIZE_NAME;
 import static com.github.shk0da.GoldenDragon.utils.SerializationUtils.loadDataFromDisk;
@@ -62,7 +63,7 @@ public class TestLevelTrader {
         tickerRepository.putAll(dataFromDisk);
 
         AtomicReference<Double> balance = new AtomicReference<>(100_000.00);
-        List.of("GAZP", "ROSN", "LKOH", "NLMK", "PIKK", "RTKM", "MGNT").forEach(tickerName -> {
+        List.of("GAZP", "ROSN", "LKOH", "NLMK", "PIKK", "MGNT").forEach(tickerName -> {
             try {
                 String name = tickerName.toLowerCase();
                 String ticker = tickerRepository.getAll().values().stream()
@@ -124,6 +125,10 @@ public class TestLevelTrader {
                 startOfDay = M5.get(x);
             }
 
+            var candle1 = M5.get(i - 4);
+            var candle2 = M5.get(i - 3);
+            var candle3 = M5.get(i - 2);
+            var candle4 = M5.get(i - 1);
             var candle5 = M5.get(i);
 
             if (x > 80) {
@@ -133,12 +138,45 @@ public class TestLevelTrader {
 
             var tp = (candle5.getClose() / 100) * tpPercent;
             var hasUpATR = (startOfDay.getLow() + (atr - (atr * 0.2))) > (candle5.getClose() + tp);
+            var hasDownATR = (candle5.getClose() - tp) + (atr - (atr * 0.2)) < startOfDay.getHigh();
 
             if (Boolean.TRUE.equals(hasTrendUp) && hasUpATR) {
-                var input = getNetworkInput(M5, i, startOfDay.getClose(), levels, atr);
-                var output = network.rnnTimeStep(Nd4j.create(input));
-                if (output.getDouble(0) > 0.75) {
-                    longTrades.add(i);
+                var barSize1 = candle1.getHigh() - candle1.getLow();
+                var barSize2 = candle2.getHigh() - candle2.getLow();
+                var barSize3 = candle3.getHigh() - candle3.getLow();
+                var barSize4 = candle4.getHigh() - candle4.getLow();
+
+                var hasResistLevel = true;
+                hasResistLevel &= candle1.getLow() <= candle2.getLow() && barSize2 <= barSize1;
+                hasResistLevel &= candle2.getLow() <= candle3.getLow() && barSize3 <= barSize2;
+                hasResistLevel &= candle3.getLow() <= candle4.getLow() && barSize4 <= barSize3;
+
+                if (hasResistLevel) {
+                    var input = getNetworkInput(M5, i, startOfDay.getClose(), levels, atr);
+                    var output = network.rnnTimeStep(Nd4j.create(input));
+                    if (output.getDouble(0) > 0.70) {
+                        longTrades.add(i);
+                    }
+                }
+            }
+
+            if (Boolean.FALSE.equals(hasTrendUp) && hasDownATR) {
+                var barSize1 = candle1.getHigh() - candle1.getLow();
+                var barSize2 = candle2.getHigh() - candle2.getLow();
+                var barSize3 = candle3.getHigh() - candle3.getLow();
+                var barSize4 = candle4.getHigh() - candle4.getLow();
+
+                var hasResistLevel = true;
+                hasResistLevel &= candle1.getHigh() >= candle2.getHigh() && barSize2 <= barSize1;
+                hasResistLevel &= candle2.getHigh() >= candle3.getHigh() && barSize3 <= barSize2;
+                hasResistLevel &= candle3.getHigh() >= candle4.getHigh() && barSize4 <= barSize3;
+
+                if (hasResistLevel) {
+                    var input = getNetworkInput(M5, i, startOfDay.getClose(), levels, atr);
+                    var output = network.rnnTimeStep(Nd4j.create(input));
+                    if (output.getDouble(0) < 0.1) {
+                        shortTrades.add(i);
+                    }
                 }
             }
         }
@@ -266,6 +304,8 @@ public class TestLevelTrader {
         int count = 0;
         double cashOpen = 0.0;
         double prevClose = 0.0;
+        int winRateCounter = 0;
+        int failRateCounter = 0;
         for (int i = 0; i < candles.size(); i++) {
             var close = candles.get(i).getClose();
             if (longTrades.contains(i)) {
@@ -286,14 +326,16 @@ public class TestLevelTrader {
             }
 
             var longTP = (count > 0 && close >= (prevClose + ((prevClose / 100) * tpPercent)));
-            var longSL = (count > 0 && close < (prevClose - ((prevClose / 100) * tpPercent / 3)));
+            var longSL = (count > 0 && close < (prevClose - ((prevClose / 100) * (tpPercent / 3))));
             var shortTP = (count < 0 && close <= (prevClose - ((prevClose / 100) * tpPercent)));
-            var shortSL = (count < 0 && close > (prevClose + ((prevClose / 100) * tpPercent / 3)));
+            var shortSL = (count < 0 && close > (prevClose + ((prevClose / 100) * (tpPercent / 3))));
 
             if (longTP || longSL || shortTP || shortSL) {
                 var cashClose = count * close;
                 var operationResult = (cashClose - cashOpen);
                 out.println((count > 0 ? "BUY: " : "SELL: ") + operationResult);
+                if (operationResult > 0) winRateCounter++;
+                if (operationResult < 0) failRateCounter++;
                 balance = balance + operationResult;
                 cashOpen = 0.0;
                 count = 0;
@@ -302,6 +344,7 @@ public class TestLevelTrader {
                 balance = balance - commission;
             }
         }
+        out.println("WIN/LOSE: " + winRateCounter + "/" + failRateCounter);
         return balance;
     }
 
