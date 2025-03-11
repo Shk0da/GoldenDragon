@@ -2,6 +2,7 @@ package com.github.shk0da.GoldenDragon.utils;
 
 import com.github.shk0da.GoldenDragon.model.TickerCandle;
 import com.github.shk0da.GoldenDragon.model.TickerJson;
+import org.deeplearning4j.datasets.iterator.impl.ListDataSetIterator;
 import org.deeplearning4j.nn.api.OptimizationAlgorithm;
 import org.deeplearning4j.nn.conf.BackpropType;
 import org.deeplearning4j.nn.conf.NeuralNetConfiguration;
@@ -14,11 +15,12 @@ import org.deeplearning4j.nn.weights.WeightInit;
 import org.deeplearning4j.optimize.listeners.ScoreIterationListener;
 import org.nd4j.linalg.activations.Activation;
 import org.nd4j.linalg.dataset.DataSet;
-import org.nd4j.linalg.dataset.api.DataSetPreProcessor;
 import org.nd4j.linalg.dataset.api.iterator.DataSetIterator;
 import org.nd4j.linalg.factory.Nd4j;
 import org.nd4j.linalg.lossfunctions.LossFunctions;
 
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -94,112 +96,90 @@ public class DeepLearningUtils {
         }
     }
 
-    public static final class StockDataSetIterator implements DataSetIterator {
+    public static final class StockDataSetIterator {
 
-        private final TickerJson ticker;
-        private final List<TickerCandle> stockDataList;
+        private static final DateTimeFormatter formatter = DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm:ss");
 
-        public StockDataSetIterator(TickerJson ticker, List<TickerCandle> stockDataList) {
-            this.ticker = ticker;
-            this.stockDataList = stockDataList;
-
+        public static DataSetIterator createStockDataSetIterator(TickerJson ticker, List<TickerCandle> stockDataList) {
             List<DataSet> dataSets = new ArrayList<>();
-            var currentPrice = 0.0;  // тек.цена
-            var supportLevel = 0.0; // уровень снизу
-            var resistanceLevel = 0.0; // уровень сверху
-            var atr = 0.0; // ATR
-            var startPrice = 0.0; // цена начала дня
-            var potentialToSupportLevel = 0.0; // потенциал до уровня снизу
-            var potentialToResistanceLevel = 0.0; // потенциал до уровня сверху
+            var startPrice = stockDataList.get(0).getClose(); // цена начала дня
+            var startDay = LocalDateTime.parse(stockDataList.get(0).getDate(), formatter);
+            for (int i = 6; i < stockDataList.size() - 10; i++) {
+                LocalDateTime time = LocalDateTime.parse(stockDataList.get(i).getDate(), formatter);
+                if (!startDay.equals(time) && time.getHour() <= 9) {
+                    startPrice = stockDataList.get(i).getClose(); // цена начала дня
+                }
 
-            var volume5 = 0.0; // объем 5 свечей назад (25 мин)
-            var volume4 = 0.0; // объем 4 свечей назад (20 мин)
-            var volume3 = 0.0; // объем 3 свечей назад (15 мин)
-            var volume2 = 0.0; // объем 2 свечей назад (10 мин)
-            var volume1 = 0.0; // объем 1 свечей назад (5 мин)
-            var volume0 = 0.0; // объем 0 свечей назад (0 мин)
+                var candle5 = stockDataList.get(i - 5); // свеча 5 назад
+                var candle4 = stockDataList.get(i - 4); // свеча 4 назад
+                var candle3 = stockDataList.get(i - 3); // свеча 3 назад
+                var candle2 = stockDataList.get(i - 2); // свеча 2 назад
+                var candle1 = stockDataList.get(i - 1); // свеча 1 назад
 
-            var candle5 = 0.0; // свеча 5 назад
+                var min5 = candle5.getLow(); // лой 5 свечей назад (25 мин)
+                var min4 = candle4.getLow(); // лой 4 свечей назад (20 мин)
+                var min3 = candle3.getLow(); // лой 3 свечей назад (15 мин)
+                var min2 = candle2.getLow(); // лой 2 свечей назад (10 мин)
+                var min1 = candle1.getLow(); // лой 1 свечей назад (5 мин)
 
-            // Тест: пробой, отскок, ложный пробой
+                var max5 = candle5.getHigh(); // хай 5 свечей назад (25 мин)
+                var max4 = candle4.getHigh(); // хай 4 свечей назад (20 мин)
+                var max3 = candle3.getHigh(); // хай 3 свечей назад (15 мин)
+                var max2 = candle2.getHigh(); // хай 2 свечей назад (10 мин)
+                var max1 = candle1.getHigh(); // хай 1 свечей назад (5 мин)
 
-        }
+                var volume5 = candle5.getVolume(); // объем 5 свечей назад (25 мин)
+                var volume4 = candle4.getVolume(); // объем 4 свечей назад (20 мин)
+                var volume3 = candle3.getVolume(); // объем 3 свечей назад (15 мин)
+                var volume2 = candle2.getVolume(); // объем 2 свечей назад (10 мин)
+                var volume1 = candle1.getVolume(); // объем 1 свечей назад (5 мин)
 
-        @Override
-        public DataSet next(int num) {
-            var input = Nd4j.create(new int[]{1,2,3,4});
-            var label = Nd4j.create(new int[]{5}, 'f');
-            return new DataSet(input, label);
-        }
+                var currentPrice = stockDataList.get(i).getClose(); // тек.цена
 
-        @Override
-        public int totalExamples() {
-            return 0;
-        }
+                var supportLevel = 0.0; // уровень снизу
+                var resistanceLevel = 0.0; // уровень сверху
+                for (Double level : ticker.getLevels()) {
+                    if (level < currentPrice) {
+                        supportLevel = level;
+                    }
+                    if (level > currentPrice) {
+                        resistanceLevel = level;
+                        break;
+                    }
+                }
 
-        @Override
-        public int inputColumns() {
-            return 0;
-        }
+                var atr = ticker.getAtr(); // atr
+                var potentialToSupportLevel = currentPrice - supportLevel; // потенциал до уровня снизу
+                var potentialToResistanceLevel = resistanceLevel - currentPrice; // потенциал до уровня сверху
 
-        @Override
-        public int totalOutcomes() {
-            return 0;
-        }
+                // через n свечей [сработал 1 SL - 0 / сработал 3 TP - 1]
+                var action = 0.5; // нейтрально
+                var target = stockDataList.get(i + 10).getClose();
+                if (target > currentPrice) {
+                    if (((target - currentPrice) * 100 / target) > 0.9) {
+                        action = 1.0; // покупка с тп
+                    }
+                }
+                if (target < currentPrice) {
+                    if (((currentPrice - target) * 100 / currentPrice) > 0.9) {
+                        action = 0.0; // продажа с тп
+                    }
+                }
 
-        @Override
-        public boolean resetSupported() {
-            return false;
-        }
-
-        @Override
-        public boolean asyncSupported() {
-            return false;
-        }
-
-        @Override
-        public void reset() {
-
-        }
-
-        @Override
-        public int batch() {
-            return 0;
-        }
-
-        @Override
-        public int cursor() {
-            return 0;
-        }
-
-        @Override
-        public int numExamples() {
-            return 0;
-        }
-
-        @Override
-        public void setPreProcessor(DataSetPreProcessor preProcessor) {
-
-        }
-
-        @Override
-        public DataSetPreProcessor getPreProcessor() {
-            return null;
-        }
-
-        @Override
-        public List<String> getLabels() {
-            return null;
-        }
-
-        @Override
-        public boolean hasNext() {
-            return false;
-        }
-
-        @Override
-        public DataSet next() {
-            return null;
+                var input = Nd4j.create(new double[]{
+                        startPrice,
+                        min5, min4, min3, min2, min1,
+                        max5, max4, max3, max2, max1,
+                        volume5, volume4, volume3, volume2, volume1,
+                        currentPrice,
+                        supportLevel, resistanceLevel,
+                        atr,
+                        potentialToSupportLevel, potentialToResistanceLevel
+                });
+                var label = Nd4j.create(new double[]{action});
+                dataSets.add(new DataSet(input, label));
+            }
+            return new ListDataSetIterator<>(dataSets);
         }
     }
 }

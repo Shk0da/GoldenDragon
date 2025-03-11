@@ -5,6 +5,8 @@ import com.github.shk0da.GoldenDragon.repository.Repository;
 import com.github.shk0da.GoldenDragon.repository.TickerRepository;
 import com.github.shk0da.GoldenDragon.utils.IndicatorsUtil;
 import com.google.gson.reflect.TypeToken;
+import org.deeplearning4j.nn.multilayer.MultiLayerNetwork;
+import org.deeplearning4j.util.ModelSerializer;
 import org.jfree.chart.ChartFactory;
 import org.jfree.chart.ChartUtilities;
 import org.jfree.chart.JFreeChart;
@@ -21,6 +23,7 @@ import java.io.File;
 import java.io.FileOutputStream;
 import java.io.FileReader;
 import java.io.FileWriter;
+import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.sql.Connection;
@@ -87,6 +90,12 @@ public class TestLevelTrader {
             }
         });
         out.println("\nTOTAL BALANCE: " + balance);
+    }
+
+    public static MultiLayerNetwork getNetwork(String dataDir, String name) throws IOException {
+        out.println("Get network: " + name);
+        String filePath = dataDir + "/" + name + "/network.nn";
+        return ModelSerializer.restoreMultiLayerNetwork(filePath);
     }
 
     public static void cleanOldFiles() {
