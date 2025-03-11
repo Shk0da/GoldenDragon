@@ -273,13 +273,15 @@ public class TestLevelTrader {
                 balance = balance - commission;
             }
 
+            var min = candles.get(i).getLow();
+            var max = candles.get(i).getHigh();
             var longTP = (count > 0 && close >= (prevClose + ((prevClose / 100) * tpPercent)));
-            var longSL = (count > 0 && close < (prevClose - ((prevClose / 100) * slPercent)));
+            var longSL = (count > 0 && max < (prevClose - ((prevClose / 100) * slPercent)));
             var shortTP = (count < 0 && close <= (prevClose - ((prevClose / 100) * tpPercent)));
-            var shortSL = (count < 0 && close > (prevClose + ((prevClose / 100) * slPercent)));
+            var shortSL = (count < 0 && min > (prevClose + ((prevClose / 100) * slPercent)));
 
             if (longTP || longSL || shortTP || shortSL) {
-                var cashClose = count * close;
+                var cashClose = count * (longSL ? max : shortSL ? min : close);
                 var operationResult = (cashClose - cashOpen);
                 out.println((count > 0 ? "BUY: " : "SELL: ") + operationResult);
                 if (operationResult > 0) winRateCounter++;
