@@ -101,6 +101,18 @@ public class DeepLearningUtils {
 
         private static final DateTimeFormatter formatter = DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm:ss");
 
+        public static float normalize(Integer input) {
+            return normalize(input.doubleValue());
+        }
+
+        public static float normalize(Double input) {
+            var sizeMin = String.valueOf(input.intValue() / 10).length();
+            var sizeMax = String.valueOf(input.intValue() * 10).length();
+            var min = Float.parseFloat(String.format("1%0" + sizeMin + "d", 0));
+            var max = Float.parseFloat(String.format("1%0" + sizeMax + "d", 0));
+            return (input.floatValue() - min) / (max - min);
+        }
+
         public static DataSetIterator createStockDataSetIterator(TickerJson ticker, List<TickerCandle> stockDataList) {
             List<DataSet> dataSets = new ArrayList<>();
             var startPrice = stockDataList.get(0).getClose(); // цена начала дня
@@ -153,7 +165,7 @@ public class DeepLearningUtils {
                 var potentialToSupportLevel = currentPrice - supportLevel; // потенциал до уровня снизу
                 var potentialToResistanceLevel = resistanceLevel - currentPrice; // потенциал до уровня сверху
 
-                var action = 0.5; // нейтрально
+                var action = 0.0; // нейтрально
 
                 var targets = new ArrayList<Double>();
                 targets.add(stockDataList.get(i + 1).getClose());
@@ -190,31 +202,31 @@ public class DeepLearningUtils {
 
                 if (targetMin < currentPrice && targetMax < currentPrice) {
                     if (((currentPrice - targetMin) * 100 / currentPrice) > 1) {
-                        action = 0.4; // продажа с тп
+                        action = -0.6; // продажа с тп
                     }
                     if (((currentPrice - targetMin) * 100 / currentPrice) > 1.5) {
-                        action = 0.3; // продажа с тп
+                        action = -0.7; // продажа с тп
                     }
                     if (((currentPrice - targetMin) * 100 / currentPrice) > 2) {
-                        action = 0.2; // продажа с тп
+                        action = -0.8; // продажа с тп
                     }
                     if (((currentPrice - targetMin) * 100 / currentPrice) > 2.5) {
-                        action = 0.1; // продажа с тп
+                        action = -0.9; // продажа с тп
                     }
                     if (((currentPrice - targetMin) * 100 / currentPrice) > 3) {
-                        action = 0.0; // продажа с тп
+                        action = -1.0; // продажа с тп
                     }
                 }
 
-                var input = Nd4j.create(new double[]{
-                        startPrice,
-                        min5, min4, min3, min2, min1,
-                        max5, max4, max3, max2, max1,
-                        volume5, volume4, volume3, volume2, volume1,
-                        currentPrice,
-                        supportLevel, resistanceLevel,
-                        atr,
-                        potentialToSupportLevel, potentialToResistanceLevel
+                var input = Nd4j.create(new float[]{
+                        normalize(startPrice),
+                        normalize(min5), normalize(min4), normalize(min3), normalize(min2), normalize(min1),
+                        normalize(max5), normalize(max4), normalize(max3), normalize(max2), normalize(max1),
+                        normalize(volume5), normalize(volume4), normalize(volume3), normalize(volume2), normalize(volume1),
+                        normalize(currentPrice),
+                        normalize(supportLevel), normalize(resistanceLevel),
+                        normalize(atr),
+                        normalize(potentialToSupportLevel), normalize(potentialToResistanceLevel)
                 });
                 var label = Nd4j.create(new double[]{action});
                 dataSets.add(new DataSet(input, label));

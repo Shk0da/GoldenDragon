@@ -59,6 +59,7 @@ public class DataLearning {
                 learnNetwork(dataDir, ticker, candles);
             } catch (Exception ex) {
                 out.println(ex.getMessage());
+                ex.printStackTrace();
             }
         }
     }

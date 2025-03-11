@@ -38,9 +38,9 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
-import java.util.stream.Stream;
 
 import static com.github.shk0da.GoldenDragon.repository.TickerRepository.SERIALIZE_NAME;
+import static com.github.shk0da.GoldenDragon.utils.DeepLearningUtils.StockDataSetIterator.normalize;
 import static com.github.shk0da.GoldenDragon.utils.SerializationUtils.loadDataFromDisk;
 import static java.lang.System.out;
 import static java.nio.file.Files.deleteIfExists;
@@ -155,7 +155,7 @@ public class TestLevelTrader {
                 if (hasResistLevel) {
                     var input = getNetworkInput(M5, i, startOfDay.getClose(), levels, atr);
                     var output = network.rnnTimeStep(Nd4j.create(input));
-                    if (output.getDouble(0) > 0.75) {
+                    if (output.getDouble(0) > 0.1) {
                         longTrades.add(i);
                     }
                 }
@@ -175,7 +175,7 @@ public class TestLevelTrader {
                 if (hasResistLevel) {
                     var input = getNetworkInput(M5, i, startOfDay.getClose(), levels, atr);
                     var output = network.rnnTimeStep(Nd4j.create(input));
-                    if (output.getDouble(0) < 0.45) {
+                    if (output.getDouble(0) < -0.1) {
                         shortTrades.add(i);
                     }
                 }
@@ -240,7 +240,7 @@ public class TestLevelTrader {
         return ModelSerializer.restoreMultiLayerNetwork(filePath);
     }
 
-    private static double[] getNetworkInput(List<TickerCandle> stockDataList, int i,
+    private static float[] getNetworkInput(List<TickerCandle> stockDataList, int i,
                                             Double startPrice, List<Double> levels, Double atr) {
         var candle5 = stockDataList.get(i - 5); // свеча 5 назад
         var candle4 = stockDataList.get(i - 4); // свеча 4 назад
@@ -283,15 +283,15 @@ public class TestLevelTrader {
         var potentialToSupportLevel = currentPrice - supportLevel; // потенциал до уровня снизу
         var potentialToResistanceLevel = resistanceLevel - currentPrice; // потенциал до уровня сверху
 
-        return new double[]{
-                startPrice,
-                min5, min4, min3, min2, min1,
-                max5, max4, max3, max2, max1,
-                volume5, volume4, volume3, volume2, volume1,
-                currentPrice,
-                supportLevel, resistanceLevel,
-                atr,
-                potentialToSupportLevel, potentialToResistanceLevel
+        return new float[]{
+                normalize(startPrice),
+                normalize(min5), normalize(min4), normalize(min3), normalize(min2), normalize(min1),
+                normalize(max5), normalize(max4), normalize(max3), normalize(max2), normalize(max1),
+                normalize(volume5), normalize(volume4), normalize(volume3), normalize(volume2), normalize(volume1),
+                normalize(currentPrice),
+                normalize(supportLevel), normalize(resistanceLevel),
+                normalize(atr),
+                normalize(potentialToSupportLevel), normalize(potentialToResistanceLevel)
         };
     }
 
