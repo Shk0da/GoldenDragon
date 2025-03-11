@@ -142,7 +142,7 @@ public class DataCollector {
             List<Share> stocks = tcsService.getMoexShares();
             String ticker = tickerRepository.getAll().values().stream()
                     .filter(it -> it.getType().equals(TickerType.STOCK))
-                    .filter(it -> it.getName().toLowerCase().contains(name) || it.getTicker().toLowerCase().contains(name))
+                    .filter(it -> it.getName().equalsIgnoreCase(name) || it.getTicker().equalsIgnoreCase(name))
                     .map(TickerInfo::getFigi)
                     .findFirst()
                     .orElseThrow();
@@ -302,8 +302,7 @@ public class DataCollector {
         try (FileWriter writer = new FileWriter(dir + "/" + name + "/ticker.json")) {
             TickerInfo ticker = tickerRepository.getAll().values().stream()
                     .filter(it -> it.getType().equals(TickerType.STOCK))
-                    .filter(it -> it.getName().toLowerCase().contains(name.toLowerCase())
-                            || it.getTicker().toLowerCase().contains(name.toLowerCase()))
+                    .filter(it -> it.getName().equalsIgnoreCase(name) || it.getTicker().equalsIgnoreCase(name))
                     .findFirst()
                     .orElseThrow();
             Map<String, Object> json = new HashMap<>() {{

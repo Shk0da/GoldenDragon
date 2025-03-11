@@ -157,11 +157,35 @@ public class DeepLearningUtils {
                 var target = stockDataList.get(i + 10).getClose();
                 if (target > currentPrice) {
                     if (((target - currentPrice) * 100 / target) > 0.9) {
+                        action = 0.6; // покупка с тп
+                    }
+                    if (((target - currentPrice) * 100 / target) > 1.0) {
+                        action = 0.7; // покупка с тп
+                    }
+                    if (((target - currentPrice) * 100 / target) > 1.1) {
+                        action = 0.8; // покупка с тп
+                    }
+                    if (((target - currentPrice) * 100 / target) > 1.2) {
+                        action = 0.9; // покупка с тп
+                    }
+                    if (((target - currentPrice) * 100 / target) > 1.3) {
                         action = 1.0; // покупка с тп
                     }
                 }
                 if (target < currentPrice) {
                     if (((currentPrice - target) * 100 / currentPrice) > 0.9) {
+                        action = 0.4; // продажа с тп
+                    }
+                    if (((currentPrice - target) * 100 / currentPrice) > 1.0) {
+                        action = 0.3; // продажа с тп
+                    }
+                    if (((currentPrice - target) * 100 / currentPrice) > 1.1) {
+                        action = 0.2; // продажа с тп
+                    }
+                    if (((currentPrice - target) * 100 / currentPrice) > 1.2) {
+                        action = 0.1; // продажа с тп
+                    }
+                    if (((currentPrice - target) * 100 / currentPrice) > 1.3) {
                         action = 0.0; // продажа с тп
                     }
                 }

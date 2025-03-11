@@ -1,5 +1,7 @@
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.shk0da.GoldenDragon.model.TickerCandle;
 import com.github.shk0da.GoldenDragon.model.TickerInfo;
+import com.github.shk0da.GoldenDragon.model.TickerJson;
 import com.github.shk0da.GoldenDragon.model.TickerType;
 import com.github.shk0da.GoldenDragon.repository.Repository;
 import com.github.shk0da.GoldenDragon.repository.TickerRepository;
@@ -16,20 +18,15 @@ import org.jfree.chart.plot.ValueMarker;
 import org.jfree.chart.plot.XYPlot;
 import org.jfree.data.xy.XYSeries;
 import org.jfree.data.xy.XYSeriesCollection;
+import org.nd4j.linalg.factory.Nd4j;
 
 import java.awt.*;
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.FileReader;
-import java.io.FileWriter;
 import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Paths;
-import java.sql.Connection;
-import java.sql.DriverManager;
-import java.sql.ResultSet;
-import java.sql.Statement;
+import java.nio.file.Path;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.time.temporal.ChronoUnit;
@@ -41,10 +38,11 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
-import java.util.stream.Stream;
 
+import static com.github.shk0da.GoldenDragon.repository.TickerRepository.SERIALIZE_NAME;
 import static com.github.shk0da.GoldenDragon.utils.SerializationUtils.loadDataFromDisk;
 import static java.lang.System.out;
+import static java.nio.file.Files.deleteIfExists;
 import static java.util.stream.Collectors.toList;
 
 public class TestLevelTrader {
@@ -55,136 +53,46 @@ public class TestLevelTrader {
     private static final Double COMISSION = 0.05;
     private static final Double tpPercent = 0.9;
 
+    private static final ObjectMapper objectMapper = new ObjectMapper();
+    private static final DateTimeFormatter formatter = DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm:ss");
+
     public static void main(String[] args) throws Exception {
         Repository<TickerInfo.Key, TickerInfo> tickerRepository = TickerRepository.INSTANCE;
-        Map<TickerInfo.Key, TickerInfo> dataFromDisk = loadDataFromDisk(TickerRepository.SERIALIZE_NAME, new TypeToken<>() {
-        });
+        Map<TickerInfo.Key, TickerInfo> dataFromDisk = loadDataFromDisk(SERIALIZE_NAME, new TypeToken<>() {});
         tickerRepository.putAll(dataFromDisk);
 
         AtomicReference<Double> balance = new AtomicReference<>(100_000.00);
-        List.of("ROSN", "LKOH", "NLMK", "SBER", "PIKK", "RTKM", "MGNT").forEach(tickerName -> {
+        List.of("GAZP", "ROSN", "LKOH", "NLMK", "PIKK", "RTKM", "MGNT").forEach(tickerName -> {
             try {
                 String name = tickerName.toLowerCase();
                 String ticker = tickerRepository.getAll().values().stream()
                         .filter(it -> it.getType().equals(TickerType.STOCK))
-                        .filter(it -> it.getName().toLowerCase().contains(name) || it.getTicker().toLowerCase().contains(name))
+                        .filter(it -> it.getName().equalsIgnoreCase(name) || it.getTicker().equalsIgnoreCase(name))
                         .map(TickerInfo::getFigi)
                         .findFirst()
                         .orElseThrow();
 
-                cleanOldFiles();
-                createCandleTXTFile(ticker);
-                calculatePriceLevels(ticker);
-                var levels = readLevelsTXTFile(ticker);
-
                 out.println("\nTICKER: " + tickerName + " (" + ticker + ")");
                 var currentBalance = balance.get();
                 out.println("BALANCE START: " + currentBalance);
-                balance.set(run(ticker, currentBalance, levels));
+                var tickerInfo = readTickerFile(tickerName, "data");
+                balance.set(run(tickerName, currentBalance, tickerInfo.getLevels()));
 
                 var endBalance = balance.get();
                 out.println("BALANCE END: " + endBalance);
                 out.println("BALANCE DIFF: " + (endBalance - currentBalance));
             } catch (Exception ex) {
                 out.println("Skip " + tickerName + ":" + ex.getMessage());
+                ex.printStackTrace();
             }
         });
         out.println("\nTOTAL BALANCE: " + balance);
     }
 
-    public static MultiLayerNetwork getNetwork(String dataDir, String name) throws IOException {
-        out.println("Get network: " + name);
-        String filePath = dataDir + "/" + name + "/network.nn";
-        return ModelSerializer.restoreMultiLayerNetwork(filePath);
-    }
-
-    public static void cleanOldFiles() {
-        try {
-            Files.delete(Paths.get("candles.txt"));
-            out.println("rm candles.txt");
-        } catch (Exception skip) {
-            // nothing
-        }
-        try {
-            Files.delete(Paths.get("levels.txt"));
-            out.println("rm levels.txt");
-        } catch (Exception skip) {
-            // nothing
-        }
-    }
-
-    public static void createCandleTXTFile(String ticker) {
-        File file2 = new File("candles-" + ticker + ".txt");
-        if (file2.exists()) {
-            return;
-        }
-
-        out.println("createCandleTXTFile");
-        List<TickerCandle> H1 = getTickerCandles(ticker, "H1", 0);
-        if (H1.isEmpty()) {
-            throw new RuntimeException("empty candles");
-        }
-        try (FileWriter writer = new FileWriter("candles-" + ticker + ".txt")) {
-            writer.write("Datetime,Open,High,Low,Close,Volume" + System.lineSeparator());
-            for (TickerCandle candle : H1.subList(0, (int) (H1.size() * K1))) {
-                writer.write(String.format("%s,%s,%s,%s,%s,%s", candle.getDate(), candle.getOpen(), candle.getHigh(), candle.getLow(), candle.getClose(), candle.getVolume()) + System.lineSeparator());
-            }
-        } catch (Exception ex) {
-            out.println(ex.getMessage());
-            throw new RuntimeException(ex);
-        }
-    }
-
-    public static void calculatePriceLevels(String ticker) {
-        File file = new File("candles-" + ticker + ".txt");
-        File file2 = new File("candles.txt");
-        File file3 = new File("levels.txt");
-        File file4 = new File("levels-" + ticker + ".txt");
-
-        if (file4.exists()) {
-            return;
-        }
-
-        if (file.exists()) {
-            file.renameTo(file2);
-        }
-
-        out.println("calculatePriceLevels");
-        try {
-            if (0 != Runtime.getRuntime().exec("calculate_levels.exe").waitFor()) {
-                throw new RuntimeException("Not executed: calculate_levels");
-            }
-        } catch (Exception ex) {
-            out.println(ex.getMessage());
-            throw new RuntimeException(ex);
-        }
-        if (file2.exists()) {
-            file2.renameTo(file);
-        }
-        if (file3.exists()) {
-            file3.renameTo(file4);
-        }
-    }
-
-    public static List<Double> readLevelsTXTFile(String ticker) {
-        out.println("readLevelsTXTFile");
-        List<Double> levels = new ArrayList<>();
-        try (BufferedReader br = new BufferedReader(new FileReader("levels-" + ticker + ".txt"))) {
-            String line = br.readLine();
-            while (line != null) {
-                levels.add(Double.valueOf(line));
-                line = br.readLine();
-            }
-        } catch (Exception ex) {
-            out.println(ex.getMessage());
-            throw new RuntimeException(ex);
-        }
-        return levels;
-    }
-
-    public static Double run(String ticker, Double balance, List<Double> levels) {
-        List<TickerCandle> M5 = getTickerCandles(ticker, "M5", 0);
-        List<TickerCandle> H1 = getTickerCandles(ticker, "H1", 0);
+    public static Double run(String name, Double balance, List<Double> levels) throws Exception {
+        var network = getNetwork("data", name);
+        List<TickerCandle> M5 = readCandlesFile(name, "data", "candlesM5.txt");
+        List<TickerCandle> H1 = readCandlesFile(name, "data", "candles.txt");
         List<TickerCandle> D1 = convertCandles(H1, 24, ChronoUnit.HOURS);
 
         Boolean hasTrendUp = null;
@@ -198,8 +106,6 @@ public class TestLevelTrader {
         levelValues = levelValues.stream().sorted().collect(toList());
         out.println("LEVELS: " + Arrays.toString(levelValues.toArray(new Double[]{})));
 
-        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
-
         M5 = M5.subList((int) (M5.size() - (M5.size() * K2)), M5.size());
         if (M5.isEmpty()) {
             return balance;
@@ -209,17 +115,13 @@ public class TestLevelTrader {
         List<Integer> shortTrades = new ArrayList<>();
         TickerCandle startOfDay = M5.get(0);
 
-        for (int i = 5, x = 0; i < M5.size(); i++, x++) {
+        for (int i = 6, x = 0; i < M5.size(); i++, x++) {
             LocalDateTime currentDateTime = LocalDateTime.parse(M5.get(x).getDate(), formatter);
             LocalDateTime startOfDayDateTime = LocalDateTime.parse(startOfDay.getDate(), formatter);
             if (currentDateTime.getDayOfYear() > startOfDayDateTime.getDayOfYear()) {
                 startOfDay = M5.get(x);
             }
 
-            var candle1 = M5.get(i - 4);
-            var candle2 = M5.get(i - 3);
-            var candle3 = M5.get(i - 2);
-            var candle4 = M5.get(i - 1);
             var candle5 = M5.get(i);
 
             if (x > 80) {
@@ -228,102 +130,132 @@ public class TestLevelTrader {
             }
 
             var tp = (candle5.getClose() / 100) * tpPercent;
-            var levelUpper = levelValues.get(levelValues.size() - 1);
-            var levelBottom = levelValues.get(0);
-            for (int z = 1; z < levelValues.size() - 1; z++) {
-                if (candle5.getClose() > levelValues.get(z - 1) && candle5.getClose() < levelValues.get(z)) {
-                    levelUpper = levelValues.get(z);
-                    levelBottom = levelValues.get(z - 1);
-                    break;
-                }
-            }
-
             var hasUpATR = (startOfDay.getLow() + (atr - (atr * 0.2))) > (candle5.getClose() + tp);
             var hasDownATR = (candle5.getClose() - tp) + (atr - (atr * 0.2)) < startOfDay.getHigh();
 
-            if (Boolean.TRUE.equals(hasTrendUp) && hasUpATR) {
-                var barSize1 = candle1.getHigh() - candle1.getLow();
-                var barSize2 = candle2.getHigh() - candle2.getLow();
-                var barSize3 = candle3.getHigh() - candle3.getLow();
-                var barSize4 = candle4.getHigh() - candle4.getLow();
+            var input = getNetworkInput(M5, i, startOfDay.getClose(), levels, atr);
+            var output = network.rnnTimeStep(Nd4j.create(input));
 
-                var hasResistLevel = true;
-                hasResistLevel &= candle1.getLow() <= candle2.getLow() && barSize2 <= barSize1;
-                hasResistLevel &= candle2.getLow() <= candle3.getLow() && barSize3 <= barSize2;
-                hasResistLevel &= candle3.getLow() <= candle4.getLow() && barSize4 <= barSize3;
-
-                if (hasResistLevel) {
-                    var resistLevel = Stream.of(
-                                    candle1.getHigh(),
-                                    candle2.getHigh(),
-                                    candle3.getHigh(),
-                                    candle4.getHigh()
-                            )
-                            .mapToDouble(Double::doubleValue)
-                            .summaryStatistics()
-                            .getMax();
-                    var levelTest = candle1.getClose() < levelBottom
-                            && candle5.getLow() == resistLevel
-                            && candle5.getLow() > levelBottom;
-                    if (levelTest) {
-                        longTrades.add(i);
-                    }
-                }
+            if (Boolean.TRUE.equals(hasTrendUp) && hasUpATR && output.getDouble(0) > 0.95) {
+                longTrades.add(i);
             }
 
-            if (Boolean.FALSE.equals(hasTrendUp) && hasDownATR) {
-                var barSize1 = candle1.getHigh() - candle1.getLow();
-                var barSize2 = candle2.getHigh() - candle2.getLow();
-                var barSize3 = candle3.getHigh() - candle3.getLow();
-                var barSize4 = candle4.getHigh() - candle4.getLow();
-
-                var hasResistLevel = true;
-                hasResistLevel &= candle1.getHigh() >= candle2.getHigh() && barSize2 <= barSize1;
-                hasResistLevel &= candle2.getHigh() >= candle3.getHigh() && barSize3 <= barSize2;
-                hasResistLevel &= candle3.getHigh() >= candle4.getHigh() && barSize4 <= barSize3;
-
-                if (hasResistLevel) {
-                    Set<Double> duplicate = new HashSet<>();
-                    var resistLevel = Stream.of(
-                                    candle1.getLow(),
-                                    candle2.getLow(),
-                                    candle3.getLow(),
-                                    candle4.getLow()
-                            )
-                            .filter(n -> !duplicate.add(n))
-                            .mapToDouble(Double::doubleValue)
-                            .summaryStatistics()
-                            .getMin();
-                    var levelTest = candle1.getClose() > levelUpper
-                            && candle5.getHigh() == resistLevel
-                            && candle5.getHigh() < levelUpper;
-                    Double nextSupportLevel = null;
-                    for (int y = levelValues.size() - 1; y >= 0; y--) {
-                        if (levelValues.get(y) < resistLevel) {
-                            nextSupportLevel = levelValues.get(y);
-                            break;
-                        }
-                    }
-                    var hasRangeATR = null != nextSupportLevel && (resistLevel - nextSupportLevel) > tp;
-                    if (levelTest && hasRangeATR) {
-                        shortTrades.add(i);
-                    }
-                }
+            if (Boolean.FALSE.equals(hasTrendUp) && hasDownATR && output.getDouble(0) < 0.05) {
+                shortTrades.add(i);
             }
         }
 
-        var allTrades = new ArrayList<Integer>();
-        allTrades.addAll(longTrades);
-        allTrades.addAll(shortTrades);
-
         List<TickerCandle> finalM5 = M5;
-        var priceTrades = new ArrayList<Double>();
-        allTrades.forEach(tradeId -> priceTrades.add(finalM5.get(tradeId).getClose()));
-        out.println("TRADES: " + Arrays.toString(priceTrades.toArray(new Double[]{})));
+        var buyTrades = new ArrayList<Double>();
+        longTrades.forEach(tradeId -> buyTrades.add(finalM5.get(tradeId).getClose()));
+        out.println("BUY TRADES: " + Arrays.toString(buyTrades.toArray(new Double[]{})));
 
-        plotChart(ticker, finalM5, levelValues, longTrades, shortTrades);
+        var sellTrades = new ArrayList<Double>();
+        shortTrades.forEach(tradeId -> sellTrades.add(finalM5.get(tradeId).getClose()));
+        out.println("SELL TRADES: " + Arrays.toString(sellTrades.toArray(new Double[]{})));
+
+        plotChart(name, finalM5, levelValues, longTrades, shortTrades);
 
         return calculateTrades(finalM5, longTrades, shortTrades, balance, tpPercent);
+    }
+
+    private static TickerJson readTickerFile(String name, String dataDir) throws Exception {
+        out.println("Read ticker file: " + name);
+        return objectMapper.readValue(new File(dataDir + "/" + name + "/ticker.json"), TickerJson.class);
+    }
+
+    private static List<TickerCandle> readCandlesFile(String name, String dataDir, String file) {
+        out.println("Read candles file: " + name + "/" + file);
+        List<TickerCandle> tickers = new ArrayList<>();
+        try (BufferedReader br = new BufferedReader(new FileReader(dataDir + "/" + name + "/" + file))) {
+            boolean skipHeader = true;
+            String line = br.readLine();
+            while (line != null) {
+                if (skipHeader) {
+                    skipHeader = false;
+                    line = br.readLine();
+                    continue;
+                }
+
+                String[] values = line.split(",");
+                tickers.add(new TickerCandle(
+                        name,
+                        values[0],
+                        Double.valueOf(values[1]),
+                        Double.valueOf(values[2]),
+                        Double.valueOf(values[3]),
+                        Double.valueOf(values[4]),
+                        Double.valueOf(values[4]),
+                        Integer.valueOf(values[5])
+                ));
+                line = br.readLine();
+            }
+        } catch (Exception ex) {
+            out.println(ex.getMessage());
+            throw new RuntimeException(ex);
+        }
+        return tickers;
+    }
+
+    private static MultiLayerNetwork getNetwork(String dataDir, String name) throws IOException {
+        out.println("Get network: " + name);
+        String filePath = dataDir + "/" + name + "/network.nn";
+        return ModelSerializer.restoreMultiLayerNetwork(filePath);
+    }
+
+    private static double[] getNetworkInput(List<TickerCandle> stockDataList, int i,
+                                            Double startPrice, List<Double> levels, Double atr) {
+        var candle5 = stockDataList.get(i - 5); // свеча 5 назад
+        var candle4 = stockDataList.get(i - 4); // свеча 4 назад
+        var candle3 = stockDataList.get(i - 3); // свеча 3 назад
+        var candle2 = stockDataList.get(i - 2); // свеча 2 назад
+        var candle1 = stockDataList.get(i - 1); // свеча 1 назад
+
+        var min5 = candle5.getLow(); // лой 5 свечей назад (25 мин)
+        var min4 = candle4.getLow(); // лой 4 свечей назад (20 мин)
+        var min3 = candle3.getLow(); // лой 3 свечей назад (15 мин)
+        var min2 = candle2.getLow(); // лой 2 свечей назад (10 мин)
+        var min1 = candle1.getLow(); // лой 1 свечей назад (5 мин)
+
+        var max5 = candle5.getHigh(); // хай 5 свечей назад (25 мин)
+        var max4 = candle4.getHigh(); // хай 4 свечей назад (20 мин)
+        var max3 = candle3.getHigh(); // хай 3 свечей назад (15 мин)
+        var max2 = candle2.getHigh(); // хай 2 свечей назад (10 мин)
+        var max1 = candle1.getHigh(); // хай 1 свечей назад (5 мин)
+
+        var volume5 = candle5.getVolume().doubleValue(); // объем 5 свечей назад (25 мин)
+        var volume4 = candle4.getVolume().doubleValue(); // объем 4 свечей назад (20 мин)
+        var volume3 = candle3.getVolume().doubleValue(); // объем 3 свечей назад (15 мин)
+        var volume2 = candle2.getVolume().doubleValue(); // объем 2 свечей назад (10 мин)
+        var volume1 = candle1.getVolume().doubleValue(); // объем 1 свечей назад (5 мин)
+
+        var currentPrice = stockDataList.get(i).getClose(); // тек.цена
+
+        var supportLevel = 0.0; // уровень снизу
+        var resistanceLevel = 0.0; // уровень сверху
+        for (Double level : levels) {
+            if (level < currentPrice) {
+                supportLevel = level;
+            }
+            if (level > currentPrice) {
+                resistanceLevel = level;
+                break;
+            }
+        }
+
+        var potentialToSupportLevel = currentPrice - supportLevel; // потенциал до уровня снизу
+        var potentialToResistanceLevel = resistanceLevel - currentPrice; // потенциал до уровня сверху
+
+        return new double[]{
+                startPrice,
+                min5, min4, min3, min2, min1,
+                max5, max4, max3, max2, max1,
+                volume5, volume4, volume3, volume2, volume1,
+                currentPrice,
+                supportLevel, resistanceLevel,
+                atr,
+                potentialToSupportLevel, potentialToResistanceLevel
+        };
     }
 
     private static Double calculateTrades(List<TickerCandle> candles,
@@ -362,7 +294,9 @@ public class TestLevelTrader {
 
             if (longTP || longSL || shortTP || shortSL) {
                 var cashClose = count * close;
-                balance = balance + (cashClose - cashOpen);
+                var operationResult = (cashClose - cashOpen);
+                out.println((count > 0 ? "BUY: " : "SELL: ") + operationResult);
+                balance = balance + operationResult;
                 cashOpen = 0.0;
                 count = 0;
 
@@ -430,53 +364,18 @@ public class TestLevelTrader {
         range.setRange(min - (min * 0.1), max + (max * 0.1));
 
         try {
-            FileOutputStream out = new FileOutputStream("plots/" + ticker + ".png");
+            deleteIfExists(Path.of("data/" + ticker + "/chart.png"));
+            FileOutputStream out = new FileOutputStream("data/" + ticker + "/chart.png");
             ChartUtilities.writeChartAsPNG(out, chart, 1024 * 8, 600 * 8);
         } catch (Exception ex) {
             out.println(ex.getMessage());
         }
     }
 
-    private static List<TickerCandle> getTickerCandles(String ticker, String period, int counter) {
-        List<TickerCandle> candles = new ArrayList<>();
-        try (Connection con = DriverManager.getConnection(
-                "jdbc:postgresql://localhost:5432/postgres", "postgres", "postgres"
-        )) {
-            Statement stmt = con.createStatement();
-            String selectSql = "SELECT * FROM candle WHERE tf = '" + period + "' AND name = '" + ticker + "' ORDER BY date_time";
-            try (ResultSet resultSet = stmt.executeQuery(selectSql)) {
-                while (resultSet.next()) {
-                    TickerCandle candle = new TickerCandle(
-                            resultSet.getString("name"),
-                            resultSet.getString("date_time"),
-                            resultSet.getDouble("open"),
-                            resultSet.getDouble("high"),
-                            resultSet.getDouble("low"),
-                            resultSet.getDouble("close"),
-                            resultSet.getDouble("close"),
-                            resultSet.getInt("volume")
-                    );
-                    candles.add(candle);
-                }
-            }
-            if (candles.isEmpty()) {
-                throw new RuntimeException("result is empty");
-            }
-        } catch (Exception ex) {
-            if (counter++ < 2) {
-                return getTickerCandles(ticker, period, counter);
-            } else {
-                out.println(ex.getMessage());
-            }
-        }
-        return candles;
-    }
-
     public static List<TickerCandle> convertCandles(List<TickerCandle> candles, long newTimeFrame, ChronoUnit unit) {
         List<TickerCandle> newCandles = new ArrayList<>();
         if (candles.isEmpty()) return newCandles;
 
-        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
         LocalDateTime currentTimestamp = LocalDateTime.parse(candles.get(0).getDate(), formatter);
 
         double open = 0.0;

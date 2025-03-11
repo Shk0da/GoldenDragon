@@ -149,7 +149,7 @@ public class DataLearning {
             List<Share> stocks = tcsService.getMoexShares();
             String ticker = tickerRepository.getAll().values().stream()
                     .filter(it -> it.getType().equals(TickerType.STOCK))
-                    .filter(it -> it.getName().toLowerCase().contains(name) || it.getTicker().toLowerCase().contains(name))
+                    .filter(it -> it.getName().equalsIgnoreCase(name) || it.getTicker().equalsIgnoreCase(name))
                     .map(TickerInfo::getFigi)
                     .findFirst()
                     .orElseThrow();
