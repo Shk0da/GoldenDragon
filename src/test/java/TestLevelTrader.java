@@ -53,6 +53,7 @@ public class TestLevelTrader {
     private static final Double K2 = 1 - K1;
     private static final Double COMISSION = 0.05;
     private static final Double tpPercent = 0.9;
+    private static final Double slPercent = 0.3;
 
     private static final ObjectMapper objectMapper = new ObjectMapper();
     private static final DateTimeFormatter formatter = DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm:ss");
@@ -154,7 +155,7 @@ public class TestLevelTrader {
                 if (hasResistLevel) {
                     var input = getNetworkInput(M5, i, startOfDay.getClose(), levels, atr);
                     var output = network.rnnTimeStep(Nd4j.create(input));
-                    if (output.getDouble(0) > 0.70) {
+                    if (output.getDouble(0) > 0.75) {
                         longTrades.add(i);
                     }
                 }
@@ -174,7 +175,7 @@ public class TestLevelTrader {
                 if (hasResistLevel) {
                     var input = getNetworkInput(M5, i, startOfDay.getClose(), levels, atr);
                     var output = network.rnnTimeStep(Nd4j.create(input));
-                    if (output.getDouble(0) < 0.1) {
+                    if (output.getDouble(0) < 0.45) {
                         shortTrades.add(i);
                     }
                 }
@@ -192,7 +193,7 @@ public class TestLevelTrader {
 
         plotChart(name, finalM5, levelValues, longTrades, shortTrades);
 
-        return calculateTrades(finalM5, longTrades, shortTrades, balance, tpPercent);
+        return calculateTrades(finalM5, longTrades, shortTrades, balance);
     }
 
     private static TickerJson readTickerFile(String name, String dataDir) throws Exception {
@@ -296,7 +297,7 @@ public class TestLevelTrader {
 
     private static Double calculateTrades(List<TickerCandle> candles,
                                           List<Integer> longTrades, List<Integer> shortTrades,
-                                          Double balance, Double tpPercent) {
+                                          Double balance) {
         if (longTrades.isEmpty() && shortTrades.isEmpty()) {
             return balance;
         }
@@ -326,9 +327,9 @@ public class TestLevelTrader {
             }
 
             var longTP = (count > 0 && close >= (prevClose + ((prevClose / 100) * tpPercent)));
-            var longSL = (count > 0 && close < (prevClose - ((prevClose / 100) * (tpPercent / 3))));
+            var longSL = (count > 0 && close < (prevClose - ((prevClose / 100) * slPercent)));
             var shortTP = (count < 0 && close <= (prevClose - ((prevClose / 100) * tpPercent)));
-            var shortSL = (count < 0 && close > (prevClose + ((prevClose / 100) * (tpPercent / 3))));
+            var shortSL = (count < 0 && close > (prevClose + ((prevClose / 100) * slPercent)));
 
             if (longTP || longSL || shortTP || shortSL) {
                 var cashClose = count * close;

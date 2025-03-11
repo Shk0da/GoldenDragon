@@ -22,6 +22,7 @@ import org.nd4j.linalg.lossfunctions.LossFunctions;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 
 public class DeepLearningUtils {
@@ -153,38 +154,54 @@ public class DeepLearningUtils {
                 var potentialToResistanceLevel = resistanceLevel - currentPrice; // потенциал до уровня сверху
 
                 var action = 0.5; // нейтрально
-                var target = stockDataList.get(i + 10).getClose();
-                if (target > currentPrice) {
-                    if (((target - currentPrice) * 100 / target) > 1) {
+
+                var targets = new ArrayList<Double>();
+                targets.add(stockDataList.get(i + 1).getClose());
+                targets.add(stockDataList.get(i + 2).getClose());
+                targets.add(stockDataList.get(i + 3).getClose());
+                targets.add(stockDataList.get(i + 4).getClose());
+                targets.add(stockDataList.get(i + 5).getClose());
+                targets.add(stockDataList.get(i + 6).getClose());
+                targets.add(stockDataList.get(i + 7).getClose());
+                targets.add(stockDataList.get(i + 8).getClose());
+                targets.add(stockDataList.get(i + 9).getClose());
+                targets.add(stockDataList.get(i + 10).getClose());
+
+                var targetMax = Collections.max(targets);
+                var targetMin = Collections.min(targets);
+
+                if (targetMax > currentPrice && targetMin > currentPrice) {
+                    if (((targetMax - currentPrice) * 100 / targetMax) > 1) {
                         action = 0.6; // покупка с тп
                     }
-                    if (((target - currentPrice) * 100 / target) > 2) {
+                    if (((targetMax - currentPrice) * 100 / targetMax) > 1.5) {
                         action = 0.7; // покупка с тп
                     }
-                    if (((target - currentPrice) * 100 / target) > 3) {
+                    if (((targetMax - currentPrice) * 100 / targetMax) > 2) {
                         action = 0.8; // покупка с тп
                     }
-                    if (((target - currentPrice) * 100 / target) > 4) {
+                    if (((targetMax - currentPrice) * 100 / targetMax) > 2.5) {
                         action = 0.9; // покупка с тп
                     }
-                    if (((target - currentPrice) * 100 / target) > 5) {
+                    if (((targetMax - currentPrice) * 100 / targetMax) > 3) {
                         action = 1.0; // покупка с тп
                     }
                 }
-                if (target < currentPrice) {
-                    if (((currentPrice - target) * 100 / currentPrice) > 1) {
+
+                if (targetMin < currentPrice && targetMax < currentPrice) {
+                    if (((currentPrice - targetMin) * 100 / currentPrice) > 1) {
                         action = 0.4; // продажа с тп
                     }
-                    if (((currentPrice - target) * 100 / currentPrice) > 2) {
+                    if (((currentPrice - targetMin) * 100 / currentPrice) > 1.5) {
                         action = 0.3; // продажа с тп
                     }
-                    if (((currentPrice - target) * 100 / currentPrice) > 3) {
+                    if (((currentPrice - targetMin) * 100 / currentPrice) > 2) {
                         action = 0.2; // продажа с тп
                     }
-                    if (((currentPrice - target) * 100 / currentPrice) > 4) {
+                    if (((currentPrice - targetMin) * 100 / currentPrice) > 2.5) {
                         action = 0.1; // продажа с тп
                     }
-                    if (((currentPrice - target) * 100 / currentPrice) > 5) {
+                    if (((currentPrice - targetMin) * 100 / currentPrice) > 3) {
                         action = 0.0; // продажа с тп
                     }
                 }
