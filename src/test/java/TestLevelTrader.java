@@ -143,16 +143,7 @@ public class TestLevelTrader {
         }
 
         List<TickerCandle> finalM5 = M5;
-        var buyTrades = new ArrayList<Double>();
-        longTrades.forEach(tradeId -> buyTrades.add(finalM5.get(tradeId).getClose()));
-        out.println("BUY TRADES: " + Arrays.toString(buyTrades.toArray(new Double[]{})));
-
-        var sellTrades = new ArrayList<Double>();
-        shortTrades.forEach(tradeId -> sellTrades.add(finalM5.get(tradeId).getClose()));
-        out.println("SELL TRADES: " + Arrays.toString(sellTrades.toArray(new Double[]{})));
-
         plotChart(name, finalM5, levels, longTrades, shortTrades);
-
         return calculateTrades(finalM5, longTrades, shortTrades, balance);
     }
 
