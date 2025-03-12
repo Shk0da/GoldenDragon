@@ -78,8 +78,8 @@ public class TestLevelTrader {
                 balance.set(run(tickerName, currentBalance, tickerInfo.getLevels()));
 
                 var endBalance = balance.get();
+                out.println("PROFIT: " + (endBalance - currentBalance));
                 out.println("BALANCE END: " + endBalance);
-                out.println("BALANCE DIFF: " + (endBalance - currentBalance));
             } catch (Exception ex) {
                 out.println("Skip " + tickerName + ":" + ex.getMessage());
                 ex.printStackTrace();
