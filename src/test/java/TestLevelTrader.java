@@ -29,7 +29,6 @@ import java.io.IOException;
 import java.nio.file.Path;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
-import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -51,6 +50,7 @@ public class TestLevelTrader {
     private static final Double COMISSION = 0.05;
     private static final Double tpPercent = 0.9;
     private static final Double slPercent = 0.3;
+    private static final Double balanceRiskPercent = 30.0;
 
     private static final ObjectMapper objectMapper = new ObjectMapper();
     private static final DateTimeFormatter formatter = DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm:ss");
@@ -215,42 +215,53 @@ public class TestLevelTrader {
         int failRateCounter = 0;
         for (int i = 0; i < candles.size(); i++) {
             var close = candles.get(i).getClose();
-            if (longTrades.contains(i)) {
-                count = (int) (balance / close);
+            if (longTrades.contains(i) && 0 == count) {
+                count = (int) (((balance / 100) * balanceRiskPercent) / close);
                 cashOpen = count * close;
                 prevClose = close;
 
-                var commission = Math.abs((cashOpen / 100) * COMISSION);
-                balance = balance - commission;
+                var prevBalance = balance;
+                var commission = round(Math.abs((cashOpen / 100) * COMISSION), 4);
+                balance = round(balance - commission, 4);
+                out.println(candles.get(i).getDate() + " BUY -" + commission + ", BALANCE: " + prevBalance + " -> " + balance + " (" + round(balance - prevBalance, 4) + ")");
             }
-            if (shortTrades.contains(i)) {
-                count = (-1) * ((int) (balance / close));
+            if (shortTrades.contains(i) && 0 == count) {
+                count = (-1) * ((int) (((balance / 100) * balanceRiskPercent) / close));
                 cashOpen = count * close;
                 prevClose = close;
 
-                var commission = Math.abs((cashOpen / 100) * COMISSION);
-                balance = balance - commission;
+                var prevBalance = balance;
+                var commission = round(Math.abs((cashOpen / 100) * COMISSION), 4);
+                balance = round(balance - commission, 4);
+                out.println(candles.get(i).getDate() + " SELL -" + commission + ", BALANCE: " + prevBalance + " -> " + balance + " (" + round(balance - prevBalance, 4) + ")");
             }
 
             var min = candles.get(i).getLow();
             var max = candles.get(i).getHigh();
-            var longTP = (count > 0 && close >= (prevClose + ((prevClose / 100) * tpPercent)));
+            var longTP = (count > 0 && max >= (prevClose + ((prevClose / 100) * tpPercent)));
             var longSL = (count > 0 && max < (prevClose - ((prevClose / 100) * slPercent)));
-            var shortTP = (count < 0 && close <= (prevClose - ((prevClose / 100) * tpPercent)));
+            var shortTP = (count < 0 && min <= (prevClose - ((prevClose / 100) * tpPercent)));
             var shortSL = (count < 0 && min > (prevClose + ((prevClose / 100) * slPercent)));
 
             if (longTP || longSL || shortTP || shortSL) {
-                var cashClose = count * (longSL ? max : shortSL ? min : close);
-                var operationResult = (cashClose - cashOpen);
-                out.println(candles.get(i).getDate() + " " + (count > 0 ? "BUY: " : "SELL: ") + operationResult);
+                var price = close;
+                if (longTP) price = (prevClose + ((prevClose / 100) * tpPercent));
+                if (shortTP) price = (prevClose - ((prevClose / 100) * tpPercent));
+                if (longSL) price = (prevClose - ((prevClose / 100) * slPercent));
+                if (shortSL) price = (prevClose + ((prevClose / 100) * slPercent));
+                var cashClose = count * price;
+                var operationResult = round(cashClose - cashOpen, 4);
                 if (operationResult > 0) winRateCounter++;
                 if (operationResult < 0) failRateCounter++;
-                balance = balance + operationResult;
+                var commission = round(Math.abs((cashClose / 100) * COMISSION), 4);
+                var prevBalance = balance;
+                var operationResultWithCommission = round(operationResult - commission, 4);
+                balance = round(balance + operationResultWithCommission, 4);
+
+                out.println(candles.get(i).getDate() + " " + (count > 0 ? "SELL: " : "BUY: ") + operationResult + " - " + commission + " = " + operationResultWithCommission + ", BALANCE: " + prevBalance + " -> " + balance + " (" + round(balance - prevBalance, 4) + ")");
+
                 cashOpen = 0.0;
                 count = 0;
-
-                var commission = Math.abs((cashClose / 100) * COMISSION);
-                balance = balance - commission;
             }
         }
         out.println("WIN/LOSE: " + winRateCounter + "/" + failRateCounter);
@@ -322,45 +333,6 @@ public class TestLevelTrader {
         }
     }
 
-    public static List<TickerCandle> convertCandles(List<TickerCandle> candles, long newTimeFrame, ChronoUnit unit) {
-        List<TickerCandle> newCandles = new ArrayList<>();
-        if (candles.isEmpty()) return newCandles;
-
-        LocalDateTime currentTimestamp = LocalDateTime.parse(candles.get(0).getDate(), formatter);
-
-        double open = 0.0;
-        double high = Double.MIN_VALUE;
-        double low = Double.MAX_VALUE;
-        int volume = 0;
-
-        for (TickerCandle candle : candles) {
-            open = 0.0 == open ? candle.getOpen() : open;
-            LocalDateTime timestamp = LocalDateTime.parse(candle.getDate(), formatter);
-            if (timestamp.isEqual(currentTimestamp.plus(newTimeFrame, unit))) {
-                newCandles.add(new TickerCandle(
-                        candle.getSymbol(),
-                        formatter.format(currentTimestamp),
-                        open,
-                        high,
-                        low,
-                        candle.getClose(),
-                        candle.getClose(),
-                        volume
-                ));
-            } else if (timestamp.isAfter(currentTimestamp.plus(newTimeFrame, unit))) {
-                currentTimestamp = timestamp;//.minusHours(1);
-                open = candle.getOpen();
-                high = candle.getHigh();
-                low = candle.getLow();
-            } else {
-                high = Math.max(high, candle.getHigh());
-                low = Math.min(low, candle.getLow());
-                volume += candle.getVolume();
-            }
-        }
-        return newCandles;
-    }
-
     private static boolean isHasTrendUp(List<TickerCandle> candles) {
         boolean hasTrendUp;
         int idx = 0;
@@ -372,5 +344,12 @@ public class TestLevelTrader {
         var maBlack = IndicatorsUtil.movingAverageBlack(inClose);
         hasTrendUp = maWhite >= maBlack;
         return hasTrendUp;
+    }
+
+    private static double round(double value, int places) {
+        long factor = (long) Math.pow(10, places);
+        var newValue = value * factor;
+        long tmp = Math.round(newValue);
+        return (double) tmp / factor;
     }
 }
