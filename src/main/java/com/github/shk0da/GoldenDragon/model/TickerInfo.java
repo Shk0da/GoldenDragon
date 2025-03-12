@@ -1,5 +1,7 @@
 package com.github.shk0da.GoldenDragon.model;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
+
 import java.util.Objects;
 
 public class TickerInfo {
@@ -47,14 +49,16 @@ public class TickerInfo {
         }
     }
 
-    private final String figi;
-    private final String ticker;
-    private final String isin;
-    private final Double minPriceIncrement;
-    private final Integer lot;
-    private final String currency;
-    private final String name;
-    private final TickerType type;
+    private String figi;
+    private String ticker;
+    private String isin;
+    private Double minPriceIncrement;
+    private Integer lot;
+    private String currency;
+    private String name;
+    private TickerType type;
+
+    public TickerInfo() {}
 
     public TickerInfo(String figi, String ticker, String isin,
                       Double minPriceIncrement, Integer lot,
@@ -101,6 +105,7 @@ public class TickerInfo {
         return type;
     }
 
+    @JsonIgnore
     public TickerInfo.Key getKey() {
         return new TickerInfo.Key(ticker, type);
     }
