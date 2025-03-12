@@ -54,7 +54,7 @@ public class GoldenDragon {
 
         try {
             MainConfig mainConfig = new MainConfig();
-            String strategy = (args.length >= 1) ? args[0] : "DataLearning";
+            String strategy = (args.length >= 1) ? args[0] : "AI";
             Market market = (args.length >= 2) ? Market.valueOf(args[1]) : Market.MOEX;
             String accountId = (args.length >= 3) ? args[2] : mainConfig.getTcsAccountId();
             out.println("Run: " + strategy + " " + market.name() + " [" + accountId + "]");
@@ -101,16 +101,11 @@ public class GoldenDragon {
                 new IndicatorTrader(tcsService).run();
             }
 
-            // 5. DataCollector
-            if ("DataCollector".equals(strategy)) {
+            // 5. AI
+            if ("AI".equals(strategy)) {
                 AILConfig ailConfig = new AILConfig();
                 new DataCollector(ailConfig, tcsService).run();
-            }
-
-            // 6. DataLearning
-            if ("DataLearning".equals(strategy)) {
-                AILConfig ailConfig = new AILConfig();
-                new DataLearning(ailConfig, tcsService).run();
+                new DataLearning(ailConfig).run();
             }
         } catch (Exception ex) {
             out.printf("Error: %s%n", ex.getMessage());

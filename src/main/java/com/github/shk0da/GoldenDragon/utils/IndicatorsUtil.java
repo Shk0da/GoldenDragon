@@ -7,19 +7,31 @@ import com.tictactec.ta.lib.RetCode;
 import ru.tinkoff.piapi.contract.v1.HistoricCandle;
 import ru.tinkoff.piapi.contract.v1.Quotation;
 
+import java.text.DateFormat;
+import java.text.SimpleDateFormat;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
+import java.util.Date;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
+
+import static java.time.LocalDateTime.ofInstant;
+import static java.time.ZoneId.systemDefault;
+import static java.util.stream.Collectors.toList;
 
 public class IndicatorsUtil {
 
     private static final Core talib = new Core();
 
+    public static final int INDICATORS_SHIFT = 70;
     public static final int SHIFT_SIZE = 14;
     public static final int MACD_FAST_PERIOD = 21;
     public static final int MACD_SLOW_PERIOD = 26;
@@ -30,6 +42,9 @@ public class IndicatorsUtil {
     public static final int MA_WHITE_PERIOD = 7;
     public static final int SMA_PERIOD = 14;
     public static final int OBV_PERIOD = 14;
+
+    private static final DateTimeFormatter formatter = DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm:ss");
+    private static final DateFormat dateTimeFormat = new SimpleDateFormat("dd.MM.yyyy HH:mm:ss");
 
     public static final class Indicator {
 
@@ -72,8 +87,19 @@ public class IndicatorsUtil {
         }
     }
 
+    public static Double calculateATR(List<TickerCandle> candles, int period) {
+        List<TickerCandle> D1 = convertCandles(candles, 24, ChronoUnit.HOURS);
+        if (D1.size() < period + 1) {
+            return D1.get(D1.size() - 1).getHigh() - D1.get(D1.size() - 1).getLow();
+        }
+        double atr = 0.0;
+        for (TickerCandle candle : D1.subList(D1.size() - period + 1, D1.size() - 1)) {
+            atr += candle.getHigh() - candle.getLow();
+        }
+        return atr / period;
+    }
+
     public static Map<String, List<Indicator>> getIndicators(List<TickerCandle> candles) {
-        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
         Map<String, List<Indicator>> indicators = new HashMap<>();
 
         // MA Black
@@ -604,6 +630,49 @@ public class IndicatorsUtil {
 
     private static double toDouble(long units, int nano) {
         return units + Double.parseDouble("0." + nano);
+    }
+
+    private static List<TickerCandle> convertCandles(List<TickerCandle> candles, long newTimeFrame, ChronoUnit unit) {
+        List<TickerCandle> newCandles = new ArrayList<>();
+        if (candles.isEmpty()) return newCandles;
+
+        double open = 0.0;
+        double high = Double.MIN_VALUE;
+        double low = Double.MAX_VALUE;
+        int volume = 0;
+
+        try {
+            var currentTimestamp = ofInstant(dateTimeFormat.parse(candles.get(0).getDate()).toInstant(), systemDefault());
+            for (TickerCandle candle : candles) {
+                open = 0.0 == open ? candle.getOpen() : open;
+                var timestamp = ofInstant(dateTimeFormat.parse(candle.getDate()).toInstant(), systemDefault());
+                if (timestamp.isEqual(currentTimestamp.plus(newTimeFrame, unit))) {
+                    newCandles.add(new TickerCandle(
+                            candle.getSymbol(),
+                            dateTimeFormat.format(Date.from(currentTimestamp.atZone(systemDefault()).toInstant())),
+                            open,
+                            high,
+                            low,
+                            candle.getClose(),
+                            candle.getClose(),
+                            volume
+                    ));
+                } else if (timestamp.isAfter(currentTimestamp.plus(newTimeFrame, unit))) {
+                    currentTimestamp = timestamp;//.minusHours(1);
+                    open = candle.getOpen();
+                    high = candle.getHigh();
+                    low = candle.getLow();
+                } else {
+                    high = Math.max(high, candle.getHigh());
+                    low = Math.min(low, candle.getLow());
+                    volume += candle.getVolume();
+                }
+            }
+            return newCandles;
+        } catch (Exception ex) {
+            ex.printStackTrace();
+            throw new RuntimeException(ex);
+        }
     }
 }
 

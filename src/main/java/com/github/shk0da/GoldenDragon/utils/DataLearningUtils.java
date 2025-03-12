@@ -25,7 +25,10 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
-public class DeepLearningUtils {
+import static com.github.shk0da.GoldenDragon.utils.IndicatorsUtil.INDICATORS_SHIFT;
+import static com.github.shk0da.GoldenDragon.utils.IndicatorsUtil.getIndicators;
+
+public class DataLearningUtils {
 
     public static final class LSTMNetwork {
 
@@ -102,15 +105,19 @@ public class DeepLearningUtils {
         private static final DateTimeFormatter formatter = DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm:ss");
 
         public static float normalize(Double input) {
-            var sizeMin = String.valueOf(input.intValue() / 10).length();
-            var sizeMax = String.valueOf(input.intValue() * 10).length();
-            var min = Float.parseFloat(String.format("1%0" + sizeMin + "d", 0));
-            var max = Float.parseFloat(String.format("1%0" + sizeMax + "d", 0));
-            return (input.floatValue() - min) / (max - min);
+            var max = 10F;
+            var min = 0.001F;
+            if (input.intValue() > 10 || input.intValue() < -10) {
+                var sizeMin = String.valueOf(input.intValue() / 10).length();
+                var sizeMax = String.valueOf(input.intValue() * 10).length();
+                min = Float.parseFloat(String.format("1%0" + sizeMin + "d", 0));
+                max = Float.parseFloat(String.format("1%0" + sizeMax + "d", 0));
+            }
+            var result = (input.floatValue() - min) / (max - min);
+            return (result <= 0.0F) ? 0.0F - result : result;
         }
 
-        public static float[] getNetworkInput(List<TickerCandle> stockDataList, int i,
-                                              Double startPrice, List<Double> levels, Double atr) {
+        public static float[] getNetworkInput(List<TickerCandle> stockDataList, int i, Double startPrice, List<Double> levels) {
             var candle5 = stockDataList.get(i - 5); // свеча 5 назад
             var candle4 = stockDataList.get(i - 4); // свеча 4 назад
             var candle3 = stockDataList.get(i - 3); // свеча 3 назад
@@ -152,6 +159,15 @@ public class DeepLearningUtils {
             var potentialToSupportLevel = currentPrice - supportLevel; // потенциал до уровня снизу
             var potentialToResistanceLevel = resistanceLevel - currentPrice; // потенциал до уровня сверху
 
+            // индикаторы
+            var indicators = getIndicators(stockDataList.subList(i - INDICATORS_SHIFT, i));
+            var MABlack = indicators.get("MABlack").get(indicators.get("MABlack").size() - 1).getValue();
+            var MAWhite = indicators.get("MAWhite").get(indicators.get("MAWhite").size() - 1).getValue();
+            var MACD = indicators.get("MACD").get(indicators.get("MACD").size() - 1).getValue();
+            var RSI = indicators.get("RSI").get(indicators.get("RSI").size() - 1).getValue();
+            var OBV = indicators.get("OBV").get(indicators.get("OBV").size() - 1).getValue();
+            var ADX = indicators.get("ADX").get(indicators.get("ADX").size() - 1).getValue();
+
             return new float[]{
                     normalize(startPrice),
                     normalize(min5), normalize(min4), normalize(min3), normalize(min2), normalize(min1),
@@ -159,8 +175,9 @@ public class DeepLearningUtils {
                     normalize(volume5), normalize(volume4), normalize(volume3), normalize(volume2), normalize(volume1),
                     normalize(currentPrice),
                     normalize(supportLevel), normalize(resistanceLevel),
-                    normalize(atr),
-                    normalize(potentialToSupportLevel), normalize(potentialToResistanceLevel)
+                    normalize(potentialToSupportLevel), normalize(potentialToResistanceLevel),
+                    normalize(MABlack), normalize(MAWhite), normalize(MACD),
+                    normalize(RSI), normalize(OBV), normalize(ADX),
             };
         }
 
@@ -168,13 +185,14 @@ public class DeepLearningUtils {
             List<DataSet> dataSets = new ArrayList<>();
             var startPrice = stockDataList.get(0).getClose(); // цена начала дня
             var startDay = LocalDateTime.parse(stockDataList.get(0).getDate(), formatter);
-            for (int i = 6; i < stockDataList.size() - 10; i++) {
+            for (int i = INDICATORS_SHIFT + 2016; i < stockDataList.size() - 10; i++) {
                 LocalDateTime time = LocalDateTime.parse(stockDataList.get(i).getDate(), formatter);
-                if (!startDay.equals(time) && time.getHour() <= 9) {
+                if (!startDay.equals(time) && time.getHour() <= 10) {
                     startPrice = stockDataList.get(i).getClose(); // цена начала дня
                 }
 
-                var networkInput = getNetworkInput(stockDataList, i, startPrice, ticker.getLevels(), ticker.getAtr());
+                var levels = ticker.getLevels();
+                var networkInput = getNetworkInput(stockDataList, i, startPrice, levels);
 
                 var action = 0.0; // нейтрально
 

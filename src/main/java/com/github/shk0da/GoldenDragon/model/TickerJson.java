@@ -6,15 +6,13 @@ public class TickerJson {
 
     private TickerInfo ticker;
     private List<Double> levels;
-    private Double atr;
 
     public TickerJson() {
     }
 
-    public TickerJson(TickerInfo ticker, List<Double> levels, Double atr) {
+    public TickerJson(TickerInfo ticker, List<Double> levels) {
         this.ticker = ticker;
         this.levels = levels;
-        this.atr = atr;
     }
 
     public TickerInfo getTicker() {
@@ -23,9 +21,5 @@ public class TickerJson {
 
     public List<Double> getLevels() {
         return levels;
-    }
-
-    public Double getAtr() {
-        return atr;
     }
 }

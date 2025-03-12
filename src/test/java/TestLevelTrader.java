@@ -32,23 +32,20 @@ import java.time.format.DateTimeFormatter;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.stream.Collectors;
 
 import static com.github.shk0da.GoldenDragon.repository.TickerRepository.SERIALIZE_NAME;
-import static com.github.shk0da.GoldenDragon.utils.DeepLearningUtils.StockDataSetIterator.getNetworkInput;
+import static com.github.shk0da.GoldenDragon.utils.DataLearningUtils.StockDataSetIterator.getNetworkInput;
+import static com.github.shk0da.GoldenDragon.utils.IndicatorsUtil.INDICATORS_SHIFT;
+import static com.github.shk0da.GoldenDragon.utils.IndicatorsUtil.calculateATR;
 import static com.github.shk0da.GoldenDragon.utils.SerializationUtils.loadDataFromDisk;
 import static java.lang.System.out;
 import static java.nio.file.Files.deleteIfExists;
-import static java.util.stream.Collectors.toList;
 
 public class TestLevelTrader {
 
-    private static final Boolean ALL_LEVELS = false;
     private static final Double K1 = 0.7;
     private static final Double K2 = 1 - K1;
     private static final Double COMISSION = 0.05;
@@ -65,7 +62,7 @@ public class TestLevelTrader {
         tickerRepository.putAll(dataFromDisk);
 
         AtomicReference<Double> balance = new AtomicReference<>(100_000.00);
-        List.of("GAZP", "ROSN", "LKOH", "NLMK", "PIKK", "MGNT").forEach(tickerName -> {
+        List.of("GAZP", "ROSN", "LKOH", "NLMK", "PIKK", "MGNT", "RTKM").forEach(tickerName -> {
             try {
                 String name = tickerName.toLowerCase();
                 String ticker = tickerRepository.getAll().values().stream()
@@ -93,90 +90,52 @@ public class TestLevelTrader {
     }
 
     public static Double run(String name, Double balance, List<Double> levels) throws Exception {
-        var network = getNetwork("data", name);
-        List<TickerCandle> M5 = readCandlesFile(name, "data", "candlesM5.txt");
-        List<TickerCandle> H1 = readCandlesFile(name, "data", "candles.txt");
-        List<TickerCandle> D1 = convertCandles(H1, 24, ChronoUnit.HOURS);
-
-        Boolean hasTrendUp = null;
-        double atr = calculateATR(D1, 7);
-        out.println("ATR: " + atr);
-
-        out.println("LEVELS 1: " + Arrays.toString(levels.toArray(new Double[]{})));
-
-        List<Double> levelValues = new ArrayList<>(levels);
-        if (ALL_LEVELS) {
-            levelValues.addAll(findSupportAndResistanceLevels(H1.subList(0, (int) (H1.size() * K1)), atr));
-        }
-        levelValues = levelValues.stream().sorted().collect(toList());
-        out.println("LEVELS 2: " + Arrays.toString(levelValues.toArray(new Double[]{})));
-
+        List<TickerCandle> M5 = readCandlesFile(name, "data", "candles5_MIN.txt");
         M5 = M5.subList((int) (M5.size() - (M5.size() * K2)), M5.size());
         if (M5.isEmpty()) {
             return balance;
         }
 
+        Boolean hasTrendUp = null;
         List<Integer> longTrades = new ArrayList<>();
         List<Integer> shortTrades = new ArrayList<>();
         TickerCandle startOfDay = M5.get(0);
-
-        for (int i = 6, x = 0; i < M5.size(); i++, x++) {
+        var network = getNetwork("data", name);
+        for (int i = INDICATORS_SHIFT + 2016, x = 0; i < M5.size(); i++, x++) {
             LocalDateTime currentDateTime = LocalDateTime.parse(M5.get(x).getDate(), formatter);
             LocalDateTime startOfDayDateTime = LocalDateTime.parse(startOfDay.getDate(), formatter);
             if (currentDateTime.getDayOfYear() > startOfDayDateTime.getDayOfYear()) {
                 startOfDay = M5.get(x);
             }
 
-            var candle1 = M5.get(i - 4);
-            var candle2 = M5.get(i - 3);
-            var candle3 = M5.get(i - 2);
-            var candle4 = M5.get(i - 1);
-            var candle5 = M5.get(i);
-
             if (x > 80) {
                 var subList = M5.subList(x - 80, x);
                 hasTrendUp = isHasTrendUp(subList);
             }
 
-            var tp = (candle5.getClose() / 100) * tpPercent;
-            var hasUpATR = (startOfDay.getLow() + (atr - (atr * 0.2))) > (candle5.getClose() + tp);
-            var hasDownATR = (candle5.getClose() - tp) + (atr - (atr * 0.2)) < startOfDay.getHigh();
-
-            if (Boolean.TRUE.equals(hasTrendUp) && hasUpATR) {
-                var barSize1 = candle1.getHigh() - candle1.getLow();
-                var barSize2 = candle2.getHigh() - candle2.getLow();
-                var barSize3 = candle3.getHigh() - candle3.getLow();
-                var barSize4 = candle4.getHigh() - candle4.getLow();
-
-                var hasResistLevel = true;
-                hasResistLevel &= candle1.getLow() <= candle2.getLow() && barSize2 <= barSize1;
-                hasResistLevel &= candle2.getLow() <= candle3.getLow() && barSize3 <= barSize2;
-                hasResistLevel &= candle3.getLow() <= candle4.getLow() && barSize4 <= barSize3;
-
-                if (hasResistLevel) {
-                    var input = getNetworkInput(M5, i, startOfDay.getClose(), levels, atr);
+            if (Boolean.TRUE.equals(hasTrendUp)) {
+                var candle5 = M5.get(i);
+                var tp = (M5.get(i).getClose() / 100) * tpPercent;
+                var atr = calculateATR(M5.subList(i - (INDICATORS_SHIFT + 2016), i), 7);
+                var hasUpATR = (startOfDay.getLow() + (atr - (atr * 0.2))) > (candle5.getClose() + tp);
+                if (hasUpATR) {
+                    var input = getNetworkInput(M5, i, startOfDay.getClose(), levels);
                     var output = network.rnnTimeStep(Nd4j.create(input));
-                    if (output.getDouble(0) > 0.1) {
+                    if (output.getDouble(0) > 0.03) {
                         longTrades.add(i);
                     }
                 }
             }
 
-            if (Boolean.FALSE.equals(hasTrendUp) && hasDownATR) {
-                var barSize1 = candle1.getHigh() - candle1.getLow();
-                var barSize2 = candle2.getHigh() - candle2.getLow();
-                var barSize3 = candle3.getHigh() - candle3.getLow();
-                var barSize4 = candle4.getHigh() - candle4.getLow();
-
-                var hasResistLevel = true;
-                hasResistLevel &= candle1.getHigh() >= candle2.getHigh() && barSize2 <= barSize1;
-                hasResistLevel &= candle2.getHigh() >= candle3.getHigh() && barSize3 <= barSize2;
-                hasResistLevel &= candle3.getHigh() >= candle4.getHigh() && barSize4 <= barSize3;
-
-                if (hasResistLevel) {
-                    var input = getNetworkInput(M5, i, startOfDay.getClose(), levels, atr);
+            if (Boolean.FALSE.equals(hasTrendUp)) {
+                var candle5 = M5.get(i);
+                var tp = (M5.get(i).getClose() / 100) * tpPercent;
+                var atr = calculateATR(M5.subList(i - (INDICATORS_SHIFT + 2016), i), 7);
+                var hasDownATR = (candle5.getClose() - tp) + (atr - (atr * 0.2)) < startOfDay.getHigh();
+                if (hasDownATR) {
+                    var input = getNetworkInput(M5, i, startOfDay.getClose(), levels);
                     var output = network.rnnTimeStep(Nd4j.create(input));
-                    if (output.getDouble(0) < -0.1) {
+                    if (output.getDouble(0) < -0.01) {
                         shortTrades.add(i);
                     }
                 }
@@ -192,7 +151,7 @@ public class TestLevelTrader {
         shortTrades.forEach(tradeId -> sellTrades.add(finalM5.get(tradeId).getClose()));
         out.println("SELL TRADES: " + Arrays.toString(sellTrades.toArray(new Double[]{})));
 
-        plotChart(name, finalM5, levelValues, longTrades, shortTrades);
+        plotChart(name, finalM5, levels, longTrades, shortTrades);
 
         return calculateTrades(finalM5, longTrades, shortTrades, balance);
     }
@@ -283,7 +242,7 @@ public class TestLevelTrader {
             if (longTP || longSL || shortTP || shortSL) {
                 var cashClose = count * (longSL ? max : shortSL ? min : close);
                 var operationResult = (cashClose - cashOpen);
-                out.println((count > 0 ? "BUY: " : "SELL: ") + operationResult);
+                out.println(candles.get(i).getDate() + " " + (count > 0 ? "BUY: " : "SELL: ") + operationResult);
                 if (operationResult > 0) winRateCounter++;
                 if (operationResult < 0) failRateCounter++;
                 balance = balance + operationResult;
@@ -402,18 +361,6 @@ public class TestLevelTrader {
         return newCandles;
     }
 
-    public static double calculateATR(List<TickerCandle> candles, int period) {
-        if (candles.size() < period + 1) {
-            return Double.MAX_VALUE;
-        }
-
-        double atr = 0.0;
-        for (TickerCandle candle : candles.subList(candles.size() - period + 1, candles.size() - 1)) {
-            atr += candle.getHigh() - candle.getLow();
-        }
-        return atr / period;
-    }
-
     private static boolean isHasTrendUp(List<TickerCandle> candles) {
         boolean hasTrendUp;
         int idx = 0;
@@ -425,64 +372,5 @@ public class TestLevelTrader {
         var maBlack = IndicatorsUtil.movingAverageBlack(inClose);
         hasTrendUp = maWhite >= maBlack;
         return hasTrendUp;
-    }
-
-    public static List<Double> findSupportAndResistanceLevels(List<TickerCandle> candles, double threshold) {
-        List<Double> lows = candles.stream().map(TickerCandle::getLow).collect(Collectors.toList());
-        List<Double> highs = candles.stream().map(TickerCandle::getHigh).collect(Collectors.toList());
-
-        Set<Double> supportLevels = new HashSet<>();
-        Set<Double> resistanceLevels = new HashSet<>();
-
-        for (int i = 1; i < highs.size() - 1; i++) {
-            TickerCandle previousCandle = candles.get(i - 1);
-            TickerCandle currentCandle = candles.get(i);
-            TickerCandle nextCandle = candles.get(i + 1);
-
-            if (currentCandle.getLow() < previousCandle.getLow() && currentCandle.getLow() < nextCandle.getLow()) {
-                double support = currentCandle.getLow();
-                int count = 1;
-
-                for (int j = i + 1; j < lows.size(); j++) {
-                    if (lows.get(j) < support * (1 + threshold)) {
-                        count++;
-                    } else {
-                        break;
-                    }
-                }
-
-                if (count >= 3) {
-                    supportLevels.add(support);
-                }
-            }
-
-            if (currentCandle.getHigh() > previousCandle.getHigh() && currentCandle.getHigh() > nextCandle.getHigh()) {
-                double resistance = currentCandle.getHigh();
-                int count = 1;
-
-                for (int j = i + 1; j < highs.size(); j++) {
-                    if (highs.get(j) > resistance * (1 - threshold)) {
-                        count++;
-                    } else {
-                        break;
-                    }
-                }
-
-                if (count >= 3) {
-                    resistanceLevels.add(resistance);
-                }
-            }
-        }
-
-        List<Double> allLevels = new ArrayList<>();
-        allLevels.addAll(supportLevels);
-        allLevels.addAll(resistanceLevels);
-
-        Set<Double> duplicate = new HashSet<>();
-        return allLevels.stream()
-                .filter(n -> !duplicate.add(n))
-                .sorted()
-                .distinct()
-                .collect(toList());
     }
 }
