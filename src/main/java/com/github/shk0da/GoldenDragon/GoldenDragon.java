@@ -54,7 +54,7 @@ public class GoldenDragon {
 
         try {
             MainConfig mainConfig = new MainConfig();
-            String strategy = (args.length >= 1) ? args[0] : "AI";
+            String strategy = (args.length >= 1) ? args[0] : "Rebalance";
             Market market = (args.length >= 2) ? Market.valueOf(args[1]) : Market.MOEX;
             String accountId = (args.length >= 3) ? args[2] : mainConfig.getTcsAccountId();
             out.println("Run: " + strategy + " " + market.name() + " [" + accountId + "]");
