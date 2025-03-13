@@ -190,7 +190,6 @@ public class TestLevelTrader {
         return ModelSerializer.restoreMultiLayerNetwork(filePath);
     }
 
-
     private static Double calculateTrades(List<TickerCandle> candles,
                                           List<Integer> longTrades, List<Integer> shortTrades,
                                           Double balance) {

@@ -10,6 +10,7 @@ import com.github.shk0da.GoldenDragon.model.TickerInfo;
 import com.github.shk0da.GoldenDragon.repository.Repository;
 import com.github.shk0da.GoldenDragon.repository.TickerRepository;
 import com.github.shk0da.GoldenDragon.service.TCSService;
+import com.github.shk0da.GoldenDragon.strategy.AITrader;
 import com.github.shk0da.GoldenDragon.strategy.DataCollector;
 import com.github.shk0da.GoldenDragon.strategy.DataLearning;
 import com.github.shk0da.GoldenDragon.strategy.DivFlow;
@@ -54,7 +55,7 @@ public class GoldenDragon {
 
         try {
             MainConfig mainConfig = new MainConfig();
-            String strategy = (args.length >= 1) ? args[0] : "Rebalance";
+            String strategy = (args.length >= 1) ? args[0] : "AITrader";
             Market market = (args.length >= 2) ? Market.valueOf(args[1]) : Market.MOEX;
             String accountId = (args.length >= 3) ? args[2] : mainConfig.getTcsAccountId();
             out.println("Run: " + strategy + " " + market.name() + " [" + accountId + "]");
@@ -101,11 +102,17 @@ public class GoldenDragon {
                 new IndicatorTrader(tcsService).run();
             }
 
-            // 5. AI
-            if ("AI".equals(strategy)) {
+            // 5. AICollector
+            if ("AICollector".equals(strategy)) {
                 AILConfig ailConfig = new AILConfig();
                 new DataCollector(ailConfig, tcsService).run();
                 new DataLearning(ailConfig).run();
+            }
+
+            // 6. AITrader
+            if ("AITrader".equals(strategy)) {
+                AILConfig ailConfig = new AILConfig();
+                new AITrader(ailConfig, tcsService).run();
             }
         } catch (Exception ex) {
             out.printf("Error: %s%n", ex.getMessage());

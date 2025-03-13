@@ -437,7 +437,7 @@ public class TCSService {
     }
 
     public Map<TickerInfo.Key, PositionInfo> getCurrentPositions(TickerType tickerType) {
-        out.println("Loading current positions from TCS...");
+        out.println("Loading current positions for: " + tickerType.name());
         try {
             TimeUnit.MILLISECONDS.sleep(550);
         } catch (InterruptedException ex) {
