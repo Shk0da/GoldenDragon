@@ -121,7 +121,8 @@ public class AITrader {
                         }
                     }
                     if (decision < 0) {
-                        // TBD
+                        var type = tickerDayInfo.getTickerJson().getTicker().getType();
+                        tcsService.sellAllByMarket(name, type);
                     }
                 } catch (Exception ex) {
                     out.println("Failed handle " + name + ": " + ex.getMessage());
@@ -136,10 +137,15 @@ public class AITrader {
 
             var currentCalendar = new GregorianCalendar();
             int currentHour = currentCalendar.get(Calendar.HOUR_OF_DAY);
-            if (currentHour >= 18) {
+            if (currentHour >= 19) {
                 int currentMinute = currentCalendar.get(Calendar.MINUTE);
-                out.println("Not working hours! Current Time: " + currentHour + ":" + currentMinute + ". Exit...");
+                out.println("Not working hours! Current Time: " + currentHour + ":0" + currentMinute + ". Exit...");
                 break;
+            }
+            try {
+                TimeUnit.MILLISECONDS.sleep(30_000);
+            } catch (InterruptedException skip) {
+                // nothing
             }
         }
     }
@@ -150,7 +156,7 @@ public class AITrader {
         var levels = tickerDayInfo.getTickerJson().getLevels();
         var network = tickerDayInfo.getNetwork();
 
-        var candles = getTickerCandles(tickerDayInfo.getName(), INDICATORS_SHIFT, 0);
+        var candles = getTickerCandles(tickerDayInfo.getName(), (INDICATORS_SHIFT * 2), 0);
         var hasTrendUp = isHasTrendUp(candles);
         var lastCandle = candles.get(candles.size() - 1);
         var tp = (lastCandle.getClose() / 100) * tpPercent;
@@ -200,6 +206,11 @@ public class AITrader {
     }
 
     private List<TickerCandle> getTickerCandles(String name, int size, int counter) {
+        try {
+            TimeUnit.MILLISECONDS.sleep(1550);
+        } catch (InterruptedException ex) {
+            out.println("Error: " + ex.getMessage());
+        }
         List<TickerCandle> candles = new ArrayList<>();
         try {
             var currentTime = now();
@@ -209,16 +220,17 @@ public class AITrader {
                     .map(TickerInfo::getFigi)
                     .findFirst()
                     .orElseThrow();
-            var stock = tcsService.getMoexShares().stream()
-                    .filter(it -> ticker.equals(it.getFigi()))
-                    .findFirst()
-                    .orElseThrow();
             var m5candles = tcsService.getCandles(
-                    stock.getFigi(),
+                    ticker,
                     currentTime.minusMinutes(size * 5L),
                     currentTime,
                     CANDLE_INTERVAL_5_MIN
             );
+
+            if (m5candles.isEmpty()) {
+                throw new RuntimeException("tcsService.getCandles return is empty");
+            }
+
             for (HistoricCandle candle : m5candles) {
                 var dateTime = new Timestamp(candle.getTime().getSeconds() * 1000);
                 var open = toDouble(candle.getOpen());
@@ -240,15 +252,16 @@ public class AITrader {
                 );
             }
         } catch (Exception ex) {
+            out.println("Failed getTickerCandles: " + ex.getMessage());
             if (counter++ < 2) {
                 try {
-                    TimeUnit.MILLISECONDS.sleep(100);
+                    TimeUnit.MILLISECONDS.sleep(1200);
                 } catch (InterruptedException skip) {
                     // nothing
                 }
                 return getTickerCandles(name, size, counter);
             } else {
-                out.println(ex.getMessage());
+                throw new RuntimeException(ex);
             }
         }
         return candles;
