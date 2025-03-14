@@ -31,6 +31,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
 
@@ -106,6 +108,7 @@ public class AITrader {
 
     public void run() {
         List<CompletableFuture<Void>> tasks = new ArrayList<>();
+        ExecutorService executor = Executors.newFixedThreadPool(ailConfig.getStocks().size());
         Supplier<Boolean> isNotWorkingHours = () -> new GregorianCalendar().get(Calendar.HOUR_OF_DAY) >= 19;
         for (String name : ailConfig.getStocks()) {
             tasks.add(
@@ -114,12 +117,13 @@ public class AITrader {
                             handleTicker(name);
                             sleep(30_000);
                         }
-                    })
+                    }, executor)
             );
             sleep(1_000);
         }
         allOf(tasks.toArray(new CompletableFuture[]{})).join();
         if (isNotWorkingHours.get()) {
+            executor.shutdown();
             out.println("Not working hours! Current Time: " + new Date() + ". Exit...");
         }
     }
