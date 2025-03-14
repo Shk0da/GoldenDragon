@@ -13,6 +13,7 @@ import com.github.shk0da.GoldenDragon.utils.IndicatorsUtil;
 import org.deeplearning4j.nn.multilayer.MultiLayerNetwork;
 import org.deeplearning4j.util.ModelSerializer;
 import org.nd4j.linalg.factory.Nd4j;
+import ru.tinkoff.piapi.contract.v1.CandleInterval;
 import ru.tinkoff.piapi.contract.v1.HistoricCandle;
 
 import java.io.File;
@@ -24,12 +25,14 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Calendar;
+import java.util.Date;
 import java.util.GregorianCalendar;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
+import static com.github.shk0da.GoldenDragon.service.TelegramNotifyService.telegramNotifyService;
 import static com.github.shk0da.GoldenDragon.utils.DataLearningUtils.StockDataSetIterator.getNetworkInput;
 import static com.github.shk0da.GoldenDragon.utils.IndicatorsUtil.INDICATORS_SHIFT;
 import static com.github.shk0da.GoldenDragon.utils.IndicatorsUtil.calculateATR;
@@ -37,12 +40,13 @@ import static com.github.shk0da.GoldenDragon.utils.IndicatorsUtil.toDouble;
 import static java.lang.System.out;
 import static java.time.OffsetDateTime.now;
 import static ru.tinkoff.piapi.contract.v1.CandleInterval.CANDLE_INTERVAL_5_MIN;
+import static ru.tinkoff.piapi.contract.v1.CandleInterval.CANDLE_INTERVAL_HOUR;
 
 public class AITrader {
 
     private static final Double tpPercent = 0.9;
     private static final Double slPercent = 0.3;
-    private static final Double balanceRiskPercent = 30.0;
+    private static final Double balanceRiskPercent = 10.0;
 
     private static final ObjectMapper objectMapper = new ObjectMapper();
     private static final DateFormat dateTimeFormat = new SimpleDateFormat("dd.MM.yyyy HH:mm:ss");
@@ -101,7 +105,7 @@ public class AITrader {
             for (String name : ailConfig.getStocks()) {
                 try {
                     var tickerDayInfo = TickerDayInfo.register.computeIfAbsent(name, it -> {
-                        var weekCandles = getTickerCandles(name, (INDICATORS_SHIFT + 2016), 0); // week
+                        var weekCandles = getTickerCandles(name, (INDICATORS_SHIFT + 2419), CANDLE_INTERVAL_HOUR, 0);
                         return new TickerDayInfo(
                                 name,
                                 findStartOfDay(weekCandles),
@@ -111,21 +115,24 @@ public class AITrader {
                         );
                     });
                     var decision = decision(tickerDayInfo);
-                    if (decision > 0) {
+                    if (0 != decision) {
                         var type = tickerDayInfo.getTickerJson().getTicker().getType();
                         var currentPosition = tcsService.getCountOfCurrentPositions(type, name);
                         if (!(currentPosition > 0)) {
                             var balance = tcsService.getAvailableCash();
-                            var cashToBuy = (balance / 100) * balanceRiskPercent;
-                            tcsService.buyByMarket(name, type, cashToBuy, tpPercent, slPercent);
+                            var cashToOrder = (balance / 100) * balanceRiskPercent;
+                            if (decision > 0) {
+                                tcsService.buyByMarket(name, type, cashToOrder, tpPercent, slPercent);
+                            }
+                            if (decision < 0) {
+                                tcsService.sellByMarket(name, type, cashToOrder, tpPercent, slPercent);
+                            }
                         }
                     }
-                    if (decision < 0) {
-                        var type = tickerDayInfo.getTickerJson().getTicker().getType();
-                        tcsService.sellAllByMarket(name, type);
-                    }
                 } catch (Exception ex) {
-                    out.println("Failed handle " + name + ": " + ex.getMessage());
+                    var message = "Failed handle " + name + ": " + ex.getMessage();
+                    telegramNotifyService.sendMessage(message);
+                    out.println(message);
                     ex.printStackTrace();
                 }
                 try {
@@ -135,11 +142,8 @@ public class AITrader {
                 }
             }
 
-            var currentCalendar = new GregorianCalendar();
-            int currentHour = currentCalendar.get(Calendar.HOUR_OF_DAY);
-            if (currentHour >= 19) {
-                int currentMinute = currentCalendar.get(Calendar.MINUTE);
-                out.println("Not working hours! Current Time: " + currentHour + ":0" + currentMinute + ". Exit...");
+            if (new GregorianCalendar().get(Calendar.HOUR_OF_DAY) >= 19) {
+                out.println("Not working hours! Current Time: " + new Date() + ". Exit...");
                 break;
             }
             try {
@@ -156,7 +160,7 @@ public class AITrader {
         var levels = tickerDayInfo.getTickerJson().getLevels();
         var network = tickerDayInfo.getNetwork();
 
-        var candles = getTickerCandles(tickerDayInfo.getName(), (INDICATORS_SHIFT * 2), 0);
+        var candles = getTickerCandles(tickerDayInfo.getName(), (INDICATORS_SHIFT + 1008), CANDLE_INTERVAL_5_MIN, 0);
         var hasTrendUp = isHasTrendUp(candles);
         var lastCandle = candles.get(candles.size() - 1);
         var tp = (lastCandle.getClose() / 100) * tpPercent;
@@ -205,7 +209,7 @@ public class AITrader {
         }
     }
 
-    private List<TickerCandle> getTickerCandles(String name, int size, int counter) {
+    private List<TickerCandle> getTickerCandles(String name, int size, CandleInterval period, int counter) {
         try {
             TimeUnit.MILLISECONDS.sleep(1550);
         } catch (InterruptedException ex) {
@@ -220,18 +224,18 @@ public class AITrader {
                     .map(TickerInfo::getFigi)
                     .findFirst()
                     .orElseThrow();
-            var m5candles = tcsService.getCandles(
+            var periodCandles = tcsService.getCandles(
                     ticker,
                     currentTime.minusMinutes(size * 5L),
                     currentTime,
-                    CANDLE_INTERVAL_5_MIN
+                    period
             );
 
-            if (m5candles.isEmpty()) {
+            if (periodCandles.isEmpty()) {
                 throw new RuntimeException("tcsService.getCandles return is empty");
             }
 
-            for (HistoricCandle candle : m5candles) {
+            for (HistoricCandle candle : periodCandles) {
                 var dateTime = new Timestamp(candle.getTime().getSeconds() * 1000);
                 var open = toDouble(candle.getOpen());
                 var high = toDouble(candle.getHigh());
@@ -259,7 +263,7 @@ public class AITrader {
                 } catch (InterruptedException skip) {
                     // nothing
                 }
-                return getTickerCandles(name, size, counter);
+                return getTickerCandles(name, size, period, counter);
             } else {
                 throw new RuntimeException(ex);
             }

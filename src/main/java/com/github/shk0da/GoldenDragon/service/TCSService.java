@@ -21,6 +21,7 @@ import ru.tinkoff.piapi.contract.v1.OrderType;
 import ru.tinkoff.piapi.contract.v1.PostOrderResponse;
 import ru.tinkoff.piapi.contract.v1.Quotation;
 import ru.tinkoff.piapi.contract.v1.Share;
+import ru.tinkoff.piapi.contract.v1.StopOrderDirection;
 import ru.tinkoff.piapi.core.InvestApi;
 import ru.tinkoff.piapi.core.models.Money;
 import ru.tinkoff.piapi.core.models.Portfolio;
@@ -47,6 +48,7 @@ import static java.lang.System.out;
 import static ru.tinkoff.piapi.contract.v1.OrderDirection.ORDER_DIRECTION_BUY;
 import static ru.tinkoff.piapi.contract.v1.OrderDirection.ORDER_DIRECTION_SELL;
 import static ru.tinkoff.piapi.contract.v1.OrderExecutionReportStatus.EXECUTION_REPORT_STATUS_FILL;
+import static ru.tinkoff.piapi.contract.v1.StopOrderDirection.STOP_ORDER_DIRECTION_BUY;
 import static ru.tinkoff.piapi.contract.v1.StopOrderDirection.STOP_ORDER_DIRECTION_SELL;
 import static ru.tinkoff.piapi.contract.v1.StopOrderType.STOP_ORDER_TYPE_STOP_LOSS;
 import static ru.tinkoff.piapi.contract.v1.StopOrderType.STOP_ORDER_TYPE_TAKE_PROFIT;
@@ -110,6 +112,54 @@ public class TCSService {
             return 1 == createOrder(new TickerInfo.Key(name, type), 0.0, count, "Sell");
         }
         return false;
+    }
+
+    public boolean sellByMarket(String name, TickerType type, double cashToSell, double takeProfit, double stopLose) {
+        return sell(name, type, cashToSell, true, takeProfit, stopLose);
+    }
+
+    public boolean sell(String name, TickerType type, double cashToSell, boolean byMarket, double takeProfit, double stopLose) {
+        var key = new TickerInfo.Key(name, type);
+
+        String basicCurrency = marketConfig.getCurrency();
+        String currency = searchTicker(key).getCurrency();
+        if (!basicCurrency.equals(currency)) {
+            cashToSell = convertCurrencies(currency, basicCurrency, cashToSell);
+        }
+
+        int value = 0;
+        double tickerPrice = 0.0;
+        for (Map.Entry<Double, Integer> bid : getCurrentPrices(key).get("bids").entrySet()) {
+            tickerPrice = bid.getKey();
+            value = value + bid.getValue();
+            if (value >= (cashToSell / tickerPrice)) break;
+        }
+
+        if (0.0 == tickerPrice) {
+            out.println("Warn: short will be skipped - " + name + " by price " + tickerPrice);
+            return false;
+        }
+
+        int count = 0;
+        if (cashToSell >= tickerPrice) {
+            int lot = searchTicker(key).getLot();
+            count = (int) (cashToSell / tickerPrice);
+            while (count % lot != 0 && count > 0) {
+                count = count - 1;
+            }
+        }
+        if (count == 0) {
+            out.println("Warn: short will be skipped - " + name + " with count " + count);
+            return false;
+        }
+        double cost = count * tickerPrice;
+
+        String currentDate = dateTimeFormat.format(new Date());
+        out.println("[" + currentDate + "] Sell: " + count + " " + key.getTicker() + " by " + (byMarket ? "Market" : tickerPrice + " (" + cost + " " + currency + ")"));
+        if (mainConfig.isTestMode()) {
+            return true;
+        }
+        return 1 == createOrder(key, byMarket ? 0.0 : tickerPrice, count, "Sell", takeProfit, stopLose);
     }
 
     public boolean sell(String name, TickerType type, double cost) {
@@ -250,28 +300,46 @@ public class TCSService {
             out.println(message);
 
             if (takeProfit > 0.0 && response.getExecutionReportStatus().equals(EXECUTION_REPORT_STATUS_FILL)) {
-                double takePrice = normalizePrice(executedPrice + ((executedPrice / 100) * takeProfit), tickerInfo.getMinPriceIncrement());
+                double takePrice = 0.0;
+                StopOrderDirection stopOrderDirection = null;
+                if (ORDER_DIRECTION_SELL == direction) {
+                    stopOrderDirection = STOP_ORDER_DIRECTION_BUY;
+                    takePrice = normalizePrice(executedPrice - ((executedPrice / 100) * takeProfit), tickerInfo.getMinPriceIncrement());
+                }
+                if (ORDER_DIRECTION_BUY == direction) {
+                    stopOrderDirection = STOP_ORDER_DIRECTION_SELL;
+                    takePrice = normalizePrice(executedPrice + ((executedPrice / 100) * takeProfit), tickerInfo.getMinPriceIncrement());
+                }
                 Quotation takeProfitPrice = Quotation.newBuilder()
                         .setUnits(Math.round((takePrice - (takePrice % 1))))
                         .setNano((int) (Math.round((takePrice % 1) * 100)))
                         .build();
                 investApi.getStopOrdersService().postStopOrderGoodTillCancel(
                         figi, quantity, orderPrice, takeProfitPrice,
-                        STOP_ORDER_DIRECTION_SELL,
+                        stopOrderDirection,
                         mainConfig.getTcsAccountId(),
                         STOP_ORDER_TYPE_TAKE_PROFIT
                 );
                 out.println(key.getTicker() + " TakeProfit target: " + takePrice);
             }
             if (stopLose > 0.0 && response.getExecutionReportStatus().equals(EXECUTION_REPORT_STATUS_FILL)) {
-                double stopPrice = normalizePrice(executedPrice - ((executedPrice / 100) * stopLose), tickerInfo.getMinPriceIncrement());
+                double stopPrice = 0.0;
+                StopOrderDirection stopOrderDirection = null;
+                if (ORDER_DIRECTION_SELL == direction) {
+                    stopOrderDirection = STOP_ORDER_DIRECTION_BUY;
+                    stopPrice = normalizePrice(executedPrice + ((executedPrice / 100) * stopLose), tickerInfo.getMinPriceIncrement());
+                }
+                if (ORDER_DIRECTION_BUY == direction) {
+                    stopOrderDirection = STOP_ORDER_DIRECTION_SELL;
+                    stopPrice = normalizePrice(executedPrice - ((executedPrice / 100) * stopLose), tickerInfo.getMinPriceIncrement());
+                }
                 Quotation stopLosePrice = Quotation.newBuilder()
                         .setUnits(Math.round((stopPrice - (stopPrice % 1))))
                         .setNano((int) (Math.round((stopPrice % 1) * 100)))
                         .build();
                 investApi.getStopOrdersService().postStopOrderGoodTillCancel(
                         figi, quantity, orderPrice, stopLosePrice,
-                        STOP_ORDER_DIRECTION_SELL,
+                        stopOrderDirection,
                         mainConfig.getTcsAccountId(),
                         STOP_ORDER_TYPE_STOP_LOSS
                 );

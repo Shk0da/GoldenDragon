@@ -35,6 +35,7 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import static com.github.shk0da.GoldenDragon.config.MainConfig.CALENDAR_WORK_DAYS;
 import static com.github.shk0da.GoldenDragon.repository.TickerRepository.SERIALIZE_NAME;
+import static com.github.shk0da.GoldenDragon.service.TelegramNotifyService.telegramNotifyService;
 import static com.github.shk0da.GoldenDragon.utils.SerializationUtils.getDateOfContentOnDisk;
 import static com.github.shk0da.GoldenDragon.utils.SerializationUtils.loadDataFromDisk;
 import static com.github.shk0da.GoldenDragon.utils.SerializationUtils.saveDataToDisk;
@@ -104,13 +105,18 @@ public class GoldenDragon {
 
             // 5. AICollector
             if ("AICollector".equals(strategy)) {
+                telegramNotifyService.sendMessage("Start AICollector");
                 AILConfig ailConfig = new AILConfig();
+                telegramNotifyService.sendMessage("Run DataCollector");
                 new DataCollector(ailConfig, tcsService).run();
+                telegramNotifyService.sendMessage("Run DataLearning");
                 new DataLearning(ailConfig).run();
+                telegramNotifyService.sendMessage("End AICollector");
             }
 
             // 6. AITrader
             if ("AITrader".equals(strategy)) {
+                telegramNotifyService.sendMessage("Run AITrader");
                 AILConfig ailConfig = new AILConfig();
                 new AITrader(ailConfig, tcsService).run();
             }
