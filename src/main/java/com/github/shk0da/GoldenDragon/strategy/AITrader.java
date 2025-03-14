@@ -27,10 +27,12 @@ import java.util.ArrayList;
 import java.util.Calendar;
 import java.util.Date;
 import java.util.GregorianCalendar;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Supplier;
 
 import static com.github.shk0da.GoldenDragon.service.TelegramNotifyService.telegramNotifyService;
 import static com.github.shk0da.GoldenDragon.utils.DataLearningUtils.StockDataSetIterator.getNetworkInput;
@@ -39,6 +41,8 @@ import static com.github.shk0da.GoldenDragon.utils.IndicatorsUtil.calculateATR;
 import static com.github.shk0da.GoldenDragon.utils.IndicatorsUtil.toDouble;
 import static java.lang.System.out;
 import static java.time.OffsetDateTime.now;
+import static java.util.concurrent.CompletableFuture.allOf;
+import static java.util.concurrent.CompletableFuture.runAsync;
 import static ru.tinkoff.piapi.contract.v1.CandleInterval.CANDLE_INTERVAL_5_MIN;
 import static ru.tinkoff.piapi.contract.v1.CandleInterval.CANDLE_INTERVAL_HOUR;
 
@@ -63,7 +67,7 @@ public class AITrader {
 
     public static class TickerDayInfo {
 
-        public static final Map<String, TickerDayInfo> register = new HashMap<>();
+        public static final Map<String, TickerDayInfo> register = new ConcurrentHashMap<>();
 
         private final String name;
         private final TickerCandle startOfDay;
@@ -101,56 +105,60 @@ public class AITrader {
     }
 
     public void run() {
-        while (true) {
-            for (String name : ailConfig.getStocks()) {
-                try {
-                    var tickerDayInfo = TickerDayInfo.register.computeIfAbsent(name, it -> {
-                        var weekCandles = getTickerCandles(name, (INDICATORS_SHIFT + 2419), CANDLE_INTERVAL_HOUR, 0);
-                        return new TickerDayInfo(
-                                name,
-                                findStartOfDay(weekCandles),
-                                calculateATR(weekCandles, 7),
-                                readTickerFile(name, ailConfig.getDataDir()),
-                                getNetwork(name, ailConfig.getDataDir())
-                        );
-                    });
-                    var decision = decision(tickerDayInfo);
-                    if (0 != decision) {
-                        var type = tickerDayInfo.getTickerJson().getTicker().getType();
-                        var currentPosition = tcsService.getCountOfCurrentPositions(type, name);
-                        if (!(currentPosition > 0)) {
-                            var balance = tcsService.getAvailableCash();
-                            var cashToOrder = (balance / 100) * balanceRiskPercent;
-                            if (decision > 0) {
-                                tcsService.buyByMarket(name, type, cashToOrder, tpPercent, slPercent);
+        List<CompletableFuture<Void>> tasks = new ArrayList<>();
+        Supplier<Boolean> isNotWorkingHours = () -> new GregorianCalendar().get(Calendar.HOUR_OF_DAY) >= 19;
+        for (String name : ailConfig.getStocks()) {
+            tasks.add(
+                    runAsync(() -> {
+                        while (true) {
+                            if (isNotWorkingHours.get()) {
+                                break;
                             }
-                            if (decision < 0) {
-                                tcsService.sellByMarket(name, type, cashToOrder, tpPercent, slPercent);
-                            }
+                            handleTicker(name);
+                            sleep(30_000);
                         }
-                    }
-                } catch (Exception ex) {
-                    var message = "Failed handle " + name + ": " + ex.getMessage();
-                    telegramNotifyService.sendMessage(message);
-                    out.println(message);
-                    ex.printStackTrace();
-                }
-                try {
-                    TimeUnit.MILLISECONDS.sleep(1000);
-                } catch (InterruptedException skip) {
-                    // nothing
-                }
-            }
+                    })
+            );
+            sleep(1_000);
+        }
+        allOf(tasks.toArray(new CompletableFuture[]{})).join();
+        if (isNotWorkingHours.get()) {
+            out.println("Not working hours! Current Time: " + new Date() + ". Exit...");
+        }
+    }
 
-            if (new GregorianCalendar().get(Calendar.HOUR_OF_DAY) >= 19) {
-                out.println("Not working hours! Current Time: " + new Date() + ". Exit...");
-                break;
+    private void handleTicker(String name) {
+        try {
+            var tickerDayInfo = TickerDayInfo.register.computeIfAbsent(name, it -> {
+                var weekCandles = getTickerCandles(name, (INDICATORS_SHIFT + 2419), CANDLE_INTERVAL_HOUR, 0);
+                return new TickerDayInfo(
+                        name,
+                        findStartOfDay(weekCandles),
+                        calculateATR(weekCandles, 7),
+                        readTickerFile(name, ailConfig.getDataDir()),
+                        getNetwork(name, ailConfig.getDataDir())
+                );
+            });
+            var decision = decision(tickerDayInfo);
+            if (0 != decision) {
+                var type = tickerDayInfo.getTickerJson().getTicker().getType();
+                var currentPosition = tcsService.getCountOfCurrentPositions(type, name);
+                if (!(currentPosition > 0)) {
+                    var balance = tcsService.getAvailableCash();
+                    var cashToOrder = (balance / 100) * balanceRiskPercent;
+                    if (decision > 0) {
+                        tcsService.buyByMarket(name, type, cashToOrder, tpPercent, slPercent);
+                    }
+                    if (decision < 0) {
+                        tcsService.sellByMarket(name, type, cashToOrder, tpPercent, slPercent);
+                    }
+                }
             }
-            try {
-                TimeUnit.MILLISECONDS.sleep(30_000);
-            } catch (InterruptedException skip) {
-                // nothing
-            }
+        } catch (Exception ex) {
+            var message = "Failed handle " + name + ": " + ex.getMessage();
+            telegramNotifyService.sendMessage(message);
+            out.println(message);
+            ex.printStackTrace();
         }
     }
 
@@ -258,11 +266,7 @@ public class AITrader {
         } catch (Exception ex) {
             out.println("Failed getTickerCandles: " + ex.getMessage());
             if (counter++ < 2) {
-                try {
-                    TimeUnit.MILLISECONDS.sleep(1200);
-                } catch (InterruptedException skip) {
-                    // nothing
-                }
+                sleep(1_200);
                 return getTickerCandles(name, size, period, counter);
             } else {
                 throw new RuntimeException(ex);
@@ -296,5 +300,13 @@ public class AITrader {
             }
         }
         return startOfDay;
+    }
+
+    private static void sleep(long time) {
+        try {
+            TimeUnit.MILLISECONDS.sleep(time);
+        } catch (InterruptedException skip) {
+            // nothing
+        }
     }
 }
