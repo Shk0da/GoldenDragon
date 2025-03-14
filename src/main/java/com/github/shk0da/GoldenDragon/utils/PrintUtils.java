@@ -50,7 +50,7 @@ public final class PrintUtils {
                 "ISIN",
                 "Qty",
                 "Lots",
-                "Blocked"
+                "Yield"
         );
         out.println("--------------------------------------------------------------------------");
 
@@ -71,7 +71,7 @@ public final class PrintUtils {
                     currentPosition.getIsin(),
                     currentPosition.getBalance(),
                     currentPosition.getLots(),
-                    currentPosition.getBlocked()
+                    currentPosition.getExpectedYield()
             );
             TickerInfo tickerInfo = tcsService.searchTicker(entry.getKey());
             if (currency.equals(tickerInfo.getCurrency())) {

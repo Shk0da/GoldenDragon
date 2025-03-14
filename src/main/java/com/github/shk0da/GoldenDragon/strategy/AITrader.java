@@ -107,9 +107,15 @@ public class AITrader {
     }
 
     public void run() {
+        out.println("Total Portfolio Cost: " + tcsService.getTotalPortfolioCost());
         List<CompletableFuture<Void>> tasks = new ArrayList<>();
         ExecutorService executor = Executors.newFixedThreadPool(ailConfig.getStocks().size());
-        Supplier<Boolean> isNotWorkingHours = () -> new GregorianCalendar().get(Calendar.HOUR_OF_DAY) >= 19;
+        Supplier<Boolean> isNotWorkingHours = () -> {
+            var calendar = new GregorianCalendar();
+            var hour = calendar.get(Calendar.HOUR_OF_DAY);
+            var minute = calendar.get(Calendar.MINUTE);
+            return ((hour == 18 && minute >= 30) || (hour >= 19)) || (hour < 9 || (hour == 9 && minute < 45));
+        };
         for (String name : ailConfig.getStocks()) {
             tasks.add(
                     runAsync(() -> {
@@ -124,6 +130,7 @@ public class AITrader {
         allOf(tasks.toArray(new CompletableFuture[]{})).join();
         if (isNotWorkingHours.get()) {
             executor.shutdown();
+            tcsService.closeAllByMarket(TickerType.STOCK);
             out.println("Not working hours! Current Time: " + new Date() + ". Exit...");
         }
     }
@@ -141,10 +148,11 @@ public class AITrader {
                 );
             });
             var decision = decision(tickerDayInfo);
+            var type = tickerDayInfo.getTickerJson().getTicker().getType();
+            var currentPosition = tcsService.getCurrentPositions(type, name);
+            var currentPositionBalance = null == currentPosition ? 0.0 : currentPosition.getBalance();
             if (0 != decision) {
-                var type = tickerDayInfo.getTickerJson().getTicker().getType();
-                var currentPosition = tcsService.getCountOfCurrentPositions(type, name);
-                if (!(currentPosition > 0)) {
+                if (0 == currentPositionBalance) {
                     var balance = tcsService.getAvailableCash();
                     var cashToOrder = (balance / 100) * balanceRiskPercent;
                     if (decision > 0) {
@@ -152,6 +160,26 @@ public class AITrader {
                     }
                     if (decision < 0) {
                         tcsService.sellByMarket(name, type, cashToOrder, tpPercent, slPercent);
+                    }
+                }
+            }
+
+            if (0 != currentPositionBalance) {
+                var count = currentPosition.getBalance();
+                var expectedYield = currentPosition.getExpectedYield();
+                var positionPrice = currentPosition.getAveragePositionPrice();
+                if (currentPositionBalance > 0) {
+                    var currentPrice = tcsService.getAvailablePrice(name, type, count, "asks");
+                    expectedYield = (currentPrice - positionPrice) / positionPrice * 100;
+                    if (expectedYield > tpPercent || expectedYield < slPercent) {
+                        tcsService.closeLongByMarket(name, type);
+                    }
+                }
+                if (currentPositionBalance < 0) {
+                    var currentPrice = tcsService.getAvailablePrice(name, type, count, "bids");
+                    expectedYield =  (positionPrice - currentPrice) / currentPrice * 100;
+                    if (expectedYield > tpPercent || expectedYield < slPercent) {
+                        tcsService.closeShortByMarket(name, type);
                     }
                 }
             }

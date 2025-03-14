@@ -90,19 +90,41 @@ public class TCSService {
         return investApi.getMarketDataService().getCandlesSync(figi, start.toInstant(), end.toInstant(), interval);
     }
 
-    public void sellAllByMarket(TickerType type) {
+    public void closeAllByMarket(TickerType type) {
         getCurrentPositions(type).values().forEach(ticker -> {
             int count = ticker.getBalance();
             String name = ticker.getTicker();
             String currentDate = dateTimeFormat.format(new Date());
-            out.println("[" + currentDate + "] Sell: " + count + " " + name + " by Market");
-
-            if (mainConfig.isTestMode()) return;
-            createOrder(new TickerInfo.Key(name, type), 0.0, count, "Sell");
+            if (count > 0) {
+                var message = "[" + currentDate + "] Sell: " + count + " " + name + " by Market";
+                out.println(message);
+                if (mainConfig.isTestMode()) return;
+                telegramNotifyService.sendMessage(message);
+                createOrder(new TickerInfo.Key(name, type), 0.0, count, "Sell");
+            }
+            if (count < 0) {
+                var message = "[" + currentDate + "] Buy: " + count + " " + name + " by Market";
+                out.println(message);
+                if (mainConfig.isTestMode()) return;
+                telegramNotifyService.sendMessage(message);
+                createOrder(new TickerInfo.Key(name, type), 0.0, Math.abs(count), "Buy");
+            }
         });
     }
 
-    public boolean sellAllByMarket(String name, TickerType type) {
+    public boolean closeShortByMarket(String name, TickerType type) {
+        int count = getCountOfCurrentPositions(type, name);
+        if (count < 0) {
+            String currentDate = dateTimeFormat.format(new Date());
+            out.println("[" + currentDate + "] Buy: " + Math.abs(count) + " " + name + " by Market");
+
+            if (mainConfig.isTestMode()) return true;
+            return 1 == createOrder(new TickerInfo.Key(name, type), 0.0, Math.abs(count), "Buy");
+        }
+        return false;
+    }
+
+    public boolean closeLongByMarket(String name, TickerType type) {
         int count = getCountOfCurrentPositions(type, name);
         if (count > 0) {
             String currentDate = dateTimeFormat.format(new Date());
@@ -497,13 +519,6 @@ public class TCSService {
                 .doubleValue();
     }
 
-    public int getCountOfCurrentPositions() {
-        return investApi.getOperationsService()
-                .getPortfolioSync(mainConfig.getTcsAccountId())
-                .getPositions()
-                .size();
-    }
-
     public int getCountOfCurrentPositions(TickerType tickerType, String tickerName) {
         out.println("Loading current positions for: " + tickerName);
         return getCurrentPositions(tickerType).values()
@@ -512,6 +527,14 @@ public class TCSService {
                 .map(PositionInfo::getBalance)
                 .findFirst()
                 .orElse(0);
+    }
+
+    public PositionInfo getCurrentPositions(TickerType tickerType, String tickerName) {
+        return getCurrentPositions(tickerType).values()
+                .stream()
+                .filter(it -> it.getTicker().equalsIgnoreCase(tickerName))
+                .findFirst()
+                .orElse(null);
     }
 
     public Map<TickerInfo.Key, PositionInfo> getCurrentPositions(TickerType tickerType) {
@@ -539,14 +562,25 @@ public class TCSService {
                     }
                     TickerInfo tickerInfo = searchTicker(tickerKey.get());
                     if (marketConfig.getCurrency().equals(tickerInfo.getCurrency())) {
+                        var expectedYield = it.getExpectedYield().doubleValue();
+                        if (0.0 == expectedYield) {
+                            var currentPrice = it.getCurrentPrice().getValue().doubleValue();
+                            var averagePositionPrice = it.getAveragePositionPriceFifo().getValue().doubleValue();
+                            if (it.getQuantity().doubleValue() > 0) {
+                                expectedYield = (currentPrice - averagePositionPrice) / averagePositionPrice * 100;
+                            } else {
+                                expectedYield = (averagePositionPrice - currentPrice) / currentPrice * 100;
+                            }
+                        }
                         PositionInfo positionInfo = new PositionInfo(
                                 tickerInfo.getFigi(),
                                 tickerInfo.getTicker(),
                                 tickerInfo.getIsin(),
                                 tickerInfo.getType().name(),
                                 it.getQuantity().intValue(),
-                                0,
+                                expectedYield,
                                 it.getQuantityLots().intValue(),
+                                it.getAveragePositionPriceFifo().getValue().doubleValue(),
                                 tickerInfo.getName()
                         );
                         positionInfoList.put(tickerKey.get(), positionInfo);
@@ -574,14 +608,26 @@ public class TCSService {
         return price;
     }
 
+    public double getAvailablePrice(String name, TickerType type) {
+        return getAvailablePrice(new TickerInfo.Key(name, type));
+    }
+
     public double getAvailablePrice(TickerInfo.Key key) {
         return getAvailablePrice(key, 1, false);
     }
 
+    public double getAvailablePrice(String name, TickerType type, int count, String glassType) {
+        return getAvailablePrice(new TickerInfo.Key(name, type), count, glassType, false);
+    }
+
     public double getAvailablePrice(TickerInfo.Key key, int count, boolean isPrintGlass) {
+        return getAvailablePrice(key, count, "bids", isPrintGlass);
+    }
+
+    public double getAvailablePrice(TickerInfo.Key key, int count, String type, boolean isPrintGlass) {
         int value = count;
         double tickerPrice = 0.0;
-        for (Map.Entry<Double, Integer> bid : getCurrentPrices(key, isPrintGlass).get("bids").entrySet()) {
+        for (Map.Entry<Double, Integer> bid : getCurrentPrices(key, isPrintGlass).get(type).entrySet()) {
             tickerPrice = bid.getKey();
             value = value - bid.getValue();
             if (value <= 0) break;
