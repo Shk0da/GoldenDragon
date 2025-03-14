@@ -503,6 +503,7 @@ public class TCSService {
     }
 
     public int getCountOfCurrentPositions(TickerType tickerType, String tickerName) {
+        out.println("Loading current positions for: " + tickerName);
         return getCurrentPositions(tickerType).values()
                 .stream()
                 .filter(it -> it.getTicker().equalsIgnoreCase(tickerName))
@@ -512,9 +513,7 @@ public class TCSService {
     }
 
     public Map<TickerInfo.Key, PositionInfo> getCurrentPositions(TickerType tickerType) {
-        out.println("Loading current positions for: " + tickerType.name());
         sleep(550);
-
         Map<TickerInfo.Key, PositionInfo> positionInfoList = new HashMap<>();
         String type = TickerType.STOCK == tickerType ? "share" : tickerType.name();
         Portfolio portfolio = investApi.getOperationsService().getPortfolioSync(mainConfig.getTcsAccountId());
