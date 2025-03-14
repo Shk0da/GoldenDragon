@@ -299,36 +299,8 @@ public class TCSService {
             );
             out.println(message);
 
-            if (takeProfit > 0.0 && response.getExecutionReportStatus().equals(EXECUTION_REPORT_STATUS_FILL)) {
-                try {
-                    double takePrice = 0.0;
-                    StopOrderDirection stopOrderDirection = null;
-                    if (ORDER_DIRECTION_SELL == direction) {
-                        stopOrderDirection = STOP_ORDER_DIRECTION_BUY;
-                        takePrice = normalizePrice(executedPrice - ((executedPrice / 100) * takeProfit), tickerInfo.getMinPriceIncrement());
-                    }
-                    if (ORDER_DIRECTION_BUY == direction) {
-                        stopOrderDirection = STOP_ORDER_DIRECTION_SELL;
-                        takePrice = normalizePrice(executedPrice + ((executedPrice / 100) * takeProfit), tickerInfo.getMinPriceIncrement());
-                    }
-                    Quotation takeProfitPrice = Quotation.newBuilder()
-                            .setUnits(Math.round((takePrice - (takePrice % 1))))
-                            .setNano((int) (Math.round((takePrice % 1) * 100)))
-                            .build();
-                    investApi.getStopOrdersService().postStopOrderGoodTillCancel(
-                            figi, quantity, orderPrice, takeProfitPrice,
-                            stopOrderDirection,
-                            mainConfig.getTcsAccountId(),
-                            STOP_ORDER_TYPE_TAKE_PROFIT
-                    );
-                    out.println(key.getTicker() + " TakeProfit target: " + takePrice);
-                } catch (Exception ex) {
-                    var error = "Failed create TakeProfit: " + ex.getMessage();
-                    out.println(error);
-                    telegramNotifyService.sendMessage(error);
-                }
-            }
             if (stopLose > 0.0 && response.getExecutionReportStatus().equals(EXECUTION_REPORT_STATUS_FILL)) {
+                sleep(1_000);
                 try {
                     double stopPrice = 0.0;
                     StopOrderDirection stopOrderDirection = null;
@@ -353,6 +325,37 @@ public class TCSService {
                     out.println(key.getTicker() + " StopLose target: " + stopPrice);
                 } catch (Exception ex) {
                     var error = "Failed create StopLose: " + ex.getMessage();
+                    out.println(error);
+                    telegramNotifyService.sendMessage(error);
+                }
+            }
+
+            if (takeProfit > 0.0 && response.getExecutionReportStatus().equals(EXECUTION_REPORT_STATUS_FILL)) {
+                sleep(1_000);
+                try {
+                    double takePrice = 0.0;
+                    StopOrderDirection stopOrderDirection = null;
+                    if (ORDER_DIRECTION_SELL == direction) {
+                        stopOrderDirection = STOP_ORDER_DIRECTION_BUY;
+                        takePrice = normalizePrice(executedPrice - ((executedPrice / 100) * takeProfit), tickerInfo.getMinPriceIncrement());
+                    }
+                    if (ORDER_DIRECTION_BUY == direction) {
+                        stopOrderDirection = STOP_ORDER_DIRECTION_SELL;
+                        takePrice = normalizePrice(executedPrice + ((executedPrice / 100) * takeProfit), tickerInfo.getMinPriceIncrement());
+                    }
+                    Quotation takeProfitPrice = Quotation.newBuilder()
+                            .setUnits(Math.round((takePrice - (takePrice % 1))))
+                            .setNano((int) (Math.round((takePrice % 1) * 100)))
+                            .build();
+                    investApi.getStopOrdersService().postStopOrderGoodTillCancel(
+                            figi, quantity, orderPrice, takeProfitPrice,
+                            stopOrderDirection,
+                            mainConfig.getTcsAccountId(),
+                            STOP_ORDER_TYPE_TAKE_PROFIT
+                    );
+                    out.println(key.getTicker() + " TakeProfit target: " + takePrice);
+                } catch (Exception ex) {
+                    var error = "Failed create TakeProfit: " + ex.getMessage();
                     out.println(error);
                     telegramNotifyService.sendMessage(error);
                 }
@@ -438,11 +441,7 @@ public class TCSService {
 
     public Double getAvailableCash() {
         out.println("Loading currencies from TCS...");
-        try {
-            TimeUnit.MILLISECONDS.sleep(550);
-        } catch (InterruptedException ex) {
-            out.println("Error: " + ex.getMessage());
-        }
+        sleep(550);
 
         Positions positions = investApi.getOperationsService().getPositionsSync(mainConfig.getTcsAccountId());
         double availableCash = positions.getMoney()
@@ -462,11 +461,7 @@ public class TCSService {
             return tickerRepository.getById(key);
         }
         out.println("Search ticker '" + key.getTicker() + "' from TCS...");
-        try {
-            TimeUnit.MILLISECONDS.sleep(550);
-        } catch (InterruptedException ex) {
-            out.println("Error: " + ex.getMessage());
-        }
+        sleep(550);
 
         TickerInfo tickerInfo;
         switch (key.getType()) {
@@ -518,11 +513,7 @@ public class TCSService {
 
     public Map<TickerInfo.Key, PositionInfo> getCurrentPositions(TickerType tickerType) {
         out.println("Loading current positions for: " + tickerType.name());
-        try {
-            TimeUnit.MILLISECONDS.sleep(550);
-        } catch (InterruptedException ex) {
-            out.println("Error: " + ex.getMessage());
-        }
+        sleep(550);
 
         Map<TickerInfo.Key, PositionInfo> positionInfoList = new HashMap<>();
         String type = TickerType.STOCK == tickerType ? "share" : tickerType.name();
@@ -609,11 +600,7 @@ public class TCSService {
         if (isPrintGlass) {
             out.println("Loading current price '" + key + "' from TCS...");
         }
-        try {
-            TimeUnit.MILLISECONDS.sleep(550);
-        } catch (InterruptedException ex) {
-            out.println("Error: " + ex.getMessage());
-        }
+        sleep(550);
 
         GetOrderBookResponse response = investApi.getMarketDataService().getOrderBookSync(figi, 10);
 
@@ -665,5 +652,13 @@ public class TCSService {
 
     private static Double normalizePrice(double price, double priceStep) {
         return Math.round(price / priceStep) * priceStep;
+    }
+
+    private static void sleep(long time) {
+        try {
+            TimeUnit.MILLISECONDS.sleep(time);
+        } catch (InterruptedException skip) {
+            // nothing
+        }
     }
 }
