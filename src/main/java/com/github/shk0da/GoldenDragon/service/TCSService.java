@@ -300,50 +300,62 @@ public class TCSService {
             out.println(message);
 
             if (takeProfit > 0.0 && response.getExecutionReportStatus().equals(EXECUTION_REPORT_STATUS_FILL)) {
-                double takePrice = 0.0;
-                StopOrderDirection stopOrderDirection = null;
-                if (ORDER_DIRECTION_SELL == direction) {
-                    stopOrderDirection = STOP_ORDER_DIRECTION_BUY;
-                    takePrice = normalizePrice(executedPrice - ((executedPrice / 100) * takeProfit), tickerInfo.getMinPriceIncrement());
+                try {
+                    double takePrice = 0.0;
+                    StopOrderDirection stopOrderDirection = null;
+                    if (ORDER_DIRECTION_SELL == direction) {
+                        stopOrderDirection = STOP_ORDER_DIRECTION_BUY;
+                        takePrice = normalizePrice(executedPrice - ((executedPrice / 100) * takeProfit), tickerInfo.getMinPriceIncrement());
+                    }
+                    if (ORDER_DIRECTION_BUY == direction) {
+                        stopOrderDirection = STOP_ORDER_DIRECTION_SELL;
+                        takePrice = normalizePrice(executedPrice + ((executedPrice / 100) * takeProfit), tickerInfo.getMinPriceIncrement());
+                    }
+                    Quotation takeProfitPrice = Quotation.newBuilder()
+                            .setUnits(Math.round((takePrice - (takePrice % 1))))
+                            .setNano((int) (Math.round((takePrice % 1) * 100)))
+                            .build();
+                    investApi.getStopOrdersService().postStopOrderGoodTillCancel(
+                            figi, quantity, orderPrice, takeProfitPrice,
+                            stopOrderDirection,
+                            mainConfig.getTcsAccountId(),
+                            STOP_ORDER_TYPE_TAKE_PROFIT
+                    );
+                    out.println(key.getTicker() + " TakeProfit target: " + takePrice);
+                } catch (Exception ex) {
+                    var error = "Failed create TakeProfit: " + ex.getMessage();
+                    out.println(error);
+                    telegramNotifyService.sendMessage(error);
                 }
-                if (ORDER_DIRECTION_BUY == direction) {
-                    stopOrderDirection = STOP_ORDER_DIRECTION_SELL;
-                    takePrice = normalizePrice(executedPrice + ((executedPrice / 100) * takeProfit), tickerInfo.getMinPriceIncrement());
-                }
-                Quotation takeProfitPrice = Quotation.newBuilder()
-                        .setUnits(Math.round((takePrice - (takePrice % 1))))
-                        .setNano((int) (Math.round((takePrice % 1) * 100)))
-                        .build();
-                investApi.getStopOrdersService().postStopOrderGoodTillCancel(
-                        figi, quantity, orderPrice, takeProfitPrice,
-                        stopOrderDirection,
-                        mainConfig.getTcsAccountId(),
-                        STOP_ORDER_TYPE_TAKE_PROFIT
-                );
-                out.println(key.getTicker() + " TakeProfit target: " + takePrice);
             }
             if (stopLose > 0.0 && response.getExecutionReportStatus().equals(EXECUTION_REPORT_STATUS_FILL)) {
-                double stopPrice = 0.0;
-                StopOrderDirection stopOrderDirection = null;
-                if (ORDER_DIRECTION_SELL == direction) {
-                    stopOrderDirection = STOP_ORDER_DIRECTION_BUY;
-                    stopPrice = normalizePrice(executedPrice + ((executedPrice / 100) * stopLose), tickerInfo.getMinPriceIncrement());
+                try {
+                    double stopPrice = 0.0;
+                    StopOrderDirection stopOrderDirection = null;
+                    if (ORDER_DIRECTION_SELL == direction) {
+                        stopOrderDirection = STOP_ORDER_DIRECTION_BUY;
+                        stopPrice = normalizePrice(executedPrice + ((executedPrice / 100) * stopLose), tickerInfo.getMinPriceIncrement());
+                    }
+                    if (ORDER_DIRECTION_BUY == direction) {
+                        stopOrderDirection = STOP_ORDER_DIRECTION_SELL;
+                        stopPrice = normalizePrice(executedPrice - ((executedPrice / 100) * stopLose), tickerInfo.getMinPriceIncrement());
+                    }
+                    Quotation stopLosePrice = Quotation.newBuilder()
+                            .setUnits(Math.round((stopPrice - (stopPrice % 1))))
+                            .setNano((int) (Math.round((stopPrice % 1) * 100)))
+                            .build();
+                    investApi.getStopOrdersService().postStopOrderGoodTillCancel(
+                            figi, quantity, orderPrice, stopLosePrice,
+                            stopOrderDirection,
+                            mainConfig.getTcsAccountId(),
+                            STOP_ORDER_TYPE_STOP_LOSS
+                    );
+                    out.println(key.getTicker() + " StopLose target: " + stopPrice);
+                } catch (Exception ex) {
+                    var error = "Failed create StopLose: " + ex.getMessage();
+                    out.println(error);
+                    telegramNotifyService.sendMessage(error);
                 }
-                if (ORDER_DIRECTION_BUY == direction) {
-                    stopOrderDirection = STOP_ORDER_DIRECTION_SELL;
-                    stopPrice = normalizePrice(executedPrice - ((executedPrice / 100) * stopLose), tickerInfo.getMinPriceIncrement());
-                }
-                Quotation stopLosePrice = Quotation.newBuilder()
-                        .setUnits(Math.round((stopPrice - (stopPrice % 1))))
-                        .setNano((int) (Math.round((stopPrice % 1) * 100)))
-                        .build();
-                investApi.getStopOrdersService().postStopOrderGoodTillCancel(
-                        figi, quantity, orderPrice, stopLosePrice,
-                        stopOrderDirection,
-                        mainConfig.getTcsAccountId(),
-                        STOP_ORDER_TYPE_STOP_LOSS
-                );
-                out.println(key.getTicker() + " StopLose target: " + stopPrice);
             }
 
             telegramNotifyService.sendMessage(message);
