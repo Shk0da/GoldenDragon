@@ -168,16 +168,16 @@ public class AITrader {
                 var count = currentPosition.getBalance();
                 var expectedYield = currentPosition.getExpectedYield();
                 var positionPrice = currentPosition.getAveragePositionPrice();
-                if (currentPositionBalance > 0) {
+                if (currentPositionBalance > 0 && (expectedYield > tpPercent || expectedYield < slPercent)) {
                     var currentPrice = tcsService.getAvailablePrice(name, type, count, "asks");
                     expectedYield = (currentPrice - positionPrice) / positionPrice * 100;
                     if (expectedYield > tpPercent || expectedYield < slPercent) {
                         tcsService.closeLongByMarket(name, type);
                     }
                 }
-                if (currentPositionBalance < 0) {
+                if (currentPositionBalance < 0 && (expectedYield > tpPercent || expectedYield < slPercent)) {
                     var currentPrice = tcsService.getAvailablePrice(name, type, count, "bids");
-                    expectedYield =  (positionPrice - currentPrice) / currentPrice * 100;
+                    expectedYield = (positionPrice - currentPrice) / currentPrice * 100;
                     if (expectedYield > tpPercent || expectedYield < slPercent) {
                         tcsService.closeShortByMarket(name, type);
                     }
