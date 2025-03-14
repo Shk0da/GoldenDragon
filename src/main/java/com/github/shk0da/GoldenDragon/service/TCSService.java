@@ -149,7 +149,7 @@ public class TCSService {
             }
         }
         if (count == 0) {
-            out.println("Warn: short will be skipped - " + name + " with count " + count);
+            out.println("Warn: short will be skipped - " + name + " with count " + count + ". CashToSell: " + cashToSell + ", price: " + tickerPrice);
             return false;
         }
         double cost = count * tickerPrice;
@@ -242,7 +242,7 @@ public class TCSService {
             }
         }
         if (count == 0) {
-            out.println("Warn: purchase will be skipped - " + name + " with count " + count);
+            out.println("Warn: long will be skipped - " + name + " with count " + count + ". CashToBuy: " + cashToBuy + ", price: " + tickerPrice);
             return false;
         }
         double cost = count * tickerPrice;
@@ -316,6 +316,7 @@ public class TCSService {
                             .setUnits(Math.round((stopPrice - (stopPrice % 1))))
                             .setNano((int) (Math.round((stopPrice % 1) * 100)))
                             .build();
+                    out.println(key.getTicker() + " StopLose target: " + stopPrice);
                     investApi.getStopOrdersService().postStopOrderGoodTillCancel(
                             figi, quantity, orderPrice, stopLosePrice,
                             stopOrderDirection,
@@ -347,6 +348,7 @@ public class TCSService {
                             .setUnits(Math.round((takePrice - (takePrice % 1))))
                             .setNano((int) (Math.round((takePrice % 1) * 100)))
                             .build();
+                    out.println(key.getTicker() + " TakeProfit target: " + takePrice);
                     investApi.getStopOrdersService().postStopOrderGoodTillCancel(
                             figi, quantity, orderPrice, takeProfitPrice,
                             stopOrderDirection,
