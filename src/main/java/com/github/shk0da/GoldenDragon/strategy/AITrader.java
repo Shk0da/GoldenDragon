@@ -110,10 +110,7 @@ public class AITrader {
         for (String name : ailConfig.getStocks()) {
             tasks.add(
                     runAsync(() -> {
-                        while (true) {
-                            if (isNotWorkingHours.get()) {
-                                break;
-                            }
+                        while (!isNotWorkingHours.get()) {
                             handleTicker(name);
                             sleep(30_000);
                         }
