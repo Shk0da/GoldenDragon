@@ -13,16 +13,20 @@ import ru.tinkoff.piapi.contract.v1.HistoricCandle;
 import ru.tinkoff.piapi.contract.v1.Share;
 
 import java.io.BufferedReader;
+import java.io.File;
 import java.io.FileReader;
 import java.io.FileWriter;
 import java.io.IOException;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.sql.Timestamp;
 import java.text.DateFormat;
 import java.text.SimpleDateFormat;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.ArrayList;
+import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -69,15 +73,20 @@ public class DataCollector {
 
     private void createCandlesFile(String name, String dir, CandleInterval period) {
         var namePeriod = period.name().replace("CANDLE_INTERVAL_", "");
+        var file = dir + "/" + name + "/candles" + namePeriod + ".txt";
+        if (isTodayFile(file)) {
+            out.println("Exists candles '" + namePeriod + "' file: " + name);
+            return;
+        }
+
         out.println("Create candles '" + namePeriod + "' file: " + name);
         List<TickerCandle> candles = getTickerCandles(name.toLowerCase(), period, 0);
         if (candles.isEmpty()) {
             throw new RuntimeException("empty candles");
         }
 
-        var file = dir + "/" + name + "/candles" + namePeriod + ".txt";
         try {
-          deleteIfExists(Path.of(file));
+            deleteIfExists(Path.of(file));
         } catch (IOException ex) {
             ex.printStackTrace();
         }
@@ -159,6 +168,11 @@ public class DataCollector {
     }
 
     private List<Double> calculatePriceLevels(String name, String dir, CandleInterval period) {
+        if (isTodayFile(dir + "/" + name + "/levels.txt")) {
+            out.println("Exists price levels: " + name);
+            return readLevels(name, dir);
+        }
+
         var namePeriod = period.name().replace("CANDLE_INTERVAL_", "");
         out.println("Calculate price levels: " + name);
         String command;
@@ -224,5 +238,12 @@ public class DataCollector {
             out.println(ex.getMessage());
             throw new RuntimeException(ex);
         }
+    }
+
+    private boolean isTodayFile(String path) {
+        var lastModified = new File(path).lastModified();
+        var startOfDayDate = LocalDate.now().atStartOfDay();
+        var fileDate = LocalDateTime.ofInstant(new Date(lastModified).toInstant(), ZoneId.systemDefault());
+        return fileDate.isAfter(startOfDayDate);
     }
 }
