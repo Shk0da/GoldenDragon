@@ -32,6 +32,7 @@ import java.time.OffsetDateTime;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
@@ -45,6 +46,7 @@ import static com.github.shk0da.GoldenDragon.service.TelegramNotifyService.teleg
 import static com.github.shk0da.GoldenDragon.utils.PrintUtils.printGlassOfPrices;
 import static java.lang.Math.round;
 import static java.lang.System.out;
+import static java.util.stream.Collectors.toCollection;
 import static ru.tinkoff.piapi.contract.v1.OrderDirection.ORDER_DIRECTION_BUY;
 import static ru.tinkoff.piapi.contract.v1.OrderDirection.ORDER_DIRECTION_SELL;
 import static ru.tinkoff.piapi.contract.v1.OrderExecutionReportStatus.EXECUTION_REPORT_STATUS_FILL;
@@ -617,7 +619,7 @@ public class TCSService {
     }
 
     public double getAvailablePrice(String name, TickerType type, int count, String glassType) {
-        return getAvailablePrice(new TickerInfo.Key(name, type), count, glassType, false);
+        return getAvailablePrice(new TickerInfo.Key(name, type), count, glassType, true);
     }
 
     public double getAvailablePrice(TickerInfo.Key key, int count, boolean isPrintGlass) {
@@ -627,7 +629,14 @@ public class TCSService {
     public double getAvailablePrice(TickerInfo.Key key, int count, String type, boolean isPrintGlass) {
         int value = count;
         double tickerPrice = 0.0;
-        for (Map.Entry<Double, Integer> bid : getCurrentPrices(key, isPrintGlass).get(type).entrySet()) {
+
+        var glass = getCurrentPrices(key, isPrintGlass).get(type).entrySet();
+        if ("asks".equals(type)) {
+            glass = glass.stream()
+                    .sorted((o1, o2) -> o2.getKey().compareTo(o1.getKey()))
+                    .collect(toCollection(LinkedHashSet::new));
+        }
+        for (Map.Entry<Double, Integer> bid : glass) {
             tickerPrice = bid.getKey();
             value = value - bid.getValue();
             if (value <= 0) break;

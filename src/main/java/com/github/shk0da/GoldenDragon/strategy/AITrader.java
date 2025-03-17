@@ -107,7 +107,10 @@ public class AITrader {
     }
 
     public void run() {
-        out.println("Total Portfolio Cost: " + tcsService.getTotalPortfolioCost());
+        var infoMessage = "Total Portfolio Cost: " + tcsService.getTotalPortfolioCost();
+        telegramNotifyService.sendMessage(infoMessage);
+        out.println(infoMessage);
+
         List<CompletableFuture<Void>> tasks = new ArrayList<>();
         ExecutorService executor = Executors.newFixedThreadPool(ailConfig.getStocks().size());
         Supplier<Boolean> isNotWorkingHours = () -> {
