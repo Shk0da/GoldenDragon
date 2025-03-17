@@ -172,14 +172,14 @@ public class AITrader {
                 var expectedYield = currentPosition.getExpectedYield();
                 var positionPrice = currentPosition.getAveragePositionPrice();
                 if (currentPositionBalance > 0 && (expectedYield > tpPercent || expectedYield < slPercent)) {
-                    var currentPrice = tcsService.getAvailablePrice(name, type, count, "bids");
+                    var currentPrice = tcsService.getAvailablePrice(name, type, count, "bids"); // цена продажи
                     expectedYield = (currentPrice - positionPrice) / positionPrice * 100;
                     if (expectedYield > tpPercent || expectedYield < slPercent) {
                         tcsService.closeLongByMarket(name, type);
                     }
                 }
                 if (currentPositionBalance < 0 && (expectedYield > tpPercent || expectedYield < slPercent)) {
-                    var currentPrice = tcsService.getAvailablePrice(name, type, count, "asks");
+                    var currentPrice = tcsService.getAvailablePrice(name, type, count, "asks"); // цена покупки
                     expectedYield = (positionPrice - currentPrice) / currentPrice * 100;
                     if (expectedYield > tpPercent || expectedYield < slPercent) {
                         tcsService.closeShortByMarket(name, type);

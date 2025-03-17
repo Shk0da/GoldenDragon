@@ -631,7 +631,7 @@ public class TCSService {
         double tickerPrice = 0.0;
 
         var glass = getCurrentPrices(key, isPrintGlass).get(type).entrySet();
-        if ("asks".equals(type)) {
+        if ("bids".equals(type)) {
             glass = glass.stream()
                     .sorted((o1, o2) -> o2.getKey().compareTo(o1.getKey()))
                     .collect(toCollection(LinkedHashSet::new));
