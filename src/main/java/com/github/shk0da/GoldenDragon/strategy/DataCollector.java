@@ -34,6 +34,7 @@ import java.util.concurrent.TimeUnit;
 
 import static com.github.shk0da.GoldenDragon.utils.IndicatorsUtil.toDouble;
 import static java.lang.System.out;
+import static java.nio.file.Files.copy;
 import static java.nio.file.Files.createDirectories;
 import static java.nio.file.Files.deleteIfExists;
 import static java.nio.file.Files.move;
@@ -180,17 +181,17 @@ public class DataCollector {
         if (os.contains("windows")) {
             command = "calculate_levels.exe";
         } else if (os.contains("arm")) {
-            command = "calculate_levels_arm";
+            command = "./calculate_levels_arm";
         } else {
-            command = "calculate_levels";
+            command = "./calculate_levels";
         }
         try {
-            move(Paths.get(dir + "/" + name + "/candles" + namePeriod + ".txt"), Paths.get("candles.txt"), REPLACE_EXISTING);
+            copy(Paths.get(dir + "/" + name + "/candles" + namePeriod + ".txt"), Paths.get("candles.txt"), REPLACE_EXISTING);
             if (0 != Runtime.getRuntime().exec(command).waitFor()) {
                 throw new RuntimeException("Not executed: calculate_levels");
             }
-            move(Paths.get("candles.txt"), Paths.get(dir + "/" + name + "/candles" + namePeriod + ".txt"), REPLACE_EXISTING);
             move(Paths.get("levels.txt"), Paths.get(dir + "/" + name + "/levels.txt"), REPLACE_EXISTING);
+            deleteIfExists(Paths.get("candles.txt"));
         } catch (Exception ex) {
             out.println(ex.getMessage());
             throw new RuntimeException(ex);

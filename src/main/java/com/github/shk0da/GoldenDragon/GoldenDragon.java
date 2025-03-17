@@ -26,7 +26,6 @@ import java.util.Calendar;
 import java.util.Date;
 import java.util.GregorianCalendar;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.TimeZone;
 import java.util.concurrent.Callable;
@@ -67,14 +66,11 @@ public class GoldenDragon {
             GregorianCalendar currentCalendar = new GregorianCalendar();
             if (!mainConfig.isTestMode()) {
                 if (!CALENDAR_WORK_DAYS.contains(currentCalendar.get(Calendar.DAY_OF_WEEK))) {
-                    out.println("Not working day! Day of Week: " + currentCalendar.get(Calendar.DAY_OF_WEEK) + ". Exit...");
-                    if (!List.of("PulseFollower", "IndicatorTrader").contains(strategy)) return;
+                    out.println("Not working day! Day of Week: " + currentCalendar.get(Calendar.DAY_OF_WEEK) + ".");
                 }
                 int currentHour = currentCalendar.get(Calendar.HOUR_OF_DAY);
                 if (currentHour < marketConfig.getStartWorkHour() || currentHour >= marketConfig.getEndWorkHour()) {
-                    int currentMinute = currentCalendar.get(Calendar.MINUTE);
-                    out.println("Not working hours! Current Time: " + currentHour + ":" + currentMinute + ". Exit...");
-                    if (!List.of("PulseFollower", "IndicatorTrader").contains(strategy)) return;
+                    out.println("Not working hours! Current Time: " + new Date() + ".");
                 }
             }
 
@@ -125,6 +121,7 @@ public class GoldenDragon {
             ex.printStackTrace();
         }
         out.printf("%s: Finish GoldenDragon%n", new Date());
+        System.exit(0);
     }
 
     private static void updateTickerRepository(TCSService tcsService) throws Exception {
