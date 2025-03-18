@@ -117,7 +117,7 @@ public class AITrader {
             var calendar = new GregorianCalendar();
             var hour = calendar.get(Calendar.HOUR_OF_DAY);
             var minute = calendar.get(Calendar.MINUTE);
-            return ((hour == 18 && minute >= 30) || (hour >= 19)) || (hour < 9 || (hour == 9 && minute < 45));
+            return ((hour == 18 && minute >= 30) || (hour >= 19)) || (hour < 9 || (hour == 9 && minute < 30));
         };
         for (String name : ailConfig.getStocks()) {
             tasks.add(
@@ -171,18 +171,39 @@ public class AITrader {
                 var count = currentPosition.getBalance();
                 var expectedYield = currentPosition.getExpectedYield();
                 var positionPrice = currentPosition.getAveragePositionPrice();
-                if (currentPositionBalance > 0 && (expectedYield > tpPercent || expectedYield < slPercent)) {
-                    var currentPrice = tcsService.getAvailablePrice(name, type, count, "bids"); // цена продажи
+                out.printf("%s: Yield=%,.2f%s\n", name, expectedYield, "%");
+                if (currentPositionBalance > 0 && (expectedYield > tpPercent || expectedYield < ((-1) * slPercent))) {
+                    var currentPrice = tcsService.getAvailablePrice(name, type, count, "bids");
                     expectedYield = (currentPrice - positionPrice) / positionPrice * 100;
-                    if (expectedYield > tpPercent || expectedYield < slPercent) {
+                    var expectedYieldMessage = name + ": " + String.format("%,.2f%s", expectedYield, "%");
+                    if (expectedYield > tpPercent) {
+                        var closeMessage = "LONG TP " + expectedYieldMessage;
+                        out.println(closeMessage + "\n");
                         tcsService.closeLongByMarket(name, type);
+                        telegramNotifyService.sendMessage(closeMessage);
+                    }
+                    if (expectedYield < (-1) * slPercent) {
+                        var closeMessage = "LONG SL " + expectedYieldMessage;
+                        out.println(closeMessage);
+                        tcsService.closeLongByMarket(name, type);
+                        telegramNotifyService.sendMessage(closeMessage);
                     }
                 }
-                if (currentPositionBalance < 0 && (expectedYield > tpPercent || expectedYield < slPercent)) {
-                    var currentPrice = tcsService.getAvailablePrice(name, type, count, "asks"); // цена покупки
+                if (currentPositionBalance < 0 && (expectedYield > tpPercent || expectedYield < ((-1) * slPercent))) {
+                    var currentPrice = tcsService.getAvailablePrice(name, type, count, "asks");
                     expectedYield = (positionPrice - currentPrice) / currentPrice * 100;
-                    if (expectedYield > tpPercent || expectedYield < slPercent) {
+                    var expectedYieldMessage = name + ": " + String.format("%,.2f%s", expectedYield, "%");
+                    if (expectedYield > tpPercent) {
+                        var closeMessage = "SHORT TP " + expectedYieldMessage;
+                        out.println(closeMessage);
                         tcsService.closeShortByMarket(name, type);
+                        telegramNotifyService.sendMessage(closeMessage);
+                    }
+                    if (expectedYield < (-1) * slPercent) {
+                        var closeMessage = "SHORT SL " + expectedYieldMessage;
+                        out.println(closeMessage);
+                        tcsService.closeShortByMarket(name, type);
+                        telegramNotifyService.sendMessage(closeMessage);
                     }
                 }
             }

@@ -105,8 +105,10 @@ public class GoldenDragon {
                 AILConfig ailConfig = new AILConfig();
                 telegramNotifyService.sendMessage("Run DataCollector");
                 new DataCollector(ailConfig, tcsService).run();
+                telegramNotifyService.sendMessage("End DataCollector");
                 telegramNotifyService.sendMessage("Run DataLearning");
                 new DataLearning(ailConfig).run();
+                telegramNotifyService.sendMessage("End DataLearning");
                 telegramNotifyService.sendMessage("End AICollector");
             }
 
@@ -115,6 +117,7 @@ public class GoldenDragon {
                 telegramNotifyService.sendMessage("Run AITrader");
                 AILConfig ailConfig = new AILConfig();
                 new AITrader(ailConfig, tcsService).run();
+                telegramNotifyService.sendMessage("End AITrader");
             }
         } catch (Exception ex) {
             out.printf("Error: %s%n", ex.getMessage());
