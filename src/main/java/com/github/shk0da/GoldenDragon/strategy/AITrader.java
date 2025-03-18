@@ -134,7 +134,9 @@ public class AITrader {
         if (isNotWorkingHours.get()) {
             executor.shutdown();
             tcsService.closeAllByMarket(TickerType.STOCK);
-            out.println("Not working hours! Current Time: " + new Date() + ". Exit...");
+            var buyMessage = "Not working hours! Current Time: " + new Date() + ".\n" + "Total Portfolio Cost: " + tcsService.getTotalPortfolioCost();
+            telegramNotifyService.sendMessage(buyMessage);
+            out.println(buyMessage);
         }
     }
 
