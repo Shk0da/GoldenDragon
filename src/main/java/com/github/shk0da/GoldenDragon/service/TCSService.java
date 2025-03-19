@@ -36,7 +36,6 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 
@@ -44,6 +43,7 @@ import static com.github.shk0da.GoldenDragon.config.MainConfig.dateTimeFormat;
 import static com.github.shk0da.GoldenDragon.dictionary.CurrenciesDictionary.getTickerName;
 import static com.github.shk0da.GoldenDragon.service.TelegramNotifyService.telegramNotifyService;
 import static com.github.shk0da.GoldenDragon.utils.PrintUtils.printGlassOfPrices;
+import static com.github.shk0da.GoldenDragon.utils.TimeUtils.sleep;
 import static java.lang.Math.round;
 import static java.lang.System.out;
 import static java.util.stream.Collectors.toCollection;
@@ -340,14 +340,13 @@ public class TCSService {
                             .setUnits(Math.round((stopPrice - (stopPrice % 1))))
                             .setNano((int) (Math.round((stopPrice % 1) * 100)))
                             .build();
-                    out.println(key.getTicker() + " StopLose target: " + stopPrice);
+                    out.println(key.getTicker() + " StopLose target: " + toDouble(stopLosePrice));
                     investApi.getStopOrdersService().postStopOrderGoodTillCancel(
                             figi, quantity, orderPrice, stopLosePrice,
                             stopOrderDirection,
                             mainConfig.getTcsAccountId(),
                             STOP_ORDER_TYPE_STOP_LOSS
                     );
-                    out.println(key.getTicker() + " StopLose target: " + stopPrice);
                 } catch (Exception ex) {
                     var error = "Failed create StopLose: " + ex.getMessage();
                     out.println(error);
@@ -372,14 +371,13 @@ public class TCSService {
                             .setUnits(Math.round((takePrice - (takePrice % 1))))
                             .setNano((int) (Math.round((takePrice % 1) * 100)))
                             .build();
-                    out.println(key.getTicker() + " TakeProfit target: " + takePrice);
+                    out.println(key.getTicker() + " TakeProfit target: " + toDouble(takeProfitPrice));
                     investApi.getStopOrdersService().postStopOrderGoodTillCancel(
                             figi, quantity, orderPrice, takeProfitPrice,
                             stopOrderDirection,
                             mainConfig.getTcsAccountId(),
                             STOP_ORDER_TYPE_TAKE_PROFIT
                     );
-                    out.println(key.getTicker() + " TakeProfit target: " + takePrice);
                 } catch (Exception ex) {
                     var error = "Failed create TakeProfit: " + ex.getMessage();
                     out.println(error);
@@ -713,13 +711,5 @@ public class TCSService {
 
     private static Double normalizePrice(double price, double priceStep) {
         return Math.round(price / priceStep) * priceStep;
-    }
-
-    private static void sleep(long time) {
-        try {
-            TimeUnit.MILLISECONDS.sleep(time);
-        } catch (InterruptedException skip) {
-            // nothing
-        }
     }
 }

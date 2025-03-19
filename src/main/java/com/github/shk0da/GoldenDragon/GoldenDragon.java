@@ -38,6 +38,7 @@ import static com.github.shk0da.GoldenDragon.service.TelegramNotifyService.teleg
 import static com.github.shk0da.GoldenDragon.utils.SerializationUtils.getDateOfContentOnDisk;
 import static com.github.shk0da.GoldenDragon.utils.SerializationUtils.loadDataFromDisk;
 import static com.github.shk0da.GoldenDragon.utils.SerializationUtils.saveDataToDisk;
+import static com.github.shk0da.GoldenDragon.utils.TimeUtils.sleep;
 import static java.lang.System.currentTimeMillis;
 import static java.lang.System.out;
 import static java.lang.System.setOut;
@@ -124,6 +125,7 @@ public class GoldenDragon {
             ex.printStackTrace();
         }
         out.printf("%s: Finish GoldenDragon%n", new Date());
+        sleep(5_000);
         System.exit(0);
     }
 

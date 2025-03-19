@@ -33,7 +33,6 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
 
 import static com.github.shk0da.GoldenDragon.service.TelegramNotifyService.telegramNotifyService;
@@ -41,6 +40,7 @@ import static com.github.shk0da.GoldenDragon.utils.DataLearningUtils.StockDataSe
 import static com.github.shk0da.GoldenDragon.utils.IndicatorsUtil.INDICATORS_SHIFT;
 import static com.github.shk0da.GoldenDragon.utils.IndicatorsUtil.calculateATR;
 import static com.github.shk0da.GoldenDragon.utils.IndicatorsUtil.toDouble;
+import static com.github.shk0da.GoldenDragon.utils.TimeUtils.sleep;
 import static java.lang.System.out;
 import static java.time.OffsetDateTime.now;
 import static java.util.concurrent.CompletableFuture.allOf;
@@ -273,11 +273,7 @@ public class AITrader {
     }
 
     private List<TickerCandle> getTickerCandles(String name, int size, CandleInterval period, int counter) {
-        try {
-            TimeUnit.MILLISECONDS.sleep(1550);
-        } catch (InterruptedException ex) {
-            out.println("Error: " + ex.getMessage());
-        }
+        sleep(1_550);
         List<TickerCandle> candles = new ArrayList<>();
         try {
             var currentTime = now();
@@ -355,13 +351,5 @@ public class AITrader {
             }
         }
         return startOfDay;
-    }
-
-    private static void sleep(long time) {
-        try {
-            TimeUnit.MILLISECONDS.sleep(time);
-        } catch (InterruptedException skip) {
-            // nothing
-        }
     }
 }

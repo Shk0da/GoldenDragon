@@ -30,9 +30,9 @@ import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.TimeUnit;
 
 import static com.github.shk0da.GoldenDragon.utils.IndicatorsUtil.toDouble;
+import static com.github.shk0da.GoldenDragon.utils.TimeUtils.sleep;
 import static java.lang.System.out;
 import static java.nio.file.Files.copy;
 import static java.nio.file.Files.createDirectories;
@@ -151,11 +151,7 @@ public class DataCollector {
                                 )
                         );
                     });
-                    try {
-                        TimeUnit.MILLISECONDS.sleep(100);
-                    } catch (InterruptedException skip) {
-                        // nothing
-                    }
+                    sleep(100);
                 }
             });
         } catch (Exception ex) {
