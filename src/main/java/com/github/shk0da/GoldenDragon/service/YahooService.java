@@ -19,7 +19,6 @@ import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 import static com.github.shk0da.GoldenDragon.config.MainConfig.HEADER_USER_AGENT;
@@ -27,6 +26,7 @@ import static com.github.shk0da.GoldenDragon.config.MainConfig.USER_AGENT;
 import static com.github.shk0da.GoldenDragon.config.MainConfig.dateFormat;
 import static com.github.shk0da.GoldenDragon.config.MainConfig.httpClient;
 import static com.github.shk0da.GoldenDragon.utils.RequestUtils.requestWithRetry;
+import static com.github.shk0da.GoldenDragon.utils.TimeUtils.sleep;
 import static java.lang.System.currentTimeMillis;
 import static java.lang.System.out;
 import static java.util.concurrent.ThreadLocalRandom.current;
@@ -91,12 +91,7 @@ public class YahooService {
     }
 
     private List<TickerCandle> getHistoryData(String symbol, Date periodStart, Date periodEnd) {
-        try {
-            int randomDelay = current().nextInt(150, 350);
-            TimeUnit.MILLISECONDS.sleep(randomDelay);
-        } catch (InterruptedException ex) {
-            out.println("Error: " + ex.getMessage());
-        }
+        sleep(current().nextInt(150, 350));
 
         HttpResponse<String> response = requestWithRetry(() -> {
             String uri = String.format(
@@ -136,12 +131,7 @@ public class YahooService {
     }
 
     private Map<String, Fundamental> getTickerFundamental(TickerScan ticker, List<String> options) {
-        try {
-            int randomDelay = current().nextInt(200, 500);
-            TimeUnit.MILLISECONDS.sleep(randomDelay);
-        } catch (InterruptedException ex) {
-            out.println("Error: " + ex.getMessage());
-        }
+        sleep(current().nextInt(200, 500));
 
         Map<String, Fundamental> result = new HashMap<>();
         try {

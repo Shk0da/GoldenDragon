@@ -13,21 +13,24 @@ public class PositionInfo {
     private final String isin;
     private final TickerType instrumentType;
     private final Integer balance;
-    private final Integer blocked;
+    private final Double expectedYield;
     private final Integer lots;
+    private final Double averagePositionPrice;
     private final String name;
 
     public PositionInfo(String figi, String ticker, String isin,
                         String instrumentType,
-                        Integer balance, Integer blocked, Integer lots,
+                        Integer balance, Double expectedYield, Integer lots,
+                        Double averagePositionPrice,
                         String name) {
         this.figi = figi;
         this.ticker = ticker;
         this.isin = isin;
         this.instrumentType = TickerType.byName(instrumentType);
         this.balance = balance;
-        this.blocked = blocked;
+        this.expectedYield = expectedYield;
         this.lots = lots;
+        this.averagePositionPrice = averagePositionPrice;
         this.name = name;
     }
 
@@ -43,8 +46,9 @@ public class PositionInfo {
             putField.accept("isin", () -> jsonObject.get("isin").getAsString());
             putField.accept("instrumentType", () -> jsonObject.get("instrumentType").getAsString());
             putField.accept("balance", () -> jsonObject.get("balance").getAsInt());
-            putField.accept("blocked", () -> jsonObject.get("blocked").getAsInt());
+            putField.accept("expectedYield", () -> jsonObject.get("expectedYield").getAsDouble());
             putField.accept("lots", () -> jsonObject.get("lots").getAsInt());
+            putField.accept("averagePositionPrice", () -> jsonObject.get("averagePositionPrice").getAsDouble());
             putField.accept("name", () -> jsonObject.get("name").getAsString());
         }};
         return new PositionInfo(
@@ -53,8 +57,9 @@ public class PositionInfo {
                 (String) values.get("isin"),
                 (String) values.get("instrumentType"),
                 (Integer) values.get("balance"),
-                (Integer) values.get("blocked"),
+                (Double) values.get("expectedYield"),
                 (Integer) values.get("lots"),
+                (Double) values.get("averagePositionPrice"),
                 (String) values.get("name")
         );
     }
@@ -79,12 +84,16 @@ public class PositionInfo {
         return balance != null ? balance : 0;
     }
 
-    public Integer getBlocked() {
-        return blocked != null ? blocked : 0;
+    public Double getExpectedYield() {
+        return expectedYield != null ? expectedYield : 0;
     }
 
     public Integer getLots() {
         return lots != null ? lots : 0;
+    }
+
+    public Double getAveragePositionPrice() {
+        return averagePositionPrice;
     }
 
     public String getName() {

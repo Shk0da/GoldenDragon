@@ -16,10 +16,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ThreadLocalRandom;
-import java.util.concurrent.TimeUnit;
 
 import static com.github.shk0da.GoldenDragon.service.TelegramNotifyService.telegramNotifyService;
 import static com.github.shk0da.GoldenDragon.utils.IndicatorsUtil.toDouble;
+import static com.github.shk0da.GoldenDragon.utils.TimeUtils.sleep;
 import static java.lang.System.out;
 import static java.time.OffsetDateTime.now;
 import static java.util.Collections.max;
@@ -51,7 +51,7 @@ public class IndicatorTrader {
                     }
                 }
 
-                sleep(300, 450);
+                sleep(ThreadLocalRandom.current().nextInt(300, 450));
                 try {
                     if (purchases.contains(stock.getFigi())) {
                         List<HistoricCandle> m15candles = tcsService.getCandles(
@@ -221,13 +221,5 @@ public class IndicatorTrader {
                 rsiSuperTrendUp && rsiUpper50 && rsiCrossoverSma &&
                 obvSuperTrendUp && obvUpperZero && obvCrossoverSma &&
                 adxUpper30;
-    }
-
-    private static void sleep(int start, int end) {
-        try {
-            TimeUnit.MILLISECONDS.sleep(ThreadLocalRandom.current().nextInt(start, end));
-        } catch (InterruptedException ex) {
-            out.println("Error: " + ex.getMessage());
-        }
     }
 }

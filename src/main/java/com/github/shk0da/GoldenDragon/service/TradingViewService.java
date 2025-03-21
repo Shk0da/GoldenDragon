@@ -22,12 +22,12 @@ import java.util.Collection;
 import java.util.Date;
 import java.util.List;
 import java.util.concurrent.ThreadLocalRandom;
-import java.util.concurrent.TimeUnit;
 
 import static com.github.shk0da.GoldenDragon.config.MainConfig.HEADER_USER_AGENT;
 import static com.github.shk0da.GoldenDragon.config.MainConfig.USER_AGENT;
 import static com.github.shk0da.GoldenDragon.config.MainConfig.httpClient;
 import static com.github.shk0da.GoldenDragon.utils.RequestUtils.requestWithRetry;
+import static com.github.shk0da.GoldenDragon.utils.TimeUtils.sleep;
 import static java.lang.System.out;
 import static java.util.stream.Collectors.toList;
 
@@ -129,12 +129,7 @@ public class TradingViewService {
     }
 
     public List<TickerScan> scanMarket(Market market, ScanRequest scanRequest) {
-        try {
-            int randomDelay = ThreadLocalRandom.current().nextInt(800, 1000);
-            TimeUnit.MILLISECONDS.sleep(randomDelay);
-        } catch (InterruptedException ex) {
-            out.println("Error: " + ex.getMessage());
-        }
+        sleep(ThreadLocalRandom.current().nextInt(800, 1000));
 
         URI marketUrl;
         switch (market) {

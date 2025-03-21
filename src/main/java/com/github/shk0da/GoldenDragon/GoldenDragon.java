@@ -10,6 +10,7 @@ import com.github.shk0da.GoldenDragon.model.TickerInfo;
 import com.github.shk0da.GoldenDragon.repository.Repository;
 import com.github.shk0da.GoldenDragon.repository.TickerRepository;
 import com.github.shk0da.GoldenDragon.service.TCSService;
+import com.github.shk0da.GoldenDragon.strategy.AITrader;
 import com.github.shk0da.GoldenDragon.strategy.DataCollector;
 import com.github.shk0da.GoldenDragon.strategy.DataLearning;
 import com.github.shk0da.GoldenDragon.strategy.DivFlow;
@@ -25,7 +26,6 @@ import java.util.Calendar;
 import java.util.Date;
 import java.util.GregorianCalendar;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.TimeZone;
 import java.util.concurrent.Callable;
@@ -34,9 +34,11 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import static com.github.shk0da.GoldenDragon.config.MainConfig.CALENDAR_WORK_DAYS;
 import static com.github.shk0da.GoldenDragon.repository.TickerRepository.SERIALIZE_NAME;
+import static com.github.shk0da.GoldenDragon.service.TelegramNotifyService.telegramNotifyService;
 import static com.github.shk0da.GoldenDragon.utils.SerializationUtils.getDateOfContentOnDisk;
 import static com.github.shk0da.GoldenDragon.utils.SerializationUtils.loadDataFromDisk;
 import static com.github.shk0da.GoldenDragon.utils.SerializationUtils.saveDataToDisk;
+import static com.github.shk0da.GoldenDragon.utils.TimeUtils.sleep;
 import static java.lang.System.currentTimeMillis;
 import static java.lang.System.out;
 import static java.lang.System.setOut;
@@ -54,7 +56,7 @@ public class GoldenDragon {
 
         try {
             MainConfig mainConfig = new MainConfig();
-            String strategy = (args.length >= 1) ? args[0] : "Rebalance";
+            String strategy = (args.length >= 1) ? args[0] : "AITrader";
             Market market = (args.length >= 2) ? Market.valueOf(args[1]) : Market.MOEX;
             String accountId = (args.length >= 3) ? args[2] : mainConfig.getTcsAccountId();
             out.println("Run: " + strategy + " " + market.name() + " [" + accountId + "]");
@@ -65,14 +67,11 @@ public class GoldenDragon {
             GregorianCalendar currentCalendar = new GregorianCalendar();
             if (!mainConfig.isTestMode()) {
                 if (!CALENDAR_WORK_DAYS.contains(currentCalendar.get(Calendar.DAY_OF_WEEK))) {
-                    out.println("Not working day! Day of Week: " + currentCalendar.get(Calendar.DAY_OF_WEEK) + ". Exit...");
-                    if (!List.of("PulseFollower", "IndicatorTrader").contains(strategy)) return;
+                    out.println("Not working day! Day of Week: " + currentCalendar.get(Calendar.DAY_OF_WEEK) + ".");
                 }
                 int currentHour = currentCalendar.get(Calendar.HOUR_OF_DAY);
                 if (currentHour < marketConfig.getStartWorkHour() || currentHour >= marketConfig.getEndWorkHour()) {
-                    int currentMinute = currentCalendar.get(Calendar.MINUTE);
-                    out.println("Not working hours! Current Time: " + currentHour + ":" + currentMinute + ". Exit...");
-                    if (!List.of("PulseFollower", "IndicatorTrader").contains(strategy)) return;
+                    out.println("Not working hours! Current Time: " + new Date() + ".");
                 }
             }
 
@@ -101,17 +100,33 @@ public class GoldenDragon {
                 new IndicatorTrader(tcsService).run();
             }
 
-            // 5. AI
-            if ("AI".equals(strategy)) {
+            // 5. AICollector
+            if ("AICollector".equals(strategy)) {
+                telegramNotifyService.sendMessage("Start AICollector");
                 AILConfig ailConfig = new AILConfig();
+                telegramNotifyService.sendMessage("Run DataCollector");
                 new DataCollector(ailConfig, tcsService).run();
+                telegramNotifyService.sendMessage("End DataCollector");
+                telegramNotifyService.sendMessage("Run DataLearning");
                 new DataLearning(ailConfig).run();
+                telegramNotifyService.sendMessage("End DataLearning");
+                telegramNotifyService.sendMessage("End AICollector");
+            }
+
+            // 6. AITrader
+            if ("AITrader".equals(strategy)) {
+                telegramNotifyService.sendMessage("Run AITrader");
+                AILConfig ailConfig = new AILConfig();
+                new AITrader(ailConfig, tcsService).run();
+                telegramNotifyService.sendMessage("Stop AITrader");
             }
         } catch (Exception ex) {
             out.printf("Error: %s%n", ex.getMessage());
             ex.printStackTrace();
         }
         out.printf("%s: Finish GoldenDragon%n", new Date());
+        sleep(5_000);
+        System.exit(0);
     }
 
     private static void updateTickerRepository(TCSService tcsService) throws Exception {
