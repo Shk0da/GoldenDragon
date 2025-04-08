@@ -52,7 +52,7 @@ public class AITrader {
     private final Double tpPercent;
     private final Double slPercent;
     private final Double balanceRiskPercent;
-    private final Double averagePositionCostToBuy;
+    private final Double averagePositionCost;
 
     private static final ObjectMapper objectMapper = new ObjectMapper();
     private static final DateFormat dateTimeFormat = new SimpleDateFormat("dd.MM.yyyy HH:mm:ss");
@@ -68,7 +68,7 @@ public class AITrader {
         this.tpPercent = ailConfig.getTpPercent();
         this.slPercent = ailConfig.getSlPercent();
         this.balanceRiskPercent = ailConfig.getBalanceRiskPercent();
-        this.averagePositionCostToBuy = ailConfig.getAveragePositionCostToBuy();
+        this.averagePositionCost = ailConfig.getAveragePositionCost();
     }
 
     public static class TickerDayInfo {
@@ -171,8 +171,8 @@ public class AITrader {
                 if (0 == currentPositionBalance) {
                     var balance = tcsService.getAvailableCash();
                     var cashToOrder = (balance / 100) * balanceRiskPercent;
-                    if (cashToOrder > averagePositionCostToBuy) {
-                        cashToOrder = averagePositionCostToBuy;
+                    if (cashToOrder > averagePositionCost) {
+                        cashToOrder = averagePositionCost;
                     } else return;
 
                     var sl = 0.0;
@@ -258,7 +258,7 @@ public class AITrader {
             if (hasUpATR) {
                 var input = getNetworkInput(candles, candles.size() - 1, startOfDay.getClose(), levels);
                 var output = network.rnnTimeStep(Nd4j.create(input));
-                if (output.getDouble(0) > 0.03) {
+                if (output.getDouble(0) > ailConfig.getSensitivityLong()) {
                     return 1;
                 }
             }
@@ -269,7 +269,7 @@ public class AITrader {
             if (hasDownATR) {
                 var input = getNetworkInput(candles, candles.size() - 1, startOfDay.getClose(), levels);
                 var output = network.rnnTimeStep(Nd4j.create(input));
-                if (output.getDouble(0) < -0.01) {
+                if (output.getDouble(0) < ((-1) * ailConfig.getSensitivityShort())) {
                     return -1;
                 }
             }
