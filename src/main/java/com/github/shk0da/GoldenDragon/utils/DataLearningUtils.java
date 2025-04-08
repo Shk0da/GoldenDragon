@@ -1,5 +1,6 @@
 package com.github.shk0da.GoldenDragon.utils;
 
+import com.github.shk0da.GoldenDragon.config.AILConfig.NetworkProperties;
 import com.github.shk0da.GoldenDragon.model.TickerCandle;
 import com.github.shk0da.GoldenDragon.model.TickerJson;
 import org.deeplearning4j.datasets.iterator.impl.ListDataSetIterator;
@@ -32,22 +33,11 @@ public class DataLearningUtils {
 
     public static final class LSTMNetwork {
 
-        private static final Double learningRate = 0.05;
-        private static final Integer iterations = 1;
-        private static final Integer seed = 777;
-        private static final Integer score = 100;
-
-        private static final Integer lstmLayer1Size = 256;
-        private static final Integer lstmLayer2Size = 256;
-        private static final Integer denseLayerSize = 32;
-        private static final Double dropoutRatio = 0.2;
-        private static final Integer truncatedBPTTLength = 22;
-
-        public static MultiLayerNetwork buildLstmNetworks(DataSetIterator iterator) {
+        public static MultiLayerNetwork buildLstmNetworks(DataSetIterator iterator, NetworkProperties properties) {
             var conf = new NeuralNetConfiguration.Builder()
-                    .seed(seed)
-                    .iterations(iterations)
-                    .learningRate(learningRate)
+                    .seed(properties.getSeed())
+                    .iterations(properties.getIterations())
+                    .learningRate(properties.getLearningRate())
                     .optimizationAlgo(OptimizationAlgorithm.STOCHASTIC_GRADIENT_DESCENT)
                     .weightInit(WeightInit.XAVIER)
                     .updater(Updater.RMSPROP)
@@ -56,41 +46,41 @@ public class DataLearningUtils {
                     .list()
                     .layer(0, new LSTM.Builder()
                             .nIn(iterator.inputColumns())
-                            .nOut(lstmLayer1Size)
+                            .nOut(properties.getLstmLayer1Size())
                             .activation(Activation.TANH)
                             .gateActivationFunction(Activation.HARDSIGMOID)
-                            .dropOut(dropoutRatio)
+                            .dropOut(properties.getDropoutRatio())
                             .build())
                     .layer(1, new LSTM.Builder()
-                            .nIn(lstmLayer1Size)
-                            .nOut(lstmLayer2Size)
+                            .nIn(properties.getLstmLayer1Size())
+                            .nOut(properties.getLstmLayer2Size())
                             .activation(Activation.TANH)
                             .gateActivationFunction(Activation.HARDSIGMOID)
-                            .dropOut(dropoutRatio)
+                            .dropOut(properties.getDropoutRatio())
                             .build())
                     .layer(2, new DenseLayer.Builder()
-                            .nIn(lstmLayer2Size)
-                            .nOut(denseLayerSize)
+                            .nIn(properties.getLstmLayer2Size())
+                            .nOut(properties.getDenseLayerSize())
                             .activation(Activation.RELU)
                             .build())
                     .layer(3, new RnnOutputLayer.Builder()
-                            .nIn(denseLayerSize)
+                            .nIn(properties.getDenseLayerSize())
                             .nOut(iterator.totalOutcomes())
                             .activation(Activation.IDENTITY)
                             .lossFunction(LossFunctions.LossFunction.MSE)
                             .build())
                     .backpropType(BackpropType.TruncatedBPTT)
-                    .tBPTTForwardLength(truncatedBPTTLength)
-                    .tBPTTBackwardLength(truncatedBPTTLength)
+                    .tBPTTForwardLength(properties.getTruncatedBPTTLength())
+                    .tBPTTBackwardLength(properties.getTruncatedBPTTLength())
                     .pretrain(false)
                     .backprop(true)
                     .build();
 
             var net = new MultiLayerNetwork(conf);
             net.init();
-            net.setListeners(new ScoreIterationListener(score));
+            net.setListeners(new ScoreIterationListener(properties.getScore()));
 
-            for (int i = 0; i < score; i++) {
+            for (int i = 0; i < properties.getScore(); i++) {
                 while (iterator.hasNext()) net.fit(iterator.next()); // fit model using mini-batch data
                 iterator.reset(); // reset iterator
                 net.rnnClearPreviousState(); // clear previous state
@@ -196,20 +186,32 @@ public class DataLearningUtils {
 
                 var action = 0.0; // нейтрально
 
-                var targets = new ArrayList<Double>();
-                targets.add(stockDataList.get(i + 1).getClose());
-                targets.add(stockDataList.get(i + 2).getClose());
-                targets.add(stockDataList.get(i + 3).getClose());
-                targets.add(stockDataList.get(i + 4).getClose());
-                targets.add(stockDataList.get(i + 5).getClose());
-                targets.add(stockDataList.get(i + 6).getClose());
-                targets.add(stockDataList.get(i + 7).getClose());
-                targets.add(stockDataList.get(i + 8).getClose());
-                targets.add(stockDataList.get(i + 9).getClose());
-                targets.add(stockDataList.get(i + 10).getClose());
+                var targetsMin = new ArrayList<Double>();
+                targetsMin.add(stockDataList.get(i + 1).getLow());
+                targetsMin.add(stockDataList.get(i + 2).getLow());
+                targetsMin.add(stockDataList.get(i + 3).getLow());
+                targetsMin.add(stockDataList.get(i + 4).getLow());
+                targetsMin.add(stockDataList.get(i + 5).getLow());
+                targetsMin.add(stockDataList.get(i + 6).getLow());
+                targetsMin.add(stockDataList.get(i + 7).getLow());
+                targetsMin.add(stockDataList.get(i + 8).getLow());
+                targetsMin.add(stockDataList.get(i + 9).getLow());
+                targetsMin.add(stockDataList.get(i + 10).getLow());
 
-                var targetMax = Collections.max(targets);
-                var targetMin = Collections.min(targets);
+                var targetsMax = new ArrayList<Double>();
+                targetsMax.add(stockDataList.get(i + 1).getHigh());
+                targetsMax.add(stockDataList.get(i + 2).getHigh());
+                targetsMax.add(stockDataList.get(i + 3).getHigh());
+                targetsMax.add(stockDataList.get(i + 4).getHigh());
+                targetsMax.add(stockDataList.get(i + 5).getHigh());
+                targetsMax.add(stockDataList.get(i + 6).getHigh());
+                targetsMax.add(stockDataList.get(i + 7).getHigh());
+                targetsMax.add(stockDataList.get(i + 8).getHigh());
+                targetsMax.add(stockDataList.get(i + 9).getHigh());
+                targetsMax.add(stockDataList.get(i + 10).getHigh());
+
+                var targetMax = Collections.max(targetsMax);
+                var targetMin = Collections.min(targetsMin);
 
                 var currentPrice = stockDataList.get(i).getClose(); // тек.цена
                 if (targetMax > currentPrice && targetMin > currentPrice) {

@@ -36,6 +36,9 @@ public class DataLearning {
             try {
                 var ticker = readTickerFile(name, dataDir);
                 var candles = readCandlesFile(name, dataDir, CandleInterval.CANDLE_INTERVAL_5_MIN);
+                if (ailConfig.getNetworkProperties().isTest()) {
+                    candles = candles.subList(0, (int) (candles.size() - (candles.size() * 0.3)));
+                }
                 learnNetwork(dataDir, ticker, candles);
             } catch (Exception ex) {
                 out.println(ex.getMessage());
@@ -48,7 +51,7 @@ public class DataLearning {
         String name = ticker.getTicker().getTicker().toUpperCase();
         out.println("Learn network: " + name);
         DataSetIterator dataSetIterator = createStockDataSetIterator(ticker, candles);
-        MultiLayerNetwork neuralNetwork = buildLstmNetworks(dataSetIterator);
+        MultiLayerNetwork neuralNetwork = buildLstmNetworks(dataSetIterator, ailConfig.getNetworkProperties());
 
         String filePath = dataDir + "/" + name + "/network.nn";
         ModelSerializer.writeModel(neuralNetwork, filePath, true);

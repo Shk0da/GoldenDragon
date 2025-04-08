@@ -1,12 +1,16 @@
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.github.shk0da.GoldenDragon.config.AILConfig;
 import com.github.shk0da.GoldenDragon.model.TickerCandle;
 import com.github.shk0da.GoldenDragon.model.TickerInfo;
 import com.github.shk0da.GoldenDragon.model.TickerJson;
 import com.github.shk0da.GoldenDragon.model.TickerType;
 import com.github.shk0da.GoldenDragon.repository.Repository;
 import com.github.shk0da.GoldenDragon.repository.TickerRepository;
+import com.github.shk0da.GoldenDragon.service.TelegramNotifyService;
+import com.github.shk0da.GoldenDragon.strategy.DataLearning;
 import com.github.shk0da.GoldenDragon.utils.IndicatorsUtil;
 import com.google.gson.reflect.TypeToken;
+import org.apache.commons.lang3.tuple.Pair;
 import org.deeplearning4j.nn.multilayer.MultiLayerNetwork;
 import org.deeplearning4j.util.ModelSerializer;
 import org.jfree.chart.ChartFactory;
@@ -47,52 +51,93 @@ public class TestLevelTrader {
     private static final Double K1 = 0.7;
     private static final Double K2 = 1 - K1;
     private static final Double COMISSION = 0.05;
-    private static final Double tpPercent = 0.9;
-    private static final Double slPercent = 0.3;
-    private static final Double balanceRiskPercent = 30.0;
+    private static final Boolean createPlot = false;
+    private static final Boolean debugLogging = false;
+    private static final Boolean needLearn = false;
+    private static final Double initBalance = 100_000.00;
 
     private static final ObjectMapper objectMapper = new ObjectMapper();
     private static final DateTimeFormatter formatter = DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm:ss");
+    public static final TelegramNotifyService telegramNotifyService = new TelegramNotifyService();
+
+    private static Double maxBalance = initBalance;
+
+    private static AILConfig configGenerator(int l, int s) throws IOException {
+        AILConfig ailConfig = new AILConfig();
+        ailConfig.setTest(true);
+        ailConfig.setStocks(List.of("GAZP"));
+        ailConfig.setBalanceRiskPercent(30.0);
+        ailConfig.setAveragePositionCost(10_000.0);
+
+        // SensitivityLong
+        var sensitivityLong = ((double) l / 1000);
+        out.println("SensitivityLong: " + sensitivityLong);
+        ailConfig.setSensitivityLong(sensitivityLong);
+
+        // SensitivityShort
+        var sensitivityShort = ((double) s / 1000);
+        out.println("SensitivityShort: " + sensitivityShort);
+        ailConfig.setSensitivityShort(sensitivityShort);
+
+        return ailConfig;
+    }
 
     public static void main(String[] args) throws Exception {
         Repository<TickerInfo.Key, TickerInfo> tickerRepository = TickerRepository.INSTANCE;
-        Map<TickerInfo.Key, TickerInfo> dataFromDisk = loadDataFromDisk(SERIALIZE_NAME, new TypeToken<>() {
-        });
+        Map<TickerInfo.Key, TickerInfo> dataFromDisk = loadDataFromDisk(SERIALIZE_NAME, new TypeToken<>() {});
         tickerRepository.putAll(dataFromDisk);
+        for (int s = 1; s <= 1_000; s++) {
+            for (int l = 1; l <= 1_000; l++) {
+                var ailConfig = configGenerator(l, s);
+                if (needLearn) {
+                    new DataLearning(ailConfig).run();
+                }
+                AtomicReference<Double> balance = new AtomicReference<>(initBalance);
+                ailConfig.getStocks().forEach(tickerName -> {
+                    try {
+                        String name = tickerName.toLowerCase();
+                        String ticker = tickerRepository.getAll().values().stream()
+                                .filter(it -> it.getType().equals(TickerType.STOCK))
+                                .filter(it -> it.getName().equalsIgnoreCase(name) || it.getTicker().equalsIgnoreCase(name))
+                                .map(TickerInfo::getFigi)
+                                .findFirst()
+                                .orElseThrow();
 
-        AtomicReference<Double> balance = new AtomicReference<>(100_000.00);
-        List.of("GAZP", "ROSN", "LKOH", "NLMK", "PIKK", "MGNT", "RTKM").forEach(tickerName -> {
-            try {
-                String name = tickerName.toLowerCase();
-                String ticker = tickerRepository.getAll().values().stream()
-                        .filter(it -> it.getType().equals(TickerType.STOCK))
-                        .filter(it -> it.getName().equalsIgnoreCase(name) || it.getTicker().equalsIgnoreCase(name))
-                        .map(TickerInfo::getFigi)
-                        .findFirst()
-                        .orElseThrow();
+                        out.println("\nTICKER: " + tickerName + " (" + ticker + ")");
+                        var currentBalance = balance.get();
+                        out.println("BALANCE START: " + currentBalance);
+                        var tickerInfo = readTickerFile(tickerName, "data");
+                        var result = run(tickerName, currentBalance, tickerInfo.getLevels(), ailConfig);
+                        balance.set(result.getLeft());
 
-                out.println("\nTICKER: " + tickerName + " (" + ticker + ")");
-                var currentBalance = balance.get();
-                out.println("BALANCE START: " + currentBalance);
-                var tickerInfo = readTickerFile(tickerName, "data");
-                balance.set(run(tickerName, currentBalance, tickerInfo.getLevels()));
-
-                var endBalance = balance.get();
-                out.println("PROFIT: " + (endBalance - currentBalance));
-                out.println("BALANCE END: " + endBalance);
-            } catch (Exception ex) {
-                out.println("Skip " + tickerName + ":" + ex.getMessage());
-                ex.printStackTrace();
+                        var endBalance = balance.get();
+                        out.println("PROFIT: " + (endBalance - currentBalance));
+                        out.println("BALANCE END: " + endBalance);
+                        if (endBalance > maxBalance) {
+                            maxBalance = endBalance;
+                            out.println("\nNEW MAX BALANCE: " + maxBalance);
+                            out.println(ailConfig);
+                            telegramNotifyService.sendMessage("Test | Balance: " + maxBalance +
+                                    ", " + result.getRight() +
+                                    ", SensitivityLong=" + ailConfig.getSensitivityLong() +
+                                    ", SensitivityShort=" + ailConfig.getSensitivityShort()
+                            );
+                        }
+                    } catch (Exception ex) {
+                        out.println("Skip " + tickerName + ":" + ex.getMessage());
+                        ex.printStackTrace();
+                    }
+                });
+                out.println("\nTOTAL BALANCE: " + balance);
             }
-        });
-        out.println("\nTOTAL BALANCE: " + balance);
+        }
     }
 
-    public static Double run(String name, Double balance, List<Double> levels) throws Exception {
+    public static Pair<Double, String> run(String name, Double balance, List<Double> levels, AILConfig ailConfig) throws Exception {
         List<TickerCandle> M5 = readCandlesFile(name, "data", "candles5_MIN.txt");
         M5 = M5.subList((int) (M5.size() - (M5.size() * K2)), M5.size());
         if (M5.isEmpty()) {
-            return balance;
+            return Pair.of(balance, "");
         }
 
         Boolean hasTrendUp = null;
@@ -114,13 +159,14 @@ public class TestLevelTrader {
 
             if (Boolean.TRUE.equals(hasTrendUp)) {
                 var candle5 = M5.get(i);
-                var tp = (M5.get(i).getClose() / 100) * tpPercent;
-                var atr = calculateATR(M5.subList(i - (INDICATORS_SHIFT + 2016), i), 7);
+                var tp = (M5.get(i).getClose() / 100) * ailConfig.getTpPercent();
+                var subList = M5.subList(i - (INDICATORS_SHIFT + 2016), i);
+                var atr = calculateATR(subList, 7);
                 var hasUpATR = (startOfDay.getLow() + (atr - (atr * 0.2))) > (candle5.getClose() + tp);
                 if (hasUpATR) {
                     var input = getNetworkInput(M5, i, startOfDay.getClose(), levels);
                     var output = network.rnnTimeStep(Nd4j.create(input));
-                    if (output.getDouble(0) > 0.03) {
+                    if (output.getDouble(0) > ailConfig.getSensitivityLong()) {
                         longTrades.add(i);
                     }
                 }
@@ -128,13 +174,14 @@ public class TestLevelTrader {
 
             if (Boolean.FALSE.equals(hasTrendUp)) {
                 var candle5 = M5.get(i);
-                var tp = (M5.get(i).getClose() / 100) * tpPercent;
-                var atr = calculateATR(M5.subList(i - (INDICATORS_SHIFT + 2016), i), 7);
+                var tp = (M5.get(i).getClose() / 100) * ailConfig.getTpPercent();
+                var subList = M5.subList(i - (INDICATORS_SHIFT + 2016), i);
+                var atr = calculateATR(subList, 7);
                 var hasDownATR = (candle5.getClose() - tp) + (atr - (atr * 0.2)) < startOfDay.getHigh();
                 if (hasDownATR) {
                     var input = getNetworkInput(M5, i, startOfDay.getClose(), levels);
                     var output = network.rnnTimeStep(Nd4j.create(input));
-                    if (output.getDouble(0) < -0.01) {
+                    if (output.getDouble(0) < ((-1) * ailConfig.getSensitivityShort())) {
                         shortTrades.add(i);
                     }
                 }
@@ -142,8 +189,10 @@ public class TestLevelTrader {
         }
 
         List<TickerCandle> finalM5 = M5;
-        plotChart(name, finalM5, levels, longTrades, shortTrades);
-        return calculateTrades(finalM5, longTrades, shortTrades, balance);
+        if (createPlot) {
+            plotChart(name, finalM5, levels, longTrades, shortTrades);
+        }
+        return calculateTrades(finalM5, longTrades, shortTrades, balance, ailConfig);
     }
 
     private static TickerJson readTickerFile(String name, String dataDir) throws Exception {
@@ -190,11 +239,11 @@ public class TestLevelTrader {
         return ModelSerializer.restoreMultiLayerNetwork(filePath);
     }
 
-    private static Double calculateTrades(List<TickerCandle> candles,
-                                          List<Integer> longTrades, List<Integer> shortTrades,
-                                          Double balance) {
+    private static Pair<Double, String> calculateTrades(List<TickerCandle> candles,
+                                                        List<Integer> longTrades, List<Integer> shortTrades,
+                                                        Double balance, AILConfig ailConfig) {
         if (longTrades.isEmpty() && shortTrades.isEmpty()) {
-            return balance;
+            return Pair.of(balance, "");
         }
 
         int count = 0;
@@ -203,41 +252,50 @@ public class TestLevelTrader {
         int winRateCounter = 0;
         int failRateCounter = 0;
         for (int i = 0; i < candles.size(); i++) {
+            var cash = ((balance / 100) * ailConfig.getBalanceRiskPercent());
+            if (cash > ailConfig.getAveragePositionCost()) {
+                cash = ailConfig.getAveragePositionCost();
+            } else continue;
+
             var close = candles.get(i).getClose();
             if (longTrades.contains(i) && 0 == count) {
-                count = (int) (((balance / 100) * balanceRiskPercent) / close);
+                count = (int) (cash / close);
                 cashOpen = count * close;
                 prevClose = close;
 
                 var prevBalance = balance;
                 var commission = round(Math.abs((cashOpen / 100) * COMISSION), 4);
                 balance = round(balance - commission, 4);
-                out.println(candles.get(i).getDate() + " BUY -" + commission + ", BALANCE: " + prevBalance + " -> " + balance + " (" + round(balance - prevBalance, 4) + ")");
+                if (debugLogging) {
+                    out.println(candles.get(i).getDate() + " BUY -" + commission + ", BALANCE: " + prevBalance + " -> " + balance + " (" + round(balance - prevBalance, 4) + ")");
+                }
             }
             if (shortTrades.contains(i) && 0 == count) {
-                count = (-1) * ((int) (((balance / 100) * balanceRiskPercent) / close));
+                count = (-1) * ((int) (cash / close));
                 cashOpen = count * close;
                 prevClose = close;
 
                 var prevBalance = balance;
                 var commission = round(Math.abs((cashOpen / 100) * COMISSION), 4);
                 balance = round(balance - commission, 4);
-                out.println(candles.get(i).getDate() + " SELL -" + commission + ", BALANCE: " + prevBalance + " -> " + balance + " (" + round(balance - prevBalance, 4) + ")");
+                if (debugLogging) {
+                    out.println(candles.get(i).getDate() + " SELL -" + commission + ", BALANCE: " + prevBalance + " -> " + balance + " (" + round(balance - prevBalance, 4) + ")");
+                }
             }
 
             var min = candles.get(i).getLow();
             var max = candles.get(i).getHigh();
-            var longTP = (count > 0 && max >= (prevClose + ((prevClose / 100) * tpPercent)));
-            var longSL = (count > 0 && max < (prevClose - ((prevClose / 100) * slPercent)));
-            var shortTP = (count < 0 && min <= (prevClose - ((prevClose / 100) * tpPercent)));
-            var shortSL = (count < 0 && min > (prevClose + ((prevClose / 100) * slPercent)));
+            var longTP = (count > 0 && max >= (prevClose + ((prevClose / 100) * ailConfig.getTpPercent())));
+            var longSL = (count > 0 && max < (prevClose - ((prevClose / 100) * ailConfig.getSlPercent())));
+            var shortTP = (count < 0 && min <= (prevClose - ((prevClose / 100) * ailConfig.getTpPercent())));
+            var shortSL = (count < 0 && min > (prevClose + ((prevClose / 100) * ailConfig.getSlPercent())));
 
             if (longTP || longSL || shortTP || shortSL) {
                 var price = close;
-                if (longTP) price = (prevClose + ((prevClose / 100) * tpPercent));
-                if (shortTP) price = (prevClose - ((prevClose / 100) * tpPercent));
-                if (longSL) price = (prevClose - ((prevClose / 100) * slPercent));
-                if (shortSL) price = (prevClose + ((prevClose / 100) * slPercent));
+                if (longTP) price = (prevClose + ((prevClose / 100) * ailConfig.getTpPercent()));
+                if (shortTP) price = (prevClose - ((prevClose / 100) * ailConfig.getTpPercent()));
+                if (longSL) price = (prevClose - ((prevClose / 100) * ailConfig.getSlPercent()));
+                if (shortSL) price = (prevClose + ((prevClose / 100) * ailConfig.getSlPercent()));
                 var cashClose = count * price;
                 var operationResult = round(cashClose - cashOpen, 4);
                 if (operationResult > 0) winRateCounter++;
@@ -247,14 +305,17 @@ public class TestLevelTrader {
                 var operationResultWithCommission = round(operationResult - commission, 4);
                 balance = round(balance + operationResultWithCommission, 4);
 
-                out.println(candles.get(i).getDate() + " " + (count > 0 ? "SELL: " : "BUY: ") + operationResult + " - " + commission + " = " + operationResultWithCommission + ", BALANCE: " + prevBalance + " -> " + balance + " (" + round(balance - prevBalance, 4) + ")");
+                if (debugLogging) {
+                    out.println(candles.get(i).getDate() + " " + (count > 0 ? "SELL: " : "BUY: ") + operationResult + " - " + commission + " = " + operationResultWithCommission + ", BALANCE: " + prevBalance + " -> " + balance + " (" + round(balance - prevBalance, 4) + ")");
+                }
 
                 cashOpen = 0.0;
                 count = 0;
             }
         }
-        out.println("WIN/LOSE: " + winRateCounter + "/" + failRateCounter);
-        return balance;
+        var messageWinRate = "WIN/LOSE: " + winRateCounter + "/" + failRateCounter;
+        out.println(messageWinRate);
+        return Pair.of(balance, messageWinRate);
     }
 
     private static void plotChart(String ticker,
