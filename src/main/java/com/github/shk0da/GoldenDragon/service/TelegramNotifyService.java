@@ -27,17 +27,25 @@ public class TelegramNotifyService {
     private final Boolean enable;
     private final String botToken;
     private final String chatId;
+    private final Boolean extended;
 
     private final ExecutorService queue = Executors.newSingleThreadExecutor();
 
     public TelegramNotifyService() {
         try {
             TelegramNotifyConfig telegramNotifyConfig = new TelegramNotifyConfig();
-            this.enable = telegramNotifyConfig.getEnable();
+            this.enable = telegramNotifyConfig.isEnable();
             this.botToken = telegramNotifyConfig.getBotToken();
             this.chatId = telegramNotifyConfig.getChatId();
+            this.extended = telegramNotifyConfig.isExtended();
         } catch (Exception ex) {
             throw new RuntimeException("Failed instance TelegramNotifyService: " + ex.getMessage());
+        }
+    }
+
+    public void sendMessage(String message, Boolean isExtended) {
+        if (isExtended && extended) {
+            sendMessage(message);
         }
     }
 
