@@ -60,25 +60,14 @@ public class TestLevelTrader {
     private static final DateTimeFormatter formatter = DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm:ss");
     public static final TelegramNotifyService telegramNotifyService = new TelegramNotifyService();
 
-    private static Double maxBalance = initBalance;
-
-    private static AILConfig configGenerator(int l, int s) throws IOException {
+    private static AILConfig configGenerator() throws IOException {
         AILConfig ailConfig = new AILConfig();
         ailConfig.setTest(true);
-        ailConfig.setStocks(List.of("GAZP"));
+        ailConfig.setStocks(List.of("GAZP", "LKOH", "MGNT", "NLMK", "PIKK", "ROSN", "RTKM", "SBER"));
         ailConfig.setBalanceRiskPercent(30.0);
         ailConfig.setAveragePositionCost(10_000.0);
-
-        // SensitivityLong
-        var sensitivityLong = ((double) l / 1000);
-        out.println("SensitivityLong: " + sensitivityLong);
-        ailConfig.setSensitivityLong(sensitivityLong);
-
-        // SensitivityShort
-        var sensitivityShort = ((double) s / 1000);
-        out.println("SensitivityShort: " + sensitivityShort);
-        ailConfig.setSensitivityShort(sensitivityShort);
-
+        ailConfig.setSensitivityLong(0.0);
+        ailConfig.setSensitivityShort(0.0);
         return ailConfig;
     }
 
@@ -86,54 +75,42 @@ public class TestLevelTrader {
         Repository<TickerInfo.Key, TickerInfo> tickerRepository = TickerRepository.INSTANCE;
         Map<TickerInfo.Key, TickerInfo> dataFromDisk = loadDataFromDisk(SERIALIZE_NAME, new TypeToken<>() {});
         tickerRepository.putAll(dataFromDisk);
-        for (int s = 1; s <= 1_000; s++) {
-            for (int l = 1; l <= 1_000; l++) {
-                var ailConfig = configGenerator(l, s);
-                if (needLearn) {
-                    new DataLearning(ailConfig).run();
-                }
-                AtomicReference<Double> balance = new AtomicReference<>(initBalance);
-                ailConfig.getStocks().forEach(tickerName -> {
-                    try {
-                        String name = tickerName.toLowerCase();
-                        String ticker = tickerRepository.getAll().values().stream()
-                                .filter(it -> it.getType().equals(TickerType.STOCK))
-                                .filter(it -> it.getName().equalsIgnoreCase(name) || it.getTicker().equalsIgnoreCase(name))
-                                .map(TickerInfo::getFigi)
-                                .findFirst()
-                                .orElseThrow();
-
-                        out.println("\nTICKER: " + tickerName + " (" + ticker + ")");
-                        var currentBalance = balance.get();
-                        out.println("BALANCE START: " + currentBalance);
-                        var tickerInfo = readTickerFile(tickerName, "data");
-                        var result = run(tickerName, currentBalance, tickerInfo.getLevels(), ailConfig);
-                        balance.set(result.getLeft());
-
-                        var endBalance = balance.get();
-                        out.println("PROFIT: " + (endBalance - currentBalance));
-                        out.println("BALANCE END: " + endBalance);
-                        if (endBalance > maxBalance) {
-                            maxBalance = endBalance;
-                            out.println("\nNEW MAX BALANCE: " + maxBalance);
-                            out.println(ailConfig);
-                            telegramNotifyService.sendMessage("Test | Balance: " + maxBalance +
-                                    ", " + result.getRight() +
-                                    ", SensitivityLong=" + ailConfig.getSensitivityLong() +
-                                    ", SensitivityShort=" + ailConfig.getSensitivityShort()
-                            );
-                        }
-                    } catch (Exception ex) {
-                        out.println("Skip " + tickerName + ":" + ex.getMessage());
-                        ex.printStackTrace();
-                    }
-                });
-                out.println("\nTOTAL BALANCE: " + balance);
-            }
+        var ailConfig = configGenerator();
+        if (needLearn) {
+            new DataLearning(ailConfig).run();
         }
+        ailConfig.getStocks().forEach(tickerName -> {
+            AtomicReference<Double> balance = new AtomicReference<>(initBalance);
+            try {
+                String name = tickerName.toLowerCase();
+                String ticker = tickerRepository.getAll().values().stream()
+                        .filter(it -> it.getType().equals(TickerType.STOCK))
+                        .filter(it -> it.getName().equalsIgnoreCase(name) || it.getTicker().equalsIgnoreCase(name))
+                        .map(TickerInfo::getFigi)
+                        .findFirst()
+                        .orElseThrow();
+
+                out.println("\nTICKER: " + tickerName + " (" + ticker + ")");
+                var currentBalance = balance.get();
+                out.println("BALANCE START: " + currentBalance);
+                var tickerInfo = readTickerFile(tickerName, "data");
+                var result = run(tickerName, currentBalance, tickerInfo.getLevels(), ailConfig);
+                balance.set(result.getLeft());
+
+                var endBalance = balance.get();
+                out.println("PROFIT: " + (endBalance - currentBalance));
+                out.println("BALANCE END: " + endBalance);
+                telegramNotifyService.sendMessage(
+                        "Test [" + tickerName + "] | " + "Profit: " + (endBalance - currentBalance) + ", " + result.getRight()
+                );
+            } catch (Exception ex) {
+                out.println("Skip " + tickerName + ":" + ex.getMessage());
+                ex.printStackTrace();
+            }
+        });
     }
 
-    public static Pair<Double, String> run(String name, Double balance, List<Double> levels, AILConfig ailConfig) throws Exception {
+    public static Pair<Double, String> run(String name, double balance, List<Double> levels, AILConfig ailConfig) throws Exception {
         List<TickerCandle> M5 = readCandlesFile(name, "data", "candles5_MIN.txt");
         M5 = M5.subList((int) (M5.size() - (M5.size() * K2)), M5.size());
         if (M5.isEmpty()) {
