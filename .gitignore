@@ -85,3 +85,4 @@ Thumbs.db
 **/bin
 
 !gradle/wrapper/gradle-wrapper.jar
+/data/
