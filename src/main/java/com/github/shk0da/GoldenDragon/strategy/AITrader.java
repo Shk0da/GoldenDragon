@@ -33,7 +33,6 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.function.Supplier;
 
 import static com.github.shk0da.GoldenDragon.service.TelegramNotifyService.telegramNotifyService;
 import static com.github.shk0da.GoldenDragon.utils.DataLearningUtils.StockDataSetIterator.getNetworkInput;
@@ -50,9 +49,10 @@ import static ru.tinkoff.piapi.contract.v1.CandleInterval.CANDLE_INTERVAL_HOUR;
 
 public class AITrader {
 
-    private static final Double tpPercent = 0.9;
-    private static final Double slPercent = 0.3;
-    private static final Double balanceRiskPercent = 10.0;
+    private final Double tpPercent;
+    private final Double slPercent;
+    private final Double balanceRiskPercent;
+    private final Double averagePositionCostToBuy;
 
     private static final ObjectMapper objectMapper = new ObjectMapper();
     private static final DateFormat dateTimeFormat = new SimpleDateFormat("dd.MM.yyyy HH:mm:ss");
@@ -65,6 +65,10 @@ public class AITrader {
     public AITrader(AILConfig ailConfig, TCSService tcsService) {
         this.tcsService = tcsService;
         this.ailConfig = ailConfig;
+        this.tpPercent = ailConfig.getTpPercent();
+        this.slPercent = ailConfig.getSlPercent();
+        this.balanceRiskPercent = ailConfig.getBalanceRiskPercent();
+        this.averagePositionCostToBuy = ailConfig.getAveragePositionCostToBuy();
     }
 
     public static class TickerDayInfo {
@@ -113,16 +117,10 @@ public class AITrader {
 
         List<CompletableFuture<Void>> tasks = new ArrayList<>();
         ExecutorService executor = Executors.newFixedThreadPool(ailConfig.getStocks().size());
-        Supplier<Boolean> isNotWorkingHours = () -> {
-            var calendar = new GregorianCalendar();
-            var hour = calendar.get(Calendar.HOUR_OF_DAY);
-            var minute = calendar.get(Calendar.MINUTE);
-            return ((hour == 18 && minute >= 30) || (hour >= 19)) || (hour < 9 || (hour == 9 && minute < 30));
-        };
         for (String name : ailConfig.getStocks()) {
             tasks.add(
                     runAsync(() -> {
-                        while (!isNotWorkingHours.get()) {
+                        while (!isNotTradingHours()) {
                             handleTicker(name);
                             sleep(30_000);
                         }
@@ -131,13 +129,26 @@ public class AITrader {
             sleep(1_000);
         }
         allOf(tasks.toArray(new CompletableFuture[]{})).join();
-        if (isNotWorkingHours.get()) {
+        if (isNotWorkingHours()) {
             executor.shutdown();
             tcsService.closeAllByMarket(TickerType.STOCK);
             var buyMessage = "Not working hours! Current Time: " + new Date() + ".\n" + "Total Portfolio Cost: " + tcsService.getTotalPortfolioCost();
             telegramNotifyService.sendMessage(buyMessage);
             out.println(buyMessage);
         }
+    }
+
+    private boolean isNotTradingHours() {
+        var calendar = new GregorianCalendar();
+        var hour = calendar.get(Calendar.HOUR_OF_DAY);
+        return hour >= 18;
+    }
+
+    private boolean isNotWorkingHours() {
+        var calendar = new GregorianCalendar();
+        var hour = calendar.get(Calendar.HOUR_OF_DAY);
+        var minute = calendar.get(Calendar.MINUTE);
+        return ((hour == 18 && minute >= 30) || (hour >= 19)) || (hour < 9 || (hour == 9 && minute < 30));
     }
 
     private void handleTicker(String name) {
@@ -160,16 +171,30 @@ public class AITrader {
                 if (0 == currentPositionBalance) {
                     var balance = tcsService.getAvailableCash();
                     var cashToOrder = (balance / 100) * balanceRiskPercent;
+                    if (cashToOrder > averagePositionCostToBuy) {
+                        cashToOrder = averagePositionCostToBuy;
+                    } else return;
+
+                    var sl = 0.0;
+                    if (ailConfig.isSlEnabled() && ailConfig.isSlAuto()) {
+                        sl = slPercent;
+                    }
+
+                    var tp = 0.0;
+                    if (ailConfig.isTpEnabled() && ailConfig.isTpAuto()) {
+                        tp = tpPercent;
+                    }
+
                     if (decision > 0) {
-                        tcsService.buyByMarket(name, type, cashToOrder, tpPercent, slPercent);
+                        tcsService.buyByMarket(name, type, cashToOrder, tp, sl);
                     }
                     if (decision < 0) {
-                        tcsService.sellByMarket(name, type, cashToOrder, tpPercent, slPercent);
+                        tcsService.sellByMarket(name, type, cashToOrder, tp, sl);
                     }
                 }
             }
 
-            if (0 != currentPositionBalance) {
+            if (0 != currentPositionBalance && (ailConfig.isSlEnabled() || ailConfig.isTpEnabled())) {
                 var count = currentPosition.getBalance();
                 var expectedYield = currentPosition.getExpectedYield();
                 var positionPrice = currentPosition.getAveragePositionPrice();
@@ -178,13 +203,13 @@ public class AITrader {
                     var currentPrice = tcsService.getAvailablePrice(name, type, count, "bids");
                     expectedYield = (currentPrice - positionPrice) / positionPrice * 100;
                     var expectedYieldMessage = name + ": " + String.format("%,.2f%s", expectedYield, "%");
-                    if (expectedYield > tpPercent) {
+                    if (expectedYield > tpPercent && ailConfig.isTpEnabled() && !ailConfig.isTpAuto()) {
                         var closeMessage = "LONG TP " + expectedYieldMessage;
                         out.println(closeMessage + "\n");
                         tcsService.closeLongByMarket(name, type);
                         telegramNotifyService.sendMessage(closeMessage);
                     }
-                    if (expectedYield < (-1) * slPercent) {
+                    if (expectedYield < (-1) * slPercent && ailConfig.isSlEnabled() && !ailConfig.isSlAuto()) {
                         var closeMessage = "LONG SL " + expectedYieldMessage;
                         out.println(closeMessage);
                         tcsService.closeLongByMarket(name, type);
@@ -195,13 +220,13 @@ public class AITrader {
                     var currentPrice = tcsService.getAvailablePrice(name, type, count, "asks");
                     expectedYield = (positionPrice - currentPrice) / currentPrice * 100;
                     var expectedYieldMessage = name + ": " + String.format("%,.2f%s", expectedYield, "%");
-                    if (expectedYield > tpPercent) {
+                    if (expectedYield > tpPercent && ailConfig.isTpEnabled() && !ailConfig.isTpAuto()) {
                         var closeMessage = "SHORT TP " + expectedYieldMessage;
                         out.println(closeMessage);
                         tcsService.closeShortByMarket(name, type);
                         telegramNotifyService.sendMessage(closeMessage);
                     }
-                    if (expectedYield < (-1) * slPercent) {
+                    if (expectedYield < (-1) * slPercent && ailConfig.isSlEnabled() && !ailConfig.isSlAuto()) {
                         var closeMessage = "SHORT SL " + expectedYieldMessage;
                         out.println(closeMessage);
                         tcsService.closeShortByMarket(name, type);
