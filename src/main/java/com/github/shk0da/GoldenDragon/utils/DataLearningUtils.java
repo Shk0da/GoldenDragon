@@ -42,7 +42,7 @@ public class DataLearningUtils {
                     .weightInit(WeightInit.XAVIER)
                     .updater(Updater.RMSPROP)
                     .regularization(true)
-                    .l2(1e-4)
+                    .l2(properties.getL2())
                     .list()
                     .layer(0, new LSTM.Builder()
                             .nIn(iterator.inputColumns())

@@ -388,7 +388,7 @@ public class TCSService {
             telegramNotifyService.sendMessage(message, true);
             return 1;
         } catch (Exception ex) {
-            String message = "Failed create order: " + ex.getMessage();
+            String message = "Failed create order [" + key.getTicker() + "]: " + ex.getMessage();
             out.println(message);
             telegramNotifyService.sendMessage(message);
             return 0;

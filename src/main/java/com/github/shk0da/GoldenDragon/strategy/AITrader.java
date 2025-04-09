@@ -111,7 +111,8 @@ public class AITrader {
     }
 
     public void run() {
-        var infoMessage = "Total Portfolio Cost: " + tcsService.getTotalPortfolioCost();
+        var initPortfolioCost = tcsService.getTotalPortfolioCost();
+        var infoMessage = "Total Portfolio Cost: " + initPortfolioCost;
         telegramNotifyService.sendMessage(infoMessage);
         out.println(infoMessage);
 
@@ -132,7 +133,10 @@ public class AITrader {
         if (isNotWorkingHours()) {
             executor.shutdown();
             tcsService.closeAllByMarket(TickerType.STOCK);
-            var buyMessage = "Not working hours! Current Time: " + new Date() + ".\n" + "Total Portfolio Cost: " + tcsService.getTotalPortfolioCost();
+            var profit = tcsService.getTotalPortfolioCost() - initPortfolioCost;
+            var profitInPercents = (tcsService.getTotalPortfolioCost() - initPortfolioCost) / initPortfolioCost * 100;
+            var buyMessage = "Not working hours! Current Time: " + new Date() + ".\n"
+                    + "Day profit: " + profit + "(" + profitInPercents + "%)";
             telegramNotifyService.sendMessage(buyMessage);
             out.println(buyMessage);
         }
@@ -247,9 +251,9 @@ public class AITrader {
         var atr = tickerDayInfo.getAtr();
         var levels = tickerDayInfo.getTickerJson().getLevels();
         var network = tickerDayInfo.getNetwork();
+        var hasTrendUp = isHasTrendUp(tickerDayInfo.getName());
 
         var candles = getTickerCandles(tickerDayInfo.getName(), (INDICATORS_SHIFT + 1008), CANDLE_INTERVAL_5_MIN, 0);
-        var hasTrendUp = isHasTrendUp(candles);
         var lastCandle = candles.get(candles.size() - 1);
         var tp = (lastCandle.getClose() / 100) * tpPercent;
 
@@ -351,17 +355,16 @@ public class AITrader {
         return candles;
     }
 
-    private static boolean isHasTrendUp(List<TickerCandle> candles) {
-        boolean hasTrendUp;
+    private boolean isHasTrendUp(String tickerName) {
         int idx = 0;
+        var candles = getTickerCandles(tickerName, 80 * (60/5), CANDLE_INTERVAL_HOUR, 0);
         double[] inClose = new double[candles.size()];
         for (TickerCandle candle : candles) {
             inClose[idx++] = candle.getClose();
         }
         var maWhite = IndicatorsUtil.movingAverageWhite(inClose);
         var maBlack = IndicatorsUtil.movingAverageBlack(inClose);
-        hasTrendUp = maWhite >= maBlack;
-        return hasTrendUp;
+        return maWhite >= maBlack;
     }
 
     private static TickerCandle findStartOfDay(List<TickerCandle> candles) {

@@ -2,6 +2,7 @@ package com.github.shk0da.GoldenDragon.utils;
 
 import com.github.shk0da.GoldenDragon.model.TickerCandle;
 import com.tictactec.ta.lib.Core;
+import com.tictactec.ta.lib.MAType;
 import com.tictactec.ta.lib.MInteger;
 import com.tictactec.ta.lib.RetCode;
 import ru.tinkoff.piapi.contract.v1.HistoricCandle;
@@ -17,15 +18,11 @@ import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
-import java.util.stream.Collectors;
 
 import static java.time.LocalDateTime.ofInstant;
 import static java.time.ZoneId.systemDefault;
-import static java.util.stream.Collectors.toList;
 
 public class IndicatorsUtil {
 
@@ -163,48 +160,6 @@ public class IndicatorsUtil {
         }
         indicators.put("MACD", MACD);
 
-        // MACD SIGN
-        int chunkMacdSignSize = MACD_SLOW_PERIOD + SHIFT_SIZE;
-        List<Indicator> MACD_SIGN = new ArrayList<>();
-        for (int i = chunkMacdSignSize; i < candles.size(); i++) {
-            double[] inClose = new double[chunkMacdSignSize];
-            int k = 0;
-            int j = i - chunkMacdSignSize;
-            while (k < chunkMacdSignSize) {
-                inClose[k] = candles.get(j).getClose();
-                k++;
-                j++;
-            }
-            double value = macdSign(inClose);
-            MACD_SIGN.add(new Indicator(
-                    "MACD_SIGN",
-                    value,
-                    LocalDateTime.parse(candles.get(j).getDate(), formatter),
-                    candles.get(j).getClose()));
-        }
-        indicators.put("MACD_SIGN", MACD_SIGN);
-
-        // MACD SMA
-        int chunkSmaMacdSize = SMA_PERIOD;
-        List<Indicator> MACD_SMA = new ArrayList<>();
-        for (int i = chunkSmaMacdSize; i < MACD.size(); i++) {
-            double[] inClose = new double[chunkSmaMacdSize];
-            int k = 0;
-            int j = i - chunkSmaMacdSize;
-            while (k < chunkSmaMacdSize) {
-                inClose[k] = MACD.get(j).getValue();
-                k++;
-                j++;
-            }
-            double value = sma(inClose);
-            MACD_SMA.add(new Indicator(
-                    "MACD_SMA",
-                    value,
-                    MACD.get(j).getDateTime(),
-                    MACD.get(j).getValue()));
-        }
-        indicators.put("MACD_SMA", MACD_SMA);
-
         // RSI
         List<Indicator> RSI = new ArrayList<>();
         int chunkRsiSize = RSI_PERIOD + SHIFT_SIZE;
@@ -225,27 +180,6 @@ public class IndicatorsUtil {
                     candles.get(j).getClose()));
         }
         indicators.put("RSI", RSI);
-
-        // RSI SMA
-        List<Indicator> RSI_SMA = new ArrayList<>();
-        int chunkRsiSmaSize = SMA_PERIOD;
-        for (int i = chunkRsiSmaSize; i < RSI.size(); i++) {
-            double[] inClose = new double[chunkRsiSmaSize];
-            int k = 0;
-            int j = i - chunkRsiSmaSize;
-            while (k < chunkRsiSmaSize) {
-                inClose[k] = RSI.get(j).getValue();
-                k++;
-                j++;
-            }
-            double value = sma(inClose);
-            RSI_SMA.add(new Indicator(
-                    "RSI_SMA",
-                    value,
-                    RSI.get(j).getDateTime(),
-                    RSI.get(j).getValue()));
-        }
-        indicators.put("RSI_SMA", RSI_SMA);
 
         // OBV
         List<Indicator> OBV = new ArrayList<>();
@@ -268,27 +202,6 @@ public class IndicatorsUtil {
                     candles.get(j).getClose()));
         }
         indicators.put("OBV", OBV);
-
-        // OBV SMA
-        List<Indicator> OBV_SMA = new ArrayList<>();
-        int chunkObvSmaSize = SMA_PERIOD;
-        for (int i = chunkObvSmaSize; i < OBV.size(); i++) {
-            double[] inClose = new double[chunkObvSmaSize];
-            int k = 0;
-            int j = i - chunkRsiSmaSize;
-            while (k < chunkRsiSmaSize) {
-                inClose[k] = OBV.get(j).getValue();
-                k++;
-                j++;
-            }
-            double value = sma(inClose);
-            OBV_SMA.add(new Indicator(
-                    "OBV_SMA",
-                    value,
-                    OBV.get(j).getDateTime(),
-                    OBV.get(j).getValue()));
-        }
-        indicators.put("OBV_SMA", OBV_SMA);
 
         // ADX
         List<Indicator> ADX = new ArrayList<>();
@@ -624,6 +537,45 @@ public class IndicatorsUtil {
         return (RetCode.Success == retCode && outNBElement.value > 0) ? outReal[outNBElement.value - 1] : 0.0;
     }
 
+    private static double ema(double[] prices, int period) {
+        double[] ema = new double[prices.length];
+        MInteger begin = new MInteger();
+        MInteger length = new MInteger();
+        RetCode retCode = talib.ema(0, prices.length - 1, prices, period, begin, length, ema);
+        return (RetCode.Success == retCode && length.value > 0) ? ema[length.value - 1] : 0.0;
+    }
+
+    private static double rsi(double[] prices, int period) {
+        double[] rsi = new double[prices.length];
+        MInteger begin = new MInteger();
+        MInteger length = new MInteger();
+        RetCode retCode = talib.rsi(0, prices.length - 1, prices, period, begin, length, rsi);
+        return (RetCode.Success == retCode && length.value > 0) ? rsi[length.value - 1] : 0.0;
+    }
+
+    private static double stochasticCross(double[] closePrices,
+                                          double[] minPrices,
+                                          double[] maxPrices,
+                                          int fastKPeriod, int slowKPeriod, int slowDPeriod) {
+        double[] highPrices = new double[closePrices.length];
+        double[] lowPrices = new double[closePrices.length];
+        for (int i = 0; i < closePrices.length; i++) {
+            highPrices[i] = maxPrices[i];
+            lowPrices[i] = minPrices[i];
+        }
+
+        double[] outK = new double[closePrices.length];
+        double[] outD = new double[closePrices.length];
+        MInteger begin = new MInteger();
+        MInteger length = new MInteger();
+        RetCode retCode = talib.stoch(0, closePrices.length - 1, highPrices, lowPrices, closePrices,
+                fastKPeriod, slowKPeriod, MAType.Sma, slowDPeriod, MAType.Sma,
+                begin, length, outK, outD);
+        return RetCode.Success == retCode && length.value > 0
+                && outK[length.value - 1] > outD[length.value - 1] && outK[length.value - 2] <= outD[length.value - 2]
+                ? 1.0 : 0.0;
+    }
+
     public static double toDouble(Quotation quotation) {
         return toDouble(quotation.getUnits(), quotation.getNano());
     }
@@ -632,7 +584,7 @@ public class IndicatorsUtil {
         return units + Double.parseDouble("0." + nano);
     }
 
-    private static List<TickerCandle> convertCandles(List<TickerCandle> candles, long newTimeFrame, ChronoUnit unit) {
+    public static List<TickerCandle> convertCandles(List<TickerCandle> candles, long newTimeFrame, ChronoUnit unit) {
         List<TickerCandle> newCandles = new ArrayList<>();
         if (candles.isEmpty()) return newCandles;
 

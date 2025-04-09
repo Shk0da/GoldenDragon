@@ -31,8 +31,10 @@ import java.io.FileOutputStream;
 import java.io.FileReader;
 import java.io.IOException;
 import java.nio.file.Path;
+import java.text.DecimalFormat;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -42,6 +44,7 @@ import static com.github.shk0da.GoldenDragon.repository.TickerRepository.SERIALI
 import static com.github.shk0da.GoldenDragon.utils.DataLearningUtils.StockDataSetIterator.getNetworkInput;
 import static com.github.shk0da.GoldenDragon.utils.IndicatorsUtil.INDICATORS_SHIFT;
 import static com.github.shk0da.GoldenDragon.utils.IndicatorsUtil.calculateATR;
+import static com.github.shk0da.GoldenDragon.utils.IndicatorsUtil.convertCandles;
 import static com.github.shk0da.GoldenDragon.utils.SerializationUtils.loadDataFromDisk;
 import static java.lang.System.out;
 import static java.nio.file.Files.deleteIfExists;
@@ -56,9 +59,10 @@ public class TestLevelTrader {
     private static final Boolean needLearn = false;
     private static final Double initBalance = 100_000.00;
 
+    private static final DecimalFormat df = new DecimalFormat("#.##");
     private static final ObjectMapper objectMapper = new ObjectMapper();
     private static final DateTimeFormatter formatter = DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm:ss");
-    public static final TelegramNotifyService telegramNotifyService = new TelegramNotifyService();
+    private static final TelegramNotifyService telegramNotifyService = new TelegramNotifyService();
 
     private static AILConfig configGenerator() throws IOException {
         AILConfig ailConfig = new AILConfig();
@@ -66,8 +70,15 @@ public class TestLevelTrader {
         ailConfig.setStocks(List.of("GAZP", "LKOH", "MGNT", "NLMK", "PIKK", "ROSN", "RTKM", "SBER"));
         ailConfig.setBalanceRiskPercent(30.0);
         ailConfig.setAveragePositionCost(10_000.0);
-        ailConfig.setSensitivityLong(0.0);
-        ailConfig.setSensitivityShort(0.0);
+        ailConfig.setSensitivityLong(0.005);
+        ailConfig.setSensitivityShort(0.005);
+        ailConfig.setLstmLayer1Size(512);
+        ailConfig.setLstmLayer2Size(256);
+        ailConfig.setDenseLayerSize(16);
+        ailConfig.setTruncatedBPTTLength(20);
+        ailConfig.setDropoutRatio(0.2);
+        ailConfig.setL2(0.0001);
+        ailConfig.setIterations(1);
         return ailConfig;
     }
 
@@ -101,7 +112,7 @@ public class TestLevelTrader {
                 out.println("PROFIT: " + (endBalance - currentBalance));
                 out.println("BALANCE END: " + endBalance);
                 telegramNotifyService.sendMessage(
-                        "Test [" + tickerName + "] | " + "Profit: " + (endBalance - currentBalance) + ", " + result.getRight()
+                        "Test [" + tickerName + "] | " + "Profit: " + df.format(endBalance - currentBalance) + ", " + result.getRight()
                 );
             } catch (Exception ex) {
                 out.println("Skip " + tickerName + ":" + ex.getMessage());
@@ -129,9 +140,10 @@ public class TestLevelTrader {
                 startOfDay = M5.get(x);
             }
 
-            if (x > 80) {
-                var subList = M5.subList(x - 80, x);
-                hasTrendUp = isHasTrendUp(subList);
+            if (x > 80 * (60 / 5)) {
+                var subList = M5.subList(x - 80 * (60 / 5), x);
+                List<TickerCandle> H1 = convertCandles(subList, 1, ChronoUnit.HOURS);
+                hasTrendUp = isHasTrendUp(H1);
             }
 
             if (Boolean.TRUE.equals(hasTrendUp)) {
@@ -223,6 +235,10 @@ public class TestLevelTrader {
             return Pair.of(balance, "");
         }
 
+        double maxDropDown = 0.0;
+        double initBalance = balance;
+        double minimalBalance = balance;
+
         int count = 0;
         double cashOpen = 0.0;
         double prevClose = 0.0;
@@ -281,6 +297,12 @@ public class TestLevelTrader {
                 var prevBalance = balance;
                 var operationResultWithCommission = round(operationResult - commission, 4);
                 balance = round(balance + operationResultWithCommission, 4);
+                if (balance < initBalance && (balance - initBalance) < maxDropDown) {
+                    maxDropDown = balance - initBalance;
+                }
+                if (balance < minimalBalance) {
+                    minimalBalance = balance;
+                }
 
                 if (debugLogging) {
                     out.println(candles.get(i).getDate() + " " + (count > 0 ? "SELL: " : "BUY: ") + operationResult + " - " + commission + " = " + operationResultWithCommission + ", BALANCE: " + prevBalance + " -> " + balance + " (" + round(balance - prevBalance, 4) + ")");
@@ -290,9 +312,15 @@ public class TestLevelTrader {
                 count = 0;
             }
         }
-        var messageWinRate = "WIN/LOSE: " + winRateCounter + "/" + failRateCounter;
-        out.println(messageWinRate);
-        return Pair.of(balance, messageWinRate);
+
+        var maxDropDownPercent = 100 - ((initBalance - Math.abs(maxDropDown)) / initBalance * 100);
+        var messageMaxDropDown = "MaxDropDown: " + df.format(minimalBalance) + "(" + df.format(maxDropDownPercent) + "%)";
+        var winRatePercent = (double) winRateCounter / (winRateCounter + failRateCounter) * 100;
+        var messageWinRate = "WIN/LOSE: " + winRateCounter + "/" + failRateCounter + " (" + df.format(winRatePercent) + "%)";
+        var statTradesMessage = "LONG/SHORT: " + longTrades.size() + "/" + shortTrades.size();
+        var resultMessage = statTradesMessage + ", " + messageWinRate + ", " + messageMaxDropDown;
+        out.println(resultMessage);
+        return Pair.of(balance, resultMessage);
     }
 
     private static void plotChart(String ticker,
