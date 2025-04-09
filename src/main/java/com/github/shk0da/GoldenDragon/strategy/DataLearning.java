@@ -49,7 +49,7 @@ public class DataLearning {
 
     private void learnNetwork(String dataDir, TickerJson ticker, List<TickerCandle> candles) throws Exception {
         String name = ticker.getTicker().getTicker().toUpperCase();
-        out.println("Learn network: " + name);
+        out.println("Learn network: " + name + ". " + ailConfig.getNetworkProperties());
         DataSetIterator dataSetIterator = createStockDataSetIterator(ticker, candles);
         MultiLayerNetwork neuralNetwork = buildLstmNetworks(dataSetIterator, ailConfig.getNetworkProperties());
 

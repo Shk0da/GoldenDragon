@@ -30,6 +30,7 @@ public class AILConfig {
 
     private Boolean test;
     private Double learningRate;
+    private Double l2;
     private Integer iterations;
     private Integer seed;
     private Integer score;
@@ -55,6 +56,7 @@ public class AILConfig {
         averagePositionCost = Double.valueOf(properties.getProperty("ail.averagePositionCost", "10000"));
         test = Boolean.valueOf(properties.getProperty("ail.nn.test", "false"));
         learningRate = Double.valueOf(properties.getProperty("ail.nn.learningRate", "0.05"));
+        l2 = Double.valueOf(properties.getProperty("ail.nn.l2", "0.0001"));
         iterations = Integer.valueOf(properties.getProperty("ail.nn.iterations", "1"));
         seed = Integer.valueOf(properties.getProperty("ail.nn.seed", "777"));
         score = Integer.valueOf(properties.getProperty("ail.nn.score", "100"));
@@ -69,6 +71,7 @@ public class AILConfig {
 
         private final Boolean test;
         private final Double learningRate;
+        private final Double l2;
         private final Integer iterations;
         private final Integer seed;
         private final Integer score;
@@ -78,11 +81,12 @@ public class AILConfig {
         private final Double dropoutRatio;
         private final Integer truncatedBPTTLength;
 
-        public NetworkProperties(Boolean test, Double learningRate, Integer iterations, Integer seed,
+        public NetworkProperties(Boolean test, Double learningRate, Double l2, Integer iterations, Integer seed,
                                  Integer score, Integer lstmLayer1Size, Integer lstmLayer2Size,
                                  Integer denseLayerSize, Double dropoutRatio, Integer truncatedBPTTLength) {
             this.test = test;
             this.learningRate = learningRate;
+            this.l2 = l2;
             this.iterations = iterations;
             this.seed = seed;
             this.score = score;
@@ -99,6 +103,10 @@ public class AILConfig {
 
         public Double getLearningRate() {
             return learningRate;
+        }
+
+        public Double getL2() {
+            return l2;
         }
 
         public Integer getIterations() {
@@ -138,6 +146,7 @@ public class AILConfig {
             return "NetworkProperties{" +
                     "test=" + test +
                     ", learningRate=" + learningRate +
+                    ", l2=" + l2 +
                     ", iterations=" + iterations +
                     ", seed=" + seed +
                     ", score=" + score +
@@ -250,6 +259,10 @@ public class AILConfig {
         this.test = test;
     }
 
+    public void setL2(Double l2) {
+        this.l2 = l2;
+    }
+
     public void setLearningRate(Double learningRate) {
         this.learningRate = learningRate;
     }
@@ -290,6 +303,7 @@ public class AILConfig {
         return new NetworkProperties(
                 test,
                 learningRate,
+                l2,
                 iterations,
                 seed,
                 score,
