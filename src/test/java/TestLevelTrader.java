@@ -314,7 +314,7 @@ public class TestLevelTrader {
         }
 
         var maxDropDownPercent = 100 - ((initBalance - Math.abs(maxDropDown)) / initBalance * 100);
-        var messageMaxDropDown = "MaxDropDown: " + df.format(minimalBalance) + "(" + df.format(maxDropDownPercent) + "%)";
+        var messageMaxDropDown = "MaxDropDown: " + df.format(minimalBalance) + " (" + df.format(maxDropDownPercent) + "%)";
         var winRatePercent = (double) winRateCounter / (winRateCounter + failRateCounter) * 100;
         var messageWinRate = "WIN/LOSE: " + winRateCounter + "/" + failRateCounter + " (" + df.format(winRatePercent) + "%)";
         var statTradesMessage = "LONG/SHORT: " + longTrades.size() + "/" + shortTrades.size();

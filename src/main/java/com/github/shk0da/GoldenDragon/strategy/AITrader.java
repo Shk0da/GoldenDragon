@@ -20,6 +20,7 @@ import java.io.File;
 import java.io.IOException;
 import java.sql.Timestamp;
 import java.text.DateFormat;
+import java.text.DecimalFormat;
 import java.text.SimpleDateFormat;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
@@ -33,6 +34,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static com.github.shk0da.GoldenDragon.service.TelegramNotifyService.telegramNotifyService;
 import static com.github.shk0da.GoldenDragon.utils.DataLearningUtils.StockDataSetIterator.getNetworkInput;
@@ -49,18 +51,22 @@ import static ru.tinkoff.piapi.contract.v1.CandleInterval.CANDLE_INTERVAL_HOUR;
 
 public class AITrader {
 
-    private final Double tpPercent;
-    private final Double slPercent;
-    private final Double balanceRiskPercent;
-    private final Double averagePositionCost;
-
     private static final ObjectMapper objectMapper = new ObjectMapper();
+    private static final DecimalFormat decimalFormat = new DecimalFormat("#.##");
     private static final DateFormat dateTimeFormat = new SimpleDateFormat("dd.MM.yyyy HH:mm:ss");
     private static final DateTimeFormatter formatter = DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm:ss");
     private static final Repository<TickerInfo.Key, TickerInfo> tickerRepository = TickerRepository.INSTANCE;
 
     private final TCSService tcsService;
     private final AILConfig ailConfig;
+
+    private final Double tpPercent;
+    private final Double slPercent;
+    private final Double balanceRiskPercent;
+    private final Double averagePositionCost;
+
+    private final AtomicInteger winCounter = new AtomicInteger(0);
+    private final AtomicInteger loseCounter = new AtomicInteger(0);
 
     public AITrader(AILConfig ailConfig, TCSService tcsService) {
         this.tcsService = tcsService;
@@ -133,10 +139,17 @@ public class AITrader {
         if (isNotWorkingHours()) {
             executor.shutdown();
             tcsService.closeAllByMarket(TickerType.STOCK);
+            var buyMessage = "Not working hours! Current Time: " + new Date() + ".\n";
+
             var profit = tcsService.getTotalPortfolioCost() - initPortfolioCost;
             var profitInPercents = (tcsService.getTotalPortfolioCost() - initPortfolioCost) / initPortfolioCost * 100;
-            var buyMessage = "Not working hours! Current Time: " + new Date() + ".\n"
-                    + "Day profit: " + profit + "(" + profitInPercents + "%)";
+            buyMessage += "Day profit: " + decimalFormat.format(profit) + "(" + profitInPercents + "%).\n";
+
+            if (winCounter.get() > 0 && loseCounter.get() > 0) {
+                var winRatePercent = (double) winCounter.get() / (winCounter.get() + loseCounter.get()) * 100;
+                buyMessage += "Wins/Lose: " + winCounter.get() + "/" + loseCounter.get() + " (" + decimalFormat.format(winRatePercent) + "%).\n";
+            }
+
             telegramNotifyService.sendMessage(buyMessage);
             out.println(buyMessage);
         }
@@ -212,12 +225,14 @@ public class AITrader {
                         out.println(closeMessage + "\n");
                         tcsService.closeLongByMarket(name, type);
                         telegramNotifyService.sendMessage(closeMessage);
+                        winCounter.incrementAndGet();
                     }
                     if (expectedYield < (-1) * slPercent && ailConfig.isSlEnabled() && !ailConfig.isSlAuto()) {
                         var closeMessage = "LONG SL " + expectedYieldMessage;
                         out.println(closeMessage);
                         tcsService.closeLongByMarket(name, type);
                         telegramNotifyService.sendMessage(closeMessage);
+                        loseCounter.incrementAndGet();
                     }
                 }
                 if (currentPositionBalance < 0 && (expectedYield > tpPercent || expectedYield < ((-1) * slPercent))) {
@@ -229,12 +244,14 @@ public class AITrader {
                         out.println(closeMessage);
                         tcsService.closeShortByMarket(name, type);
                         telegramNotifyService.sendMessage(closeMessage);
+                        winCounter.incrementAndGet();
                     }
                     if (expectedYield < (-1) * slPercent && ailConfig.isSlEnabled() && !ailConfig.isSlAuto()) {
                         var closeMessage = "SHORT SL " + expectedYieldMessage;
                         out.println(closeMessage);
                         tcsService.closeShortByMarket(name, type);
                         telegramNotifyService.sendMessage(closeMessage);
+                        loseCounter.incrementAndGet();
                     }
                 }
             }
