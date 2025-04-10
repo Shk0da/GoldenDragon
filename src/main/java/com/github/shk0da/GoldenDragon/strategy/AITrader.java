@@ -127,7 +127,7 @@ public class AITrader {
         for (String name : ailConfig.getStocks()) {
             tasks.add(
                     runAsync(() -> {
-                        while (!isNotTradingHours()) {
+                        while (isWorkingHours()) {
                             handleTicker(name);
                             sleep(30_000);
                         }
@@ -136,7 +136,7 @@ public class AITrader {
             sleep(1_000);
         }
         allOf(tasks.toArray(new CompletableFuture[]{})).join();
-        if (isNotWorkingHours()) {
+        if (!isWorkingHours()) {
             executor.shutdown();
             tcsService.closeAllByMarket(TickerType.STOCK);
             var buyMessage = "Not working hours! Current Time: " + new Date() + ".\n";
@@ -155,17 +155,17 @@ public class AITrader {
         }
     }
 
-    private boolean isNotTradingHours() {
+    private boolean isTradingHours() {
         var calendar = new GregorianCalendar();
         var hour = calendar.get(Calendar.HOUR_OF_DAY);
-        return hour >= 18;
+        return !(hour >= 18);
     }
 
-    private boolean isNotWorkingHours() {
+    private boolean isWorkingHours() {
         var calendar = new GregorianCalendar();
         var hour = calendar.get(Calendar.HOUR_OF_DAY);
         var minute = calendar.get(Calendar.MINUTE);
-        return ((hour == 18 && minute >= 30) || (hour >= 19)) || (hour < 9 || (hour == 9 && minute < 30));
+        return !(hour == 18 && minute >= 30 || hour >= 19);
     }
 
     private void handleTicker(String name) {
@@ -184,7 +184,7 @@ public class AITrader {
             var type = tickerDayInfo.getTickerJson().getTicker().getType();
             var currentPosition = tcsService.getCurrentPositions(type, name);
             var currentPositionBalance = null == currentPosition ? 0.0 : currentPosition.getBalance();
-            if (0 != decision) {
+            if (0 != decision && isTradingHours()) {
                 if (0 == currentPositionBalance) {
                     var balance = tcsService.getAvailableCash();
                     var cashToOrder = (balance / 100) * balanceRiskPercent;
