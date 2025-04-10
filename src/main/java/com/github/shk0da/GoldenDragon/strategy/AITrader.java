@@ -34,6 +34,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static com.github.shk0da.GoldenDragon.service.TelegramNotifyService.telegramNotifyService;
@@ -137,21 +138,24 @@ public class AITrader {
         }
         allOf(tasks.toArray(new CompletableFuture[]{})).join();
         if (!isWorkingHours()) {
-            executor.shutdown();
-            tcsService.closeAllByMarket(TickerType.STOCK);
             var buyMessage = "Not working hours! Current Time: " + new Date() + ".\n";
+            telegramNotifyService.sendMessage(buyMessage);
+            out.println(buyMessage);
 
+            shutdownExecutor(executor);
+
+            tcsService.closeAllByMarket(TickerType.STOCK);
             var profit = tcsService.getTotalPortfolioCost() - initPortfolioCost;
             var profitInPercents = (tcsService.getTotalPortfolioCost() - initPortfolioCost) / initPortfolioCost * 100;
-            buyMessage += "Day profit: " + decimalFormat.format(profit) + "(" + profitInPercents + "%).\n";
+            var statsMessage = "Day profit: " + decimalFormat.format(profit) + " (" + decimalFormat.format(profitInPercents) + "%).\n";
 
             if (winCounter.get() > 0 && loseCounter.get() > 0) {
                 var winRatePercent = (double) winCounter.get() / (winCounter.get() + loseCounter.get()) * 100;
-                buyMessage += "Wins/Lose: " + winCounter.get() + "/" + loseCounter.get() + " (" + decimalFormat.format(winRatePercent) + "%).\n";
+                statsMessage += "Wins/Lose: " + winCounter.get() + "/" + loseCounter.get() + " (" + decimalFormat.format(winRatePercent) + "%).\n";
             }
 
-            telegramNotifyService.sendMessage(buyMessage);
-            out.println(buyMessage);
+            telegramNotifyService.sendMessage(statsMessage);
+            out.println(statsMessage);
         }
     }
 
@@ -396,5 +400,15 @@ public class AITrader {
             }
         }
         return startOfDay;
+    }
+
+    private static void shutdownExecutor(ExecutorService executor) {
+        try {
+            if (!executor.awaitTermination(5, TimeUnit.SECONDS)) {
+                executor.shutdownNow();
+            }
+        } catch (InterruptedException skip) {
+            executor.shutdownNow();
+        }
     }
 }
