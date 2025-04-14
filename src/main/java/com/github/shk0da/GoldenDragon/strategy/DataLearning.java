@@ -4,6 +4,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.shk0da.GoldenDragon.config.AILConfig;
 import com.github.shk0da.GoldenDragon.model.TickerCandle;
 import com.github.shk0da.GoldenDragon.model.TickerJson;
+import ml.dmlc.xgboost4j.LabeledPoint;
+import ml.dmlc.xgboost4j.java.Booster;
 import org.deeplearning4j.nn.multilayer.MultiLayerNetwork;
 import org.deeplearning4j.util.ModelSerializer;
 import org.nd4j.linalg.dataset.api.iterator.DataSetIterator;
@@ -11,12 +13,15 @@ import ru.tinkoff.piapi.contract.v1.CandleInterval;
 
 import java.io.BufferedReader;
 import java.io.File;
+import java.io.FileOutputStream;
 import java.io.FileReader;
 import java.util.ArrayList;
 import java.util.List;
 
 import static com.github.shk0da.GoldenDragon.utils.DataLearningUtils.LSTMNetwork.buildLstmNetworks;
+import static com.github.shk0da.GoldenDragon.utils.DataLearningUtils.StockDataSetIterator.createBoosterLabels;
 import static com.github.shk0da.GoldenDragon.utils.DataLearningUtils.StockDataSetIterator.createStockDataSetIterator;
+import static com.github.shk0da.GoldenDragon.utils.DataLearningUtils.XGBooster.buildXGBooster;
 import static java.lang.System.out;
 
 public class DataLearning {
@@ -49,12 +54,21 @@ public class DataLearning {
 
     private void learnNetwork(String dataDir, TickerJson ticker, List<TickerCandle> candles) throws Exception {
         String name = ticker.getTicker().getTicker().toUpperCase();
+
         out.println("Learn network: " + name + ". " + ailConfig.getNetworkProperties());
         DataSetIterator dataSetIterator = createStockDataSetIterator(ticker, candles);
         MultiLayerNetwork neuralNetwork = buildLstmNetworks(dataSetIterator, ailConfig.getNetworkProperties());
+        String filePathNetwork = dataDir + "/" + name + "/network.nn";
+        ModelSerializer.writeModel(neuralNetwork, filePathNetwork, true);
 
-        String filePath = dataDir + "/" + name + "/network.nn";
-        ModelSerializer.writeModel(neuralNetwork, filePath, true);
+        out.println("Create booster: " + name + ". " + ailConfig.getBoosterProperties());
+        List<LabeledPoint> labels = createBoosterLabels(ticker, candles);
+        Booster booster = buildXGBooster(labels, ailConfig.getBoosterProperties());
+        String filePathBooster = dataDir + "/" + name + "/booster.nn";
+        File fileBooster = new File(filePathBooster);
+        if ((!fileBooster.exists() || fileBooster.delete()) && fileBooster.createNewFile()) {
+            booster.saveModel(new FileOutputStream(filePathBooster));
+        }
     }
 
     private TickerJson readTickerFile(String name, String dataDir) throws Exception {

@@ -20,6 +20,7 @@ dependencies {
     implementation 'org.nd4j:nd4j-native:0.9.1'
     implementation 'org.nd4j:nd4j-native-platform:0.9.1'
     implementation 'org.deeplearning4j:deeplearning4j-core:0.9.1'
+    implementation 'ml.dmlc:xgboost4j_2.12:3.0.0'
 }
 
 task uberJar(type: Jar) {

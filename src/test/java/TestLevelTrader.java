@@ -10,7 +10,10 @@ import com.github.shk0da.GoldenDragon.service.TelegramNotifyService;
 import com.github.shk0da.GoldenDragon.strategy.DataLearning;
 import com.github.shk0da.GoldenDragon.utils.IndicatorsUtil;
 import com.google.gson.reflect.TypeToken;
-import org.apache.commons.lang3.tuple.Pair;
+import ml.dmlc.xgboost4j.java.Booster;
+import ml.dmlc.xgboost4j.java.DMatrix;
+import ml.dmlc.xgboost4j.java.XGBoost;
+import ml.dmlc.xgboost4j.java.XGBoostError;
 import org.deeplearning4j.nn.multilayer.MultiLayerNetwork;
 import org.deeplearning4j.util.ModelSerializer;
 import org.jfree.chart.ChartFactory;
@@ -41,7 +44,9 @@ import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static com.github.shk0da.GoldenDragon.repository.TickerRepository.SERIALIZE_NAME;
+import static com.github.shk0da.GoldenDragon.utils.DataLearningUtils.StockDataSetIterator.getBoosterInput;
 import static com.github.shk0da.GoldenDragon.utils.DataLearningUtils.StockDataSetIterator.getNetworkInput;
+import static com.github.shk0da.GoldenDragon.utils.DataLearningUtils.createInput;
 import static com.github.shk0da.GoldenDragon.utils.IndicatorsUtil.INDICATORS_SHIFT;
 import static com.github.shk0da.GoldenDragon.utils.IndicatorsUtil.calculateATR;
 import static com.github.shk0da.GoldenDragon.utils.IndicatorsUtil.convertCandles;
@@ -70,7 +75,9 @@ public class TestLevelTrader {
         ailConfig.setStocks(List.of("GAZP", "LKOH", "MGNT", "NLMK", "PIKK", "ROSN", "RTKM", "SBER"));
         ailConfig.setBalanceRiskPercent(30.0);
         ailConfig.setAveragePositionCost(10_000.0);
-        ailConfig.setSensitivityLong(0.005);
+
+        // LSTM
+        ailConfig.setSensitivityLong(0.035);
         ailConfig.setSensitivityShort(0.005);
         ailConfig.setLstmLayer1Size(512);
         ailConfig.setLstmLayer2Size(256);
@@ -79,17 +86,78 @@ public class TestLevelTrader {
         ailConfig.setDropoutRatio(0.2);
         ailConfig.setL2(0.0001);
         ailConfig.setIterations(1);
+
+        // XGBOOST
+        ailConfig.setBooster("gbtree");
+        ailConfig.setObjective("reg:squarederror");
+        ailConfig.setEvalMetric("logloss");
+        ailConfig.setMaxDepth(6);
+        ailConfig.setBoosterLearningRate(0.1);
+        ailConfig.setSubsample(0.6);
+        ailConfig.setColsampleBytree(0.2);
+        ailConfig.setAlpha(0);
+        ailConfig.setLambda(0);
+        ailConfig.setBoosterEstimators(100);
+        ailConfig.setEta(0.00);
+        ailConfig.setMinChildWeight(0);
+        ailConfig.setGamma(0.0);
+        ailConfig.setScalePosWeight(0.0);
+        ailConfig.setBaseScore(0.0);
+        ailConfig.setBoosterSensitivityLong(0.005);
+        ailConfig.setBoosterSensitivityShort(0.005);
+
+        ailConfig.setSumOfDecision(0.05);
+
         return ailConfig;
     }
 
+    private static final class Result {
+
+        private final Double profit;
+        private final Double winrate;
+        private final String message;
+
+        public Result(Double profit, Double winrate, String message) {
+            this.profit = profit;
+            this.winrate = winrate;
+            this.message = message;
+        }
+
+        public Double getProfit() {
+            return profit;
+        }
+
+        public Double getWinrate() {
+            return winrate;
+        }
+
+        public String getMessage() {
+            return message;
+        }
+    }
+
     public static void main(String[] args) throws Exception {
+        var bestResult = 0.0D;
+        for (double setSumOfDecision = 0.000; setSumOfDecision <= 0.5; setSumOfDecision = setSumOfDecision + 0.005) {
+            var ailConfig = configGenerator();
+            ailConfig.setSumOfDecision(setSumOfDecision);
+            var result = run(ailConfig);
+            if (result > bestResult) {
+                bestResult = result;
+                out.println(bestResult + "%: " + ailConfig);
+                telegramNotifyService.sendMessage(bestResult + ": " + ailConfig);
+            }
+        }
+    }
+
+    public static Double run(AILConfig ailConfig) throws Exception {
         Repository<TickerInfo.Key, TickerInfo> tickerRepository = TickerRepository.INSTANCE;
         Map<TickerInfo.Key, TickerInfo> dataFromDisk = loadDataFromDisk(SERIALIZE_NAME, new TypeToken<>() {});
         tickerRepository.putAll(dataFromDisk);
-        var ailConfig = configGenerator();
         if (needLearn) {
             new DataLearning(ailConfig).run();
         }
+        List<Double> results = new ArrayList<>(ailConfig.getStocks().size());
         ailConfig.getStocks().forEach(tickerName -> {
             AtomicReference<Double> balance = new AtomicReference<>(initBalance);
             try {
@@ -106,26 +174,28 @@ public class TestLevelTrader {
                 out.println("BALANCE START: " + currentBalance);
                 var tickerInfo = readTickerFile(tickerName, "data");
                 var result = run(tickerName, currentBalance, tickerInfo.getLevels(), ailConfig);
-                balance.set(result.getLeft());
+                balance.set(result.getProfit());
 
                 var endBalance = balance.get();
                 out.println("PROFIT: " + (endBalance - currentBalance));
                 out.println("BALANCE END: " + endBalance);
                 telegramNotifyService.sendMessage(
-                        "Test [" + tickerName + "] | " + "Profit: " + df.format(endBalance - currentBalance) + ", " + result.getRight()
+                        "Test [" + tickerName + "] | " + "Profit: " + df.format(endBalance - currentBalance) + ", " + result.getMessage()
                 );
+                results.add(result.getWinrate());
             } catch (Exception ex) {
                 out.println("Skip " + tickerName + ":" + ex.getMessage());
                 ex.printStackTrace();
             }
         });
+        return (results.stream().mapToDouble(it -> it).sum() / (double) results.size());
     }
 
-    public static Pair<Double, String> run(String name, double balance, List<Double> levels, AILConfig ailConfig) throws Exception {
+    public static Result run(String name, double balance, List<Double> levels, AILConfig ailConfig) throws Exception {
         List<TickerCandle> M5 = readCandlesFile(name, "data", "candles5_MIN.txt");
         M5 = M5.subList((int) (M5.size() - (M5.size() * K2)), M5.size());
         if (M5.isEmpty()) {
-            return Pair.of(balance, "");
+            return new Result(balance, 0.0, "");
         }
 
         Boolean hasTrendUp = null;
@@ -133,6 +203,7 @@ public class TestLevelTrader {
         List<Integer> shortTrades = new ArrayList<>();
         TickerCandle startOfDay = M5.get(0);
         var network = getNetwork("data", name);
+        var booster = getBooster("data", name);
         for (int i = INDICATORS_SHIFT + 2016, x = 0; i < M5.size(); i++, x++) {
             LocalDateTime currentDateTime = LocalDateTime.parse(M5.get(x).getDate(), formatter);
             LocalDateTime startOfDayDateTime = LocalDateTime.parse(startOfDay.getDate(), formatter);
@@ -153,9 +224,15 @@ public class TestLevelTrader {
                 var atr = calculateATR(subList, 7);
                 var hasUpATR = (startOfDay.getLow() + (atr - (atr * 0.2))) > (candle5.getClose() + tp);
                 if (hasUpATR) {
-                    var input = getNetworkInput(M5, i, startOfDay.getClose(), levels);
-                    var output = network.rnnTimeStep(Nd4j.create(input));
-                    if (output.getDouble(0) > ailConfig.getSensitivityLong()) {
+                    var data = createInput(M5, i, startOfDay.getClose(), levels);
+                    var input = getNetworkInput(data);
+                    var output = network.rnnTimeStep(Nd4j.create(input)).getDouble(0);
+                    var labels = getBoosterInput(data);
+                    var vector = new DMatrix(labels, 1, labels.length, Float.NaN);
+                    var predict = booster.predict(vector)[0][0];
+                    if ((output + predict) >= ailConfig.getSumOfDecision()
+                            && (output > ailConfig.getSensitivityLong()
+                            || predict > ailConfig.getBoosterSensitivityLong())) {
                         longTrades.add(i);
                     }
                 }
@@ -168,9 +245,15 @@ public class TestLevelTrader {
                 var atr = calculateATR(subList, 7);
                 var hasDownATR = (candle5.getClose() - tp) + (atr - (atr * 0.2)) < startOfDay.getHigh();
                 if (hasDownATR) {
-                    var input = getNetworkInput(M5, i, startOfDay.getClose(), levels);
-                    var output = network.rnnTimeStep(Nd4j.create(input));
-                    if (output.getDouble(0) < ((-1) * ailConfig.getSensitivityShort())) {
+                    var data = createInput(M5, i, startOfDay.getClose(), levels);
+                    var input = getNetworkInput(data);
+                    var output = network.rnnTimeStep(Nd4j.create(input)).getDouble(0);
+                    var labels = getBoosterInput(data);
+                    var vector = new DMatrix(labels, 1, labels.length, Float.NaN);
+                    var predict = booster.predict(vector)[0][0];
+                    if ((output + predict) <= ((-1) * ailConfig.getSumOfDecision())
+                            && (output < ((-1) * ailConfig.getSensitivityShort())
+                            || predict < ((-1) * ailConfig.getBoosterSensitivityShort()))) {
                         shortTrades.add(i);
                     }
                 }
@@ -228,11 +311,17 @@ public class TestLevelTrader {
         return ModelSerializer.restoreMultiLayerNetwork(filePath);
     }
 
-    private static Pair<Double, String> calculateTrades(List<TickerCandle> candles,
-                                                        List<Integer> longTrades, List<Integer> shortTrades,
-                                                        Double balance, AILConfig ailConfig) {
+    private static Booster getBooster(String dataDir, String name) throws XGBoostError {
+        out.println("Get booster: " + name);
+        String filePath = dataDir + "/" + name + "/booster.nn";
+        return XGBoost.loadModel(filePath);
+    }
+
+    private static Result calculateTrades(List<TickerCandle> candles,
+                                          List<Integer> longTrades, List<Integer> shortTrades,
+                                          Double balance, AILConfig ailConfig) {
         if (longTrades.isEmpty() && shortTrades.isEmpty()) {
-            return Pair.of(balance, "");
+            return new Result(balance, 0.0, "");
         }
 
         double maxDropDown = 0.0;
@@ -320,7 +409,7 @@ public class TestLevelTrader {
         var statTradesMessage = "LONG/SHORT: " + longTrades.size() + "/" + shortTrades.size();
         var resultMessage = statTradesMessage + ", " + messageWinRate + ", " + messageMaxDropDown;
         out.println(resultMessage);
-        return Pair.of(balance, resultMessage);
+        return new Result(balance, winRatePercent, resultMessage);
     }
 
     private static void plotChart(String ticker,
