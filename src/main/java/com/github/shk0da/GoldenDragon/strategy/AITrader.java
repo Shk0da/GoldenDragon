@@ -156,11 +156,11 @@ public class AITrader {
             out.println(buyMessage);
 
             shutdownExecutor(executor);
-            tcsService.closeAllByMarket(TickerType.STOCK);
 
+            tcsService.closeAllByMarket(TickerType.STOCK);
             var profit = tcsService.getTotalPortfolioCost() - initPortfolioCost;
             var profitInPercents = (tcsService.getTotalPortfolioCost() - initPortfolioCost) / initPortfolioCost * 100;
-            var statsMessage = "Day profit: " + decimalFormat.format(profit) + "(" + profitInPercents + "%).\n";
+            var statsMessage = "Day profit: " + decimalFormat.format(profit) + " (" + decimalFormat.format(profitInPercents) + "%).\n";
 
             if (winCounter.get() > 0 && loseCounter.get() > 0) {
                 var winRatePercent = (double) winCounter.get() / (winCounter.get() + loseCounter.get()) * 100;
