@@ -10,6 +10,10 @@ import com.github.shk0da.GoldenDragon.repository.Repository;
 import com.github.shk0da.GoldenDragon.repository.TickerRepository;
 import com.github.shk0da.GoldenDragon.service.TCSService;
 import com.github.shk0da.GoldenDragon.utils.IndicatorsUtil;
+import ml.dmlc.xgboost4j.java.Booster;
+import ml.dmlc.xgboost4j.java.DMatrix;
+import ml.dmlc.xgboost4j.java.XGBoost;
+import ml.dmlc.xgboost4j.java.XGBoostError;
 import org.deeplearning4j.nn.multilayer.MultiLayerNetwork;
 import org.deeplearning4j.util.ModelSerializer;
 import org.nd4j.linalg.factory.Nd4j;
@@ -38,7 +42,9 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static com.github.shk0da.GoldenDragon.service.TelegramNotifyService.telegramNotifyService;
+import static com.github.shk0da.GoldenDragon.utils.DataLearningUtils.StockDataSetIterator.getBoosterInput;
 import static com.github.shk0da.GoldenDragon.utils.DataLearningUtils.StockDataSetIterator.getNetworkInput;
+import static com.github.shk0da.GoldenDragon.utils.DataLearningUtils.createInput;
 import static com.github.shk0da.GoldenDragon.utils.IndicatorsUtil.INDICATORS_SHIFT;
 import static com.github.shk0da.GoldenDragon.utils.IndicatorsUtil.calculateATR;
 import static com.github.shk0da.GoldenDragon.utils.IndicatorsUtil.toDouble;
@@ -87,13 +93,16 @@ public class AITrader {
         private final Double atr;
         private final TickerJson tickerJson;
         private final MultiLayerNetwork network;
+        private final Booster booster;
 
-        public TickerDayInfo(String name, TickerCandle startOfDay, Double atr, TickerJson tickerJson, MultiLayerNetwork network) {
+        public TickerDayInfo(String name, TickerCandle startOfDay, Double atr, TickerJson tickerJson,
+                             MultiLayerNetwork network, Booster booster) {
             this.name = name;
             this.startOfDay = startOfDay;
             this.atr = atr;
             this.tickerJson = tickerJson;
             this.network = network;
+            this.booster = booster;
         }
 
         public String getName() {
@@ -114,6 +123,10 @@ public class AITrader {
 
         public MultiLayerNetwork getNetwork() {
             return network;
+        }
+
+        public Booster getBooster() {
+            return booster;
         }
     }
 
@@ -181,7 +194,8 @@ public class AITrader {
                         findStartOfDay(weekCandles),
                         calculateATR(weekCandles, 7),
                         readTickerFile(name, ailConfig.getDataDir()),
-                        getNetwork(name, ailConfig.getDataDir())
+                        getNetwork(name, ailConfig.getDataDir()),
+                        getBooster(name, ailConfig.getDataDir())
                 );
             });
             var decision = decision(tickerDayInfo);
@@ -267,11 +281,12 @@ public class AITrader {
         }
     }
 
-    private int decision(TickerDayInfo tickerDayInfo) {
+    private int decision(TickerDayInfo tickerDayInfo) throws Exception {
         var startOfDay = tickerDayInfo.getStartOfDay();
         var atr = tickerDayInfo.getAtr();
         var levels = tickerDayInfo.getTickerJson().getLevels();
         var network = tickerDayInfo.getNetwork();
+        var booster = tickerDayInfo.getBooster();
         var hasTrendUp = isHasTrendUp(tickerDayInfo.getName());
 
         var candles = getTickerCandles(tickerDayInfo.getName(), (INDICATORS_SHIFT + 1008), CANDLE_INTERVAL_5_MIN, 0);
@@ -281,9 +296,15 @@ public class AITrader {
         if (Boolean.TRUE.equals(hasTrendUp)) {
             var hasUpATR = (startOfDay.getLow() + (atr - (atr * 0.2))) > (lastCandle.getClose() + tp);
             if (hasUpATR) {
-                var input = getNetworkInput(candles, candles.size() - 1, startOfDay.getClose(), levels);
-                var output = network.rnnTimeStep(Nd4j.create(input));
-                if (output.getDouble(0) > ailConfig.getSensitivityLong()) {
+                var data = createInput(candles, candles.size() - 1, startOfDay.getClose(), levels);
+                var input = getNetworkInput(data);
+                var output = network.rnnTimeStep(Nd4j.create(input)).getDouble(0);
+                var labels = getBoosterInput(data);
+                var vector = new DMatrix(labels, 1, labels.length, Float.NaN);
+                var predict = booster.predict(vector)[0][0];
+                if ((output + predict) >= ailConfig.getSumOfDecision()
+                        && (output > ailConfig.getSensitivityLong()
+                        || predict > ailConfig.getBoosterSensitivityLong())) {
                     return 1;
                 }
             }
@@ -292,9 +313,15 @@ public class AITrader {
         if (Boolean.FALSE.equals(hasTrendUp)) {
             var hasDownATR = (lastCandle.getClose() - tp) + (atr - (atr * 0.2)) < startOfDay.getHigh();
             if (hasDownATR) {
-                var input = getNetworkInput(candles, candles.size() - 1, startOfDay.getClose(), levels);
-                var output = network.rnnTimeStep(Nd4j.create(input));
-                if (output.getDouble(0) < ((-1) * ailConfig.getSensitivityShort())) {
+                var data = createInput(candles, candles.size() - 1, startOfDay.getClose(), levels);
+                var input = getNetworkInput(data);
+                var output = network.rnnTimeStep(Nd4j.create(input)).getDouble(0);
+                var labels = getBoosterInput(data);
+                var vector = new DMatrix(labels, 1, labels.length, Float.NaN);
+                var predict = booster.predict(vector)[0][0];
+                if ((output + predict) <= ((-1) * ailConfig.getSumOfDecision())
+                        && (output < ((-1) * ailConfig.getSensitivityShort())
+                        || predict < ((-1) * ailConfig.getBoosterSensitivityShort()))) {
                     return -1;
                 }
             }
@@ -318,6 +345,16 @@ public class AITrader {
         try {
             return ModelSerializer.restoreMultiLayerNetwork(filePath);
         } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    private static Booster getBooster(String name, String dataDir) {
+        out.println("Get booster: " + name);
+        String filePath = dataDir + "/" + name + "/booster.nn";
+        try {
+            return XGBoost.loadModel(filePath);
+        } catch (XGBoostError e) {
             throw new RuntimeException(e);
         }
     }
