@@ -112,8 +112,9 @@ public class DataCollector {
             }
         }
 
+        var isFileExists = Files.exists(Path.of(file));
         try (FileWriter writer = new FileWriter(file, true)) {
-            if (isReplace || !Files.exists(Path.of(file))) {
+            if (isReplace || !isFileExists) {
                 writer.write("Datetime,Open,High,Low,Close,Volume" + System.lineSeparator());
             }
             for (TickerCandle candle : candles) {
