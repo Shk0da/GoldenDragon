@@ -1,6 +1,7 @@
 package com.github.shk0da.GoldenDragon;
 
 import com.github.shk0da.GoldenDragon.config.AILConfig;
+import com.github.shk0da.GoldenDragon.config.DataCollectorConfig;
 import com.github.shk0da.GoldenDragon.config.MainConfig;
 import com.github.shk0da.GoldenDragon.config.MarketConfig;
 import com.github.shk0da.GoldenDragon.config.RSXConfig;
@@ -100,20 +101,29 @@ public class GoldenDragon {
                 new IndicatorTrader(tcsService).run();
             }
 
-            // 5. AICollector
+            // 5. DataCollector
+            if ("DataCollector".equals(strategy)) {
+                telegramNotifyService.sendMessage("Run DataCollector");
+                DataCollectorConfig dataCollectorConfig = new DataCollectorConfig();
+                new DataCollector(dataCollectorConfig, tcsService).run();
+                telegramNotifyService.sendMessage("End DataCollector");
+            }
+
+            // 6. AICollector
             if ("AICollector".equals(strategy)) {
                 telegramNotifyService.sendMessage("Start AICollector");
-                AILConfig ailConfig = new AILConfig();
                 telegramNotifyService.sendMessage("Run DataCollector");
-                new DataCollector(ailConfig, tcsService).run();
+                DataCollectorConfig dataCollectorConfig = new DataCollectorConfig();
+                new DataCollector(dataCollectorConfig, tcsService).run();
                 telegramNotifyService.sendMessage("End DataCollector");
                 telegramNotifyService.sendMessage("Run DataLearning");
+                AILConfig ailConfig = new AILConfig();
                 new DataLearning(ailConfig).run();
                 telegramNotifyService.sendMessage("End DataLearning");
                 telegramNotifyService.sendMessage("End AICollector");
             }
 
-            // 6. AITrader
+            // 7. AITrader
             if ("AITrader".equals(strategy)) {
                 telegramNotifyService.sendMessage("Run AITrader");
                 AILConfig ailConfig = new AILConfig();

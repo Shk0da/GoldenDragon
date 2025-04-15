@@ -1,7 +1,7 @@
 package com.github.shk0da.GoldenDragon.strategy;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.github.shk0da.GoldenDragon.config.AILConfig;
+import com.github.shk0da.GoldenDragon.config.DataCollectorConfig;
 import com.github.shk0da.GoldenDragon.model.TickerCandle;
 import com.github.shk0da.GoldenDragon.model.TickerInfo;
 import com.github.shk0da.GoldenDragon.model.TickerType;
@@ -17,19 +17,25 @@ import java.io.File;
 import java.io.FileReader;
 import java.io.FileWriter;
 import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.sql.Timestamp;
 import java.text.DateFormat;
+import java.text.ParseException;
 import java.text.SimpleDateFormat;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import static com.github.shk0da.GoldenDragon.utils.IndicatorsUtil.toDouble;
 import static com.github.shk0da.GoldenDragon.utils.TimeUtils.sleep;
@@ -48,23 +54,24 @@ public class DataCollector {
     private static final Repository<TickerInfo.Key, TickerInfo> tickerRepository = TickerRepository.INSTANCE;
 
     private final TCSService tcsService;
-    private final AILConfig ailConfig;
+    private final DataCollectorConfig config;
 
-    public DataCollector(AILConfig ailConfig, TCSService tcsService) {
+    public DataCollector(DataCollectorConfig config, TCSService tcsService) {
         this.tcsService = tcsService;
-        this.ailConfig = ailConfig;
+        this.config = config;
     }
 
     public void run() throws Exception {
-        var dataDir = ailConfig.getDataDir();
-        var tickers = ailConfig.getStocks();
+        var dataDir = config.getDataDir();
+        var tickers = config.getStocks();
+        var isReplace = config.isReplace();
         createDirectories(Paths.get(dataDir));
         for (String name : tickers) {
             try {
                 createDirectories(Paths.get(dataDir + "/" + name));
-                createCandlesFile(name, dataDir, CandleInterval.CANDLE_INTERVAL_5_MIN);
-                createCandlesFile(name, dataDir, CandleInterval.CANDLE_INTERVAL_HOUR);
-                var levels = calculatePriceLevels(name, dataDir, CandleInterval.CANDLE_INTERVAL_HOUR);
+                createCandlesFile(name, dataDir, CandleInterval.CANDLE_INTERVAL_5_MIN, isReplace);
+                createCandlesFile(name, dataDir, CandleInterval.CANDLE_INTERVAL_HOUR, isReplace);
+                var levels = calculatePriceLevels(name, dataDir, CandleInterval.CANDLE_INTERVAL_HOUR, isReplace);
                 createTickerJson(name, dataDir, levels);
             } catch (Exception ex) {
                 out.println(ex.getMessage());
@@ -72,27 +79,43 @@ public class DataCollector {
         }
     }
 
-    private void createCandlesFile(String name, String dir, CandleInterval period) {
+    private void createCandlesFile(String name, String dir, CandleInterval period, boolean isReplace) {
         var namePeriod = period.name().replace("CANDLE_INTERVAL_", "");
         var file = dir + "/" + name + "/candles" + namePeriod + ".txt";
-        if (isTodayFile(file)) {
+        if (!isReplace && isTodayFile(file)) {
             out.println("Exists candles '" + namePeriod + "' file: " + name);
             return;
         }
 
         out.println("Create candles '" + namePeriod + "' file: " + name);
-        List<TickerCandle> candles = getTickerCandles(name.toLowerCase(), period, 0);
+        var lastCandleTime = new org.joda.time.LocalDate().minusYears(5).toDate();
+        if (!isReplace) {
+            var currentCandles = readCandlesFile(name, dir, period);
+            if (!currentCandles.isEmpty()) {
+                try {
+                    lastCandleTime = dateTimeFormat.parse(currentCandles.get(currentCandles.size() - 1).getDate());
+                } catch (ParseException ex) {
+                    ex.printStackTrace();
+                }
+            }
+        }
+        List<TickerCandle> candles = getTickerCandles(name.toLowerCase(), period, lastCandleTime, 0);
         if (candles.isEmpty()) {
             throw new RuntimeException("empty candles");
         }
 
-        try {
-            deleteIfExists(Path.of(file));
-        } catch (IOException ex) {
-            ex.printStackTrace();
+        if (isReplace) {
+            try {
+                deleteIfExists(Path.of(file));
+            } catch (IOException ex) {
+                ex.printStackTrace();
+            }
         }
-        try (FileWriter writer = new FileWriter(file)) {
-            writer.write("Datetime,Open,High,Low,Close,Volume" + System.lineSeparator());
+
+        try (FileWriter writer = new FileWriter(file, true)) {
+            if (isReplace || !Files.exists(Path.of(file))) {
+                writer.write("Datetime,Open,High,Low,Close,Volume" + System.lineSeparator());
+            }
             for (TickerCandle candle : candles) {
                 writer.write(String.format(
                         "%s,%s,%s,%s,%s,%s",
@@ -110,10 +133,11 @@ public class DataCollector {
         }
     }
 
-    private List<TickerCandle> getTickerCandles(String name, CandleInterval period, int counter) {
-        List<TickerCandle> candles = new ArrayList<>();
+    private List<TickerCandle> getTickerCandles(String name, CandleInterval period, Date lastCandleTime, int counter) {
+        Set<TickerCandle> candles = new LinkedHashSet<>();
         try {
-            var currentTime = now();
+            final Instant currentTime = now().toInstant();
+            final Instant startTime = lastCandleTime.toInstant();
             List<Share> stocks = tcsService.getMoexShares();
             String ticker = tickerRepository.getAll().values().stream()
                     .filter(it -> it.getType().equals(TickerType.STOCK))
@@ -122,16 +146,18 @@ public class DataCollector {
                     .findFirst()
                     .orElseThrow();
             stocks.stream().filter(it -> ticker.equals(it.getFigi())).forEach(stock -> {
-                for (int i = 365 * 5; i >= 365; i = i - 1) {
-                    var start = currentTime.minusDays(i + 1);
-                    var end = currentTime.minusDays(i);
-                    List<HistoricCandle> h1candles = tcsService.getCandles(
+                var start = getStartWithShift(period, startTime);
+                while (start.isBefore(currentTime)) {
+                    var end = start.plus(1, ChronoUnit.DAYS);
+                    out.println("Loading: " + stock.getTicker() + "[" + start + " -> " + end + "]");
+                    List<HistoricCandle> periodCandles = tcsService.getCandles(
                             stock.getFigi(),
                             start,
                             end,
                             period);
-                    out.println("Loading: " + stock.getTicker() + "[" + start + " -> " + end + "]");
-                    h1candles.forEach(candle -> {
+                    start = end;
+
+                    periodCandles.forEach(candle -> {
                         var dateTime = new Timestamp(candle.getTime().getSeconds() * 1000);
                         var open = toDouble(candle.getOpen());
                         var high = toDouble(candle.getHigh());
@@ -156,16 +182,44 @@ public class DataCollector {
             });
         } catch (Exception ex) {
             if (counter++ < 2) {
-                return getTickerCandles(name, period, counter);
+                return getTickerCandles(name, period, lastCandleTime, counter);
             } else {
                 out.println(ex.getMessage());
             }
         }
-        return candles;
+        return new ArrayList<>(candles);
     }
 
-    private List<Double> calculatePriceLevels(String name, String dir, CandleInterval period) {
-        if (isTodayFile(dir + "/" + name + "/levels.txt")) {
+    private static Instant getStartWithShift(CandleInterval period, Instant startTime) {
+        switch (period) {
+            case CANDLE_INTERVAL_1_MIN:
+                return startTime.plus(1, ChronoUnit.MINUTES);
+            case CANDLE_INTERVAL_5_MIN:
+                return startTime.plus(5, ChronoUnit.MINUTES);
+            case CANDLE_INTERVAL_10_MIN:
+                return startTime.plus(10, ChronoUnit.MINUTES);
+            case CANDLE_INTERVAL_15_MIN:
+                return startTime.plus(15, ChronoUnit.MINUTES);
+            case CANDLE_INTERVAL_30_MIN:
+                return startTime.plus(30, ChronoUnit.MINUTES);
+            case CANDLE_INTERVAL_HOUR:
+                return startTime.plus(1, ChronoUnit.HOURS);
+            case CANDLE_INTERVAL_2_HOUR:
+                return startTime.plus(2, ChronoUnit.HOURS);
+            case CANDLE_INTERVAL_4_HOUR:
+                return startTime.plus(4, ChronoUnit.HOURS);
+            case CANDLE_INTERVAL_DAY:
+                return startTime.plus(1, ChronoUnit.DAYS);
+            case CANDLE_INTERVAL_WEEK:
+                return startTime.plus(1, ChronoUnit.WEEKS);
+            case CANDLE_INTERVAL_MONTH:
+                return startTime.plus(1, ChronoUnit.MONTHS);
+        }
+        return startTime;
+    }
+
+    private List<Double> calculatePriceLevels(String name, String dir, CandleInterval period, boolean isReplace) {
+        if (!isReplace && isTodayFile(dir + "/" + name + "/levels.txt")) {
             out.println("Exists price levels: " + name);
             return readLevels(name, dir);
         }
@@ -242,5 +296,38 @@ public class DataCollector {
         var startOfDayDate = LocalDate.now().atStartOfDay();
         var fileDate = LocalDateTime.ofInstant(new Date(lastModified).toInstant(), ZoneId.systemDefault());
         return fileDate.isAfter(startOfDayDate);
+    }
+
+    public static List<TickerCandle> readCandlesFile(String name, String dir, CandleInterval period) {
+        var namePeriod = period.name().replace("CANDLE_INTERVAL_", "");
+        out.println("Read '" + namePeriod + "' candles file: " + name);
+        List<TickerCandle> tickers = new ArrayList<>();
+        try (BufferedReader br = new BufferedReader(new FileReader(dir + "/" + name + "/candles" + namePeriod + ".txt"))) {
+            boolean skipHeader = true;
+            String line = br.readLine();
+            while (line != null) {
+                if (skipHeader) {
+                    skipHeader = false;
+                    line = br.readLine();
+                    continue;
+                }
+
+                String[] values = line.split(",");
+                tickers.add(new TickerCandle(
+                        name,
+                        values[0],
+                        Double.valueOf(values[1]),
+                        Double.valueOf(values[2]),
+                        Double.valueOf(values[3]),
+                        Double.valueOf(values[4]),
+                        Double.valueOf(values[4]),
+                        Integer.valueOf(values[5])
+                ));
+                line = br.readLine();
+            }
+        } catch (Exception ex) {
+            out.println(ex.getMessage());
+        }
+        return tickers;
     }
 }

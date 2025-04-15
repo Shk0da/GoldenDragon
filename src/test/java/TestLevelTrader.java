@@ -145,7 +145,7 @@ public class TestLevelTrader {
             if (result > bestResult) {
                 bestResult = result;
                 out.println(bestResult + "%: " + ailConfig);
-                telegramNotifyService.sendMessage(bestResult + ": " + ailConfig);
+                telegramNotifyService.sendMessage(bestResult + "%: " + ailConfig);
             }
         }
     }
