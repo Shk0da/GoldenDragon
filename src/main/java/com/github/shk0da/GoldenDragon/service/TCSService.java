@@ -28,6 +28,7 @@ import ru.tinkoff.piapi.core.models.Portfolio;
 import ru.tinkoff.piapi.core.models.Positions;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.util.Date;
 import java.util.HashMap;
@@ -86,6 +87,10 @@ public class TCSService {
 
     public GetOrderBookResponse getOrderBook(String figi, int depth /*1, 10, 20, 30, 40, 50*/) {
         return investApi.getMarketDataService().getOrderBookSync(figi, depth);
+    }
+
+    public List<HistoricCandle> getCandles(String figi, Instant start, Instant end, CandleInterval interval) {
+        return investApi.getMarketDataService().getCandlesSync(figi, start, end, interval);
     }
 
     public List<HistoricCandle> getCandles(String figi, OffsetDateTime start, OffsetDateTime end, CandleInterval interval) {
