@@ -9,6 +9,7 @@ import com.github.shk0da.GoldenDragon.model.TickerType;
 import com.github.shk0da.GoldenDragon.repository.Repository;
 import com.github.shk0da.GoldenDragon.repository.TickerRepository;
 import com.github.shk0da.GoldenDragon.service.TCSService;
+import com.github.shk0da.GoldenDragon.utils.GerchikUtils;
 import com.github.shk0da.GoldenDragon.utils.IndicatorsUtil;
 import ml.dmlc.xgboost4j.java.Booster;
 import ml.dmlc.xgboost4j.java.DMatrix;
@@ -32,8 +33,10 @@ import java.util.ArrayList;
 import java.util.Calendar;
 import java.util.Date;
 import java.util.GregorianCalendar;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
@@ -66,6 +69,7 @@ public class AITrader {
 
     private final TCSService tcsService;
     private final AILConfig ailConfig;
+    private final GerchikUtils gerchikUtils = new GerchikUtils();
 
     private final Double tpPercent;
     private final Double slPercent;
@@ -74,6 +78,7 @@ public class AITrader {
 
     private final AtomicInteger winCounter = new AtomicInteger(0);
     private final AtomicInteger loseCounter = new AtomicInteger(0);
+    private final Set<OrderInfo> orders = ConcurrentHashMap.newKeySet();
 
     public AITrader(AILConfig ailConfig, TCSService tcsService) {
         this.tcsService = tcsService;
@@ -82,6 +87,19 @@ public class AITrader {
         this.slPercent = ailConfig.getSlPercent();
         this.balanceRiskPercent = ailConfig.getBalanceRiskPercent();
         this.averagePositionCost = ailConfig.getAveragePositionCost();
+    }
+
+    public static class OrderInfo {
+
+        private final String tickerName;
+        private final Date time;
+        private final Double profit;
+
+        public OrderInfo(String tickerName, Date time, Double profit) {
+            this.tickerName = tickerName;
+            this.time = time;
+            this.profit = profit;
+        }
     }
 
     public static class TickerDayInfo {
@@ -160,11 +178,59 @@ public class AITrader {
 
             var profit = tcsService.getTotalPortfolioCost() - initPortfolioCost;
             var profitInPercents = (tcsService.getTotalPortfolioCost() - initPortfolioCost) / initPortfolioCost * 100;
-            var statsMessage = "Day profit: " + decimalFormat.format(profit) + "(" + profitInPercents + "%).\n";
+            var statsMessage = "Day profit: " + decimalFormat.format(profit) + "₽ (" + decimalFormat.format(profitInPercents) + "%).\n";
 
             if (winCounter.get() > 0 && loseCounter.get() > 0) {
                 var winRatePercent = (double) winCounter.get() / (winCounter.get() + loseCounter.get()) * 100;
-                statsMessage += "Wins/Lose: " + winCounter.get() + "/" + loseCounter.get() + " (" + decimalFormat.format(winRatePercent) + "%).\n";
+                statsMessage += "Win/Lose: " + winCounter.get() + "/" + loseCounter.get() + " (" + decimalFormat.format(winRatePercent) + "%).\n";
+            }
+
+            if (!orders.isEmpty()) {
+                statsMessage += "--------------------------\n";
+                Map<String, List<OrderInfo>> tickerByOrderInfo = new HashMap<>();
+                Map<Integer, List<OrderInfo>> timeByOrderInfo = new HashMap<>();
+                for (OrderInfo order : orders) {
+                    var tickers = tickerByOrderInfo.getOrDefault(order.tickerName, new ArrayList<>());
+                    tickers.add(order);
+                    tickerByOrderInfo.put(order.tickerName, tickers);
+                    var orderHour = order.time.getHours();
+                    var times = timeByOrderInfo.getOrDefault(orderHour, new ArrayList<>());
+                    times.add(order);
+                    timeByOrderInfo.put(orderHour, times);
+                }
+
+                statsMessage += "Profit by hours:\n";
+                for (Map.Entry<Integer, List<OrderInfo>> entry : timeByOrderInfo.entrySet()) {
+                    var loseCounter = 0;
+                    var winCounter = 0;
+                    var totalProfit = 0.0D;
+                    for (OrderInfo orderInfo : entry.getValue()) {
+                        if (orderInfo.profit > 0) {
+                            winCounter++;
+                        } else {
+                            loseCounter++;
+                        }
+                        totalProfit += orderInfo.profit;
+                    }
+                    var winRatePercent = (double) winCounter / (winCounter + loseCounter) * 100;
+                    statsMessage += entry.getKey() + ":00 - " + entry.getKey() + ":59 -> " + decimalFormat.format(totalProfit) + ". Win/Lose: " + winCounter + "/" + loseCounter + " (" + decimalFormat.format(winRatePercent) + "%).\n";
+                }
+                statsMessage += "Profit by ticker:\n";
+                for (Map.Entry<String, List<OrderInfo>> entry : tickerByOrderInfo.entrySet()) {
+                    var loseCounter = 0;
+                    var winCounter = 0;
+                    var totalProfit = 0.0D;
+                    for (OrderInfo orderInfo : entry.getValue()) {
+                        if (orderInfo.profit > 0) {
+                            winCounter++;
+                        } else {
+                            loseCounter++;
+                        }
+                        totalProfit += orderInfo.profit;
+                    }
+                    var winRatePercent = (double) winCounter / (winCounter + loseCounter) * 100;
+                    statsMessage += entry.getKey() + " -> " + decimalFormat.format(totalProfit) + ". Win/Lose: " + winCounter + "/" + loseCounter + " (" + decimalFormat.format(winRatePercent) + "%).\n";
+                }
             }
 
             telegramNotifyService.sendMessage(statsMessage);
@@ -198,11 +264,12 @@ public class AITrader {
                         getBooster(name, ailConfig.getDataDir())
                 );
             });
-            var decision = decision(tickerDayInfo);
+
+            var decision = isTradingHours() ? decision(tickerDayInfo) : 0;
             var type = tickerDayInfo.getTickerJson().getTicker().getType();
             var currentPosition = tcsService.getCurrentPositions(type, name);
             var currentPositionBalance = null == currentPosition ? 0.0 : currentPosition.getBalance();
-            if (0 != decision && isTradingHours()) {
+            if (0 != decision) {
                 if (0 == currentPositionBalance) {
                     var balance = tcsService.getAvailableCash();
                     var cashToOrder = (balance / 100) * balanceRiskPercent;
@@ -244,6 +311,7 @@ public class AITrader {
                         tcsService.closeLongByMarket(name, type);
                         telegramNotifyService.sendMessage(closeMessage);
                         winCounter.incrementAndGet();
+                        orders.add(new OrderInfo(name, new Date(), (currentPrice - positionPrice)));
                     }
                     if (expectedYield < (-1) * slPercent && ailConfig.isSlEnabled() && !ailConfig.isSlAuto()) {
                         var closeMessage = "LONG SL " + expectedYieldMessage;
@@ -251,6 +319,7 @@ public class AITrader {
                         tcsService.closeLongByMarket(name, type);
                         telegramNotifyService.sendMessage(closeMessage);
                         loseCounter.incrementAndGet();
+                        orders.add(new OrderInfo(name, new Date(), (currentPrice - positionPrice)));
                     }
                 }
                 if (currentPositionBalance < 0 && (expectedYield > tpPercent || expectedYield < ((-1) * slPercent))) {
@@ -263,6 +332,7 @@ public class AITrader {
                         tcsService.closeShortByMarket(name, type);
                         telegramNotifyService.sendMessage(closeMessage);
                         winCounter.incrementAndGet();
+                        orders.add(new OrderInfo(name, new Date(), (positionPrice - currentPrice)));
                     }
                     if (expectedYield < (-1) * slPercent && ailConfig.isSlEnabled() && !ailConfig.isSlAuto()) {
                         var closeMessage = "SHORT SL " + expectedYieldMessage;
@@ -270,6 +340,7 @@ public class AITrader {
                         tcsService.closeShortByMarket(name, type);
                         telegramNotifyService.sendMessage(closeMessage);
                         loseCounter.incrementAndGet();
+                        orders.add(new OrderInfo(name, new Date(), (positionPrice - currentPrice)));
                     }
                 }
             }
@@ -296,16 +367,18 @@ public class AITrader {
         if (Boolean.TRUE.equals(hasTrendUp)) {
             var hasUpATR = (startOfDay.getLow() + (atr - (atr * 0.2))) > (lastCandle.getClose() + tp);
             if (hasUpATR) {
-                var data = createInput(candles, candles.size() - 1, startOfDay.getClose(), levels);
-                var input = getNetworkInput(data);
-                var output = network.rnnTimeStep(Nd4j.create(input)).getDouble(0);
-                var labels = getBoosterInput(data);
-                var vector = new DMatrix(labels, 1, labels.length, Float.NaN);
-                var predict = booster.predict(vector)[0][0];
-                if ((output + predict) >= ailConfig.getSumOfDecision()
-                        && (output > ailConfig.getSensitivityLong()
-                        || predict > ailConfig.getBoosterSensitivityLong())) {
-                    return 1;
+                if (gerchikUtils.getLevelAction(candles, levels).getLeft()) {
+                    var data = createInput(candles, candles.size() - 1, startOfDay.getClose(), levels);
+                    var input = getNetworkInput(data);
+                    var output = network.rnnTimeStep(Nd4j.create(input)).getDouble(0);
+                    var labels = getBoosterInput(data);
+                    var vector = new DMatrix(labels, 1, labels.length, Float.NaN);
+                    var predict = booster.predict(vector)[0][0];
+                    if ((output + predict) >= ailConfig.getSumOfDecision()
+                            && (output > ailConfig.getSensitivityLong()
+                            || predict > ailConfig.getBoosterSensitivityLong())) {
+                        return 1;
+                    }
                 }
             }
         }
@@ -313,16 +386,18 @@ public class AITrader {
         if (Boolean.FALSE.equals(hasTrendUp)) {
             var hasDownATR = (lastCandle.getClose() - tp) + (atr - (atr * 0.2)) < startOfDay.getHigh();
             if (hasDownATR) {
-                var data = createInput(candles, candles.size() - 1, startOfDay.getClose(), levels);
-                var input = getNetworkInput(data);
-                var output = network.rnnTimeStep(Nd4j.create(input)).getDouble(0);
-                var labels = getBoosterInput(data);
-                var vector = new DMatrix(labels, 1, labels.length, Float.NaN);
-                var predict = booster.predict(vector)[0][0];
-                if ((output + predict) <= ((-1) * ailConfig.getSumOfDecision())
-                        && (output < ((-1) * ailConfig.getSensitivityShort())
-                        || predict < ((-1) * ailConfig.getBoosterSensitivityShort()))) {
-                    return -1;
+                if (gerchikUtils.getLevelAction(candles, levels).getRight()) {
+                    var data = createInput(candles, candles.size() - 1, startOfDay.getClose(), levels);
+                    var input = getNetworkInput(data);
+                    var output = network.rnnTimeStep(Nd4j.create(input)).getDouble(0);
+                    var labels = getBoosterInput(data);
+                    var vector = new DMatrix(labels, 1, labels.length, Float.NaN);
+                    var predict = booster.predict(vector)[0][0];
+                    if ((output + predict) <= ((-1) * ailConfig.getSumOfDecision())
+                            && (output < ((-1) * ailConfig.getSensitivityShort())
+                            || predict < ((-1) * ailConfig.getBoosterSensitivityShort()))) {
+                        return -1;
+                    }
                 }
             }
         }
@@ -415,7 +490,7 @@ public class AITrader {
 
     private boolean isHasTrendUp(String tickerName) {
         int idx = 0;
-        var candles = getTickerCandles(tickerName, 80 * (60/5), CANDLE_INTERVAL_HOUR, 0);
+        var candles = getTickerCandles(tickerName, 80 * (60 / 5), CANDLE_INTERVAL_HOUR, 0);
         double[] inClose = new double[candles.size()];
         for (TickerCandle candle : candles) {
             inClose[idx++] = candle.getClose();
