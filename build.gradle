@@ -1,5 +1,6 @@
 plugins {
     id 'java'
+    id 'application'
 }
 
 group 'com.github.shk0da'
@@ -34,4 +35,9 @@ task uberJar(type: Jar) {
         duplicatesStrategy = DuplicatesStrategy.EXCLUDE
         configurations.runtimeClasspath.filter { it.name.endsWith("jar") }.collect { zipTree(it) }
     }
+}
+
+task TestLevelTrader(type:JavaExec) {
+    main = "TestLevelTrader"
+    classpath = sourceSets.test.runtimeClasspath
 }

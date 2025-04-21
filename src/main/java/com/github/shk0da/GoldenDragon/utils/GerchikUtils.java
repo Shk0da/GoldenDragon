@@ -74,11 +74,11 @@ public class GerchikUtils {
         }
     }
 
-    private int levelConfirmationTouches = 3;
-    private double levelZonePercent = 0.0025;
-    private double breakoutConfirmationPercent = 0.001;
-    private double falseBreakoutThreshold = 0.0005;
-    private double volumeMultiplier = 1.5;
+    private int levelConfirmationTouches = 0;
+    private double levelZonePercent = 0.0075;
+    private double breakoutConfirmationPercent = 0.01;
+    private double falseBreakoutThreshold = 0.00025;
+    private double volumeMultiplier = 0.65;
     private int confirmationCandles = 3;
 
     public GerchikUtils() {
