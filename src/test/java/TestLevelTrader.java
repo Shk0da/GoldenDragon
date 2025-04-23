@@ -8,6 +8,7 @@ import com.github.shk0da.GoldenDragon.repository.TickerRepository;
 import com.github.shk0da.GoldenDragon.service.TelegramNotifyService;
 import com.github.shk0da.GoldenDragon.utils.GerchikUtils;
 import com.github.shk0da.GoldenDragon.utils.IndicatorsUtil;
+import com.google.gson.GsonBuilder;
 import com.google.gson.reflect.TypeToken;
 import ml.dmlc.xgboost4j.java.Booster;
 import ml.dmlc.xgboost4j.java.DMatrix;
@@ -33,14 +34,23 @@ import java.io.File;
 import java.io.FileOutputStream;
 import java.io.FileReader;
 import java.io.IOException;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 import java.nio.file.Path;
 import java.text.DecimalFormat;
+import java.time.Duration;
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
+import java.util.Date;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static com.github.shk0da.GoldenDragon.repository.TickerRepository.SERIALIZE_NAME;
@@ -51,8 +61,10 @@ import static com.github.shk0da.GoldenDragon.utils.IndicatorsUtil.INDICATORS_SHI
 import static com.github.shk0da.GoldenDragon.utils.IndicatorsUtil.calculateATR;
 import static com.github.shk0da.GoldenDragon.utils.IndicatorsUtil.convertCandles;
 import static com.github.shk0da.GoldenDragon.utils.SerializationUtils.loadDataFromDisk;
+import static com.github.shk0da.GoldenDragon.utils.TimeUtils.sleep;
 import static java.lang.System.out;
 import static java.nio.file.Files.deleteIfExists;
+import static java.time.OffsetDateTime.now;
 
 public class TestLevelTrader {
 
@@ -98,9 +110,85 @@ public class TestLevelTrader {
     }
 
     public static void main(String[] args) throws Exception {
+        // [
+        //  [
+        //    1499040000000,      // Kline open time
+        //    "0.01634790",       // Open price
+        //    "0.80000000",       // High price
+        //    "0.01575800",       // Low price
+        //    "0.01577100",       // Close price
+        //    "148976.11427815",  // Volume
+        //    1499644799999,      // Kline close time
+        //    "2434.19055334",    // Quote asset volume
+        //    308,                // Number of trades
+        //    "1756.87402397",    // Taker buy base asset volume
+        //    "28.46694368",      // Taker buy quote asset volume
+        //    "0"                 // Unused field. Ignore.
+        //  ]
+        //]
+
         // https://github.com/binance/binance-spot-api-docs/blob/master/rest-api.md
-        // https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1H&startTime=1743474125&endTime=1743560525&limit=100
+        // https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1h&startTime=1499040000000&limit=100
+        getTickerCandles("BTCUSDT", "1h", Date.from(Instant.now().minus(1, ChronoUnit.DAYS)), 0);
     }
+
+
+    private static final HttpClient httpClient = HttpClient.newHttpClient();
+    private static List<TickerCandle> getTickerCandles(String name, String period, Date start, int counter) {
+        Set<TickerCandle> candles = new LinkedHashSet<>();
+        try {
+            Instant currentTime = now().toInstant();
+            Instant startTime = start.toInstant();
+            while (startTime.isBefore(currentTime)) {
+                var end = startTime.plus(1, ChronoUnit.DAYS);
+                out.println("Loading: " + name + "[" + start + " -> " + end + "]");
+
+                var url = "https://api.binance.com/api/v3/klines?symbol="+name+"&interval="+period+"&startTime="+startTime.toEpochMilli()+"&endTime="+end.toEpochMilli()+"&limit=100";
+                HttpRequest historyRequest = HttpRequest.newBuilder()
+                        .uri(URI.create(url))
+                        .timeout(Duration.of(10, ChronoUnit.SECONDS))
+                        .GET()
+                        .build();
+                HttpResponse<String> response = httpClient.send(historyRequest, HttpResponse.BodyHandlers.ofString());
+                startTime = end;
+
+                List<Map<String, String>> example = new ArrayList<Map<String, String>>();
+                var content = new GsonBuilder().create().fromJson(response.body(), example.getClass());
+
+                out.println(content);
+
+                /*periodCandles.forEach(candle -> {
+                    var dateTime = new Timestamp(candle.getTime().getSeconds() * 1000);
+                    var open = toDouble(candle.getOpen());
+                    var high = toDouble(candle.getHigh());
+                    var low = toDouble(candle.getLow());
+                    var close = toDouble(candle.getClose());
+                    var volume = candle.getVolume();
+                    candles.add(
+                            new TickerCandle(
+                                    name,
+                                    dateTimeFormat.format(dateTime),
+                                    open,
+                                    high,
+                                    low,
+                                    close,
+                                    close,
+                                    (int) volume
+                            )
+                    );
+                });*/
+                sleep(100);
+            }
+        } catch (Exception ex) {
+            if (counter++ < 2) {
+                return getTickerCandles(name, period, start, counter);
+            } else {
+                out.println(ex.getMessage());
+            }
+        }
+        return new ArrayList<>(candles);
+    }
+
 
     public static void main2(String[] args) throws Exception {
         var bestResult = 0.0D;

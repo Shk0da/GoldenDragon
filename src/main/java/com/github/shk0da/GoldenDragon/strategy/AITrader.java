@@ -174,7 +174,7 @@ public class AITrader {
             out.println(buyMessage);
 
             shutdownExecutor(executor);
-            tcsService.closeAllByMarket(TickerType.STOCK);
+            // tcsService.closeAllByMarket(TickerType.STOCK);
 
             var profit = tcsService.getTotalPortfolioCost() - initPortfolioCost;
             var profitInPercents = (tcsService.getTotalPortfolioCost() - initPortfolioCost) / initPortfolioCost * 100;
@@ -241,14 +241,14 @@ public class AITrader {
     private boolean isTradingHours() {
         var calendar = new GregorianCalendar();
         var hour = calendar.get(Calendar.HOUR_OF_DAY);
-        return !(hour >= 18);
+        return !(hour == 23);
     }
 
     private boolean isWorkingHours() {
         var calendar = new GregorianCalendar();
         var hour = calendar.get(Calendar.HOUR_OF_DAY);
         var minute = calendar.get(Calendar.MINUTE);
-        return !(hour == 18 && minute >= 30 || hour >= 19);
+        return !(hour == 23 && minute >= 30);
     }
 
     private void handleTicker(String name) {
