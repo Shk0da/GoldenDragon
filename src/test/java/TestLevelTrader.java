@@ -98,6 +98,11 @@ public class TestLevelTrader {
     }
 
     public static void main(String[] args) throws Exception {
+        // https://github.com/binance/binance-spot-api-docs/blob/master/rest-api.md
+        // https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1H&startTime=1743474125&endTime=1743560525&limit=100
+    }
+
+    public static void main2(String[] args) throws Exception {
         var bestResult = 0.0D;
         var bestProfit = 0.0D;
         var bestConfig = new GerchikUtils();
