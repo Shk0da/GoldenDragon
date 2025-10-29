@@ -4,13 +4,11 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.shk0da.GoldenDragon.config.DataCollectorConfig;
 import com.github.shk0da.GoldenDragon.model.TickerCandle;
 import com.github.shk0da.GoldenDragon.model.TickerInfo;
-import com.github.shk0da.GoldenDragon.model.TickerType;
 import com.github.shk0da.GoldenDragon.repository.Repository;
 import com.github.shk0da.GoldenDragon.repository.TickerRepository;
 import com.github.shk0da.GoldenDragon.service.TCSService;
 import ru.tinkoff.piapi.contract.v1.CandleInterval;
 import ru.tinkoff.piapi.contract.v1.HistoricCandle;
-import ru.tinkoff.piapi.contract.v1.Share;
 
 import java.io.BufferedReader;
 import java.io.File;
@@ -37,6 +35,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import static com.github.shk0da.GoldenDragon.model.TickerType.FEATURE;
+import static com.github.shk0da.GoldenDragon.model.TickerType.STOCK;
 import static com.github.shk0da.GoldenDragon.utils.IndicatorsUtil.toDouble;
 import static com.github.shk0da.GoldenDragon.utils.TimeUtils.sleep;
 import static java.lang.System.out;
@@ -139,48 +139,41 @@ public class DataCollector {
         try {
             final Instant currentTime = now().toInstant();
             final Instant startTime = lastCandleTime.toInstant();
-            List<Share> stocks = tcsService.getMoexShares();
             String ticker = tickerRepository.getAll().values().stream()
-                    .filter(it -> it.getType().equals(TickerType.STOCK))
+                    .filter(it -> it.getType().equals(STOCK) || it.getType().equals(FEATURE))
                     .filter(it -> it.getName().equalsIgnoreCase(name) || it.getTicker().equalsIgnoreCase(name))
                     .map(TickerInfo::getFigi)
                     .findFirst()
                     .orElseThrow();
-            stocks.stream().filter(it -> ticker.equals(it.getFigi())).forEach(stock -> {
-                var start = getStartWithShift(period, startTime);
-                while (start.isBefore(currentTime)) {
-                    var end = start.plus(1, ChronoUnit.DAYS);
-                    out.println("Loading: " + stock.getTicker() + "[" + start + " -> " + end + "]");
-                    List<HistoricCandle> periodCandles = tcsService.getCandles(
-                            stock.getFigi(),
-                            start,
-                            end,
-                            period);
-                    start = end;
+            var start = getStartWithShift(period, startTime);
+            while (start.isBefore(currentTime)) {
+                var end = start.plus(1, ChronoUnit.DAYS);
+                out.println("Loading: " + name.toUpperCase() + "[" + start + " -> " + end + "]");
+                List<HistoricCandle> periodCandles = tcsService.getCandles(ticker, start, end, period);
+                start = end;
 
-                    periodCandles.forEach(candle -> {
-                        var dateTime = new Timestamp(candle.getTime().getSeconds() * 1000);
-                        var open = toDouble(candle.getOpen());
-                        var high = toDouble(candle.getHigh());
-                        var low = toDouble(candle.getLow());
-                        var close = toDouble(candle.getClose());
-                        var volume = candle.getVolume();
-                        candles.add(
-                                new TickerCandle(
-                                        name,
-                                        dateTimeFormat.format(dateTime),
-                                        open,
-                                        high,
-                                        low,
-                                        close,
-                                        close,
-                                        (int) volume
-                                )
-                        );
-                    });
-                    sleep(100);
-                }
-            });
+                periodCandles.forEach(candle -> {
+                    var dateTime = new Timestamp(candle.getTime().getSeconds() * 1000);
+                    var open = toDouble(candle.getOpen());
+                    var high = toDouble(candle.getHigh());
+                    var low = toDouble(candle.getLow());
+                    var close = toDouble(candle.getClose());
+                    var volume = candle.getVolume();
+                    candles.add(
+                            new TickerCandle(
+                                    name,
+                                    dateTimeFormat.format(dateTime),
+                                    open,
+                                    high,
+                                    low,
+                                    close,
+                                    close,
+                                    (int) volume
+                            )
+                    );
+                });
+                sleep(100);
+            }
         } catch (Exception ex) {
             if (counter++ < 2) {
                 return getTickerCandles(name, period, lastCandleTime, counter);
@@ -277,7 +270,7 @@ public class DataCollector {
 
         try (FileWriter writer = new FileWriter(dir + "/" + name + "/ticker.json")) {
             TickerInfo ticker = tickerRepository.getAll().values().stream()
-                    .filter(it -> it.getType().equals(TickerType.STOCK))
+                    .filter(it -> it.getType().equals(STOCK))
                     .filter(it -> it.getName().equalsIgnoreCase(name) || it.getTicker().equalsIgnoreCase(name))
                     .findFirst()
                     .orElseThrow();

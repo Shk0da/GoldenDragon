@@ -162,6 +162,7 @@ public class GoldenDragon {
             tickerRepository.putAll(tcsService.getEtfList());
             tickerRepository.putAll(tcsService.getStockList());
             tickerRepository.putAll(tcsService.getBondList());
+            tickerRepository.putAll(tcsService.getFuturesList());
             saveDataToDisk(SERIALIZE_NAME, tickerRepository.getAll());
         } else {
             tickerRepository.putAll(tickerRegister.get());

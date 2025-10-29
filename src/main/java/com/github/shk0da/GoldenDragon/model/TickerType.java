@@ -2,7 +2,7 @@ package com.github.shk0da.GoldenDragon.model;
 
 public enum TickerType {
 
-    BOND, STOCK, ETF, CURRENCY, UNKNOWN;
+    BOND, STOCK, ETF, CURRENCY, FEATURE, UNKNOWN;
 
     public static TickerType ALL = null;
 

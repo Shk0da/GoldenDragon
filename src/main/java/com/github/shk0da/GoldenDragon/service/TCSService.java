@@ -13,6 +13,7 @@ import ru.tinkoff.piapi.contract.v1.Bond;
 import ru.tinkoff.piapi.contract.v1.CandleInterval;
 import ru.tinkoff.piapi.contract.v1.Currency;
 import ru.tinkoff.piapi.contract.v1.Etf;
+import ru.tinkoff.piapi.contract.v1.Future;
 import ru.tinkoff.piapi.contract.v1.GetOrderBookResponse;
 import ru.tinkoff.piapi.contract.v1.HistoricCandle;
 import ru.tinkoff.piapi.contract.v1.Order;
@@ -464,6 +465,23 @@ public class TCSService {
                         it.getCurrency(),
                         it.getName(),
                         TickerType.CURRENCY.name()
+                ))
+                .collect(Collectors.toMap(TickerInfo::getKey, it -> it, (o, n) -> n));
+    }
+
+    public Map<TickerInfo.Key, TickerInfo> getFuturesList() {
+        out.println("Loading current features from TCS...");
+        List<Future> futures = investApi.getInstrumentsService().getTradableFuturesSync();
+        return futures.stream()
+                .map(it -> new TickerInfo(
+                        it.getFigi(),
+                        it.getTicker(),
+                        it.getBasicAsset(),
+                        toDouble(it.getMinPriceIncrement()),
+                        it.getLot(),
+                        it.getCurrency(),
+                        it.getName(),
+                        TickerType.FEATURE.name()
                 ))
                 .collect(Collectors.toMap(TickerInfo::getKey, it -> it, (o, n) -> n));
     }

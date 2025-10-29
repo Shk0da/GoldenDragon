@@ -86,3 +86,4 @@ Thumbs.db
 
 !gradle/wrapper/gradle-wrapper.jar
 /data/
+tickers.json
