@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Финансовые рынки сегодня</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background-color: #f7f9fc;
+      color: #333;
+      margin: 0;
+      padding: 20px;
+    }
+    .container {
+      max-width: 900px;
+      margin: 0 auto;
+      background: white;
+      padding: 20px;
+      border-radius: 8px;
+      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+    }
+    h1 {
+      text-align: center;
+      color: #2c3e50;
+      margin-bottom: 20px;
+    }
+    .news-item {
+      border-bottom: 1px solid #eee;
+      padding: 15px 0;
+    }
+    .news-item:last-child {
+      border-bottom: none;
+    }
+    .news-header {
+      font-size: 1.4em;
+      font-weight: bold;
+      color: #2980b9;
+      margin: 0 0 8px 0;
+      line-height: 1.3;
+    }
+    .news-date {
+      font-size: 0.9em;
+      color: #7f8c8d;
+      margin: 0 0 8px 0;
+    }
+    .news-content {
+      font-size: 1em;
+      line-height: 1.6;
+      color: #555;
+    }
+    .news-content p {
+      margin: 8px 0;
+    }
+    .loading {
+      text-align: center;
+      font-size: 1.2em;
+      color: #7f8c8d;
+      margin: 30px 0;
+    }
+    .error {
+      color: #e74c3c;
+      text-align: center;
+      font-weight: bold;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Финансовые рынки сегодня</h1>
+    <h2>Котировки</h2>
+    <iframe id="main_frame" src="https://jq.profinance.ru/html/htmlquotes/site.jsp" padding="0" marginwidth="0" marginheight="0" width="100%" height="780" frameborder="0" scrolling="no"></iframe>
+    <h2>Лента новостей</h2>
+    <div id="news-container">
+      <p class="loading">Загрузка новостей...</p>
+    </div>
+  </div>
+
+  <script>
+    const newsContainer = document.getElementById('news-container');
+    const apiUrl = 'https://api.alor.ru/news/news?limit=10&offset=0&sortDesc=true';
+
+    async function fetchNews() {
+      try {
+        const response = await fetch(apiUrl);
+        if (!response.ok) throw new Error(`Ошибка: ${response.status}`);
+        
+        const newsList = await response.json();
+
+        if (!Array.isArray(newsList) || newsList.length === 0) {
+          newsContainer.innerHTML = '<p>Новости не найдены.</p>';
+          return;
+        }
+
+        newsContainer.innerHTML = ''; // Очистить "загрузку"
+
+        newsList.forEach(news => {
+          const date = new Date(news.publishDate);
+          const formattedDate = date.toLocaleString('ru-RU', {
+            day: '2-digit',
+            month: '2-digit',
+            year: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit'
+          });
+
+          // Очистка и безопасное отображение HTML-контента
+          const tempDiv = document.createElement('div');
+          tempDiv.innerHTML = news.content;
+          const paragraphs = Array.from(tempDiv.querySelectorAll('p, P')).map(p => `<p>${p.textContent}</p>`).join('');
+
+          const newsItem = document.createElement('div');
+          newsItem.className = 'news-item';
+          newsItem.innerHTML = `
+            <h2 class="news-header">${news.header}</h2>
+            <div class="news-date">${formattedDate}</div>
+            <div class="news-content">${paragraphs}</div>
+          `;
+
+          newsContainer.appendChild(newsItem);
+        });
+      } catch (error) {
+        newsContainer.innerHTML = `<p class="error">Не удалось загрузить новости: ${error.message}</p>`;
+        console.error('Ошибка загрузки новостей:', error);
+      }
+    }
+
+    // Загрузка при открытии страницы
+    fetchNews();
+  </script>
+</body>
+</html>
