@@ -85,5 +85,9 @@ Thumbs.db
 **/bin
 
 !gradle/wrapper/gradle-wrapper.jar
+/.vscode/settings.json
+/application.properties
 /data/
+/td/
+/telegram_session/
 tickers.json
