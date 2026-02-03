@@ -1,23 +1,27 @@
 package com.github.shk0da.GoldenDragon.service;
 
 import com.github.shk0da.GoldenDragon.config.TelegramAppConfig;
-import java.io.BufferedReader;
 import java.io.File;
-import java.io.IOError;
-import java.io.IOException;
-import java.io.InputStreamReader;
+import java.time.OffsetDateTime;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.NavigableSet;
 import java.util.TreeSet;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
-import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 import org.drinkless.tdlib.Client;
 import org.drinkless.tdlib.TdApi;
+import org.drinkless.tdlib.TdApi.Message;
+import org.drinkless.tdlib.TdApi.MessageText;
+
 
 import static com.github.shk0da.GoldenDragon.utils.NativeLoaderUtils.loadLibrary;
+import static com.github.shk0da.GoldenDragon.utils.TimeUtils.sleep;
+import static java.lang.System.currentTimeMillis;
 
 public class TelegramAppService {
 
@@ -78,8 +82,34 @@ public class TelegramAppService {
             }
         }
         while (!canQuit) {
-            Thread.sleep(1);
+            sleep(1);
         }
+    }
+
+    public List<String> getMessages(String channelId, OffsetDateTime startTime, OffsetDateTime endTime) {
+        AtomicReference<List<String>> result = new AtomicReference<>(List.of());
+        try {
+            var startHandle = currentTimeMillis();
+            client.send(new TdApi.GetChatHistory(getChatId(channelId), 0, 0, 10, false), (TdApi.Object object) -> {
+                var messagesObj = ((TdApi.Messages) object);
+                List<String> messages = new ArrayList<>(messagesObj.totalCount);
+                for (Message message : messagesObj.messages) {
+                    var start = startTime.toInstant().toEpochMilli() / 1_000;
+                    var end = endTime.toInstant().toEpochMilli() / 1_000;
+                    var isText = message.content instanceof MessageText;
+                    if (isText && message.date > start && message.date <= end) {
+                        messages.add(((MessageText) message.content).text.text);
+                    }
+                }
+                result.set(messages);
+            });
+            while (result.get().isEmpty() || currentTimeMillis() - startHandle < 2_000) {
+                sleep(200);
+            }
+        } catch (Exception ex) {
+            System.err.println("Failed read messages from " + channelId + ": " + ex.getMessage());
+        }
+        return result.get();
     }
 
     private Client createClient() {
@@ -91,7 +121,7 @@ public class TelegramAppService {
             Client.execute(new TdApi.SetLogVerbosityLevel(0));
             Client.execute(new TdApi.SetLogStream(new TdApi.LogStreamFile("tdlib.log", 1 << 27, false)));
         } catch (Client.ExecutionException error) {
-            throw new IOError(new IOException("Write access to the current directory is required"));
+            throw new java.io.IOError(new java.io.IOException("Write access to the current directory is required"));
         }
 
         // create client
@@ -241,11 +271,11 @@ public class TelegramAppService {
     private String promptString(String prompt) {
         System.out.print(prompt);
         currentPrompt = prompt;
-        BufferedReader reader = new BufferedReader(new InputStreamReader(System.in));
+        java.io.BufferedReader reader = new java.io.BufferedReader(new java.io.InputStreamReader(System.in));
         String str = "";
         try {
             str = reader.readLine();
-        } catch (IOException e) {
+        } catch (java.io.IOException e) {
             e.printStackTrace();
         }
         currentPrompt = null;
@@ -743,9 +773,9 @@ public class TelegramAppService {
     private void onFatalError(String errorMessage) {
         final class ThrowError implements Runnable {
             private final String errorMessage;
-            private final AtomicLong errorThrowTime;
+            private final java.util.concurrent.atomic.AtomicLong errorThrowTime;
 
-            private ThrowError(String errorMessage, AtomicLong errorThrowTime) {
+            private ThrowError(String errorMessage, java.util.concurrent.atomic.AtomicLong errorThrowTime) {
                 this.errorMessage = errorMessage;
                 this.errorThrowTime = errorThrowTime;
             }
@@ -757,12 +787,12 @@ public class TelegramAppService {
                     return;
                 }
 
-                errorThrowTime.set(System.currentTimeMillis());
+                errorThrowTime.set(currentTimeMillis());
                 throw new ClientError("TDLib fatal error: " + errorMessage);
             }
 
             private void processExternalError() {
-                errorThrowTime.set(System.currentTimeMillis());
+                errorThrowTime.set(currentTimeMillis());
                 throw new ExternalClientError("Fatal error: " + errorMessage);
             }
 
@@ -797,11 +827,11 @@ public class TelegramAppService {
             }
         }
 
-        final AtomicLong errorThrowTime = new AtomicLong(Long.MAX_VALUE);
+        final java.util.concurrent.atomic.AtomicLong errorThrowTime = new java.util.concurrent.atomic.AtomicLong(Long.MAX_VALUE);
         new Thread(new ThrowError(errorMessage, errorThrowTime), "TDLib fatal error thread").start();
 
         // wait at least 10 seconds after the error is thrown
-        while (errorThrowTime.get() >= System.currentTimeMillis() - 10000) {
+        while (errorThrowTime.get() >= currentTimeMillis() - 10000) {
             try {
                 Thread.sleep(1000 /* milliseconds */);
             } catch (InterruptedException ignore) {

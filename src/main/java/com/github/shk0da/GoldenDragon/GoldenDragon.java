@@ -20,8 +20,8 @@ import com.github.shk0da.GoldenDragon.strategy.IndicatorTrader;
 import com.github.shk0da.GoldenDragon.strategy.RSX;
 import com.github.shk0da.GoldenDragon.strategy.Rebalance;
 import com.github.shk0da.GoldenDragon.strategy.TelegramAuth;
+import com.github.shk0da.GoldenDragon.strategy.TelegramSignal;
 import com.google.gson.reflect.TypeToken;
-
 import java.io.FileDescriptor;
 import java.io.FileOutputStream;
 import java.io.PrintStream;
@@ -34,6 +34,7 @@ import java.util.TimeZone;
 import java.util.concurrent.Callable;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
+
 
 import static com.github.shk0da.GoldenDragon.config.MainConfig.CALENDAR_WORK_DAYS;
 import static com.github.shk0da.GoldenDragon.repository.TickerRepository.SERIALIZE_NAME;
@@ -139,6 +140,14 @@ public class GoldenDragon {
                 TelegramAppConfig telegramAppConfig = new TelegramAppConfig();
                 new TelegramAuth(telegramAppConfig).run();
                 telegramNotifyService.sendMessage("Stop TelegramAuth");
+            }
+
+            // 9. TelegramSignal
+            if ("TelegramSignal".equals(strategy)) {
+                telegramNotifyService.sendMessage("Run TelegramSignal");
+                TelegramAppConfig telegramAppConfig = new TelegramAppConfig();
+                new TelegramSignal(telegramAppConfig, tcsService).run();
+                telegramNotifyService.sendMessage("Stop TelegramSignal");
             }
         } catch (Exception ex) {
             out.printf("Error: %s%n", ex.getMessage());
