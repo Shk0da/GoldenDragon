@@ -137,6 +137,9 @@ public class TelegramSignal {
                 if (avgTp != null) {
                     if (entryPrice != null) {
                         double tpPrice = entryPrice * (1 + avgTp / 100.0);
+                        if (action == Direct.SELL) {
+                            tpPrice = entryPrice * (1 - avgTp / 100.0);
+                        }
                         tp = String.format("%.4f", tpPrice);
                     } else {
                         tp = String.format("%.0f", avgTp) + "%";
