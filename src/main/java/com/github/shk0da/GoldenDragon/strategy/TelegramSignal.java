@@ -6,7 +6,6 @@ import com.github.shk0da.GoldenDragon.model.OrderAction.Direct;
 import com.github.shk0da.GoldenDragon.service.TCSService;
 import com.github.shk0da.GoldenDragon.service.TelegramAppService;
 import java.text.DecimalFormat;
-import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.GregorianCalendar;
 import java.util.List;
@@ -21,8 +20,10 @@ import java.util.function.Function;
 import java.util.regex.Pattern;
 
 
+import static com.github.shk0da.GoldenDragon.model.TickerType.STOCK;
 import static com.github.shk0da.GoldenDragon.service.TelegramNotifyService.telegramNotifyService;
 import static com.github.shk0da.GoldenDragon.utils.TimeUtils.sleep;
+import static java.lang.Math.max;
 import static java.lang.System.out;
 import static java.time.OffsetDateTime.now;
 import static java.util.Calendar.HOUR_OF_DAY;
@@ -33,7 +34,7 @@ public class TelegramSignal {
 
     private static final DecimalFormat decimalFormat = new DecimalFormat("#.##");
 
-    private final Map<String, OffsetDateTime> lastHandle = new ConcurrentHashMap<>();
+    private final Map<String, Long> lastHandle = new ConcurrentHashMap<>();
     private final Map<String, Function<String, OrderAction>> channels = new TreeMap<>() {{
         // MSKINVESTOR
         put("-1001328534558", TelegramSignal::parseMskInvestorSignal);
@@ -62,11 +63,11 @@ public class TelegramSignal {
                     runAsync(() -> {
                         while (isWorkingHours()) {
                             handleMessages(channel.getKey(), channel.getValue());
-                            sleep(30_000);
+                            sleep(1_000);
                         }
                     }, executor)
             );
-            sleep(5_000);
+            sleep(30_000);
         }
         allOf(tasks.toArray(new CompletableFuture[]{})).join();
 
@@ -85,20 +86,39 @@ public class TelegramSignal {
     }
 
     private void handleMessages(String channelId, Function<String, OrderAction> function) {
-        OffsetDateTime endTime = now();
-        OffsetDateTime startTime = lastHandle.getOrDefault(channelId, endTime.minusMinutes(2));
-        List<String> messages = telegramAppService.getMessages(channelId, startTime, endTime);
-        messages.forEach(message -> {
+        long fromMessageId = lastHandle.getOrDefault(channelId, 0L);
+        long fromTime = now().minusMinutes(5).toInstant().toEpochMilli() / 1_000;
+        Map<Long, String> messages = telegramAppService.getMessages(channelId, fromMessageId, fromTime);
+        messages.forEach((messageId, message) -> {
             var signal = function.apply(message);
             if (null != signal) {
                 out.println(signal);
                 telegramNotifyService.sendMessage(signal.toString());
+                switch (signal.getDirect()) {
+                    case CLOSE:
+                        tcsService.closeByMarket(signal.getName(), STOCK);
+                        break;
+                    case BUY:
+                        var cashToBuy = getAvailableCashToOrder(10);
+                        tcsService.buyByMarket(signal.getName(), STOCK, cashToBuy, signal.getTP(), signal.getSL());
+                        break;
+                    case SELL:
+                        var cashToSell = getAvailableCashToOrder(5);
+                        tcsService.sellByMarket(signal.getName(), STOCK, cashToSell, signal.getTP(), signal.getSL());
+                        break;
+                }
             }
+            lastHandle.put(channelId, messageId);
         });
-        lastHandle.put(channelId, endTime);
     }
 
-    public static OrderAction parseMskInvestorSignal(String text) {
+    private Double getAvailableCashToOrder(int maxCountOfPositions) {
+        var availableCash = tcsService.getAvailableCash();
+        var availablePositions = maxCountOfPositions - tcsService.getCurrentPositions(STOCK).size();
+        return max((availableCash / availablePositions), 0);
+    }
+
+    private static OrderAction parseMskInvestorSignal(String text) {
         if (text.contains("Закроем") || text.contains("закроем")) {
             var closePattern = Pattern.compile("([A-Z]{2,6})");
             var closeMatcher = closePattern.matcher(text);

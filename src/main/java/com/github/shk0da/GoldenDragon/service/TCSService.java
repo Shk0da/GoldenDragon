@@ -120,6 +120,10 @@ public class TCSService {
         });
     }
 
+    public boolean closeByMarket(String name, TickerType type) {
+        return closeShortByMarket(name, type) || closeLongByMarket(name, type);
+    }
+
     public boolean closeShortByMarket(String name, TickerType type) {
         int count = getCountOfCurrentPositions(type, name);
         if (count < 0) {

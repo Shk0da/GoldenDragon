@@ -2,10 +2,9 @@ package com.github.shk0da.GoldenDragon.service;
 
 import com.github.shk0da.GoldenDragon.config.TelegramAppConfig;
 import java.io.File;
-import java.time.OffsetDateTime;
-import java.util.ArrayList;
-import java.util.List;
+import java.util.Map;
 import java.util.NavigableSet;
+import java.util.TreeMap;
 import java.util.TreeSet;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
@@ -15,6 +14,7 @@ import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 import org.drinkless.tdlib.Client;
 import org.drinkless.tdlib.TdApi;
+import org.drinkless.tdlib.TdApi.GetChatHistory;
 import org.drinkless.tdlib.TdApi.Message;
 import org.drinkless.tdlib.TdApi.MessageText;
 
@@ -86,19 +86,18 @@ public class TelegramAppService {
         }
     }
 
-    public List<String> getMessages(String channelId, OffsetDateTime startTime, OffsetDateTime endTime) {
-        AtomicReference<List<String>> result = new AtomicReference<>(List.of());
+    public Map<Long, String> getMessages(String channelId, long fromId, long fromTime) {
+        AtomicReference<Map<Long, String>> result = new AtomicReference<>(Map.of());
         try {
             var startHandle = currentTimeMillis();
-            client.send(new TdApi.GetChatHistory(getChatId(channelId), 0, 0, 10, false), (TdApi.Object object) -> {
+            client.send(new GetChatHistory(getChatId(channelId), fromId, 0, 10, false), (TdApi.Object object) -> {
                 var messagesObj = ((TdApi.Messages) object);
-                List<String> messages = new ArrayList<>(messagesObj.totalCount);
+                Map<Long, String> messages = new TreeMap<>();
                 for (Message message : messagesObj.messages) {
-                    var start = startTime.toInstant().toEpochMilli() / 1_000;
-                    var end = endTime.toInstant().toEpochMilli() / 1_000;
                     var isText = message.content instanceof MessageText;
-                    if (isText && message.date > start && message.date <= end) {
-                        messages.add(((MessageText) message.content).text.text);
+                    if (isText && message.date >= fromTime) {
+                        var text = ((MessageText) message.content).text.text;
+                        messages.put(message.id, text);
                     }
                 }
                 result.set(messages);

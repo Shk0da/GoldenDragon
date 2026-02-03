@@ -6,21 +6,21 @@ public class OrderAction {
 
     private final String name;
     private final Direct direct;
-    private final String sl;
-    private final String tp;
+    private final Double sl;
+    private final Double tp;
 
     public OrderAction(String name, Direct direct) {
         this.name = name;
         this.direct = direct;
-        this.sl = null;
-        this.tp = null;
+        this.sl = 0.0;
+        this.tp = 0.0;
     }
 
     public OrderAction(String name, Direct direct, String sl, String tp) {
         this.name = name;
         this.direct = direct;
-        this.sl = sl;
-        this.tp = tp;
+        this.sl = Double.parseDouble(sl);
+        this.tp = Double.parseDouble(tp);
     }
 
     public String getName() {
@@ -31,12 +31,12 @@ public class OrderAction {
         return direct;
     }
 
-    public String getSL() {
-        return sl;
+    public Double getSL() {
+        return null == sl ? 0.0 : sl;
     }
 
-    public String getTP() {
-        return tp;
+    public Double getTP() {
+        return null == tp ? 0.0 : tp;
     }
 
     @Override
