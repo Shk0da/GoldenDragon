@@ -547,7 +547,7 @@ public class TCSService {
     }
 
     public int getCountOfCurrentPositions(TickerType tickerType, String tickerName) {
-        out.println("Loading current positions for: " + tickerName);
+        out.println("Loading current positions: " + tickerName);
         return getCurrentPositions(tickerType).values()
                 .stream()
                 .filter(it -> it.getTicker().equalsIgnoreCase(tickerName))

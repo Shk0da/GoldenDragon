@@ -24,6 +24,7 @@ import static com.github.shk0da.GoldenDragon.model.TickerType.STOCK;
 import static com.github.shk0da.GoldenDragon.service.TelegramNotifyService.telegramNotifyService;
 import static com.github.shk0da.GoldenDragon.utils.TimeUtils.sleep;
 import static java.lang.Math.max;
+import static java.lang.System.err;
 import static java.lang.System.out;
 import static java.time.OffsetDateTime.now;
 import static java.util.Calendar.HOUR_OF_DAY;
@@ -62,12 +63,16 @@ public class TelegramSignal {
             tasks.add(
                     runAsync(() -> {
                         while (isWorkingHours()) {
-                            handleMessages(channel.getKey(), channel.getValue());
-                            sleep(1_000);
+                            try {
+                                sleep(10_000);
+                                handleMessages(channel.getKey(), channel.getValue());
+                            } catch (Exception ex) {
+                                err.println("Failed handleMessages(" + channel.getKey() + ")" + ex.getMessage());
+                                ex.printStackTrace();
+                            }
                         }
                     }, executor)
             );
-            sleep(30_000);
         }
         allOf(tasks.toArray(new CompletableFuture[]{})).join();
 
@@ -86,9 +91,9 @@ public class TelegramSignal {
     }
 
     private void handleMessages(String channelId, Function<String, OrderAction> function) {
-        long fromMessageId = lastHandle.getOrDefault(channelId, 0L);
-        long fromTime = now().minusMinutes(5).toInstant().toEpochMilli() / 1_000;
-        Map<Long, String> messages = telegramAppService.getMessages(channelId, fromMessageId, fromTime);
+        var endTime = now().toInstant().toEpochMilli() / 1_000;
+        var startTime = lastHandle.getOrDefault(channelId, now().minusMinutes(2).toInstant().toEpochMilli() / 1_000);
+        Map<Long, String> messages = telegramAppService.getMessages(channelId, 0L, startTime, endTime);
         messages.forEach((messageId, message) -> {
             var signal = function.apply(message);
             if (null != signal) {
@@ -108,8 +113,11 @@ public class TelegramSignal {
                         break;
                 }
             }
-            lastHandle.put(channelId, messageId);
+            lastHandle.put(channelId, endTime);
         });
+        if (!messages.isEmpty()) {
+            out.println();
+        }
     }
 
     private Double getAvailableCashToOrder(int maxCountOfPositions) {
@@ -154,16 +162,12 @@ public class TelegramSignal {
             if (tpMatcher.find()) {
                 tp = tpMatcher.group(1);
                 Double avgTp = parseTakeProfit(tpMatcher.group(1));
-                if (avgTp != null) {
-                    if (entryPrice != null) {
-                        double tpPrice = entryPrice * (1 + avgTp / 100.0);
-                        if (action == Direct.SELL) {
-                            tpPrice = entryPrice * (1 - avgTp / 100.0);
-                        }
-                        tp = String.format("%.4f", tpPrice);
-                    } else {
-                        tp = String.format("%.0f", avgTp) + "%";
+                if (avgTp != null && entryPrice != null) {
+                    double tpPrice = entryPrice * (1 + avgTp / 100.0);
+                    if (action == Direct.SELL) {
+                        tpPrice = entryPrice * (1 - avgTp / 100.0);
                     }
+                    tp = String.format("%.4f", tpPrice).replace(',', '.');
                 }
             }
 

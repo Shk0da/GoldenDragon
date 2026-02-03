@@ -86,7 +86,7 @@ public class TelegramAppService {
         }
     }
 
-    public Map<Long, String> getMessages(String channelId, long fromId, long fromTime) {
+    public Map<Long, String> getMessages(String channelId, long fromId, long startTime, long endTime) {
         AtomicReference<Map<Long, String>> result = new AtomicReference<>(Map.of());
         try {
             var startHandle = currentTimeMillis();
@@ -95,20 +95,25 @@ public class TelegramAppService {
                 Map<Long, String> messages = new TreeMap<>();
                 for (Message message : messagesObj.messages) {
                     var isText = message.content instanceof MessageText;
-                    if (isText && message.date >= fromTime) {
+                    if (isText && message.date > startTime && message.date <= endTime) {
                         var text = ((MessageText) message.content).text.text;
                         messages.put(message.id, text);
                     }
                 }
                 result.set(messages);
             });
-            while (result.get().isEmpty() || currentTimeMillis() - startHandle < 2_000) {
+            while (result.get().isEmpty() && currentTimeMillis() - startHandle < 2_000) {
                 sleep(200);
             }
         } catch (Exception ex) {
             System.err.println("Failed read messages from " + channelId + ": " + ex.getMessage());
         }
-        return result.get();
+        var messages = result.get();
+        if (0L == fromId && 1 == messages.size()) {
+            var nextFromId = messages.keySet().iterator().next();
+            messages.putAll(getMessages(channelId, nextFromId, startTime, endTime));
+        }
+        return messages;
     }
 
     private Client createClient() {
