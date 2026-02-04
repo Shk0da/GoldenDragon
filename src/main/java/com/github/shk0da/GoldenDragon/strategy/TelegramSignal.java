@@ -105,11 +105,11 @@ public class TelegramSignal {
                         break;
                     case BUY:
                         var cashToBuy = getAvailableCashToOrder(10);
-                        tcsService.buyByMarket(signal.getName(), STOCK, cashToBuy, signal.getTP(), signal.getSL());
+                        tcsService.buyByMarket(signal.getName(), STOCK, cashToBuy, signal.getTP(), signal.getSL(), true);
                         break;
                     case SELL:
-                        var cashToSell = getAvailableCashToOrder(5);
-                        tcsService.sellByMarket(signal.getName(), STOCK, cashToSell, signal.getTP(), signal.getSL());
+                        var cashToSell = getAvailableCashToOrder(10);
+                        tcsService.sellByMarket(signal.getName(), STOCK, cashToSell, signal.getTP(), signal.getSL(), true);
                         break;
                 }
             }

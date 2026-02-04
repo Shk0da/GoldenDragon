@@ -9,6 +9,18 @@ import com.github.shk0da.GoldenDragon.repository.FigiRepository;
 import com.github.shk0da.GoldenDragon.repository.PricesRepository;
 import com.github.shk0da.GoldenDragon.repository.Repository;
 import com.github.shk0da.GoldenDragon.repository.TickerRepository;
+import java.math.BigDecimal;
+import java.time.Instant;
+import java.time.OffsetDateTime;
+import java.util.Date;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.TreeMap;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.stream.Collectors;
 import ru.tinkoff.piapi.contract.v1.Bond;
 import ru.tinkoff.piapi.contract.v1.CandleInterval;
 import ru.tinkoff.piapi.contract.v1.Currency;
@@ -28,24 +40,13 @@ import ru.tinkoff.piapi.core.models.Money;
 import ru.tinkoff.piapi.core.models.Portfolio;
 import ru.tinkoff.piapi.core.models.Positions;
 
-import java.math.BigDecimal;
-import java.time.Instant;
-import java.time.OffsetDateTime;
-import java.util.Date;
-import java.util.HashMap;
-import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
-import java.util.List;
-import java.util.Map;
-import java.util.TreeMap;
-import java.util.concurrent.atomic.AtomicReference;
-import java.util.stream.Collectors;
 
 import static com.github.shk0da.GoldenDragon.config.MainConfig.dateTimeFormat;
 import static com.github.shk0da.GoldenDragon.dictionary.CurrenciesDictionary.getTickerName;
 import static com.github.shk0da.GoldenDragon.service.TelegramNotifyService.telegramNotifyService;
 import static com.github.shk0da.GoldenDragon.utils.PrintUtils.printGlassOfPrices;
 import static com.github.shk0da.GoldenDragon.utils.TimeUtils.sleep;
+import static java.lang.Double.parseDouble;
 import static java.lang.Math.round;
 import static java.lang.System.out;
 import static java.util.stream.Collectors.toCollection;
@@ -149,10 +150,14 @@ public class TCSService {
     }
 
     public boolean sellByMarket(String name, TickerType type, double cashToSell, double takeProfit, double stopLose) {
-        return sell(name, type, cashToSell, true, takeProfit, stopLose);
+        return sell(name, type, cashToSell, true, takeProfit, stopLose, false);
     }
 
-    public boolean sell(String name, TickerType type, double cashToSell, boolean byMarket, double takeProfit, double stopLose) {
+    public boolean sellByMarket(String name, TickerType type, double cashToSell, double takeProfit, double stopLose, boolean isFullPrice) {
+        return sell(name, type, cashToSell, true, takeProfit, stopLose, isFullPrice);
+    }
+
+    public boolean sell(String name, TickerType type, double cashToSell, boolean byMarket, double takeProfit, double stopLose, boolean isFullPrice) {
         var key = new TickerInfo.Key(name, type);
 
         String basicCurrency = marketConfig.getCurrency();
@@ -193,7 +198,7 @@ public class TCSService {
         if (mainConfig.isTestMode()) {
             return true;
         }
-        return 1 == createOrder(key, byMarket ? 0.0 : tickerPrice, count, "Sell", takeProfit, stopLose);
+        return 1 == createOrder(key, byMarket ? 0.0 : tickerPrice, count, "Sell", takeProfit, stopLose, isFullPrice);
     }
 
     public boolean sell(String name, TickerType type, double cost) {
@@ -238,14 +243,22 @@ public class TCSService {
     }
 
     public boolean buyByMarket(String name, TickerType type, double cashToBuy, double takeProfit, double stopLose) {
-        return buy(name, type, cashToBuy, true, takeProfit, stopLose);
+        return buy(name, type, cashToBuy, true, takeProfit, stopLose, false);
+    }
+
+    public boolean buyByMarket(String name, TickerType type, double cashToBuy, double takeProfit, double stopLose, boolean isFullPrice) {
+        return buy(name, type, cashToBuy, true, takeProfit, stopLose, isFullPrice);
     }
 
     public boolean buy(String name, TickerType type, double cashToBuy) {
-        return buy(name, type, cashToBuy, false, 0.0, 0.0);
+        return buy(name, type, cashToBuy, false, 0.0, 0.0, false);
     }
 
-    public boolean buy(String name, TickerType type, double cashToBuy, boolean byMarket, double takeProfit, double stopLose) {
+    public boolean buy(String name, TickerType type, double cashToBuy, boolean isFullPrice) {
+        return buy(name, type, cashToBuy, false, 0.0, 0.0, isFullPrice);
+    }
+
+    public boolean buy(String name, TickerType type, double cashToBuy, boolean byMarket, double takeProfit, double stopLose, boolean isFullPrice) {
         var key = new TickerInfo.Key(name, type);
 
         String basicCurrency = marketConfig.getCurrency();
@@ -286,14 +299,14 @@ public class TCSService {
         if (mainConfig.isTestMode()) {
             return true;
         }
-        return 1 == createOrder(key, byMarket ? 0.0 : tickerPrice, count, "Buy", takeProfit, stopLose);
+        return 1 == createOrder(key, byMarket ? 0.0 : tickerPrice, count, "Buy", takeProfit, stopLose, isFullPrice);
     }
 
     public int createOrder(TickerInfo.Key key, double price, int count, String operation) {
-        return createOrder(key, price, count, operation, 0.0, 0.0);
+        return createOrder(key, price, count, operation, 0.0, 0.0, false);
     }
 
-    public int createOrder(TickerInfo.Key key, double price, int count, String operation, double takeProfit, double stopLose) {
+    public int createOrder(TickerInfo.Key key, double price, int count, String operation, double takeProfit, double stopLose, boolean isFullPrice) {
         String figi = figiByName(key);
         TickerInfo tickerInfo = searchTicker(key);
         int lot = tickerInfo.getLot();
@@ -340,11 +353,13 @@ public class TCSService {
                     StopOrderDirection stopOrderDirection = null;
                     if (ORDER_DIRECTION_SELL == direction) {
                         stopOrderDirection = STOP_ORDER_DIRECTION_BUY;
-                        stopPrice = normalizePrice(executedPrice + ((executedPrice / 100) * stopLose), tickerInfo.getMinPriceIncrement());
+                        double slPrice = isFullPrice ? stopLose : executedPrice + ((executedPrice / 100) * stopLose);
+                        stopPrice = normalizePrice(slPrice, tickerInfo.getMinPriceIncrement());
                     }
                     if (ORDER_DIRECTION_BUY == direction) {
                         stopOrderDirection = STOP_ORDER_DIRECTION_SELL;
-                        stopPrice = normalizePrice(executedPrice - ((executedPrice / 100) * stopLose), tickerInfo.getMinPriceIncrement());
+                        double slPrice = isFullPrice ? stopLose : executedPrice - ((executedPrice / 100) * stopLose);
+                        stopPrice = normalizePrice(slPrice, tickerInfo.getMinPriceIncrement());
                     }
                     Quotation stopLosePrice = Quotation.newBuilder()
                             .setUnits(Math.round((stopPrice - (stopPrice % 1))))
@@ -361,6 +376,7 @@ public class TCSService {
                     var error = "Failed create StopLose: " + ex.getMessage();
                     out.println(error);
                     telegramNotifyService.sendMessage(error);
+                    ex.printStackTrace();
                 }
             }
 
@@ -371,11 +387,13 @@ public class TCSService {
                     StopOrderDirection stopOrderDirection = null;
                     if (ORDER_DIRECTION_SELL == direction) {
                         stopOrderDirection = STOP_ORDER_DIRECTION_BUY;
-                        takePrice = normalizePrice(executedPrice - ((executedPrice / 100) * takeProfit), tickerInfo.getMinPriceIncrement());
+                        double tpPrice = isFullPrice ? takeProfit : executedPrice - ((executedPrice / 100) * takeProfit);
+                        takePrice = normalizePrice(tpPrice, tickerInfo.getMinPriceIncrement());
                     }
                     if (ORDER_DIRECTION_BUY == direction) {
                         stopOrderDirection = STOP_ORDER_DIRECTION_SELL;
-                        takePrice = normalizePrice(executedPrice + ((executedPrice / 100) * takeProfit), tickerInfo.getMinPriceIncrement());
+                        double tpPrice = isFullPrice ? takeProfit : executedPrice + ((executedPrice / 100) * takeProfit);
+                        takePrice = normalizePrice(tpPrice, tickerInfo.getMinPriceIncrement());
                     }
                     Quotation takeProfitPrice = Quotation.newBuilder()
                             .setUnits(Math.round((takePrice - (takePrice % 1))))
@@ -392,6 +410,7 @@ public class TCSService {
                     var error = "Failed create TakeProfit: " + ex.getMessage();
                     out.println(error);
                     telegramNotifyService.sendMessage(error);
+                    ex.printStackTrace();
                 }
             }
 
@@ -733,7 +752,7 @@ public class TCSService {
     }
 
     private static Double toDouble(long units, int nano) {
-        return units + Double.parseDouble("0." + nano);
+        return units + parseDouble("0." + nano);
     }
 
     private static Double normalizePrice(double price, double priceStep) {
