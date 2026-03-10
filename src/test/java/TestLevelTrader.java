@@ -109,40 +109,40 @@ public class TestLevelTrader {
         var bestConfig = new GerchikUtils();
 
         for (int levelConfirmationTouches = 0; levelConfirmationTouches <= 5; levelConfirmationTouches += 1)
-            for (double levelZonePercent = 0.0005; levelZonePercent <= 0.0975; levelZonePercent += 0.0005)
-                for (double breakoutConfirmationPercent = 0.00; breakoutConfirmationPercent <= 0.005; breakoutConfirmationPercent += 0.1)
-                    for (double falseBreakoutThreshold = 0.00005; falseBreakoutThreshold <= 0.00125; falseBreakoutThreshold += 0.00005)
-                        for (double volumeMultiplier = 0.05; volumeMultiplier <= 0.95; volumeMultiplier += 0.05)
-                            for (int confirmationCandles = 0; confirmationCandles <= 5; confirmationCandles += 1)
-                                for (int maxSignalAge = 0; maxSignalAge <= 10; maxSignalAge += 1)
-                                    for (int levelPy = 1; maxSignalAge <= 2; maxSignalAge += 1) {
-                                        var config = new GerchikUtils(
-                                                levelConfirmationTouches,
-                                                levelZonePercent,
-                                                breakoutConfirmationPercent,
-                                                falseBreakoutThreshold,
-                                                volumeMultiplier,
-                                                confirmationCandles,
-                                                maxSignalAge
-                                        );
-                                        var result = run(config, levelPy);
-                                        if (result.getLeft() > bestResult) {
-                                            bestResult = result.getLeft();
-                                            bestConfig = config;
-                                            bestLevels = levelPy;
-                                            out.println(levelPy + ": " + levelPy);
-                                            out.println(bestResult + "%: " + config);
-                                            telegramNotifyService.sendMessage(df.format(bestResult) + "% (" + df.format(result.getRight()) + " RUB): " + config);
-                                        }
-                                        if (result.getRight() > bestProfit) {
-                                            bestProfit = result.getRight();
-                                            bestConfig = config;
-                                            bestLevels = levelPy;
-                                            out.println(levelPy + ": " + levelPy);
-                                            out.println(bestProfit + " RUB: " + config);
-                                            telegramNotifyService.sendMessage(df.format(bestProfit) + " RUB (" + df.format(result.getLeft()) + "%): " + config);
-                                        }
-                                    }
+        for (double levelZonePercent = 0.0005; levelZonePercent <= 0.0975; levelZonePercent += 0.0005)
+        for (double breakoutConfirmationPercent = 0.00; breakoutConfirmationPercent <= 0.005; breakoutConfirmationPercent += 0.1)
+        for (double falseBreakoutThreshold = 0.00005; falseBreakoutThreshold <= 0.00125; falseBreakoutThreshold += 0.00005)
+        for (double volumeMultiplier = 0.05; volumeMultiplier <= 0.95; volumeMultiplier += 0.05)
+        for (int confirmationCandles = 0; confirmationCandles <= 5; confirmationCandles += 1)
+        for (int maxSignalAge = 0; maxSignalAge <= 10; maxSignalAge += 1)
+        for (int levelPy = 1; maxSignalAge <= 2; maxSignalAge += 1) {
+            var config = new GerchikUtils(
+                    levelConfirmationTouches,
+                    levelZonePercent,
+                    breakoutConfirmationPercent,
+                    falseBreakoutThreshold,
+                    volumeMultiplier,
+                    confirmationCandles,
+                    maxSignalAge
+            );
+            var result = run(config, levelPy);
+            if (result.getLeft() > bestResult) {
+                bestResult = result.getLeft();
+                bestConfig = config;
+                bestLevels = levelPy;
+                out.println(levelPy + ": " + levelPy);
+                out.println(bestResult + "%: " + config);
+                telegramNotifyService.sendMessage(df.format(bestResult) + "% (" + df.format(result.getRight()) + " RUB): " + config);
+            }
+            if (result.getRight() > bestProfit) {
+                bestProfit = result.getRight();
+                bestConfig = config;
+                bestLevels = levelPy;
+                out.println(levelPy + ": " + levelPy);
+                out.println(bestProfit + " RUB: " + config);
+                telegramNotifyService.sendMessage(df.format(bestProfit) + " RUB (" + df.format(result.getLeft()) + "%): " + config);
+            }
+        }
         out.println("bestLevels: " + bestLevels);
         out.println("Finish test. Best result:" + df.format(bestProfit) + " RUB (" + df.format(bestResult) + "%): " + bestConfig);
         telegramNotifyService.sendMessage("Finish test. Best result:" + df.format(bestProfit) + " RUB (" + df.format(bestResult) + "%): " + bestConfig);
