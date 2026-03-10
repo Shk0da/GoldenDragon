@@ -4,16 +4,23 @@ import com.github.shk0da.GoldenDragon.config.AILConfig.BoosterProperties;
 import com.github.shk0da.GoldenDragon.config.AILConfig.NetworkProperties;
 import com.github.shk0da.GoldenDragon.model.TickerCandle;
 import com.github.shk0da.GoldenDragon.model.TickerJson;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.function.Function;
 import ml.dmlc.xgboost4j.LabeledPoint;
 import ml.dmlc.xgboost4j.java.Booster;
 import ml.dmlc.xgboost4j.java.DMatrix;
 import ml.dmlc.xgboost4j.java.XGBoost;
 import ml.dmlc.xgboost4j.java.XGBoostError;
-import org.deeplearning4j.datasets.iterator.impl.ListDataSetIterator;
-import org.deeplearning4j.nn.api.OptimizationAlgorithm;
+import org.deeplearning4j.datasets.iterator.utilty.ListDataSetIterator;
 import org.deeplearning4j.nn.conf.BackpropType;
+import org.deeplearning4j.nn.conf.MultiLayerConfiguration;
 import org.deeplearning4j.nn.conf.NeuralNetConfiguration;
-import org.deeplearning4j.nn.conf.Updater;
 import org.deeplearning4j.nn.conf.layers.DenseLayer;
 import org.deeplearning4j.nn.conf.layers.LSTM;
 import org.deeplearning4j.nn.conf.layers.RnnOutputLayer;
@@ -24,16 +31,9 @@ import org.nd4j.linalg.activations.Activation;
 import org.nd4j.linalg.dataset.DataSet;
 import org.nd4j.linalg.dataset.api.iterator.DataSetIterator;
 import org.nd4j.linalg.factory.Nd4j;
+import org.nd4j.linalg.learning.config.RmsProp;
 import org.nd4j.linalg.lossfunctions.LossFunctions;
 
-import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.function.Function;
 
 import static com.github.shk0da.GoldenDragon.utils.IndicatorsUtil.INDICATORS_SHIFT;
 import static com.github.shk0da.GoldenDragon.utils.IndicatorsUtil.getIndicators;
@@ -174,14 +174,10 @@ public class DataLearningUtils {
     public static final class LSTMNetwork {
 
         public static MultiLayerNetwork buildLstmNetworks(DataSetIterator iterator, NetworkProperties properties) {
-            var conf = new NeuralNetConfiguration.Builder()
+            MultiLayerConfiguration conf = new NeuralNetConfiguration.Builder()
                     .seed(properties.getSeed())
-                    .iterations(properties.getIterations())
-                    .learningRate(properties.getLearningRate())
-                    .optimizationAlgo(OptimizationAlgorithm.STOCHASTIC_GRADIENT_DESCENT)
+                    .updater(new RmsProp.Builder().learningRate(properties.getLearningRate()).build())
                     .weightInit(WeightInit.XAVIER)
-                    .updater(Updater.RMSPROP)
-                    .regularization(true)
                     .l2(properties.getL2())
                     .list()
                     .layer(0, new LSTM.Builder()
@@ -203,27 +199,24 @@ public class DataLearningUtils {
                             .nOut(properties.getDenseLayerSize())
                             .activation(Activation.RELU)
                             .build())
-                    .layer(3, new RnnOutputLayer.Builder()
+                    .layer(3, new RnnOutputLayer.Builder(LossFunctions.LossFunction.MSE)
                             .nIn(properties.getDenseLayerSize())
                             .nOut(iterator.totalOutcomes())
                             .activation(Activation.IDENTITY)
-                            .lossFunction(LossFunctions.LossFunction.MSE)
                             .build())
                     .backpropType(BackpropType.TruncatedBPTT)
                     .tBPTTForwardLength(properties.getTruncatedBPTTLength())
                     .tBPTTBackwardLength(properties.getTruncatedBPTTLength())
-                    .pretrain(false)
-                    .backprop(true)
                     .build();
 
-            var net = new MultiLayerNetwork(conf);
+            MultiLayerNetwork net = new MultiLayerNetwork(conf);
             net.init();
             net.setListeners(new ScoreIterationListener(properties.getScore()));
 
             for (int i = 0; i < properties.getScore(); i++) {
-                while (iterator.hasNext()) net.fit(iterator.next()); // fit model using mini-batch data
-                iterator.reset(); // reset iterator
-                net.rnnClearPreviousState(); // clear previous state
+                while (iterator.hasNext()) net.fit(iterator.next());
+                iterator.reset();
+                net.rnnClearPreviousState();
             }
 
             return net;
@@ -316,8 +309,8 @@ public class DataLearningUtils {
                 var networkInput = getNetworkInput(createInput(stockDataList, i, startPrice, levels));
                 var action = calculateAction(stockDataList, i);
 
-                var input = Nd4j.create(networkInput);
-                var label = Nd4j.create(new double[]{action});
+                var input = Nd4j.create(networkInput).reshape(1, networkInput.length);
+                var label = Nd4j.create(new double[]{action}).reshape(1, 1);
                 dataSets.add(new DataSet(input, label));
             }
             return new ListDataSetIterator<>(dataSets);

@@ -18,10 +18,16 @@ dependencies {
     implementation 'org.jsoup:jsoup:1.15.3'
     implementation 'com.tictactec:ta-lib:0.4.0'
     implementation 'org.jfree:jfreechart:1.0.19'
-    implementation 'org.nd4j:nd4j-native:0.9.1'
-    implementation 'org.nd4j:nd4j-native-platform:0.9.1'
-    implementation 'org.deeplearning4j:deeplearning4j-core:0.9.1'
-    implementation 'ml.dmlc:xgboost4j_2.12:1.6.2'
+    implementation 'ml.dmlc:xgboost4j_2.12:2.0.3'
+    implementation 'org.nd4j:nd4j-native-platform:1.0.0-M2.1'
+    implementation 'org.deeplearning4j:deeplearning4j-core:1.0.0-M2.1'
+    if (System.getProperty('os.name').toLowerCase().contains('mac')) {
+        implementation("org.nd4j:nd4j-native:1.0.0-M2.1:macosx-arm64")
+        implementation("org.bytedeco:openblas:0.3.21-1.5.8:macosx-arm64")
+    } else {
+        implementation("org.nd4j:nd4j-native:1.0.0-M2.1")
+        implementation("org.bytedeco:openblas:0.3.21-1.5.8")
+    }
 }
 
 task uberJar(type: Jar) {

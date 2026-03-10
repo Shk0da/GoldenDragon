@@ -43,6 +43,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
 
+
 import static com.github.shk0da.GoldenDragon.repository.TickerRepository.SERIALIZE_NAME;
 import static com.github.shk0da.GoldenDragon.utils.DataLearningUtils.StockDataSetIterator.getBoosterInput;
 import static com.github.shk0da.GoldenDragon.utils.DataLearningUtils.StockDataSetIterator.getNetworkInput;
@@ -65,7 +66,7 @@ public class TestLevelTrader {
     private static final Boolean debugLogging = false;
     private static final Double initBalance = 100_000.00;
     private static final Double averagePositionCost = 10_000.00;
-    private static final List<String> stocks = List.of("GAZP", "LKOH", "MGNT", "NLMK", "PIKK", "ROSN", "RTKM", "SBER");
+    private static final List<String> stocks = List.of("IMOEXF", "USDRUBF", "GLDRUBF", "SBERF", "GAZPF", "CNYRUBF");
 
     private static final DecimalFormat df = new DecimalFormat("#.##");
     private static final ObjectMapper objectMapper = new ObjectMapper();
