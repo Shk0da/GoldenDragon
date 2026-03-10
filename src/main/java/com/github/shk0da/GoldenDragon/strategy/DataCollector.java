@@ -226,6 +226,8 @@ public class DataCollector {
             command = "calculate_levels.exe";
         } else if (os.contains("arm")) {
             command = "./calculate_levels_arm";
+        } else if (os.contains("mac")) {
+            command = "./calculate_levels_silicon";
         } else {
             command = "./calculate_levels";
         }
