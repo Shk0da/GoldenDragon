@@ -44,6 +44,7 @@ import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
 
 
+import static com.github.shk0da.GoldenDragon.model.TickerType.FEATURE;
 import static com.github.shk0da.GoldenDragon.repository.TickerRepository.SERIALIZE_NAME;
 import static com.github.shk0da.GoldenDragon.utils.DataLearningUtils.StockDataSetIterator.getBoosterInput;
 import static com.github.shk0da.GoldenDragon.utils.DataLearningUtils.StockDataSetIterator.getNetworkInput;
@@ -148,7 +149,7 @@ public class TestLevelTrader {
             try {
                 String name = tickerName.toLowerCase();
                 String ticker = tickerRepository.getAll().values().stream()
-                        .filter(it -> it.getType().equals(TickerType.STOCK))
+                        .filter(it -> it.getType().equals(TickerType.STOCK) || it.getType().equals(FEATURE))
                         .filter(it -> it.getName().equalsIgnoreCase(name) || it.getTicker().equalsIgnoreCase(name))
                         .map(TickerInfo::getFigi)
                         .findFirst()
@@ -217,7 +218,7 @@ public class TestLevelTrader {
                     if (config.getLevelAction(subList, levels).getLeft()) {
                         var data = createInput(M5, i, startOfDay.getClose(), levels);
                         var input = getNetworkInput(data);
-                        var output = network.rnnTimeStep(Nd4j.create(input)).getDouble(0);
+                        var output = network.rnnTimeStep(Nd4j.create(input).reshape(1, input.length)).getDouble(0);
                         var labels = getBoosterInput(data);
                         var vector = new DMatrix(labels, 1, labels.length, Float.NaN);
                         var predict = booster.predict(vector)[0][0];
@@ -238,7 +239,7 @@ public class TestLevelTrader {
                     if (config.getLevelAction(subList, levels).getRight()) {
                         var data = createInput(M5, i, startOfDay.getClose(), levels);
                         var input = getNetworkInput(data);
-                        var output = network.rnnTimeStep(Nd4j.create(input)).getDouble(0);
+                        var output = network.rnnTimeStep(Nd4j.create(input).reshape(1, input.length)).getDouble(0);
                         var labels = getBoosterInput(data);
                         var vector = new DMatrix(labels, 1, labels.length, Float.NaN);
                         var predict = booster.predict(vector)[0][0];

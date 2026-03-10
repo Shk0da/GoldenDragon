@@ -44,6 +44,8 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
+
+import static com.github.shk0da.GoldenDragon.model.TickerType.FEATURE;
 import static com.github.shk0da.GoldenDragon.service.TelegramNotifyService.telegramNotifyService;
 import static com.github.shk0da.GoldenDragon.utils.DataLearningUtils.StockDataSetIterator.getBoosterInput;
 import static com.github.shk0da.GoldenDragon.utils.DataLearningUtils.StockDataSetIterator.getNetworkInput;
@@ -370,7 +372,7 @@ public class AITrader {
                 if (gerchikUtils.getLevelAction(candles, levels).getLeft()) {
                     var data = createInput(candles, candles.size() - 1, startOfDay.getClose(), levels);
                     var input = getNetworkInput(data);
-                    var output = network.rnnTimeStep(Nd4j.create(input)).getDouble(0);
+                    var output = network.rnnTimeStep(Nd4j.create(input).reshape(1, input.length)).getDouble(0);
                     var labels = getBoosterInput(data);
                     var vector = new DMatrix(labels, 1, labels.length, Float.NaN);
                     var predict = booster.predict(vector)[0][0];
@@ -389,7 +391,7 @@ public class AITrader {
                 if (gerchikUtils.getLevelAction(candles, levels).getRight()) {
                     var data = createInput(candles, candles.size() - 1, startOfDay.getClose(), levels);
                     var input = getNetworkInput(data);
-                    var output = network.rnnTimeStep(Nd4j.create(input)).getDouble(0);
+                    var output = network.rnnTimeStep(Nd4j.create(input).reshape(1, input.length)).getDouble(0);
                     var labels = getBoosterInput(data);
                     var vector = new DMatrix(labels, 1, labels.length, Float.NaN);
                     var predict = booster.predict(vector)[0][0];
@@ -440,7 +442,7 @@ public class AITrader {
         try {
             var currentTime = now();
             var ticker = tickerRepository.getAll().values().stream()
-                    .filter(it -> it.getType().equals(TickerType.STOCK))
+                    .filter(it -> it.getType().equals(TickerType.STOCK) || it.getType().equals(FEATURE))
                     .filter(it -> it.getName().equalsIgnoreCase(name) || it.getTicker().equalsIgnoreCase(name))
                     .map(TickerInfo::getFigi)
                     .findFirst()
