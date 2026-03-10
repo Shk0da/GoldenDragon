@@ -240,6 +240,7 @@ public class DataCollector {
             deleteIfExists(Paths.get("candles.txt"));
         } catch (Exception ex) {
             out.println(ex.getMessage());
+            ex.printStackTrace();
             throw new RuntimeException(ex);
         }
 
@@ -272,7 +273,7 @@ public class DataCollector {
 
         try (FileWriter writer = new FileWriter(dir + "/" + name + "/ticker.json")) {
             TickerInfo ticker = tickerRepository.getAll().values().stream()
-                    .filter(it -> it.getType().equals(STOCK))
+                    .filter(it -> it.getType().equals(STOCK) || it.getType().equals(FEATURE))
                     .filter(it -> it.getName().equalsIgnoreCase(name) || it.getTicker().equalsIgnoreCase(name))
                     .findFirst()
                     .orElseThrow();
@@ -283,6 +284,7 @@ public class DataCollector {
             objectMapper.writerWithDefaultPrettyPrinter().writeValue(writer, json);
         } catch (Exception ex) {
             out.println(ex.getMessage());
+            ex.printStackTrace();
             throw new RuntimeException(ex);
         }
     }
