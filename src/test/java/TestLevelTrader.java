@@ -8,7 +8,25 @@ import com.github.shk0da.GoldenDragon.repository.TickerRepository;
 import com.github.shk0da.GoldenDragon.service.TelegramNotifyService;
 import com.github.shk0da.GoldenDragon.utils.GerchikUtils;
 import com.github.shk0da.GoldenDragon.utils.IndicatorsUtil;
+import com.github.shk0da.GoldenDragon.utils.LevelUtils;
+import com.github.shk0da.GoldenDragon.utils.LevelUtils.Level;
 import com.google.gson.reflect.TypeToken;
+import java.awt.Color;
+import java.io.BufferedReader;
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.FileReader;
+import java.io.IOException;
+import java.nio.file.Path;
+import java.text.DecimalFormat;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.stream.Collectors;
 import ml.dmlc.xgboost4j.java.Booster;
 import ml.dmlc.xgboost4j.java.DMatrix;
 import ml.dmlc.xgboost4j.java.XGBoost;
@@ -27,22 +45,6 @@ import org.jfree.data.xy.XYSeries;
 import org.jfree.data.xy.XYSeriesCollection;
 import org.nd4j.linalg.factory.Nd4j;
 
-import java.awt.*;
-import java.io.BufferedReader;
-import java.io.File;
-import java.io.FileOutputStream;
-import java.io.FileReader;
-import java.io.IOException;
-import java.nio.file.Path;
-import java.text.DecimalFormat;
-import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
-import java.time.temporal.ChronoUnit;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
-import java.util.concurrent.atomic.AtomicReference;
-
 
 import static com.github.shk0da.GoldenDragon.model.TickerType.FEATURE;
 import static com.github.shk0da.GoldenDragon.repository.TickerRepository.SERIALIZE_NAME;
@@ -58,16 +60,17 @@ import static java.nio.file.Files.deleteIfExists;
 
 public class TestLevelTrader {
 
-    private static final Double K2 = 0.05;
+    private static final Double K2 = 0.10;
     private static final Double COMISSION = 0.05;
     private static final Double TP = 0.9;
     private static final Double SL = 0.3;
     private static final Double RISK = 30.0;
     private static final Boolean createPlot = false;
     private static final Boolean debugLogging = false;
+    private static final Boolean useNN = false;
     private static final Double initBalance = 100_000.00;
     private static final Double averagePositionCost = 10_000.00;
-    private static final List<String> stocks = List.of("IMOEXF", "USDRUBF", "GLDRUBF", "SBERF", "GAZPF", "CNYRUBF");
+    private static final List<String> stocks = List.of("USDRUBF", "GLDRUBF", "SBERF", "GAZPF");
 
     private static final DecimalFormat df = new DecimalFormat("#.##");
     private static final ObjectMapper objectMapper = new ObjectMapper();
@@ -102,45 +105,53 @@ public class TestLevelTrader {
     public static void main(String[] args) throws Exception {
         var bestResult = 0.0D;
         var bestProfit = 0.0D;
+        var bestLevels = 0;
         var bestConfig = new GerchikUtils();
 
-        int _levelConfirmationTouches = 0;
-        double _levelZonePercent = 0.0075;
-        double _breakoutConfirmationPercent = 0.01;
-        double _falseBreakoutThreshold = 0.00025;
-        double _volumeMultiplier = 0.65;
-        int _confirmationCandles = 3;
-
-        {
-            var config = new GerchikUtils(
-                    _levelConfirmationTouches,
-                    _levelZonePercent,
-                    _breakoutConfirmationPercent,
-                    _falseBreakoutThreshold,
-                    _volumeMultiplier,
-                    _confirmationCandles
-            );
-            var result = run(config);
-            if (result.getLeft() > bestResult) {
-                bestResult = result.getLeft();
-                bestConfig = config;
-                out.println(bestResult + "%: " + config);
-                telegramNotifyService.sendMessage(df.format(bestResult) + "% (" + df.format(result.getRight()) + " RUB): " + config);
-            }
-            if (result.getRight() > bestProfit) {
-                bestProfit = result.getRight();
-                bestConfig = config;
-                out.println(bestProfit + " RUB: " + config);
-                telegramNotifyService.sendMessage(df.format(bestProfit) + " RUB (" + df.format(result.getLeft()) + "%): " + config);
-            }
-        }
+        for (int levelConfirmationTouches = 0; levelConfirmationTouches <= 5; levelConfirmationTouches += 1)
+            for (double levelZonePercent = 0.0005; levelZonePercent <= 0.0975; levelZonePercent += 0.0005)
+                for (double breakoutConfirmationPercent = 0.00; breakoutConfirmationPercent <= 0.005; breakoutConfirmationPercent += 0.1)
+                    for (double falseBreakoutThreshold = 0.00005; falseBreakoutThreshold <= 0.00125; falseBreakoutThreshold += 0.00005)
+                        for (double volumeMultiplier = 0.05; volumeMultiplier <= 0.95; volumeMultiplier += 0.05)
+                            for (int confirmationCandles = 0; confirmationCandles <= 5; confirmationCandles += 1)
+                                for (int maxSignalAge = 0; maxSignalAge <= 10; maxSignalAge += 1)
+                                    for (int levelPy = 1; maxSignalAge <= 2; maxSignalAge += 1) {
+                                        var config = new GerchikUtils(
+                                                levelConfirmationTouches,
+                                                levelZonePercent,
+                                                breakoutConfirmationPercent,
+                                                falseBreakoutThreshold,
+                                                volumeMultiplier,
+                                                confirmationCandles,
+                                                maxSignalAge
+                                        );
+                                        var result = run(config, levelPy);
+                                        if (result.getLeft() > bestResult) {
+                                            bestResult = result.getLeft();
+                                            bestConfig = config;
+                                            bestLevels = levelPy;
+                                            out.println(levelPy + ": " + levelPy);
+                                            out.println(bestResult + "%: " + config);
+                                            telegramNotifyService.sendMessage(df.format(bestResult) + "% (" + df.format(result.getRight()) + " RUB): " + config);
+                                        }
+                                        if (result.getRight() > bestProfit) {
+                                            bestProfit = result.getRight();
+                                            bestConfig = config;
+                                            bestLevels = levelPy;
+                                            out.println(levelPy + ": " + levelPy);
+                                            out.println(bestProfit + " RUB: " + config);
+                                            telegramNotifyService.sendMessage(df.format(bestProfit) + " RUB (" + df.format(result.getLeft()) + "%): " + config);
+                                        }
+                                    }
+        out.println("bestLevels: " + bestLevels);
         out.println("Finish test. Best result:" + df.format(bestProfit) + " RUB (" + df.format(bestResult) + "%): " + bestConfig);
         telegramNotifyService.sendMessage("Finish test. Best result:" + df.format(bestProfit) + " RUB (" + df.format(bestResult) + "%): " + bestConfig);
     }
 
-    public static Pair<Double, Double> run(GerchikUtils config) throws Exception {
+    public static Pair<Double, Double> run(GerchikUtils config, int levelPy) throws Exception {
         Repository<TickerInfo.Key, TickerInfo> tickerRepository = TickerRepository.INSTANCE;
-        Map<TickerInfo.Key, TickerInfo> dataFromDisk = loadDataFromDisk(SERIALIZE_NAME, new TypeToken<>() {});
+        Map<TickerInfo.Key, TickerInfo> dataFromDisk = loadDataFromDisk(SERIALIZE_NAME, new TypeToken<>() {
+        });
         tickerRepository.putAll(dataFromDisk);
         List<Double> results = new ArrayList<>(stocks.size());
         List<Double> profits = new ArrayList<>(stocks.size());
@@ -159,7 +170,13 @@ public class TestLevelTrader {
                 var currentBalance = balance.get();
                 out.println("BALANCE START: " + currentBalance);
                 var tickerInfo = readTickerFile(tickerName, "data");
-                var result = run(tickerName, currentBalance, tickerInfo.getLevels(), config);
+                var levels = levelPy == 1 ? tickerInfo.getLevels() : new LevelUtils()
+                        .identifyKeyLevels(readCandlesFile(name, "data", "candlesHOUR.txt"))
+                        .stream()
+                        .map(Level::getPrice)
+                        .sorted()
+                        .collect(Collectors.toList());
+                var result = run(tickerName, currentBalance, levels, config);
                 balance.set(result.getProfit());
 
                 var endBalance = balance.get();
@@ -192,8 +209,8 @@ public class TestLevelTrader {
         List<Integer> shortTrades = new ArrayList<>();
         TickerCandle startOfDay = M5.get(0);
 
-        var network = getNetwork("data", name);
-        var booster = getBooster("data", name);
+        var network = useNN ? getNetwork("data", name) : null;
+        var booster = useNN ? getBooster("data", name) : null;
 
         for (int i = INDICATORS_SHIFT + 2016, x = 0; i < M5.size(); i++, x++) {
             LocalDateTime currentDateTime = LocalDateTime.parse(M5.get(x).getDate(), formatter);
@@ -216,13 +233,17 @@ public class TestLevelTrader {
                 var hasUpATR = (startOfDay.getLow() + (atr - (atr * 0.2))) > (candle5.getClose() + tp);
                 if (hasUpATR) {
                     if (config.getLevelAction(subList, levels).getLeft()) {
-                        var data = createInput(M5, i, startOfDay.getClose(), levels);
-                        var input = getNetworkInput(data);
-                        var output = network.rnnTimeStep(Nd4j.create(input).reshape(1, input.length)).getDouble(0);
-                        var labels = getBoosterInput(data);
-                        var vector = new DMatrix(labels, 1, labels.length, Float.NaN);
-                        var predict = booster.predict(vector)[0][0];
-                        if ((output + predict) >= 0.05 && (output > 0.035 || predict > 0.005)) {
+                        if (useNN) {
+                            var data = createInput(M5, i, startOfDay.getClose(), levels);
+                            var input = getNetworkInput(data);
+                            var output = network.rnnTimeStep(Nd4j.create(input).reshape(1, input.length)).getDouble(0);
+                            var labels = getBoosterInput(data);
+                            var vector = new DMatrix(labels, 1, labels.length, Float.NaN);
+                            var predict = booster.predict(vector)[0][0];
+                            if (output > 0 || predict > 0) {
+                                longTrades.add(i);
+                            }
+                        } else {
                             longTrades.add(i);
                         }
                     }
@@ -237,13 +258,17 @@ public class TestLevelTrader {
                 var hasDownATR = (candle5.getClose() - tp) + (atr - (atr * 0.2)) < startOfDay.getHigh();
                 if (hasDownATR) {
                     if (config.getLevelAction(subList, levels).getRight()) {
-                        var data = createInput(M5, i, startOfDay.getClose(), levels);
-                        var input = getNetworkInput(data);
-                        var output = network.rnnTimeStep(Nd4j.create(input).reshape(1, input.length)).getDouble(0);
-                        var labels = getBoosterInput(data);
-                        var vector = new DMatrix(labels, 1, labels.length, Float.NaN);
-                        var predict = booster.predict(vector)[0][0];
-                        if ((output + predict) <= -0.05 && (output < -0.005 || predict < -0.005)) {
+                        if (useNN) {
+                            var data = createInput(M5, i, startOfDay.getClose(), levels);
+                            var input = getNetworkInput(data);
+                            var output = network.rnnTimeStep(Nd4j.create(input).reshape(1, input.length)).getDouble(0);
+                            var labels = getBoosterInput(data);
+                            var vector = new DMatrix(labels, 1, labels.length, Float.NaN);
+                            var predict = booster.predict(vector)[0][0];
+                            if (output < -0 || predict < -0) {
+                                shortTrades.add(i);
+                            }
+                        } else {
                             shortTrades.add(i);
                         }
                     }

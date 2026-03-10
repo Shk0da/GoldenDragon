@@ -1,10 +1,13 @@
 package com.github.shk0da.GoldenDragon.utils;
 
 import com.github.shk0da.GoldenDragon.model.TickerCandle;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+import java.util.Optional;
+import java.util.stream.Collectors;
 import org.apache.commons.lang3.tuple.Pair;
 
-import java.util.ArrayList;
-import java.util.List;
 
 import static com.github.shk0da.GoldenDragon.utils.GerchikUtils.SignalType.BOUNCE;
 import static com.github.shk0da.GoldenDragon.utils.GerchikUtils.SignalType.BREAKOUT;
@@ -31,8 +34,28 @@ public class GerchikUtils {
             this.strengthScore = touches * volumeAtLevel;
         }
 
+        public double getPrice() {
+            return price;
+        }
+
+        public int getTouches() {
+            return touches;
+        }
+
         public boolean isSupport() {
             return isSupport;
+        }
+
+        public double getVolumeAtLevel() {
+            return volumeAtLevel;
+        }
+
+        public double getStrengthScore() {
+            return strengthScore;
+        }
+
+        public void updateStrength() {
+            this.strengthScore = touches * volumeAtLevel;
         }
     }
 
@@ -43,14 +66,20 @@ public class GerchikUtils {
         private final Level level;
         private final double confirmationStrength;
         private boolean isFalseBreakout;
+        private final int timestamp;
 
         public TradingSignal(SignalType type, double price, Level level,
-                             double confirmationStrength, boolean isFalseBreakout) {
+                             double confirmationStrength, boolean isFalseBreakout, int timestamp) {
             this.type = type;
             this.price = price;
             this.level = level;
             this.confirmationStrength = confirmationStrength;
             this.isFalseBreakout = isFalseBreakout;
+            this.timestamp = timestamp;
+        }
+
+        public int getTimestamp() {
+            return timestamp;
         }
 
         public SignalType getType() {
@@ -59,6 +88,10 @@ public class GerchikUtils {
 
         public Level getLevel() {
             return level;
+        }
+
+        public boolean isFalseBreakout() {
+            return isFalseBreakout;
         }
 
         @Override
@@ -74,54 +107,44 @@ public class GerchikUtils {
         }
     }
 
-    private int levelConfirmationTouches = 0;
+    private int levelConfirmationTouches = 2;
     private double levelZonePercent = 0.0075;
     private double breakoutConfirmationPercent = 0.01;
     private double falseBreakoutThreshold = 0.00025;
     private double volumeMultiplier = 0.65;
     private int confirmationCandles = 3;
+    private int maxSignalAge = 5;
 
     public GerchikUtils() {
     }
 
     public GerchikUtils(int levelConfirmationTouches, double levelZonePercent, double breakoutConfirmationPercent,
-                        double falseBreakoutThreshold, double volumeMultiplier, int confirmationCandles) {
+                        double falseBreakoutThreshold, double volumeMultiplier, int confirmationCandles, int maxSignalAge) {
         this.levelConfirmationTouches = levelConfirmationTouches;
         this.levelZonePercent = levelZonePercent;
         this.breakoutConfirmationPercent = breakoutConfirmationPercent;
         this.falseBreakoutThreshold = falseBreakoutThreshold;
         this.volumeMultiplier = volumeMultiplier;
         this.confirmationCandles = confirmationCandles;
+        this.maxSignalAge = maxSignalAge;
     }
 
     public Pair<Boolean, Boolean> getLevelAction(List<TickerCandle> candles, List<Double> levels) {
-        var signals = processMarketData(candles, levels);
-        var bounceLong = signals.stream()
-                .filter(it -> it.getLevel().isSupport())
-                .anyMatch(it -> BOUNCE.equals(it.getType()));
-        var breakoutLong = signals.stream()
-                .filter(it -> !it.getLevel().isSupport())
-                .filter(it -> !it.isFalseBreakout)
-                .anyMatch(it -> BREAKOUT.equals(it.getType()));
-        var falseBreakoutShort = signals.stream()
-                .filter(it -> it.getLevel().isSupport())
-                .filter(it -> it.isFalseBreakout)
-                .anyMatch(it -> BREAKOUT.equals(it.getType()));
-        var bounceShort = signals.stream()
-                .filter(it -> !it.getLevel().isSupport())
-                .anyMatch(it -> BOUNCE.equals(it.getType()));
-        var breakoutShort = signals.stream()
-                .filter(it -> it.getLevel().isSupport())
-                .filter(it -> !it.isFalseBreakout)
-                .anyMatch(it -> BREAKOUT.equals(it.getType()));
-        var falseBreakoutLong = signals.stream()
-                .filter(it -> !it.getLevel().isSupport())
-                .filter(it -> it.isFalseBreakout)
-                .anyMatch(it -> BREAKOUT.equals(it.getType()));
-        return Pair.of(
-                (bounceLong || breakoutLong || falseBreakoutShort),
-                (bounceShort || breakoutShort || falseBreakoutLong)
-        );
+        List<TradingSignal> signals = processMarketData(candles, levels);
+
+        signals = filterByTime(signals, maxSignalAge);
+
+        boolean longSignal = signals.stream()
+                .filter(s -> !s.isFalseBreakout())
+                .anyMatch(s -> (s.getLevel().isSupport() && s.getType() == SignalType.BOUNCE) ||
+                        (!s.getLevel().isSupport() && s.getType() == SignalType.BREAKOUT));
+
+        boolean shortSignal = signals.stream()
+                .filter(s -> !s.isFalseBreakout())
+                .anyMatch(s -> (!s.getLevel().isSupport() && s.getType() == SignalType.BOUNCE) ||
+                        (s.getLevel().isSupport() && s.getType() == SignalType.BREAKOUT));
+
+        return Pair.of(longSignal, shortSignal);
     }
 
     private List<TradingSignal> processMarketData(List<TickerCandle> candles, List<Double> priceLevels) {
@@ -132,43 +155,39 @@ public class GerchikUtils {
             return signals;
         }
 
-        // Проверяем последние свечи на пробои и отскоки
         for (Level level : levels) {
             checkBreakoutsAndBounces(candles, level, signals);
         }
 
-        // Фильтрация ложных пробоев
         filterFalseBreakouts(candles, signals);
 
         return signals;
     }
 
     private void checkBreakoutsAndBounces(List<TickerCandle> candles, Level level, List<TradingSignal> signals) {
-        TickerCandle currentCandle = candles.get(candles.size() - 1);
-        TickerCandle prevCandle = candles.get(candles.size() - 2);
+        int now = candles.size() - 1;
+        TickerCandle currentCandle = candles.get(now);
+        TickerCandle prevCandle = candles.get(now - 1);
 
-        // Проверка на пробой уровня
         if (isBreakout(level, prevCandle, currentCandle)) {
-            double confirmationStrength = calculateConfirmationStrength(level, candles);
-            signals.add(new TradingSignal(SignalType.BREAKOUT, currentCandle.getClose(), level, confirmationStrength, false));
+            double strength = calculateConfirmationStrength(level, candles);
+            signals.add(new TradingSignal(BREAKOUT, currentCandle.getClose(), level, strength, false, now));
         }
 
-        // Проверка на отскок от уровня
         if (isBounce(level, prevCandle, currentCandle)) {
-            double confirmationStrength = calculateConfirmationStrength(level, candles);
-            signals.add(new TradingSignal(BOUNCE, currentCandle.getClose(), level, confirmationStrength, false));
+            double strength = calculateConfirmationStrength(level, candles);
+            signals.add(new TradingSignal(BOUNCE, currentCandle.getClose(), level, strength, false, now));
         }
     }
 
     private void filterFalseBreakouts(List<TickerCandle> candles, List<TradingSignal> signals) {
         for (TradingSignal signal : signals) {
-            if (BREAKOUT.equals(signal.type)) {
-                // Проверяем последующие свечи после пробоя
-                int startIndex = candles.size() - confirmationCandles - 1;
-                if (startIndex < 0) startIndex = 0;
+            if (signal.getType() == SignalType.BREAKOUT) {
+                int startIndex = Math.max(0, signal.getTimestamp() + 1);
+                int endIndex = Math.min(candles.size(), signal.getTimestamp() + confirmationCandles + 1);
 
-                for (int j = startIndex; j < candles.size(); j++) {
-                    TickerCandle candle = candles.get(j);
+                for (int i = startIndex; i < endIndex; i++) {
+                    TickerCandle candle = candles.get(i);
                     if (isFalseBreakout(signal, candle)) {
                         signal.isFalseBreakout = true;
                         break;
@@ -179,72 +198,76 @@ public class GerchikUtils {
     }
 
     private boolean isFalseBreakout(TradingSignal signal, TickerCandle candle) {
-        if (signal.level.isSupport) {
-            // Для поддержки: ложный пробой если цена вернулась выше уровня
-            return candle.getClose() > signal.level.price * (1 + falseBreakoutThreshold);
+        double price = candle.getClose();
+        double levelPrice = signal.level.getPrice();
+
+        if (signal.level.isSupport()) {
+            boolean priceRejection = price > levelPrice * (1 + falseBreakoutThreshold);
+            boolean volumeRejection = candle.getVolume() > signal.level.getVolumeAtLevel() * 1.5;
+            return priceRejection && volumeRejection;
         } else {
-            // Для сопротивления: ложный пробой если цена вернулась ниже уровня
-            return candle.getClose() < signal.level.price * (1 - falseBreakoutThreshold);
+            boolean priceRejection = price < levelPrice * (1 - falseBreakoutThreshold);
+            boolean volumeRejection = candle.getVolume() > signal.level.getVolumeAtLevel() * 1.5;
+            return priceRejection && volumeRejection;
         }
     }
 
     private double calculateConfirmationStrength(Level level, List<TickerCandle> candles) {
-        // Рассчитываем силу подтверждения на основе объема и количества касаний
         double volumeConfirmation = 0;
         int confirmations = 0;
 
         for (int i = Math.max(0, candles.size() - confirmationCandles); i < candles.size(); i++) {
             TickerCandle candle = candles.get(i);
-            if ((level.isSupport && candle.getLow() <= level.price * (1 + levelZonePercent)) ||
-                    (!level.isSupport && candle.getHigh() >= level.price * (1 - levelZonePercent))) {
+            if ((level.isSupport() && candle.getLow() <= level.getPrice() * (1 + levelZonePercent)) ||
+                    (!level.isSupport() && candle.getHigh() >= level.getPrice() * (1 - levelZonePercent))) {
                 volumeConfirmation += candle.getVolume();
                 confirmations++;
             }
         }
 
         double avgVolume = volumeConfirmation / Math.max(1, confirmations);
-        return level.strengthScore * avgVolume;
+        double atr = calculateATR(candles, 14);
+        return level.getStrengthScore() * avgVolume * (1 / atr);
     }
 
     private List<Level> identifyKeyLevels(List<TickerCandle> candles, List<Double> priceLevels) {
         List<Level> levels = new ArrayList<>();
+
         for (TickerCandle candle : candles) {
-            var supportLevel = 0.0; // уровень снизу
-            var resistanceLevel = 0.0; // уровень сверху
-            for (Double level : priceLevels) {
-                if (level < candle.getClose()) {
-                    supportLevel = level;
-                }
-                if (level > candle.getClose()) {
-                    resistanceLevel = level;
-                    break;
-                }
-            }
-            checkAndUpdateLevel(levels, supportLevel, true, candle.getVolume());
-            checkAndUpdateLevel(levels, resistanceLevel, false, candle.getVolume());
+            double close = candle.getClose();
+            double volume = candle.getVolume();
+
+            Optional<Double> support = priceLevels.stream()
+                    .filter(p -> p < close)
+                    .max(Double::compareTo);
+
+            Optional<Double> resistance = priceLevels.stream()
+                    .filter(p -> p > close)
+                    .min(Double::compareTo);
+
+            support.ifPresent(p -> checkAndUpdateLevel(levels, p, true, volume));
+            resistance.ifPresent(p -> checkAndUpdateLevel(levels, p, false, volume));
         }
+
         return filterSignificantLevels(levels);
     }
 
     private List<Level> filterSignificantLevels(List<Level> levels) {
-        List<Level> significantLevels = new ArrayList<>();
-        double avgStrength = levels.stream().mapToDouble(l -> l.strengthScore).average().orElse(0);
+        if (levels.isEmpty()) return Collections.emptyList();
 
-        for (Level level : levels) {
-            if (level.touches >= levelConfirmationTouches && level.strengthScore >= avgStrength) {
-                significantLevels.add(level);
-            }
-        }
-
-        return significantLevels;
+        double avgStrength = levels.stream().mapToDouble(Level::getStrengthScore).average().orElse(0);
+        return levels.stream()
+                .filter(level -> level.getTouches() >= levelConfirmationTouches &&
+                        level.getStrengthScore() >= avgStrength)
+                .collect(Collectors.toList());
     }
 
     private void checkAndUpdateLevel(List<Level> levels, double price, boolean isSupport, double volume) {
         for (Level level : levels) {
-            if (Math.abs(level.price - price)/price <= levelZonePercent && level.isSupport == isSupport) {
+            if (Math.abs(level.getPrice() - price) / price <= levelZonePercent && level.isSupport() == isSupport) {
                 level.touches++;
                 level.volumeAtLevel += volume;
-                level.strengthScore = level.touches * level.volumeAtLevel;
+                level.updateStrength();
                 return;
             }
         }
@@ -252,29 +275,60 @@ public class GerchikUtils {
     }
 
     private boolean isBreakout(Level level, TickerCandle prevCandle, TickerCandle currentCandle) {
-        if (level.isSupport) {
-            return currentCandle.getClose() < level.price * (1 - breakoutConfirmationPercent) &&
-                    prevCandle.getClose() >= level.price &&
+        if (level.isSupport()) {
+            return currentCandle.getLow() < level.getPrice() * (1 - breakoutConfirmationPercent) &&
+                    prevCandle.getClose() >= level.getPrice() &&
                     currentCandle.getVolume() >= prevCandle.getVolume() * volumeMultiplier;
         } else {
-            return currentCandle.getClose() > level.price * (1 + breakoutConfirmationPercent) &&
-                    prevCandle.getClose() <= level.price &&
+            return currentCandle.getHigh() > level.getPrice() * (1 + breakoutConfirmationPercent) &&
+                    prevCandle.getClose() <= level.getPrice() &&
                     currentCandle.getVolume() >= prevCandle.getVolume() * volumeMultiplier;
         }
     }
 
     private boolean isBounce(Level level, TickerCandle prevCandle, TickerCandle currentCandle) {
-        if (level.isSupport) {
-            return prevCandle.getLow() <= level.price * (1 + levelZonePercent) &&
-                    prevCandle.getLow() >= level.price * (1 - levelZonePercent) &&
+        if (level.isSupport()) {
+            return prevCandle.getLow() <= level.getPrice() * (1 + levelZonePercent) &&
+                    prevCandle.getLow() >= level.getPrice() * (1 - levelZonePercent) &&
                     currentCandle.getClose() > prevCandle.getClose() &&
                     currentCandle.getVolume() >= prevCandle.getVolume();
         } else {
-            return prevCandle.getHigh() <= level.price * (1 + levelZonePercent) &&
-                    prevCandle.getHigh() >= level.price * (1 - levelZonePercent) &&
+            return prevCandle.getHigh() <= level.getPrice() * (1 + levelZonePercent) &&
+                    prevCandle.getHigh() >= level.getPrice() * (1 - levelZonePercent) &&
                     currentCandle.getClose() < prevCandle.getClose() &&
                     currentCandle.getVolume() >= prevCandle.getVolume();
         }
+    }
+
+    private double calculateATR(List<TickerCandle> candles, int period) {
+        if (candles.size() < period) return 0;
+
+        double sumTR = 0;
+        for (int i = candles.size() - period; i < candles.size(); i++) {
+            TickerCandle c = candles.get(i);
+            double prevClose = i > 0 ? candles.get(i - 1).getClose() : c.getOpen();
+            double tr = Math.max(
+                    Math.abs(c.getHigh() - c.getLow()),
+                    Math.max(
+                            Math.abs(c.getHigh() - prevClose),
+                            Math.abs(c.getLow() - prevClose)
+                    )
+            );
+            sumTR += tr;
+        }
+
+        return sumTR / period;
+    }
+
+    private List<TradingSignal> filterByTime(List<TradingSignal> signals, int maxSignalAge) {
+        int now = signals.stream()
+                .mapToInt(TradingSignal::getTimestamp)
+                .max()
+                .orElse(0);
+
+        return signals.stream()
+                .filter(signal -> (now - signal.getTimestamp()) <= maxSignalAge)
+                .collect(Collectors.toList());
     }
 
     @Override
@@ -286,6 +340,7 @@ public class GerchikUtils {
                 ", falseBreakoutThreshold=" + falseBreakoutThreshold +
                 ", volumeMultiplier=" + volumeMultiplier +
                 ", confirmationCandles=" + confirmationCandles +
+                ", maxSignalAge=" + maxSignalAge +
                 '}';
     }
 }
