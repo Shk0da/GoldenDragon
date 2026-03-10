@@ -150,8 +150,7 @@ public class TestLevelTrader {
 
     public static Pair<Double, Double> run(GerchikUtils config, int levelPy) throws Exception {
         Repository<TickerInfo.Key, TickerInfo> tickerRepository = TickerRepository.INSTANCE;
-        Map<TickerInfo.Key, TickerInfo> dataFromDisk = loadDataFromDisk(SERIALIZE_NAME, new TypeToken<>() {
-        });
+        Map<TickerInfo.Key, TickerInfo> dataFromDisk = loadDataFromDisk(SERIALIZE_NAME, new TypeToken<>() {});
         tickerRepository.putAll(dataFromDisk);
         List<Double> results = new ArrayList<>(stocks.size());
         List<Double> profits = new ArrayList<>(stocks.size());
