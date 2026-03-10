@@ -114,12 +114,14 @@ public class GerchikUtils {
     private double volumeMultiplier = 0.65;
     private int confirmationCandles = 3;
     private int maxSignalAge = 5;
+    private double volumeConfirmationThreshold = 1.2;
 
     public GerchikUtils() {
     }
 
     public GerchikUtils(int levelConfirmationTouches, double levelZonePercent, double breakoutConfirmationPercent,
-                        double falseBreakoutThreshold, double volumeMultiplier, int confirmationCandles, int maxSignalAge) {
+                        double falseBreakoutThreshold, double volumeMultiplier, int confirmationCandles, int maxSignalAge,
+                        double volumeConfirmationThreshold) {
         this.levelConfirmationTouches = levelConfirmationTouches;
         this.levelZonePercent = levelZonePercent;
         this.breakoutConfirmationPercent = breakoutConfirmationPercent;
@@ -127,6 +129,7 @@ public class GerchikUtils {
         this.volumeMultiplier = volumeMultiplier;
         this.confirmationCandles = confirmationCandles;
         this.maxSignalAge = maxSignalAge;
+        this.volumeConfirmationThreshold = volumeConfirmationThreshold;
     }
 
     public Pair<Boolean, Boolean> getLevelAction(List<TickerCandle> candles, List<Double> levels) {
@@ -169,12 +172,24 @@ public class GerchikUtils {
         TickerCandle currentCandle = candles.get(now);
         TickerCandle prevCandle = candles.get(now - 1);
 
-        if (isBreakout(level, prevCandle, currentCandle)) {
+        double avgVolume = calculateAvgVolume(candles, confirmationCandles);
+
+        boolean volumeOk = currentCandle.getVolume() > avgVolume * volumeConfirmationThreshold;
+
+        // Проверка паттернов
+        boolean isHammer = isHammer(currentCandle);
+        boolean isHangingMan = isHangingMan(currentCandle, candles);
+        boolean isShootingStar = isShootingStar(currentCandle, candles);
+        boolean isDoji = isDoji(currentCandle);
+
+        boolean patternOk = isHammer || isHangingMan || isShootingStar || isDoji;
+
+        if (isBreakout(level, prevCandle, currentCandle) && volumeOk && patternOk) {
             double strength = calculateConfirmationStrength(level, candles);
             signals.add(new TradingSignal(BREAKOUT, currentCandle.getClose(), level, strength, false, now));
         }
 
-        if (isBounce(level, prevCandle, currentCandle)) {
+        if (isBounce(level, prevCandle, currentCandle) && volumeOk && patternOk) {
             double strength = calculateConfirmationStrength(level, candles);
             signals.add(new TradingSignal(BOUNCE, currentCandle.getClose(), level, strength, false, now));
         }
@@ -320,6 +335,48 @@ public class GerchikUtils {
         return sumTR / period;
     }
 
+    private double calculateAvgVolume(List<TickerCandle> candles, int period) {
+        int start = Math.max(0, candles.size() - period);
+        double totalVolume = 0;
+        for (int i = start; i < candles.size(); i++) {
+            totalVolume += candles.get(i).getVolume();
+        }
+        return totalVolume / Math.max(1, candles.size() - start);
+    }
+
+    private boolean isUptrend(List<TickerCandle> candles) {
+        int lookback = Math.min(5, candles.size());
+        double first = candles.get(candles.size() - lookback).getClose();
+        double last = candles.get(candles.size() - 1).getClose();
+        return last > first;
+    }
+
+    private boolean isHammer(TickerCandle candle) {
+        double body = Math.abs(candle.getClose() - candle.getOpen());
+        double upperWick = candle.getHigh() - Math.max(candle.getOpen(), candle.getClose());
+        double lowerWick = Math.min(candle.getOpen(), candle.getClose()) - candle.getLow();
+
+        return lowerWick >= 2 * body && upperWick <= 0.5 * body;
+    }
+
+    private boolean isHangingMan(TickerCandle candle, List<TickerCandle> candles) {
+        return isHammer(candle) && isUptrend(candles);
+    }
+
+    private boolean isShootingStar(TickerCandle candle, List<TickerCandle> candles) {
+        double body = Math.abs(candle.getClose() - candle.getOpen());
+        double upperWick = candle.getHigh() - Math.max(candle.getOpen(), candle.getClose());
+        double lowerWick = Math.min(candle.getOpen(), candle.getClose()) - candle.getLow();
+
+        return upperWick >= 2 * body && lowerWick <= 0.5 * body && isUptrend(candles);
+    }
+
+    private boolean isDoji(TickerCandle candle) {
+        double body = Math.abs(candle.getClose() - candle.getOpen());
+        double range = candle.getHigh() - candle.getLow();
+        return body <= range * 0.1;
+    }
+
     private List<TradingSignal> filterByTime(List<TradingSignal> signals, int maxSignalAge) {
         int now = signals.stream()
                 .mapToInt(TradingSignal::getTimestamp)
@@ -341,6 +398,7 @@ public class GerchikUtils {
                 ", volumeMultiplier=" + volumeMultiplier +
                 ", confirmationCandles=" + confirmationCandles +
                 ", maxSignalAge=" + maxSignalAge +
+                ", volumeConfirmationThreshold=" + volumeConfirmationThreshold +
                 '}';
     }
 }

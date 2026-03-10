@@ -115,6 +115,7 @@ public class TestLevelTrader {
         for (double volumeMultiplier = 0.05; volumeMultiplier <= 0.95; volumeMultiplier += 0.05)
         for (int confirmationCandles = 0; confirmationCandles <= 5; confirmationCandles += 1)
         for (int maxSignalAge = 0; maxSignalAge <= 10; maxSignalAge += 1)
+        for (double volumeConfirmationThreshold = 0.8; volumeConfirmationThreshold <= 3; volumeConfirmationThreshold += 0.2)
         for (int levelPy = 1; maxSignalAge <= 2; maxSignalAge += 1) {
             var config = new GerchikUtils(
                     levelConfirmationTouches,
@@ -123,7 +124,8 @@ public class TestLevelTrader {
                     falseBreakoutThreshold,
                     volumeMultiplier,
                     confirmationCandles,
-                    maxSignalAge
+                    maxSignalAge,
+                    volumeConfirmationThreshold
             );
             var result = run(config, levelPy);
             if (result.getLeft() > bestResult) {
