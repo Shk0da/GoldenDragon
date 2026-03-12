@@ -145,8 +145,10 @@ public class TestLevelTrader {
 
             // Сортировка по приспособленности
             population
-                    .sort(Comparator.comparingDouble((Individual ind) -> -ind.fitness)
-                    .thenComparingDouble(ind -> -ind.profit));
+                    .sort(Comparator
+                            .comparingDouble((Individual ind) -> -ind.fitness)
+                            .thenComparingDouble(ind -> -ind.profit)
+                    );
             Individual best = population.get(0);
 
             System.out.printf("%nGeneration %d | Best Fitness: %.2f%% | Profit: %.2f RUB%n%s%n",
@@ -157,9 +159,13 @@ public class TestLevelTrader {
             );
 
             // Ранняя остановка
-            if (best.fitness > bestFitness && best.profit > bestProfit) {
-                bestFitness = best.fitness;
-                bestProfit = best.profit;
+            if (best.fitness > bestFitness || best.profit > bestProfit) {
+                if (best.fitness > bestFitness) {
+                    bestFitness = best.fitness;
+                }
+                if (best.profit > bestProfit) {
+                    bestProfit = best.profit;
+                }
                 noImprovementCount = 0;
             } else {
                 noImprovementCount++;
@@ -189,8 +195,10 @@ public class TestLevelTrader {
 
         // Финальный результат
         population
-                .sort(Comparator.comparingDouble((Individual ind) -> -ind.fitness)
-                .thenComparingDouble(ind -> -ind.profit));
+                .sort(Comparator
+                        .comparingDouble((Individual ind) -> -ind.fitness)
+                        .thenComparingDouble(ind -> -ind.profit)
+                );
         Individual best = population.get(0);
         System.out.println("\n Лучшая конфигурация:");
         System.out.println("Fitness: " + df.get().format(best.fitness * 100) + "%");
@@ -262,8 +270,10 @@ public class TestLevelTrader {
                 tournament.add(population.get(ThreadLocalRandom.current().nextInt(population.size())));
             }
             return tournament.stream()
-                    .max(Comparator.comparingDouble((Individual i) -> i.fitness)
-                    .thenComparingDouble(i -> i.profit))
+                    .max(Comparator
+                            .comparingDouble((Individual i) -> i.fitness)
+                            .thenComparingDouble(i -> i.profit)
+                    )
                     .orElse(ind);
         }).collect(Collectors.toList());
     }
