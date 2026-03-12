@@ -146,8 +146,12 @@ public class TestLevelTrader {
             population.sort(Comparator.comparingDouble(ind -> -ind.fitness));
             Individual best = population.get(0);
 
-            System.out.printf("Generation %d | Best Fitness: %.2f%% | Profit: %.2f RUB%n", generation, best.fitness, best.profit);
-            System.out.print(best.config);
+            System.out.printf("Generation %d | Best Fitness: %.2f%% | Profit: %.2f RUB%n \n%s\n",
+                    generation,
+                    best.fitness,
+                    best.profit,
+                    best.config
+            );
 
             // Ранняя остановка
             if (best.fitness > bestFitness) {
