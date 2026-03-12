@@ -215,7 +215,7 @@ public class TestLevelTrader {
                 var levels = levelPy == 1 ? tickerInfo.getLevels() : levelsRegister.computeIfAbsent(
                         name,
                         it -> new LevelUtils()
-                                .identifyKeyLevels(readCandlesFile(name, "data", "candlesHOUR.txt"))
+                                .identifyKeyLevels(readCandlesFile(name.toUpperCase(), "data", "candlesHOUR.txt"))
                                 .stream()
                                 .map(Level::getPrice)
                                 .sorted()
