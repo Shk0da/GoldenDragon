@@ -107,16 +107,24 @@ public class GerchikUtils {
         }
     }
 
-    private int levelConfirmationTouches = 2;
-    private double levelZonePercent = 0.0075;
-    private double breakoutConfirmationPercent = 0.01;
-    private double falseBreakoutThreshold = 0.00025;
-    private double volumeMultiplier = 0.65;
-    private int confirmationCandles = 3;
-    private int maxSignalAge = 5;
-    private double volumeConfirmationThreshold = 1.2;
+    public int levelConfirmationTouches;
+    public double levelZonePercent;
+    public double breakoutConfirmationPercent;
+    public double falseBreakoutThreshold;
+    public double volumeMultiplier;
+    public int confirmationCandles;
+    public int maxSignalAge;
+    public double volumeConfirmationThreshold ;
 
     public GerchikUtils() {
+        this.levelConfirmationTouches = 2;
+        this.levelZonePercent = 0.0075;
+        this.breakoutConfirmationPercent = 0.01;
+        this.falseBreakoutThreshold = 0.00025;
+        this.volumeMultiplier = 0.65;
+        this.confirmationCandles = 3;
+        this.maxSignalAge = 5;
+        this.volumeConfirmationThreshold = 1.2;
     }
 
     public GerchikUtils(int levelConfirmationTouches, double levelZonePercent, double breakoutConfirmationPercent,

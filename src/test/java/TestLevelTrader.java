@@ -1,8 +1,6 @@
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.shk0da.GoldenDragon.model.TickerCandle;
 import com.github.shk0da.GoldenDragon.model.TickerInfo;
 import com.github.shk0da.GoldenDragon.model.TickerInfo.Key;
-import com.github.shk0da.GoldenDragon.model.TickerJson;
 import com.github.shk0da.GoldenDragon.repository.Repository;
 import com.github.shk0da.GoldenDragon.repository.TickerRepository;
 import com.github.shk0da.GoldenDragon.utils.GerchikUtils;
@@ -12,7 +10,6 @@ import com.github.shk0da.GoldenDragon.utils.LevelUtils.Level;
 import com.google.gson.reflect.TypeToken;
 import java.awt.Color;
 import java.io.BufferedReader;
-import java.io.File;
 import java.io.FileOutputStream;
 import java.io.FileReader;
 import java.io.IOException;
@@ -22,11 +19,11 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ThreadLocalRandom;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
@@ -69,15 +66,14 @@ public class TestLevelTrader {
     private static final Double RISK = 30.0;
     private static final Boolean createPlot = false;
     private static final Boolean debugLogging = false;
+    private static final Boolean useNN = false;
     private static final Double initBalance = 100_000.00;
     private static final Double averagePositionCost = 10_000.00;
-    private static final List<String> stocks = List.of("IMOEXF", "USDRUBF", "GLDRUBF", "SBERF", "GAZPF", "CNYRUBF");
+    private static final List<String> stocks = List.of(/*"IMOEXF", "USDRUBF", "GLDRUBF", "SBERF", "GAZPF",*/ "CNYRUBF");
 
     private static final DecimalFormat df = new DecimalFormat("#.##");
-    private static final ObjectMapper objectMapper = new ObjectMapper();
     private static final DateTimeFormatter formatter = DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm:ss");
 
-    private static final Map<String, TickerJson> tickerJsonRegister = new ConcurrentHashMap<>();
     private static final Map<String, List<TickerCandle>> candleRegister = new ConcurrentHashMap<>();
     private static final Map<String, List<Double>> levelsRegister = new ConcurrentHashMap<>();
     private static final Map<String, MultiLayerNetwork> multiLayerNetworkRegister = new ConcurrentHashMap<>();
@@ -108,6 +104,22 @@ public class TestLevelTrader {
         }
     }
 
+    static class Individual {
+        GerchikUtils config;
+        double fitness;
+        double profit;
+
+        public Individual(GerchikUtils config) {
+            this.config = config;
+        }
+
+        public void evaluate() {
+            Pair<Double, Double> result = run(config);
+            this.fitness = result.getLeft();
+            this.profit = result.getRight();
+        }
+    }
+
     public static void main(String[] args) {
         Repository<Key, TickerInfo> tickerRepository = TickerRepository.INSTANCE;
         Map<TickerInfo.Key, TickerInfo> dataFromDisk = loadDataFromDisk(SERIALIZE_NAME, new TypeToken<>() {});
@@ -115,87 +127,147 @@ public class TestLevelTrader {
 
         final ThreadLocal<DecimalFormat> df = ThreadLocal.withInitial(() -> new DecimalFormat("#.#####"));
 
-        final AtomicReference<Double> bestResultRef = new AtomicReference<>(0.0);
-        final AtomicReference<Double> bestProfitRef = new AtomicReference<>(0.0);
-        final AtomicReference<GerchikUtils> bestConfigRef = new AtomicReference<>(null);
-        final AtomicInteger bestLevelsRef = new AtomicInteger(0);
-        final AtomicInteger bestIsUseNNRef = new AtomicInteger(0);
+        int populationSize = 50;
+        int generations = 200;
+        double mutationRate = 0.15;
+        int tournamentSize = 5;
+        int eliteCount = 5;
+        int patience = 10; // остановка, если нет улучшений в течение N поколений
 
-        final int totalIterations = 10000;
-        final AtomicInteger progressCounter = new AtomicInteger(0);
-        final int logStep = Math.max(1, totalIterations / 100); // 1% шаг
-        final long startTime = System.currentTimeMillis();
-        IntStream.range(0, totalIterations).parallel().forEach(i -> {
-            int currentCount = progressCounter.incrementAndGet();
-            if (currentCount % logStep == 0 || currentCount == totalIterations) {
-                synchronized (System.out) {
-                    double percent = (currentCount * 100.0) / totalIterations;
-                    long elapsed = System.currentTimeMillis() - startTime;
-                    long estimatedTotal = (long) (elapsed * totalIterations / (double) currentCount);
-                    long remaining = estimatedTotal - elapsed;
+        List<Individual> population = createInitialPopulation(populationSize);
+        double bestFitness = 0;
+        int noImprovementCount = 0;
 
-                    System.out.printf(
-                            "[%d/%d] Progress: %.1f%% | Elapsed: %d:%02d:%02d | Remaining: ~%d:%02d:%02d%n",
-                            currentCount,
-                            totalIterations,
-                            percent,
-                            elapsed / 3600000, (elapsed % 3600000) / 60000, (elapsed % 60000) / 1000,
-                            remaining / 3600000, (remaining % 3600000) / 60000, (remaining % 60000) / 1000
-                    );
+        for (int generation = 0; generation < generations; generation++) {
+            // Параллельная оценка
+            population.parallelStream().forEach(Individual::evaluate);
+
+            // Сортировка по приспособленности
+            population.sort(Comparator.comparingDouble(ind -> -ind.fitness));
+            Individual best = population.get(0);
+
+            System.out.printf("Generation %d | Best Fitness: %.2f%% | Profit: %.2f RUB%n", generation, best.fitness, best.profit);
+            System.out.print(best.config);
+
+            // Ранняя остановка
+            if (best.fitness > bestFitness) {
+                bestFitness = best.fitness;
+                noImprovementCount = 0;
+            } else {
+                noImprovementCount++;
+                if (noImprovementCount >= patience) {
+                    System.out.println("Early stopping at generation " + generation);
+                    break;
                 }
             }
 
-            int levelConfirmationTouches = ThreadLocalRandom.current().nextInt(0, 6);
-            double levelZonePercent = ThreadLocalRandom.current().nextDouble(0.0005, 0.0975);
-            double breakoutConfirmationPercent = ThreadLocalRandom.current().nextDouble(0.00, 0.005);
-            double falseBreakoutThreshold = ThreadLocalRandom.current().nextDouble(0.00005, 0.00125);
-            double volumeMultiplier = ThreadLocalRandom.current().nextDouble(0.05, 0.95);
-            int confirmationCandles = ThreadLocalRandom.current().nextInt(0, 6);
-            int maxSignalAge = ThreadLocalRandom.current().nextInt(0, 11);
-            double volumeConfirmationThreshold = ThreadLocalRandom.current().nextDouble(0.8, 3.0);
-            int levelPy = ThreadLocalRandom.current().nextInt(1, 3); // 1 или 2
-            int isUseNN = 2;
+            // Элитизм
+            List<Individual> newPopulation = new ArrayList<>(population.subList(0, eliteCount));
 
-            GerchikUtils config = new GerchikUtils(
-                    levelConfirmationTouches,
-                    levelZonePercent,
-                    breakoutConfirmationPercent,
-                    falseBreakoutThreshold,
-                    volumeMultiplier,
-                    confirmationCandles,
-                    maxSignalAge,
-                    volumeConfirmationThreshold
-            );
+            // Селекция родителей
+            List<Individual> parents = selectParents(population, tournamentSize);
 
-            Pair<Double, Double> result = run(config, levelPy, isUseNN);
-            double currentResult = result.getLeft();
-            double currentProfit = result.getRight();
-
-            synchronized (bestResultRef) {
-                if (currentResult > bestResultRef.get()) {
-                    bestResultRef.set(currentResult);
-                    bestConfigRef.set(config);
-                    bestLevelsRef.set(levelPy);
-                    bestIsUseNNRef.set(isUseNN);
-                    System.out.println("\n" + df.get().format(currentResult) + "%: " + "levelPy: " + levelPy + " ... " + "isUseNN: " + isUseNN + " ... " + config + "\n");
-                }
-                if (currentProfit > bestProfitRef.get()) {
-                    bestProfitRef.set(currentProfit);
-                    bestConfigRef.set(config);
-                    bestLevelsRef.set(levelPy);
-                    bestIsUseNNRef.set(isUseNN);
-                    System.out.println("\n" + df.get().format(currentProfit) + " RUB: " + "levelPy: " + levelPy + " ... " + "isUseNN: " + isUseNN + " ... " + config + "\n");
-                }
+            // Кроссовер и мутация
+            while (newPopulation.size() < populationSize) {
+                Individual parent1 = parents.get(ThreadLocalRandom.current().nextInt(parents.size()));
+                Individual parent2 = parents.get(ThreadLocalRandom.current().nextInt(parents.size()));
+                Individual child = crossover(parent1, parent2);
+                mutate(child, mutationRate);
+                newPopulation.add(child);
             }
-        });
 
-        System.out.println("bestLevels: " + bestLevelsRef.get());
-        System.out.println("bestIsUseNNRef: " + bestIsUseNNRef.get());
-        String summary = "Finish test. Best result: " + df.get().format(bestProfitRef.get()) + " RUB (" + df.get().format(bestResultRef.get()) + "%): " + bestConfigRef.get();
-        System.out.println(summary);
+            population = newPopulation;
+        }
+
+        // Финальный результат
+        population.sort(Comparator.comparingDouble(ind -> -ind.fitness));
+        Individual best = population.get(0);
+        System.out.println("\n Лучшая конфигурация:");
+        System.out.println("Fitness: " + df.get().format(best.fitness * 100) + "%");
+        System.out.println("Profit: " + df.get().format(best.profit) + " RUB");
+        System.out.println("Config: " + best.config);
     }
 
-    public static Pair<Double, Double> run(GerchikUtils config, int levelPy, int isUseNN) {
+    static void mutate(Individual individual, double mutationRate) {
+        GerchikUtils c = individual.config;
+
+        if (ThreadLocalRandom.current().nextDouble() < mutationRate) {
+            c.levelConfirmationTouches = ThreadLocalRandom.current().nextInt(0, 6);
+        }
+        if (ThreadLocalRandom.current().nextDouble() < mutationRate) {
+            c.levelZonePercent = ThreadLocalRandom.current().nextDouble(0.0005, 0.0975);
+        }
+        if (ThreadLocalRandom.current().nextDouble() < mutationRate) {
+            c.breakoutConfirmationPercent = ThreadLocalRandom.current().nextDouble(0.00, 0.005);
+        }
+        if (ThreadLocalRandom.current().nextDouble() < mutationRate) {
+            c.falseBreakoutThreshold = ThreadLocalRandom.current().nextDouble(0.00005, 0.00125);
+        }
+        if (ThreadLocalRandom.current().nextDouble() < mutationRate) {
+            c.volumeMultiplier = ThreadLocalRandom.current().nextDouble(0.05, 0.95);
+        }
+        if (ThreadLocalRandom.current().nextDouble() < mutationRate) {
+            c.confirmationCandles = ThreadLocalRandom.current().nextInt(0, 6);
+        }
+        if (ThreadLocalRandom.current().nextDouble() < mutationRate) {
+            c.maxSignalAge = ThreadLocalRandom.current().nextInt(0, 11);
+        }
+        if (ThreadLocalRandom.current().nextDouble() < mutationRate) {
+            c.volumeConfirmationThreshold = ThreadLocalRandom.current().nextDouble(0.8, 3.0);
+        }
+    }
+
+    static List<Individual> createInitialPopulation(int populationSize) {
+        return IntStream.range(0, populationSize)
+                .mapToObj(i -> {
+                    int levelConfirmationTouches = ThreadLocalRandom.current().nextInt(0, 6);
+                    double levelZonePercent = ThreadLocalRandom.current().nextDouble(0.0005, 0.0975);
+                    double breakoutConfirmationPercent = ThreadLocalRandom.current().nextDouble(0.00, 0.005);
+                    double falseBreakoutThreshold = ThreadLocalRandom.current().nextDouble(0.00005, 0.00125);
+                    double volumeMultiplier = ThreadLocalRandom.current().nextDouble(0.05, 0.95);
+                    int confirmationCandles = ThreadLocalRandom.current().nextInt(0, 6);
+                    int maxSignalAge = ThreadLocalRandom.current().nextInt(0, 11);
+                    double volumeConfirmationThreshold = ThreadLocalRandom.current().nextDouble(0.8, 3.0);
+
+                    GerchikUtils config = new GerchikUtils(
+                            levelConfirmationTouches,
+                            levelZonePercent,
+                            breakoutConfirmationPercent,
+                            falseBreakoutThreshold,
+                            volumeMultiplier,
+                            confirmationCandles,
+                            maxSignalAge,
+                            volumeConfirmationThreshold
+                    );
+
+                    return new Individual(config);
+                })
+                .collect(Collectors.toList());
+    }
+
+    static List<Individual> selectParents(List<Individual> population, int tournamentSize) {
+        return population.parallelStream().map(ind -> {
+            List<Individual> tournament = new ArrayList<>();
+            for (int i = 0; i < tournamentSize; i++) {
+                tournament.add(population.get(ThreadLocalRandom.current().nextInt(population.size())));
+            }
+            return tournament.stream()
+                    .max(Comparator.comparingDouble(i -> i.fitness))
+                    .orElse(ind);
+        }).collect(Collectors.toList());
+    }
+
+    static Individual crossover(Individual parent1, Individual parent2) {
+        GerchikUtils c1 = parent1.config;
+        GerchikUtils c2 = parent2.config;
+        boolean useFirstHalf = ThreadLocalRandom.current().nextBoolean();
+        GerchikUtils childConfig = useFirstHalf
+                ? new GerchikUtils(c1.levelConfirmationTouches, c1.levelZonePercent, c1.breakoutConfirmationPercent, c1.falseBreakoutThreshold, c1.volumeMultiplier, c1.confirmationCandles, c1.maxSignalAge, c1.volumeConfirmationThreshold)
+                : new GerchikUtils(c2.levelConfirmationTouches, c2.levelZonePercent, c2.breakoutConfirmationPercent, c2.falseBreakoutThreshold, c2.volumeMultiplier, c2.confirmationCandles, c2.maxSignalAge, c2.volumeConfirmationThreshold);
+        return new Individual(childConfig);
+    }
+
+    public static Pair<Double, Double> run(GerchikUtils config) {
         List<Double> results = new ArrayList<>(stocks.size());
         List<Double> profits = new ArrayList<>(stocks.size());
         stocks.forEach(tickerName -> {
@@ -203,8 +275,7 @@ public class TestLevelTrader {
             try {
                 String name = tickerName.toLowerCase();
                 var currentBalance = balance.get();
-                var tickerInfo = readTickerFile(tickerName, "data");
-                var levels = levelPy == 1 ? tickerInfo.getLevels() : levelsRegister.computeIfAbsent(
+                var levels = levelsRegister.computeIfAbsent(
                         name,
                         it -> new LevelUtils()
                                 .identifyKeyLevels(readCandlesFile(name.toUpperCase(), "data", "candlesHOUR.txt"))
@@ -213,7 +284,7 @@ public class TestLevelTrader {
                                 .sorted()
                                 .collect(Collectors.toList())
                 );
-                var result = run(tickerName, currentBalance, levels, config, isUseNN == 1);
+                var result = run(tickerName, currentBalance, levels, config);
                 balance.set(result.getProfit());
                 results.add(result.getWinrate());
                 profits.add(result.getProfit());
@@ -226,7 +297,7 @@ public class TestLevelTrader {
         return Pair.of(winRate, profit);
     }
 
-    public static Result run(String name, double balance, List<Double> levels, GerchikUtils config, boolean useNN) throws Exception {
+    public static Result run(String name, double balance, List<Double> levels, GerchikUtils config) throws Exception {
         List<TickerCandle> full = readCandlesFile(name, "data", "candles5_MIN.txt");
         var M5 = full.subList((int) (full.size() - (full.size() * K2)), full.size());
         if (M5.isEmpty()) {
@@ -315,15 +386,6 @@ public class TestLevelTrader {
             plotChart(name, finalM5, levels, longTrades, shortTrades);
         }
         return calculateTrades(finalM5, longTrades, shortTrades, balance);
-    }
-
-    private synchronized static TickerJson readTickerFile(String name, String dataDir) throws Exception {
-        if (tickerJsonRegister.containsKey(name)) {
-            return tickerJsonRegister.get(name);
-        }
-        out.println("Read ticker file: " + name);
-        var tickerJson = objectMapper.readValue(new File(dataDir + "/" + name + "/ticker.json"), TickerJson.class);
-        return tickerJsonRegister.put(name, tickerJson);
     }
 
     private synchronized static List<TickerCandle> readCandlesFile(String name, String dataDir, String file) {
