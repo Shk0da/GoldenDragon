@@ -5,9 +5,6 @@ import com.tictactec.ta.lib.Core;
 import com.tictactec.ta.lib.MAType;
 import com.tictactec.ta.lib.MInteger;
 import com.tictactec.ta.lib.RetCode;
-import ru.tinkoff.piapi.contract.v1.HistoricCandle;
-import ru.tinkoff.piapi.contract.v1.Quotation;
-
 import java.text.DateFormat;
 import java.text.SimpleDateFormat;
 import java.time.Instant;
@@ -20,6 +17,9 @@ import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import ru.tinkoff.piapi.contract.v1.HistoricCandle;
+import ru.tinkoff.piapi.contract.v1.Quotation;
+
 
 import static java.time.LocalDateTime.ofInstant;
 import static java.time.ZoneId.systemDefault;
@@ -85,7 +85,15 @@ public class IndicatorsUtil {
     }
 
     public static Double calculateATR(List<TickerCandle> candles, int period) {
-        List<TickerCandle> D1 = convertCandles(candles, 24, ChronoUnit.HOURS);
+        List<TickerCandle> D1;
+        try {
+            D1 = convertCandles(candles, 24, ChronoUnit.HOURS);
+        } catch (Exception ex) {
+            return 0.0;
+        }
+        if (D1.size() <= 2) {
+            return 0.0;
+        }
         if (D1.size() < period + 1) {
             return D1.get(D1.size() - 1).getHigh() - D1.get(D1.size() - 1).getLow();
         }
@@ -622,7 +630,6 @@ public class IndicatorsUtil {
             }
             return newCandles;
         } catch (Exception ex) {
-            ex.printStackTrace();
             throw new RuntimeException(ex);
         }
     }

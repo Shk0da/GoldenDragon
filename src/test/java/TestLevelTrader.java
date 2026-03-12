@@ -2,10 +2,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.shk0da.GoldenDragon.model.TickerCandle;
 import com.github.shk0da.GoldenDragon.model.TickerInfo;
 import com.github.shk0da.GoldenDragon.model.TickerJson;
-import com.github.shk0da.GoldenDragon.model.TickerType;
 import com.github.shk0da.GoldenDragon.repository.Repository;
 import com.github.shk0da.GoldenDragon.repository.TickerRepository;
-import com.github.shk0da.GoldenDragon.service.TelegramNotifyService;
 import com.github.shk0da.GoldenDragon.utils.GerchikUtils;
 import com.github.shk0da.GoldenDragon.utils.IndicatorsUtil;
 import com.github.shk0da.GoldenDragon.utils.LevelUtils;
@@ -23,10 +21,15 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ThreadLocalRandom;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 import ml.dmlc.xgboost4j.java.Booster;
 import ml.dmlc.xgboost4j.java.DMatrix;
 import ml.dmlc.xgboost4j.java.XGBoost;
@@ -46,7 +49,6 @@ import org.jfree.data.xy.XYSeriesCollection;
 import org.nd4j.linalg.factory.Nd4j;
 
 
-import static com.github.shk0da.GoldenDragon.model.TickerType.FEATURE;
 import static com.github.shk0da.GoldenDragon.repository.TickerRepository.SERIALIZE_NAME;
 import static com.github.shk0da.GoldenDragon.utils.DataLearningUtils.StockDataSetIterator.getBoosterInput;
 import static com.github.shk0da.GoldenDragon.utils.DataLearningUtils.StockDataSetIterator.getNetworkInput;
@@ -60,22 +62,27 @@ import static java.nio.file.Files.deleteIfExists;
 
 public class TestLevelTrader {
 
-    private static final Double K2 = 0.10;
+    private static final Double K2 = 0.20;
     private static final Double COMISSION = 0.05;
     private static final Double TP = 0.9;
     private static final Double SL = 0.3;
     private static final Double RISK = 30.0;
     private static final Boolean createPlot = false;
     private static final Boolean debugLogging = false;
-    private static final Boolean useNN = false;
     private static final Double initBalance = 100_000.00;
     private static final Double averagePositionCost = 10_000.00;
-    private static final List<String> stocks = List.of("USDRUBF", "GLDRUBF", "SBERF", "GAZPF");
+    private static final List<String> stocks = List.of("IMOEXF", "USDRUBF", "GLDRUBF", "SBERF", "GAZPF", "CNYRUBF");
 
     private static final DecimalFormat df = new DecimalFormat("#.##");
     private static final ObjectMapper objectMapper = new ObjectMapper();
     private static final DateTimeFormatter formatter = DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm:ss");
-    private static final TelegramNotifyService telegramNotifyService = new TelegramNotifyService();
+
+    private static volatile Map<TickerInfo.Key, TickerInfo> dataFromDiskRegister = new HashMap<>();
+    private static final Map<String, TickerJson> tickerJsonRegister = new ConcurrentHashMap<>();
+    private static final Map<String, List<TickerCandle>> candleRegister = new ConcurrentHashMap<>();
+    private static final Map<String, List<Double>> levelsRegister = new ConcurrentHashMap<>();
+    private static final Map<String, MultiLayerNetwork> multiLayerNetworkRegister = new ConcurrentHashMap<>();
+    private static final Map<String, Booster> boosterRegister = new ConcurrentHashMap<>();
 
     private static final class Result {
 
@@ -102,22 +109,51 @@ public class TestLevelTrader {
         }
     }
 
-    public static void main(String[] args) throws Exception {
-        var bestResult = 0.0D;
-        var bestProfit = 0.0D;
-        var bestLevels = 0;
-        var bestConfig = new GerchikUtils();
+    public static void main(String[] args) {
+        final ThreadLocal<DecimalFormat> df = ThreadLocal.withInitial(() -> new DecimalFormat("#.#####"));
 
-        for (int levelConfirmationTouches = 0; levelConfirmationTouches <= 5; levelConfirmationTouches += 1)
-        for (double levelZonePercent = 0.0005; levelZonePercent <= 0.0975; levelZonePercent += 0.0005)
-        for (double breakoutConfirmationPercent = 0.00; breakoutConfirmationPercent <= 0.005; breakoutConfirmationPercent += 0.1)
-        for (double falseBreakoutThreshold = 0.00005; falseBreakoutThreshold <= 0.00125; falseBreakoutThreshold += 0.00005)
-        for (double volumeMultiplier = 0.05; volumeMultiplier <= 0.95; volumeMultiplier += 0.05)
-        for (int confirmationCandles = 0; confirmationCandles <= 5; confirmationCandles += 1)
-        for (int maxSignalAge = 0; maxSignalAge <= 10; maxSignalAge += 1)
-        for (double volumeConfirmationThreshold = 0.8; volumeConfirmationThreshold <= 3; volumeConfirmationThreshold += 0.2)
-        for (int levelPy = 1; maxSignalAge <= 2; maxSignalAge += 1) {
-            var config = new GerchikUtils(
+        final AtomicReference<Double> bestResultRef = new AtomicReference<>(0.0);
+        final AtomicReference<Double> bestProfitRef = new AtomicReference<>(0.0);
+        final AtomicReference<GerchikUtils> bestConfigRef = new AtomicReference<>(null);
+        final AtomicInteger bestLevelsRef = new AtomicInteger(0);
+        final AtomicInteger bestIsUseNNRef = new AtomicInteger(0);
+
+        final int totalIterations = 10000;
+        final AtomicInteger progressCounter = new AtomicInteger(0);
+        final int logStep = Math.max(1, totalIterations / 100); // 1% шаг
+        final long startTime = System.currentTimeMillis();
+        IntStream.range(0, totalIterations).parallel().forEach(i -> {
+            int currentCount = progressCounter.incrementAndGet();
+            if (currentCount % logStep == 0 || currentCount == totalIterations) {
+                synchronized (System.out) {
+                    double percent = (currentCount * 100.0) / totalIterations;
+                    long elapsed = System.currentTimeMillis() - startTime;
+                    long estimatedTotal = (long) (elapsed * totalIterations / (double) currentCount);
+                    long remaining = estimatedTotal - elapsed;
+
+                    System.out.printf(
+                            "[%d/%d] Progress: %.1f%% | Elapsed: %d:%02d:%02d | Remaining: ~%d:%02d:%02d%n",
+                            currentCount,
+                            totalIterations,
+                            percent,
+                            elapsed / 3600000, (elapsed % 3600000) / 60000, (elapsed % 60000) / 1000,
+                            remaining / 3600000, (remaining % 3600000) / 60000, (remaining % 60000) / 1000
+                    );
+                }
+            }
+
+            int levelConfirmationTouches = ThreadLocalRandom.current().nextInt(0, 6);
+            double levelZonePercent = ThreadLocalRandom.current().nextDouble(0.0005, 0.0975);
+            double breakoutConfirmationPercent = ThreadLocalRandom.current().nextDouble(0.00, 0.005);
+            double falseBreakoutThreshold = ThreadLocalRandom.current().nextDouble(0.00005, 0.00125);
+            double volumeMultiplier = ThreadLocalRandom.current().nextDouble(0.05, 0.95);
+            int confirmationCandles = ThreadLocalRandom.current().nextInt(0, 6);
+            int maxSignalAge = ThreadLocalRandom.current().nextInt(0, 11);
+            double volumeConfirmationThreshold = ThreadLocalRandom.current().nextDouble(0.8, 3.0);
+            int levelPy = ThreadLocalRandom.current().nextInt(1, 3); // 1 или 2
+            int isUseNN = 2;
+
+            GerchikUtils config = new GerchikUtils(
                     levelConfirmationTouches,
                     levelZonePercent,
                     breakoutConfirmationPercent,
@@ -127,32 +163,46 @@ public class TestLevelTrader {
                     maxSignalAge,
                     volumeConfirmationThreshold
             );
-            var result = run(config, levelPy);
-            if (result.getLeft() > bestResult) {
-                bestResult = result.getLeft();
-                bestConfig = config;
-                bestLevels = levelPy;
-                out.println(levelPy + ": " + levelPy);
-                out.println(bestResult + "%: " + config);
-                telegramNotifyService.sendMessage(df.format(bestResult) + "% (" + df.format(result.getRight()) + " RUB): " + config);
+
+            Pair<Double, Double> result = run(config, levelPy, isUseNN);
+            double currentResult = result.getLeft();
+            double currentProfit = result.getRight();
+
+            synchronized (bestResultRef) {
+                if (currentResult > bestResultRef.get()) {
+                    bestResultRef.set(currentResult);
+                    bestConfigRef.set(config);
+                    bestLevelsRef.set(levelPy);
+                    bestIsUseNNRef.set(isUseNN);
+                    System.out.println("\n" + df.get().format(currentResult) + "%: " + "levelPy: " + levelPy + " ... " + "isUseNN: " + isUseNN + " ... " + config + "\n");
+                }
+                if (currentProfit > bestProfitRef.get()) {
+                    bestProfitRef.set(currentProfit);
+                    bestConfigRef.set(config);
+                    bestLevelsRef.set(levelPy);
+                    bestIsUseNNRef.set(isUseNN);
+                    System.out.println("\n" + df.get().format(currentProfit) + " RUB: " + "levelPy: " + levelPy + " ... " + "isUseNN: " + isUseNN + " ... " + config + "\n");
+                }
             }
-            if (result.getRight() > bestProfit) {
-                bestProfit = result.getRight();
-                bestConfig = config;
-                bestLevels = levelPy;
-                out.println(levelPy + ": " + levelPy);
-                out.println(bestProfit + " RUB: " + config);
-                telegramNotifyService.sendMessage(df.format(bestProfit) + " RUB (" + df.format(result.getLeft()) + "%): " + config);
-            }
-        }
-        out.println("bestLevels: " + bestLevels);
-        out.println("Finish test. Best result:" + df.format(bestProfit) + " RUB (" + df.format(bestResult) + "%): " + bestConfig);
-        telegramNotifyService.sendMessage("Finish test. Best result:" + df.format(bestProfit) + " RUB (" + df.format(bestResult) + "%): " + bestConfig);
+        });
+
+        System.out.println("bestLevels: " + bestLevelsRef.get());
+        System.out.println("bestIsUseNNRef: " + bestIsUseNNRef.get());
+        String summary = "Finish test. Best result: " + df.get().format(bestProfitRef.get()) + " RUB (" + df.get().format(bestResultRef.get()) + "%): " + bestConfigRef.get();
+        System.out.println(summary);
     }
 
-    public static Pair<Double, Double> run(GerchikUtils config, int levelPy) throws Exception {
+    public static Pair<Double, Double> run(GerchikUtils config, int levelPy, int isUseNN) {
         Repository<TickerInfo.Key, TickerInfo> tickerRepository = TickerRepository.INSTANCE;
-        Map<TickerInfo.Key, TickerInfo> dataFromDisk = loadDataFromDisk(SERIALIZE_NAME, new TypeToken<>() {});
+        Map<TickerInfo.Key, TickerInfo> dataFromDisk;
+        synchronized (TestLevelTrader.class) {
+            if (dataFromDiskRegister.isEmpty()) {
+                dataFromDisk = loadDataFromDisk(SERIALIZE_NAME, new TypeToken<>() {});
+                dataFromDiskRegister = dataFromDisk;
+            } else {
+                dataFromDisk = dataFromDiskRegister;
+            }
+        }
         tickerRepository.putAll(dataFromDisk);
         List<Double> results = new ArrayList<>(stocks.size());
         List<Double> profits = new ArrayList<>(stocks.size());
@@ -160,37 +210,23 @@ public class TestLevelTrader {
             AtomicReference<Double> balance = new AtomicReference<>(initBalance);
             try {
                 String name = tickerName.toLowerCase();
-                String ticker = tickerRepository.getAll().values().stream()
-                        .filter(it -> it.getType().equals(TickerType.STOCK) || it.getType().equals(FEATURE))
-                        .filter(it -> it.getName().equalsIgnoreCase(name) || it.getTicker().equalsIgnoreCase(name))
-                        .map(TickerInfo::getFigi)
-                        .findFirst()
-                        .orElseThrow();
-
-                out.println("\nTICKER: " + tickerName + " (" + ticker + ")");
                 var currentBalance = balance.get();
-                out.println("BALANCE START: " + currentBalance);
                 var tickerInfo = readTickerFile(tickerName, "data");
-                var levels = levelPy == 1 ? tickerInfo.getLevels() : new LevelUtils()
-                        .identifyKeyLevels(readCandlesFile(name, "data", "candlesHOUR.txt"))
-                        .stream()
-                        .map(Level::getPrice)
-                        .sorted()
-                        .collect(Collectors.toList());
-                var result = run(tickerName, currentBalance, levels, config);
-                balance.set(result.getProfit());
-
-                var endBalance = balance.get();
-                out.println("PROFIT: " + (endBalance - currentBalance));
-                out.println("BALANCE END: " + endBalance);
-                out.println(
-                        "Test [" + tickerName + "] | " + "Profit: " + df.format(endBalance - currentBalance) + ", " + result.getMessage()
+                var levels = levelPy == 1 ? tickerInfo.getLevels() : levelsRegister.computeIfAbsent(
+                        name,
+                        it -> new LevelUtils()
+                                .identifyKeyLevels(readCandlesFile(name, "data", "candlesHOUR.txt"))
+                                .stream()
+                                .map(Level::getPrice)
+                                .sorted()
+                                .collect(Collectors.toList())
                 );
+                var result = run(tickerName, currentBalance, levels, config, isUseNN == 1);
+                balance.set(result.getProfit());
                 results.add(result.getWinrate());
                 profits.add(result.getProfit());
-            } catch (Exception ex) {
-                out.println("Skip " + tickerName + ":" + ex.getMessage());
-                ex.printStackTrace();
+            } catch (Exception skip) {
+                // nothing
             }
         });
         var winRate = (results.stream().mapToDouble(it -> it).sum() / (double) results.size());
@@ -198,7 +234,7 @@ public class TestLevelTrader {
         return Pair.of(winRate, profit);
     }
 
-    public static Result run(String name, double balance, List<Double> levels, GerchikUtils config) throws Exception {
+    public static Result run(String name, double balance, List<Double> levels, GerchikUtils config, boolean useNN) throws Exception {
         List<TickerCandle> full = readCandlesFile(name, "data", "candles5_MIN.txt");
         var M5 = full.subList((int) (full.size() - (full.size() * K2)), full.size());
         if (M5.isEmpty()) {
@@ -222,7 +258,12 @@ public class TestLevelTrader {
 
             if (x > 80 * (60 / 5)) {
                 var subList = M5.subList(x - 80 * (60 / 5), x);
-                List<TickerCandle> H1 = convertCandles(subList, 1, ChronoUnit.HOURS);
+                List<TickerCandle> H1;
+                try {
+                    H1 = convertCandles(subList, 1, ChronoUnit.HOURS);
+                } catch (Exception skip) {
+                    H1 = new ArrayList<>();
+                }
                 hasTrendUp = isHasTrendUp(H1);
             }
 
@@ -284,54 +325,78 @@ public class TestLevelTrader {
         return calculateTrades(finalM5, longTrades, shortTrades, balance);
     }
 
-    private static TickerJson readTickerFile(String name, String dataDir) throws Exception {
+    private synchronized static TickerJson readTickerFile(String name, String dataDir) throws Exception {
+        if (tickerJsonRegister.containsKey(name)) {
+            return tickerJsonRegister.get(name);
+        }
         out.println("Read ticker file: " + name);
-        return objectMapper.readValue(new File(dataDir + "/" + name + "/ticker.json"), TickerJson.class);
+        var tickerJson = objectMapper.readValue(new File(dataDir + "/" + name + "/ticker.json"), TickerJson.class);
+        return tickerJsonRegister.put(name, tickerJson);
     }
 
-    private static List<TickerCandle> readCandlesFile(String name, String dataDir, String file) {
+    private synchronized static List<TickerCandle> readCandlesFile(String name, String dataDir, String file) {
+        var key = name + dataDir + file;
+        if (candleRegister.containsKey(key)) {
+            return new ArrayList<>(candleRegister.get(key));
+        }
         out.println("Read candles file: " + name + "/" + file);
         List<TickerCandle> tickers = new ArrayList<>();
         try (BufferedReader br = new BufferedReader(new FileReader(dataDir + "/" + name + "/" + file))) {
-            boolean skipHeader = true;
-            String line = br.readLine();
-            while (line != null) {
-                if (skipHeader) {
-                    skipHeader = false;
-                    line = br.readLine();
+            String line;
+            boolean isFirstLine = true;
+            while ((line = br.readLine()) != null) {
+                if (line.trim().isEmpty() || isFirstLine) {
+                    isFirstLine = false;
                     continue;
                 }
 
                 String[] values = line.split(",");
-                tickers.add(new TickerCandle(
-                        name,
-                        values[0],
-                        Double.valueOf(values[1]),
-                        Double.valueOf(values[2]),
-                        Double.valueOf(values[3]),
-                        Double.valueOf(values[4]),
-                        Double.valueOf(values[4]),
-                        Integer.valueOf(values[5])
-                ));
-                line = br.readLine();
+                if (values.length < 6 ||
+                        values[1].isEmpty() || values[2].isEmpty() ||
+                        values[3].isEmpty() || values[4].isEmpty() || values[5].isEmpty()) {
+                    System.err.println("Skipping invalid line: " + line);
+                    continue;
+                }
+
+                try {
+                    tickers.add(new TickerCandle(
+                            name,
+                            values[0],
+                            Double.parseDouble(values[1]),
+                            Double.parseDouble(values[2]),
+                            Double.parseDouble(values[3]),
+                            Double.parseDouble(values[4]),
+                            Double.parseDouble(values[4]),
+                            Integer.parseInt(values[5])
+                    ));
+                } catch (NumberFormatException e) {
+                    System.err.println("Number format error in line: " + line);
+                    e.printStackTrace();
+                }
             }
         } catch (Exception ex) {
-            out.println(ex.getMessage());
+            out.println("Error reading file: " + ex.getMessage());
             throw new RuntimeException(ex);
         }
-        return tickers;
+        return candleRegister.put(key, tickers);
     }
 
-    private static MultiLayerNetwork getNetwork(String dataDir, String name) throws IOException {
+    private synchronized static MultiLayerNetwork getNetwork(String dataDir, String name) throws IOException {
+        if (multiLayerNetworkRegister.containsKey(name)) {
+            return multiLayerNetworkRegister.get(name);
+        }
         out.println("Get network: " + name);
         String filePath = dataDir + "/" + name + "/network.nn";
-        return ModelSerializer.restoreMultiLayerNetwork(filePath);
+        return multiLayerNetworkRegister.put(name, ModelSerializer.restoreMultiLayerNetwork(filePath));
     }
 
-    private static Booster getBooster(String dataDir, String name) throws XGBoostError {
+    private synchronized static Booster getBooster(String dataDir, String name) throws XGBoostError {
+        if (boosterRegister.containsKey(name)) {
+            return boosterRegister.get(name);
+        }
         out.println("Get booster: " + name);
         String filePath = dataDir + "/" + name + "/booster.nn";
-        return XGBoost.loadModel(filePath);
+        return boosterRegister.put(name, XGBoost.loadModel(filePath));
     }
 
     private static Result calculateTrades(List<TickerCandle> candles,
@@ -425,7 +490,6 @@ public class TestLevelTrader {
         var messageWinRate = "WIN/LOSE: " + winRateCounter + "/" + failRateCounter + " (" + df.format(winRatePercent) + "%)";
         var statTradesMessage = "LONG/SHORT: " + longTrades.size() + "/" + shortTrades.size();
         var resultMessage = statTradesMessage + ", " + messageWinRate + ", " + messageMaxDropDown;
-        out.println(resultMessage);
         return new Result(balance, winRatePercent, resultMessage);
     }
 

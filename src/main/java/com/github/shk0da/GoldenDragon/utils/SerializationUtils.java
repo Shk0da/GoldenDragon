@@ -6,7 +6,6 @@ import com.google.gson.JsonDeserializer;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.google.gson.reflect.TypeToken;
-
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -35,14 +34,18 @@ public final class SerializationUtils {
         return new Date(Math.max(attrs.creationTime().toMillis(), attrs.lastModifiedTime().toMillis()));
     }
 
-    public static <T> T loadDataFromDisk(String name, TypeToken<T> typeToken) throws Exception {
+    public static <T> T loadDataFromDisk(String name, TypeToken<T> typeToken) {
         File content = new File(name);
         if (!content.exists()) {
             return null;
         }
 
-        JsonObject jsonObject = JsonParser.parseString(Files.readString(content.toPath())).getAsJsonObject();
-        return gsonBuilder.create().fromJson(jsonObject, typeToken.getType());
+        try {
+            JsonObject jsonObject = JsonParser.parseString(Files.readString(content.toPath())).getAsJsonObject();
+            return gsonBuilder.create().fromJson(jsonObject, typeToken.getType());
+        } catch (Exception ex) {
+            throw new RuntimeException(ex);
+        }
     }
 
     public static <T> void saveDataToDisk(String name, T data) throws IOException {
