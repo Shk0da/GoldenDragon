@@ -34,7 +34,7 @@ public final class SerializationUtils {
         return new Date(Math.max(attrs.creationTime().toMillis(), attrs.lastModifiedTime().toMillis()));
     }
 
-    public static <T> T loadDataFromDisk(String name, TypeToken<T> typeToken) {
+    public synchronized static <T> T loadDataFromDisk(String name, TypeToken<T> typeToken) {
         File content = new File(name);
         if (!content.exists()) {
             return null;

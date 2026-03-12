@@ -1,6 +1,7 @@
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.shk0da.GoldenDragon.model.TickerCandle;
 import com.github.shk0da.GoldenDragon.model.TickerInfo;
+import com.github.shk0da.GoldenDragon.model.TickerInfo.Key;
 import com.github.shk0da.GoldenDragon.model.TickerJson;
 import com.github.shk0da.GoldenDragon.repository.Repository;
 import com.github.shk0da.GoldenDragon.repository.TickerRepository;
@@ -21,7 +22,6 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -77,7 +77,6 @@ public class TestLevelTrader {
     private static final ObjectMapper objectMapper = new ObjectMapper();
     private static final DateTimeFormatter formatter = DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm:ss");
 
-    private static volatile Map<TickerInfo.Key, TickerInfo> dataFromDiskRegister = new HashMap<>();
     private static final Map<String, TickerJson> tickerJsonRegister = new ConcurrentHashMap<>();
     private static final Map<String, List<TickerCandle>> candleRegister = new ConcurrentHashMap<>();
     private static final Map<String, List<Double>> levelsRegister = new ConcurrentHashMap<>();
@@ -110,6 +109,10 @@ public class TestLevelTrader {
     }
 
     public static void main(String[] args) {
+        Repository<Key, TickerInfo> tickerRepository = TickerRepository.INSTANCE;
+        Map<TickerInfo.Key, TickerInfo> dataFromDisk = loadDataFromDisk(SERIALIZE_NAME, new TypeToken<>() {});
+        tickerRepository.putAll(dataFromDisk);
+
         final ThreadLocal<DecimalFormat> df = ThreadLocal.withInitial(() -> new DecimalFormat("#.#####"));
 
         final AtomicReference<Double> bestResultRef = new AtomicReference<>(0.0);
@@ -193,17 +196,6 @@ public class TestLevelTrader {
     }
 
     public static Pair<Double, Double> run(GerchikUtils config, int levelPy, int isUseNN) {
-        Repository<TickerInfo.Key, TickerInfo> tickerRepository = TickerRepository.INSTANCE;
-        Map<TickerInfo.Key, TickerInfo> dataFromDisk;
-        synchronized (TestLevelTrader.class) {
-            if (dataFromDiskRegister.isEmpty()) {
-                dataFromDisk = loadDataFromDisk(SERIALIZE_NAME, new TypeToken<>() {});
-                dataFromDiskRegister = dataFromDisk;
-            } else {
-                dataFromDisk = dataFromDiskRegister;
-            }
-        }
-        tickerRepository.putAll(dataFromDisk);
         List<Double> results = new ArrayList<>(stocks.size());
         List<Double> profits = new ArrayList<>(stocks.size());
         stocks.forEach(tickerName -> {
