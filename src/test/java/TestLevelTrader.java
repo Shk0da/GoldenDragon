@@ -69,7 +69,7 @@ public class TestLevelTrader {
     private static final Boolean useNN = false;
     private static final Double initBalance = 100_000.00;
     private static final Double averagePositionCost = 10_000.00;
-    private static final List<String> stocks = List.of(/*"IMOEXF", "USDRUBF", "GLDRUBF", "SBERF", "GAZPF",*/ "CNYRUBF");
+    private static final List<String> stocks = List.of(/*"IMOEXF", "GLDRUBF", "SBERF", "GAZPF", "CNYRUBF",*/ "GAZPF");
 
     private static final DecimalFormat df = new DecimalFormat("#.##");
     private static final DateTimeFormatter formatter = DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm:ss");
@@ -136,6 +136,7 @@ public class TestLevelTrader {
 
         List<Individual> population = createInitialPopulation(populationSize);
         double bestFitness = 0;
+        double bestProfit = 0;
         int noImprovementCount = 0;
 
         for (int generation = 0; generation < generations; generation++) {
@@ -143,7 +144,9 @@ public class TestLevelTrader {
             population.parallelStream().forEach(Individual::evaluate);
 
             // Сортировка по приспособленности
-            population.sort(Comparator.comparingDouble(ind -> -ind.fitness));
+            population
+                    .sort(Comparator.comparingDouble((Individual ind) -> -ind.fitness)
+                    .thenComparingDouble(ind -> -ind.profit));
             Individual best = population.get(0);
 
             System.out.printf("%nGeneration %d | Best Fitness: %.2f%% | Profit: %.2f RUB%n%s%n",
@@ -154,8 +157,9 @@ public class TestLevelTrader {
             );
 
             // Ранняя остановка
-            if (best.fitness > bestFitness) {
+            if (best.fitness > bestFitness && best.profit > bestProfit) {
                 bestFitness = best.fitness;
+                bestProfit = best.profit;
                 noImprovementCount = 0;
             } else {
                 noImprovementCount++;
@@ -184,7 +188,9 @@ public class TestLevelTrader {
         }
 
         // Финальный результат
-        population.sort(Comparator.comparingDouble(ind -> -ind.fitness));
+        population
+                .sort(Comparator.comparingDouble((Individual ind) -> -ind.fitness)
+                .thenComparingDouble(ind -> -ind.profit));
         Individual best = population.get(0);
         System.out.println("\n Лучшая конфигурация:");
         System.out.println("Fitness: " + df.get().format(best.fitness * 100) + "%");
@@ -256,7 +262,8 @@ public class TestLevelTrader {
                 tournament.add(population.get(ThreadLocalRandom.current().nextInt(population.size())));
             }
             return tournament.stream()
-                    .max(Comparator.comparingDouble(i -> i.fitness))
+                    .max(Comparator.comparingDouble((Individual i) -> i.fitness)
+                    .thenComparingDouble(i -> i.profit))
                     .orElse(ind);
         }).collect(Collectors.toList());
     }
