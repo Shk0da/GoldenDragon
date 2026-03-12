@@ -146,7 +146,7 @@ public class TestLevelTrader {
             population.sort(Comparator.comparingDouble(ind -> -ind.fitness));
             Individual best = population.get(0);
 
-            System.out.printf("Generation %d | Best Fitness: %.2f%% | Profit: %.2f RUB%n \n%s\n",
+            System.out.printf("%nGeneration %d | Best Fitness: %.2f%% | Profit: %.2f RUB%n%s%n",
                     generation,
                     best.fitness,
                     best.profit,
