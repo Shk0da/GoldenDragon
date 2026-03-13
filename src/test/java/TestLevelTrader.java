@@ -69,7 +69,7 @@ public class TestLevelTrader {
     private static final Boolean useNN = false;
     private static final Double initBalance = 100_000.00;
     private static final Double averagePositionCost = 10_000.00;
-    private static final List<String> stocks = List.of(/*"IMOEXF", "GLDRUBF", "SBERF", "GAZPF", "CNYRUBF",*/ "GAZPF");
+    private static final List<String> stocks = List.of("MTSS"/*, "HEAD", "RTKM", "SBER", "PLZL", "LKOH"*/);
 
     private static final DecimalFormat df = new DecimalFormat("#.##");
     private static final DateTimeFormatter formatter = DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm:ss");
@@ -201,7 +201,7 @@ public class TestLevelTrader {
                 );
         Individual best = population.get(0);
         System.out.println("\n Лучшая конфигурация:");
-        System.out.println("Fitness: " + df.get().format(best.fitness * 100) + "%");
+        System.out.println("Fitness: " + df.get().format(best.fitness) + "%");
         System.out.println("Profit: " + df.get().format(best.profit) + " RUB");
         System.out.println("Config: " + best.config);
     }
