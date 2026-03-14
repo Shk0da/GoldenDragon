@@ -69,7 +69,7 @@ public class TestLevelTrader {
     private static final Boolean useNN = false;
     private static final Double initBalance = 100_000.00;
     private static final Double averagePositionCost = 10_000.00;
-    private static final List<String> stocks = List.of("MTSS"/*, "HEAD", "RTKM", "SBER", "PLZL", "LKOH"*/);
+    private static final List<String> stocks = List.of("PLZL");
 
     private static final DecimalFormat df = new DecimalFormat("#.##");
     private static final DateTimeFormatter formatter = DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm:ss");
@@ -146,8 +146,8 @@ public class TestLevelTrader {
             // Сортировка по приспособленности
             population
                     .sort(Comparator
-                            .comparingDouble((Individual ind) -> -ind.fitness)
-                            .thenComparingDouble(ind -> -ind.profit)
+                            .comparingDouble((Individual ind) -> -ind.profit)
+                            .thenComparingDouble(ind -> -ind.fitness)
                     );
             Individual best = population.get(0);
 
@@ -196,8 +196,8 @@ public class TestLevelTrader {
         // Финальный результат
         population
                 .sort(Comparator
-                        .comparingDouble((Individual ind) -> -ind.fitness)
-                        .thenComparingDouble(ind -> -ind.profit)
+                        .comparingDouble((Individual ind) -> -ind.profit)
+                        .thenComparingDouble(ind -> -ind.fitness)
                 );
         Individual best = population.get(0);
         System.out.println("\n Лучшая конфигурация:");
@@ -271,8 +271,8 @@ public class TestLevelTrader {
             }
             return tournament.stream()
                     .max(Comparator
-                            .comparingDouble((Individual i) -> i.fitness)
-                            .thenComparingDouble(i -> i.profit)
+                            .comparingDouble((Individual i) -> i.profit)
+                            .thenComparingDouble(i -> i.fitness)
                     )
                     .orElse(ind);
         }).collect(Collectors.toList());
