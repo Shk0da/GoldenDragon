@@ -45,6 +45,7 @@ import org.jfree.data.xy.XYSeries;
 import org.jfree.data.xy.XYSeriesCollection;
 import org.nd4j.linalg.factory.Nd4j;
 
+
 import static com.github.shk0da.GoldenDragon.repository.TickerRepository.SERIALIZE_NAME;
 import static com.github.shk0da.GoldenDragon.utils.DataLearningUtils.StockDataSetIterator.getBoosterInput;
 import static com.github.shk0da.GoldenDragon.utils.DataLearningUtils.StockDataSetIterator.getNetworkInput;
@@ -58,7 +59,7 @@ import static java.nio.file.Files.deleteIfExists;
 
 public class TestLevelTrader {
 
-    private static final Double K2 = 0.40;
+    private static final Double K2 = 0.05;
     private static final Double COMISSION = 0.05;
     private static final Double TP = 0.9;
     private static final Double SL = 0.3;
@@ -218,9 +219,6 @@ public class TestLevelTrader {
             c.falseBreakoutThreshold = ThreadLocalRandom.current().nextDouble(0.00008, 0.00125);
         }
         if (ThreadLocalRandom.current().nextDouble() < mutationRate) {
-            c.volumeMultiplier = ThreadLocalRandom.current().nextDouble(0.01, 1.0);
-        }
-        if (ThreadLocalRandom.current().nextDouble() < mutationRate) {
             c.confirmationCandles = ThreadLocalRandom.current().nextInt(0, 11);
         }
         if (ThreadLocalRandom.current().nextDouble() < mutationRate) {
@@ -228,6 +226,9 @@ public class TestLevelTrader {
         }
         if (ThreadLocalRandom.current().nextDouble() < mutationRate) {
             c.volumeConfirmationThreshold = ThreadLocalRandom.current().nextDouble(0.01, 10.0);
+        }
+        if (ThreadLocalRandom.current().nextDouble() < mutationRate) {
+            c.minPatternStrength = ThreadLocalRandom.current().nextDouble(0.01, 2.0);
         }
     }
 
@@ -239,75 +240,81 @@ public class TestLevelTrader {
                 0.007,
                 0.002,
                 0.0005,
-                0.5,
                 3,
                 6,
-                2.2)));
+                2.2,
+                0.5
+        )));
         population.add(new Individual(new GerchikUtils(
                 2,
                 0.0078,
                 0.0019,
                 0.0005,
-                0.40,
                 3,
                 5,
-                2.40)));
+                2.40,
+                0.5
+        )));
         population.add(new Individual(new GerchikUtils(
                 2,
                 0.0078,
                 0.0019,
                 0.0005,
-                0.40,
                 3,
                 5,
-                2.40)));
+                2.40,
+                0.5
+        )));
         population.add(new Individual(new GerchikUtils(
                 4,
                 0.01,
                 0.004,
                 0.001,
-                0.7,
                 4,
                 7,
-                2.6)));
+                2.6,
+                0.5
+        )));
         population.add(new Individual(new GerchikUtils(
                 2,
                 0.003,
                 0.002,
                 0.0005,
-                0.3,
                 2,
                 4,
-                1.5)));
+                1.5,
+                0.5
+        )));
         population.add(new Individual(new GerchikUtils(
                 3,
                 0.007,
                 0.003,
                 0.0007,
-                0.6,
                 3,
                 6,
-                2.4)));
+                2.4,
+                0.5
+        )));
         IntStream.range(0, populationSize)
                 .mapToObj(i -> {
                     int levelConfirmationTouches = ThreadLocalRandom.current().nextInt(0, 11);
                     double levelZonePercent = ThreadLocalRandom.current().nextDouble(0.00005, 1.5);
                     double breakoutConfirmationPercent = ThreadLocalRandom.current().nextDouble(0.0003, 0.05);
                     double falseBreakoutThreshold = ThreadLocalRandom.current().nextDouble(0.00008, 0.00125);
-                    double volumeMultiplier = ThreadLocalRandom.current().nextDouble(0.01, 1.0);
                     int confirmationCandles = ThreadLocalRandom.current().nextInt(0, 11);
                     int maxSignalAge = ThreadLocalRandom.current().nextInt(0, 21);
                     double volumeConfirmationThreshold = ThreadLocalRandom.current().nextDouble(0.01, 10.0);
+                    double minPatternStrength = ThreadLocalRandom.current().nextDouble(0.01, 2.0);
 
                     GerchikUtils config = new GerchikUtils(
                             levelConfirmationTouches,
                             levelZonePercent,
                             breakoutConfirmationPercent,
                             falseBreakoutThreshold,
-                            volumeMultiplier,
                             confirmationCandles,
                             maxSignalAge,
-                            volumeConfirmationThreshold);
+                            volumeConfirmationThreshold,
+                            minPatternStrength);
 
                     return new Individual(config);
                 })
@@ -337,10 +344,10 @@ public class TestLevelTrader {
                 (c1.levelZonePercent + c2.levelZonePercent) / 2,
                 (c1.breakoutConfirmationPercent + c2.breakoutConfirmationPercent) / 2,
                 (c1.falseBreakoutThreshold + c2.falseBreakoutThreshold) / 2,
-                (c1.volumeMultiplier + c2.volumeMultiplier) / 2,
                 (c1.confirmationCandles + c2.confirmationCandles) / 2,
                 (c1.maxSignalAge + c2.maxSignalAge) / 2,
-                (c1.volumeConfirmationThreshold + c2.volumeConfirmationThreshold) / 2
+                (c1.volumeConfirmationThreshold + c2.volumeConfirmationThreshold) / 2,
+                (c1.minPatternStrength + c2.minPatternStrength) / 2
         );
         return new Individual(childConfig);
     }
@@ -530,8 +537,8 @@ public class TestLevelTrader {
     }
 
     private static Result calculateTrades(List<TickerCandle> candles,
-            List<Integer> longTrades, List<Integer> shortTrades,
-            Double balance) {
+                                          List<Integer> longTrades, List<Integer> shortTrades,
+                                          Double balance) {
         if (longTrades.isEmpty() && shortTrades.isEmpty()) {
             return new Result(balance, 0.0, "");
         }
@@ -637,8 +644,8 @@ public class TestLevelTrader {
     }
 
     private static void plotChart(String ticker,
-            List<TickerCandle> candles, List<Double> levelValues,
-            List<Integer> longTrades, List<Integer> shortTrades) {
+                                  List<TickerCandle> candles, List<Double> levelValues,
+                                  List<Integer> longTrades, List<Integer> shortTrades) {
         if (longTrades.isEmpty() && shortTrades.isEmpty()) {
             return;
         }
