@@ -7,9 +7,8 @@ import com.github.shk0da.GoldenDragon.model.TickerInfo;
 import com.github.shk0da.GoldenDragon.repository.Repository;
 import com.github.shk0da.GoldenDragon.repository.TickerRepository;
 import com.github.shk0da.GoldenDragon.service.TCSService;
-import ru.tinkoff.piapi.contract.v1.CandleInterval;
-import ru.tinkoff.piapi.contract.v1.HistoricCandle;
-
+import com.github.shk0da.GoldenDragon.utils.LevelUtils;
+import com.github.shk0da.GoldenDragon.utils.LevelUtils.Level;
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileReader;
@@ -34,17 +33,18 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
+import ru.tinkoff.piapi.contract.v1.CandleInterval;
+import ru.tinkoff.piapi.contract.v1.HistoricCandle;
+
 
 import static com.github.shk0da.GoldenDragon.model.TickerType.FEATURE;
 import static com.github.shk0da.GoldenDragon.model.TickerType.STOCK;
 import static com.github.shk0da.GoldenDragon.utils.IndicatorsUtil.toDouble;
 import static com.github.shk0da.GoldenDragon.utils.TimeUtils.sleep;
 import static java.lang.System.out;
-import static java.nio.file.Files.copy;
 import static java.nio.file.Files.createDirectories;
 import static java.nio.file.Files.deleteIfExists;
-import static java.nio.file.Files.move;
-import static java.nio.file.StandardCopyOption.REPLACE_EXISTING;
 import static java.time.OffsetDateTime.now;
 
 public class DataCollector {
@@ -71,7 +71,7 @@ public class DataCollector {
                 createDirectories(Paths.get(dataDir + "/" + name));
                 createCandlesFile(name, dataDir, CandleInterval.CANDLE_INTERVAL_5_MIN, isReplace);
                 createCandlesFile(name, dataDir, CandleInterval.CANDLE_INTERVAL_HOUR, isReplace);
-                var levels = calculatePriceLevels(name, dataDir, CandleInterval.CANDLE_INTERVAL_HOUR, isReplace);
+                var levels = calculatePriceLevels(name, dataDir, CandleInterval.CANDLE_INTERVAL_HOUR);
                 createTickerJson(name, dataDir, levels);
             } catch (Exception ex) {
                 out.println(ex.getMessage());
@@ -212,55 +212,13 @@ public class DataCollector {
         return startTime;
     }
 
-    private List<Double> calculatePriceLevels(String name, String dir, CandleInterval period, boolean isReplace) {
-        if (!isReplace && isTodayFile(dir + "/" + name + "/levels.txt")) {
-            out.println("Exists price levels: " + name);
-            return readLevels(name, dir);
-        }
-
-        var namePeriod = period.name().replace("CANDLE_INTERVAL_", "");
-        out.println("Calculate price levels: " + name);
-        String command;
-        String os = System.getProperty("os.name").toLowerCase();
-        if (os.contains("windows")) {
-            command = "calculate_levels.exe";
-        } else if (os.contains("arm")) {
-            command = "./calculate_levels_arm";
-        } else if (os.contains("mac")) {
-            command = "./calculate_levels_silicon";
-        } else {
-            command = "./calculate_levels";
-        }
-        try {
-            copy(Paths.get(dir + "/" + name + "/candles" + namePeriod + ".txt"), Paths.get("candles.txt"), REPLACE_EXISTING);
-            if (0 != Runtime.getRuntime().exec(command).waitFor()) {
-                throw new RuntimeException("Not executed: calculate_levels");
-            }
-            move(Paths.get("levels.txt"), Paths.get(dir + "/" + name + "/levels.txt"), REPLACE_EXISTING);
-            deleteIfExists(Paths.get("candles.txt"));
-        } catch (Exception ex) {
-            out.println(ex.getMessage());
-            ex.printStackTrace();
-            throw new RuntimeException(ex);
-        }
-
-        return readLevels(name, dir);
-    }
-
-    private List<Double> readLevels(String name, String dir) {
-        out.println("Read levels: " + name);
-        List<Double> levels = new ArrayList<>();
-        try (BufferedReader br = new BufferedReader(new FileReader(dir + "/" + name + "/levels.txt"))) {
-            String line = br.readLine();
-            while (line != null) {
-                levels.add(Double.valueOf(line));
-                line = br.readLine();
-            }
-        } catch (Exception ex) {
-            out.println(ex.getMessage());
-            throw new RuntimeException(ex);
-        }
-        return levels;
+    private List<Double> calculatePriceLevels(String name, String dir, CandleInterval period) {
+        return new LevelUtils()
+                .identifyKeyLevels(readCandlesFile(name, dir, period))
+                .stream()
+                .map(Level::getPrice)
+                .sorted()
+                .collect(Collectors.toList());
     }
 
     private void createTickerJson(String name, String dir, List<Double> levels) {

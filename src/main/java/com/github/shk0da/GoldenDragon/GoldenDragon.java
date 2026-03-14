@@ -2,6 +2,7 @@ package com.github.shk0da.GoldenDragon;
 
 import com.github.shk0da.GoldenDragon.config.AILConfig;
 import com.github.shk0da.GoldenDragon.config.DataCollectorConfig;
+import com.github.shk0da.GoldenDragon.config.LevelTraderConfig;
 import com.github.shk0da.GoldenDragon.config.MainConfig;
 import com.github.shk0da.GoldenDragon.config.MarketConfig;
 import com.github.shk0da.GoldenDragon.config.RSXConfig;
@@ -17,6 +18,7 @@ import com.github.shk0da.GoldenDragon.strategy.DataCollector;
 import com.github.shk0da.GoldenDragon.strategy.DataLearning;
 import com.github.shk0da.GoldenDragon.strategy.DivFlow;
 import com.github.shk0da.GoldenDragon.strategy.IndicatorTrader;
+import com.github.shk0da.GoldenDragon.strategy.LevelTrader;
 import com.github.shk0da.GoldenDragon.strategy.RSX;
 import com.github.shk0da.GoldenDragon.strategy.Rebalance;
 import com.github.shk0da.GoldenDragon.strategy.TelegramAuth;
@@ -148,6 +150,14 @@ public class GoldenDragon {
                 TelegramAppConfig telegramAppConfig = new TelegramAppConfig();
                 new TelegramSignal(telegramAppConfig, tcsService).run();
                 telegramNotifyService.sendMessage("Stop TelegramSignal");
+            }
+
+            // 10.LevelTrader
+            if ("LevelTrader".equals(strategy)) {
+                telegramNotifyService.sendMessage("Run LevelTrader");
+                LevelTraderConfig levelTraderConfig = new LevelTraderConfig();
+                new LevelTrader(levelTraderConfig, tcsService).run();
+                telegramNotifyService.sendMessage("Stop LevelTrader");
             }
         } catch (Exception ex) {
             out.printf("Error: %s%n", ex.getMessage());

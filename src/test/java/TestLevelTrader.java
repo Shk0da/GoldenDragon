@@ -197,7 +197,7 @@ public class TestLevelTrader {
                         .comparingDouble((Individual ind) -> -ind.profit)
                         .thenComparingDouble(ind -> -ind.fitness));
         Individual best = population.get(0);
-        System.out.println("\n Лучшая конфигурация:");
+        System.out.println("\nЛучшая конфигурация:");
         System.out.println("Fitness: " + df.get().format(best.fitness) + "%");
         System.out.println("Profit: " + df.get().format(best.profit) + " RUB");
         System.out.println("Config: " + best.config);
