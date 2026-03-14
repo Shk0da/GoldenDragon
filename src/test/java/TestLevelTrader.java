@@ -68,7 +68,8 @@ public class TestLevelTrader {
     private static final Boolean useNN = false;
     private static final Double initBalance = 100_000.00;
     private static final Double averagePositionCost = 10_000.00;
-    private static final List<String> stocks = List.of("CNYRUBF", "USDRUBF", "HEAD", "LKOH", "MTSS", "PLZL", "RTKM", "SBER");
+    private static final List<String> stocks = List.of("CNYRUBF", "USDRUBF", "HEAD", "LKOH", "MTSS", "PLZL", "RTKM",
+            "SBER");
 
     private static final DecimalFormat df = new DecimalFormat("#.##");
     private static final DateTimeFormatter formatter = DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm:ss");
@@ -121,7 +122,8 @@ public class TestLevelTrader {
 
     public static void main(String[] args) {
         Repository<Key, TickerInfo> tickerRepository = TickerRepository.INSTANCE;
-        Map<TickerInfo.Key, TickerInfo> dataFromDisk = loadDataFromDisk(SERIALIZE_NAME, new TypeToken<>() {});
+        Map<TickerInfo.Key, TickerInfo> dataFromDisk = loadDataFromDisk(SERIALIZE_NAME, new TypeToken<>() {
+        });
         tickerRepository.putAll(dataFromDisk);
 
         final ThreadLocal<DecimalFormat> df = ThreadLocal.withInitial(() -> new DecimalFormat("#.#####"));
@@ -242,8 +244,7 @@ public class TestLevelTrader {
                 0.5,
                 3,
                 6,
-                2.2))
-        );
+                2.2)));
         population.add(new Individual(new GerchikUtils(
                 2,
                 0.0078,
@@ -252,8 +253,7 @@ public class TestLevelTrader {
                 0.40,
                 3,
                 5,
-                2.40))
-        );
+                2.40)));
         population.add(new Individual(new GerchikUtils(
                 2,
                 0.0078,
@@ -262,8 +262,7 @@ public class TestLevelTrader {
                 0.40,
                 3,
                 5,
-                2.40))
-        );
+                2.40)));
         population.add(new Individual(new GerchikUtils(
                 4,
                 0.01,
@@ -272,8 +271,7 @@ public class TestLevelTrader {
                 0.7,
                 4,
                 7,
-                2.6))
-        );
+                2.6)));
         population.add(new Individual(new GerchikUtils(
                 2,
                 0.003,
@@ -282,8 +280,7 @@ public class TestLevelTrader {
                 0.3,
                 2,
                 4,
-                1.5))
-        );
+                1.5)));
         population.add(new Individual(new GerchikUtils(
                 3,
                 0.007,
@@ -292,8 +289,7 @@ public class TestLevelTrader {
                 0.6,
                 3,
                 6,
-                2.4))
-        );
+                2.4)));
         IntStream.range(0, populationSize)
                 .mapToObj(i -> {
                     int levelConfirmationTouches = ThreadLocalRandom.current().nextInt(0, 11);
@@ -338,14 +334,16 @@ public class TestLevelTrader {
     static Individual crossover(Individual parent1, Individual parent2) {
         GerchikUtils c1 = parent1.config;
         GerchikUtils c2 = parent2.config;
-        boolean useFirstHalf = ThreadLocalRandom.current().nextBoolean();
-        GerchikUtils childConfig = useFirstHalf
-                ? new GerchikUtils(c1.levelConfirmationTouches, c1.levelZonePercent, c1.breakoutConfirmationPercent,
-                        c1.falseBreakoutThreshold, c1.volumeMultiplier, c1.confirmationCandles, c1.maxSignalAge,
-                        c1.volumeConfirmationThreshold)
-                : new GerchikUtils(c2.levelConfirmationTouches, c2.levelZonePercent, c2.breakoutConfirmationPercent,
-                        c2.falseBreakoutThreshold, c2.volumeMultiplier, c2.confirmationCandles, c2.maxSignalAge,
-                        c2.volumeConfirmationThreshold);
+        GerchikUtils childConfig = new GerchikUtils(
+                (c1.levelConfirmationTouches + c2.levelConfirmationTouches) / 2,
+                (c1.levelZonePercent + c2.levelZonePercent) / 2,
+                (c1.breakoutConfirmationPercent + c2.breakoutConfirmationPercent) / 2,
+                (c1.falseBreakoutThreshold + c2.falseBreakoutThreshold) / 2,
+                (c1.volumeMultiplier + c2.volumeMultiplier) / 2,
+                (c1.confirmationCandles + c2.confirmationCandles) / 2,
+                (c1.maxSignalAge + c2.maxSignalAge) / 2,
+                (c1.volumeConfirmationThreshold + c2.volumeConfirmationThreshold) / 2
+        );
         return new Individual(childConfig);
     }
 
