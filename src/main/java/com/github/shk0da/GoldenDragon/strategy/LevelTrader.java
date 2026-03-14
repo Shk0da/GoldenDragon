@@ -348,21 +348,17 @@ public class LevelTrader {
         var lastCandle = candles.get(candles.size() - 1);
         var tp = (lastCandle.getClose() / 100) * tpPercent;
 
-        if (Boolean.TRUE.equals(hasTrendUp)) {
+        if (hasTrendUp) {
             var hasUpATR = (startOfDay.getLow() + (atr - (atr * 0.2))) > (lastCandle.getClose() + tp);
-            if (hasUpATR) {
-                if (gerchikUtils.getLevelAction(candles, levels).getLeft()) {
-                    return 1;
-                }
+            if (hasUpATR && gerchikUtils.getLevelAction(candles, levels).isLong()) {
+                return 1;
             }
         }
 
-        if (Boolean.FALSE.equals(hasTrendUp)) {
+        if (!hasTrendUp) {
             var hasDownATR = (lastCandle.getClose() - tp) + (atr - (atr * 0.2)) < startOfDay.getHigh();
-            if (hasDownATR) {
-                if (gerchikUtils.getLevelAction(candles, levels).getRight()) {
-                    return -1;
-                }
+            if (hasDownATR && gerchikUtils.getLevelAction(candles, levels).isShort()) {
+                return -1;
             }
         }
 

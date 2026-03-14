@@ -2,7 +2,6 @@ package com.github.shk0da.GoldenDragon.model;
 
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
-
 import java.time.OffsetDateTime;
 import java.util.LinkedHashMap;
 import java.util.function.BiConsumer;
@@ -45,7 +44,7 @@ public class OperationInfo {
     }
 
     public OperationInfo withInstrument(InstrumentInfo instrumentInfo) {
-        this.instrumentInfo = instrumentInfo;;
+        this.instrumentInfo = instrumentInfo;
         return this;
     }
 

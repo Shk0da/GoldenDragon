@@ -4,7 +4,7 @@ public enum TickerType {
 
     BOND, STOCK, ETF, CURRENCY, FEATURE, UNKNOWN;
 
-    public static TickerType ALL = null;
+    public static final TickerType ALL = null;
 
     public static TickerType byName(String name) {
         if (null == name) {

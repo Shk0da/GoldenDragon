@@ -24,6 +24,7 @@ import java.text.SimpleDateFormat;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.LocalTime;
 import java.time.ZoneId;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
@@ -88,7 +89,13 @@ public class DataCollector {
         }
 
         out.println("Create candles '" + namePeriod + "' file: " + name);
-        var lastCandleTime = new org.joda.time.LocalDate().minusYears(5).toDate();
+        var lastCandleTime = Date.from(
+                LocalDate.now()
+                        .minusYears(5)
+                        .atTime(LocalTime.MIDNIGHT)
+                        .atZone(ZoneId.systemDefault())
+                        .toInstant()
+        );
         if (!isReplace) {
             var currentCandles = readCandlesFile(name, dir, period);
             if (!currentCandles.isEmpty()) {

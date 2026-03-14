@@ -7,7 +7,6 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
 import java.util.stream.Collectors;
-import org.apache.commons.lang3.tuple.Pair;
 
 public class GerchikUtils {
 
@@ -78,7 +77,7 @@ public class GerchikUtils {
         public int getTimestamp() { return timestamp; }
         public SignalType getType() { return type; }
         public Level getLevel() { return level; }
-        public boolean isFalseBreakout() { return falseBreakout; }
+        public boolean isFalseBreakout() { return !falseBreakout; }
         public double getVolume() { return volume; }
         public double getConfirmationStrength() { return confirmationStrength; }
 
@@ -96,6 +95,19 @@ public class GerchikUtils {
                     falseBreakout ? " - REJECTED" : ""
             );
         }
+    }
+
+    public static class LevelAction {
+        private final boolean isShort;
+        private final boolean isLong;
+
+        public LevelAction(boolean isShort, boolean isLong) {
+            this.isShort = isShort;
+            this.isLong = isLong;
+        }
+
+        public boolean isShort() { return isShort; }
+        public boolean isLong() { return isLong; }
     }
 
     // ----------------------------- Params -----------------------------
@@ -126,22 +138,24 @@ public class GerchikUtils {
     }
 
     // ----------------------------- Public API -----------------------------
-    public Pair<Boolean, Boolean> getLevelAction(List<TickerCandle> candles, List<Double> levels) {
-        if (candles == null || candles.isEmpty() || levels == null || levels.isEmpty()) return Pair.of(false, false);
+    public LevelAction getLevelAction(List<TickerCandle> candles, List<Double> levels) {
+        if (candles == null || candles.isEmpty() || levels == null || levels.isEmpty()) {
+            return new LevelAction(false, false);
+        }
 
         List<TradingSignal> signals = filterByTime(processMarketData(candles, levels), maxSignalAge);
 
         boolean longSignal = signals.stream()
-                .filter(s -> !s.isFalseBreakout() && s.getConfirmationStrength() > minPatternStrength)
+                .filter(s -> s.isFalseBreakout() && s.getConfirmationStrength() > minPatternStrength)
                 .anyMatch(s -> (s.getLevel().isSupport() && s.getType() == SignalType.BOUNCE) ||
                         (!s.getLevel().isSupport() && s.getType() == SignalType.BREAKOUT));
 
         boolean shortSignal = signals.stream()
-                .filter(s -> !s.isFalseBreakout() && s.getConfirmationStrength() > minPatternStrength)
+                .filter(s -> s.isFalseBreakout() && s.getConfirmationStrength() > minPatternStrength)
                 .anyMatch(s -> (!s.getLevel().isSupport() && s.getType() == SignalType.BOUNCE) ||
                         (s.getLevel().isSupport() && s.getType() == SignalType.BREAKOUT));
 
-        return Pair.of(longSignal, shortSignal);
+        return new LevelAction(shortSignal, longSignal);
     }
 
     // ----------------------------- Core -----------------------------

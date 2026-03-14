@@ -1,28 +1,22 @@
 package com.github.shk0da.GoldenDragon;
 
-import com.github.shk0da.GoldenDragon.config.AILConfig;
 import com.github.shk0da.GoldenDragon.config.DataCollectorConfig;
 import com.github.shk0da.GoldenDragon.config.LevelTraderConfig;
 import com.github.shk0da.GoldenDragon.config.MainConfig;
 import com.github.shk0da.GoldenDragon.config.MarketConfig;
 import com.github.shk0da.GoldenDragon.config.RSXConfig;
 import com.github.shk0da.GoldenDragon.config.RebalanceConfig;
-import com.github.shk0da.GoldenDragon.config.TelegramAppConfig;
 import com.github.shk0da.GoldenDragon.model.Market;
 import com.github.shk0da.GoldenDragon.model.TickerInfo;
 import com.github.shk0da.GoldenDragon.repository.Repository;
 import com.github.shk0da.GoldenDragon.repository.TickerRepository;
 import com.github.shk0da.GoldenDragon.service.TCSService;
-import com.github.shk0da.GoldenDragon.strategy.AITrader;
 import com.github.shk0da.GoldenDragon.strategy.DataCollector;
-import com.github.shk0da.GoldenDragon.strategy.DataLearning;
 import com.github.shk0da.GoldenDragon.strategy.DivFlow;
 import com.github.shk0da.GoldenDragon.strategy.IndicatorTrader;
 import com.github.shk0da.GoldenDragon.strategy.LevelTrader;
 import com.github.shk0da.GoldenDragon.strategy.RSX;
 import com.github.shk0da.GoldenDragon.strategy.Rebalance;
-import com.github.shk0da.GoldenDragon.strategy.TelegramAuth;
-import com.github.shk0da.GoldenDragon.strategy.TelegramSignal;
 import com.google.gson.reflect.TypeToken;
 import java.io.FileDescriptor;
 import java.io.FileOutputStream;
@@ -114,45 +108,7 @@ public class GoldenDragon {
                 telegramNotifyService.sendMessage("End DataCollector");
             }
 
-            // 6. AICollector
-            if ("AICollector".equals(strategy)) {
-                telegramNotifyService.sendMessage("Start AICollector");
-                telegramNotifyService.sendMessage("Run DataCollector");
-                DataCollectorConfig dataCollectorConfig = new DataCollectorConfig();
-                new DataCollector(dataCollectorConfig, tcsService).run();
-                telegramNotifyService.sendMessage("End DataCollector");
-                telegramNotifyService.sendMessage("Run DataLearning");
-                AILConfig ailConfig = new AILConfig();
-                new DataLearning(ailConfig).run();
-                telegramNotifyService.sendMessage("End DataLearning");
-                telegramNotifyService.sendMessage("End AICollector");
-            }
-
-            // 7. AITrader
-            if ("AITrader".equals(strategy)) {
-                telegramNotifyService.sendMessage("Run AITrader");
-                AILConfig ailConfig = new AILConfig();
-                new AITrader(ailConfig, tcsService).run();
-                telegramNotifyService.sendMessage("Stop AITrader");
-            }
-
-            // 8. TelegramAuth
-            if ("TelegramAuth".equals(strategy)) {
-                telegramNotifyService.sendMessage("Run TelegramAuth");
-                TelegramAppConfig telegramAppConfig = new TelegramAppConfig();
-                new TelegramAuth(telegramAppConfig).run();
-                telegramNotifyService.sendMessage("Stop TelegramAuth");
-            }
-
-            // 9. TelegramSignal
-            if ("TelegramSignal".equals(strategy)) {
-                telegramNotifyService.sendMessage("Run TelegramSignal");
-                TelegramAppConfig telegramAppConfig = new TelegramAppConfig();
-                new TelegramSignal(telegramAppConfig, tcsService).run();
-                telegramNotifyService.sendMessage("Stop TelegramSignal");
-            }
-
-            // 10.LevelTrader
+            // 6.LevelTrader
             if ("LevelTrader".equals(strategy)) {
                 telegramNotifyService.sendMessage("Run LevelTrader");
                 LevelTraderConfig levelTraderConfig = new LevelTraderConfig();

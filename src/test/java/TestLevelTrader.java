@@ -12,7 +12,6 @@ import java.awt.Color;
 import java.io.BufferedReader;
 import java.io.FileOutputStream;
 import java.io.FileReader;
-import java.io.IOException;
 import java.nio.file.Path;
 import java.text.DecimalFormat;
 import java.time.LocalDateTime;
@@ -27,13 +26,6 @@ import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
-import ml.dmlc.xgboost4j.java.Booster;
-import ml.dmlc.xgboost4j.java.DMatrix;
-import ml.dmlc.xgboost4j.java.XGBoost;
-import ml.dmlc.xgboost4j.java.XGBoostError;
-import org.apache.commons.lang3.tuple.Pair;
-import org.deeplearning4j.nn.multilayer.MultiLayerNetwork;
-import org.deeplearning4j.util.ModelSerializer;
 import org.jfree.chart.ChartFactory;
 import org.jfree.chart.ChartUtilities;
 import org.jfree.chart.JFreeChart;
@@ -43,13 +35,9 @@ import org.jfree.chart.plot.ValueMarker;
 import org.jfree.chart.plot.XYPlot;
 import org.jfree.data.xy.XYSeries;
 import org.jfree.data.xy.XYSeriesCollection;
-import org.nd4j.linalg.factory.Nd4j;
 
 
 import static com.github.shk0da.GoldenDragon.repository.TickerRepository.SERIALIZE_NAME;
-import static com.github.shk0da.GoldenDragon.utils.DataLearningUtils.StockDataSetIterator.getBoosterInput;
-import static com.github.shk0da.GoldenDragon.utils.DataLearningUtils.StockDataSetIterator.getNetworkInput;
-import static com.github.shk0da.GoldenDragon.utils.DataLearningUtils.createInput;
 import static com.github.shk0da.GoldenDragon.utils.IndicatorsUtil.INDICATORS_SHIFT;
 import static com.github.shk0da.GoldenDragon.utils.IndicatorsUtil.calculateATR;
 import static com.github.shk0da.GoldenDragon.utils.IndicatorsUtil.convertCandles;
@@ -66,7 +54,6 @@ public class TestLevelTrader {
     private static final Double RISK = 30.0;
     private static final Boolean createPlot = false;
     private static final Boolean debugLogging = false;
-    private static final Boolean useNN = false;
     private static final Double initBalance = 100_000.00;
     private static final Double averagePositionCost = 10_000.00;
     private static final List<String> stocks = List.of("CNYRUBF", "USDRUBF", "HEAD", "LKOH", "MTSS", "PLZL", "RTKM", "SBER");
@@ -76,8 +63,25 @@ public class TestLevelTrader {
 
     private static final Map<String, List<TickerCandle>> candleRegister = new ConcurrentHashMap<>();
     private static final Map<String, List<Double>> levelsRegister = new ConcurrentHashMap<>();
-    private static final Map<String, MultiLayerNetwork> multiLayerNetworkRegister = new ConcurrentHashMap<>();
-    private static final Map<String, Booster> boosterRegister = new ConcurrentHashMap<>();
+
+    static final class Pair<L, R>{
+
+        public final L left;
+        public final R right;
+
+        Pair(L left, R right) {
+            this.left = left;
+            this.right = right;
+        }
+
+        public L getLeft() {
+            return left;
+        }
+
+        public R getRight() {
+            return right;
+        }
+    }
 
     private static final class Result {
 
@@ -378,7 +382,7 @@ public class TestLevelTrader {
         });
         var winRate = (results.stream().mapToDouble(it -> it).sum() / (double) results.size());
         var profit = (profits.stream().mapToDouble(it -> it).sum() / (double) profits.size());
-        return Pair.of(winRate, profit);
+        return new Pair<>(winRate, profit);
     }
 
     public static Result run(String name, double balance, List<Double> levels, GerchikUtils config) throws Exception {
@@ -393,8 +397,6 @@ public class TestLevelTrader {
         List<Integer> shortTrades = new ArrayList<>();
         TickerCandle startOfDay = M5.get(0);
 
-        var network = useNN ? getNetwork("data", name) : null;
-        var booster = useNN ? getBooster("data", name) : null;
 
         for (int i = INDICATORS_SHIFT + 2016, x = 0; i < M5.size(); i++, x++) {
             LocalDateTime currentDateTime = LocalDateTime.parse(M5.get(x).getDate(), formatter);
@@ -418,23 +420,11 @@ public class TestLevelTrader {
                 var candle5 = M5.get(i);
                 var tp = (M5.get(i).getClose() / 100) * TP;
                 var subList = M5.subList(i - (INDICATORS_SHIFT + 2016), i);
-                var atr = calculateATR(subList, 7);
+                double atr = calculateATR(subList, 7);
                 var hasUpATR = (startOfDay.getLow() + (atr - (atr * 0.2))) > (candle5.getClose() + tp);
                 if (hasUpATR) {
-                    if (config.getLevelAction(subList, levels).getLeft()) {
-                        if (useNN) {
-                            var data = createInput(M5, i, startOfDay.getClose(), levels);
-                            var input = getNetworkInput(data);
-                            var output = network.rnnTimeStep(Nd4j.create(input).reshape(1, input.length)).getDouble(0);
-                            var labels = getBoosterInput(data);
-                            var vector = new DMatrix(labels, 1, labels.length, Float.NaN);
-                            var predict = booster.predict(vector)[0][0];
-                            if (output > 0 || predict > 0) {
-                                longTrades.add(i);
-                            }
-                        } else {
-                            longTrades.add(i);
-                        }
+                    if (config.getLevelAction(subList, levels).isLong()) {
+                        longTrades.add(i);
                     }
                 }
             }
@@ -443,33 +433,20 @@ public class TestLevelTrader {
                 var candle5 = M5.get(i);
                 var tp = (M5.get(i).getClose() / 100) * TP;
                 var subList = M5.subList(i - (INDICATORS_SHIFT + 2016), i);
-                var atr = calculateATR(subList, 7);
+                double atr = calculateATR(subList, 7);
                 var hasDownATR = (candle5.getClose() - tp) + (atr - (atr * 0.2)) < startOfDay.getHigh();
                 if (hasDownATR) {
-                    if (config.getLevelAction(subList, levels).getRight()) {
-                        if (useNN) {
-                            var data = createInput(M5, i, startOfDay.getClose(), levels);
-                            var input = getNetworkInput(data);
-                            var output = network.rnnTimeStep(Nd4j.create(input).reshape(1, input.length)).getDouble(0);
-                            var labels = getBoosterInput(data);
-                            var vector = new DMatrix(labels, 1, labels.length, Float.NaN);
-                            var predict = booster.predict(vector)[0][0];
-                            if (output < -0 || predict < -0) {
-                                shortTrades.add(i);
-                            }
-                        } else {
-                            shortTrades.add(i);
-                        }
+                    if (config.getLevelAction(subList, levels).isShort()) {
+                        shortTrades.add(i);
                     }
                 }
             }
         }
 
-        List<TickerCandle> finalM5 = M5;
         if (createPlot) {
-            plotChart(name, finalM5, levels, longTrades, shortTrades);
+            plotChart(name, M5, levels, longTrades, shortTrades);
         }
-        return calculateTrades(finalM5, longTrades, shortTrades, balance);
+        return calculateTrades(M5, longTrades, shortTrades, balance);
     }
 
     private synchronized static List<TickerCandle> readCandlesFile(String name, String dataDir, String file) {
@@ -516,24 +493,6 @@ public class TestLevelTrader {
             throw new RuntimeException(ex);
         }
         return candleRegister.put(key, tickers);
-    }
-
-    private synchronized static MultiLayerNetwork getNetwork(String dataDir, String name) throws IOException {
-        if (multiLayerNetworkRegister.containsKey(name)) {
-            return multiLayerNetworkRegister.get(name);
-        }
-        out.println("Get network: " + name);
-        String filePath = dataDir + "/" + name + "/network.nn";
-        return multiLayerNetworkRegister.put(name, ModelSerializer.restoreMultiLayerNetwork(filePath));
-    }
-
-    private synchronized static Booster getBooster(String dataDir, String name) throws XGBoostError {
-        if (boosterRegister.containsKey(name)) {
-            return boosterRegister.get(name);
-        }
-        out.println("Get booster: " + name);
-        String filePath = dataDir + "/" + name + "/booster.nn";
-        return boosterRegister.put(name, XGBoost.loadModel(filePath));
     }
 
     private static Result calculateTrades(List<TickerCandle> candles,

@@ -1,19 +1,19 @@
 package com.github.shk0da.GoldenDragon.config;
 
 import com.github.shk0da.GoldenDragon.utils.PropertiesUtils;
-
 import java.io.IOException;
 import java.util.List;
 import java.util.Properties;
+
 
 import static java.util.Arrays.stream;
 import static java.util.stream.Collectors.toList;
 
 public class DataCollectorConfig {
 
-    private String dataDir;
-    private List<String> stocks;
-    private Boolean replace;
+    private final String dataDir;
+    private final List<String> stocks;
+    private final Boolean replace;
 
     public DataCollectorConfig() throws IOException {
         final Properties properties = PropertiesUtils.loadProperties();

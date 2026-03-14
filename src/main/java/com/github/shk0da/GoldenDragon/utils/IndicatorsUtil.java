@@ -45,10 +45,10 @@ public class IndicatorsUtil {
 
     public static final class Indicator {
 
-        private String name;
-        private double value;
-        private LocalDateTime dateTime;
-        private double close;
+        private final String name;
+        private final double value;
+        private final LocalDateTime dateTime;
+        private final double close;
 
         public Indicator(String name, double value, LocalDateTime dateTime, double close) {
             this.name = name;
