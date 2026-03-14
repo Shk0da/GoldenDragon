@@ -68,8 +68,7 @@ public class TestLevelTrader {
     private static final Boolean useNN = false;
     private static final Double initBalance = 100_000.00;
     private static final Double averagePositionCost = 10_000.00;
-    private static final List<String> stocks = List.of("CNYRUBF", "USDRUBF", "HEAD", "LKOH", "MTSS", "PLZL", "RTKM",
-            "SBER");
+    private static final List<String> stocks = List.of("CNYRUBF", "USDRUBF", "HEAD", "LKOH", "MTSS", "PLZL", "RTKM", "SBER");
 
     private static final DecimalFormat df = new DecimalFormat("#.##");
     private static final DateTimeFormatter formatter = DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm:ss");
@@ -122,8 +121,7 @@ public class TestLevelTrader {
 
     public static void main(String[] args) {
         Repository<Key, TickerInfo> tickerRepository = TickerRepository.INSTANCE;
-        Map<TickerInfo.Key, TickerInfo> dataFromDisk = loadDataFromDisk(SERIALIZE_NAME, new TypeToken<>() {
-        });
+        Map<TickerInfo.Key, TickerInfo> dataFromDisk = loadDataFromDisk(SERIALIZE_NAME, new TypeToken<>() {});
         tickerRepository.putAll(dataFromDisk);
 
         final ThreadLocal<DecimalFormat> df = ThreadLocal.withInitial(() -> new DecimalFormat("#.#####"));
@@ -208,28 +206,28 @@ public class TestLevelTrader {
         GerchikUtils c = individual.config;
 
         if (ThreadLocalRandom.current().nextDouble() < mutationRate) {
-            c.levelConfirmationTouches = ThreadLocalRandom.current().nextInt(0, 6);
+            c.levelConfirmationTouches = ThreadLocalRandom.current().nextInt(0, 11);
         }
         if (ThreadLocalRandom.current().nextDouble() < mutationRate) {
-            c.levelZonePercent = ThreadLocalRandom.current().nextDouble(0.0005, 0.0975);
+            c.levelZonePercent = ThreadLocalRandom.current().nextDouble(0.00005, 1.5);
         }
         if (ThreadLocalRandom.current().nextDouble() < mutationRate) {
-            c.breakoutConfirmationPercent = ThreadLocalRandom.current().nextDouble(0.00, 0.005);
+            c.breakoutConfirmationPercent = ThreadLocalRandom.current().nextDouble(0.0003, 0.05);
         }
         if (ThreadLocalRandom.current().nextDouble() < mutationRate) {
-            c.falseBreakoutThreshold = ThreadLocalRandom.current().nextDouble(0.00005, 0.00125);
+            c.falseBreakoutThreshold = ThreadLocalRandom.current().nextDouble(0.00008, 0.00125);
         }
         if (ThreadLocalRandom.current().nextDouble() < mutationRate) {
-            c.volumeMultiplier = ThreadLocalRandom.current().nextDouble(0.05, 0.95);
+            c.volumeMultiplier = ThreadLocalRandom.current().nextDouble(0.01, 1.0);
         }
         if (ThreadLocalRandom.current().nextDouble() < mutationRate) {
-            c.confirmationCandles = ThreadLocalRandom.current().nextInt(0, 6);
+            c.confirmationCandles = ThreadLocalRandom.current().nextInt(0, 11);
         }
         if (ThreadLocalRandom.current().nextDouble() < mutationRate) {
-            c.maxSignalAge = ThreadLocalRandom.current().nextInt(0, 11);
+            c.maxSignalAge = ThreadLocalRandom.current().nextInt(0, 21);
         }
         if (ThreadLocalRandom.current().nextDouble() < mutationRate) {
-            c.volumeConfirmationThreshold = ThreadLocalRandom.current().nextDouble(0.8, 3.0);
+            c.volumeConfirmationThreshold = ThreadLocalRandom.current().nextDouble(0.01, 10.0);
         }
     }
 
