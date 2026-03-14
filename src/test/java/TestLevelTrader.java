@@ -45,7 +45,6 @@ import org.jfree.data.xy.XYSeries;
 import org.jfree.data.xy.XYSeriesCollection;
 import org.nd4j.linalg.factory.Nd4j;
 
-
 import static com.github.shk0da.GoldenDragon.repository.TickerRepository.SERIALIZE_NAME;
 import static com.github.shk0da.GoldenDragon.utils.DataLearningUtils.StockDataSetIterator.getBoosterInput;
 import static com.github.shk0da.GoldenDragon.utils.DataLearningUtils.StockDataSetIterator.getNetworkInput;
@@ -59,7 +58,7 @@ import static java.nio.file.Files.deleteIfExists;
 
 public class TestLevelTrader {
 
-    private static final Double K2 = 0.20;
+    private static final Double K2 = 0.40;
     private static final Double COMISSION = 0.05;
     private static final Double TP = 0.9;
     private static final Double SL = 0.3;
@@ -69,7 +68,7 @@ public class TestLevelTrader {
     private static final Boolean useNN = false;
     private static final Double initBalance = 100_000.00;
     private static final Double averagePositionCost = 10_000.00;
-    private static final List<String> stocks = List.of("PLZL");
+    private static final List<String> stocks = List.of("CNYRUBF", "USDRUBF", "HEAD", "LKOH", "MTSS", "PLZL", "RTKM", "SBER");
 
     private static final DecimalFormat df = new DecimalFormat("#.##");
     private static final DateTimeFormatter formatter = DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm:ss");
@@ -147,16 +146,14 @@ public class TestLevelTrader {
             population
                     .sort(Comparator
                             .comparingDouble((Individual ind) -> -ind.profit)
-                            .thenComparingDouble(ind -> -ind.fitness)
-                    );
+                            .thenComparingDouble(ind -> -ind.fitness));
             Individual best = population.get(0);
 
             System.out.printf("%nGeneration %d | Best Fitness: %.2f%% | Profit: %.2f RUB%n%s%n",
                     generation,
                     best.fitness,
                     best.profit,
-                    best.config
-            );
+                    best.config);
 
             // Ранняя остановка
             if (best.fitness > bestFitness || best.profit > bestProfit) {
@@ -197,8 +194,7 @@ public class TestLevelTrader {
         population
                 .sort(Comparator
                         .comparingDouble((Individual ind) -> -ind.profit)
-                        .thenComparingDouble(ind -> -ind.fitness)
-                );
+                        .thenComparingDouble(ind -> -ind.fitness));
         Individual best = population.get(0);
         System.out.println("\n Лучшая конфигурация:");
         System.out.println("Fitness: " + df.get().format(best.fitness) + "%");
@@ -236,16 +232,78 @@ public class TestLevelTrader {
     }
 
     static List<Individual> createInitialPopulation(int populationSize) {
-        return IntStream.range(0, populationSize)
+        List<Individual> population = new ArrayList<>();
+        population.add(new Individual(new GerchikUtils()));
+        population.add(new Individual(new GerchikUtils(
+                3,
+                0.007,
+                0.002,
+                0.0005,
+                0.5,
+                3,
+                6,
+                2.2))
+        );
+        population.add(new Individual(new GerchikUtils(
+                2,
+                0.0078,
+                0.0019,
+                0.0005,
+                0.40,
+                3,
+                5,
+                2.40))
+        );
+        population.add(new Individual(new GerchikUtils(
+                2,
+                0.0078,
+                0.0019,
+                0.0005,
+                0.40,
+                3,
+                5,
+                2.40))
+        );
+        population.add(new Individual(new GerchikUtils(
+                4,
+                0.01,
+                0.004,
+                0.001,
+                0.7,
+                4,
+                7,
+                2.6))
+        );
+        population.add(new Individual(new GerchikUtils(
+                2,
+                0.003,
+                0.002,
+                0.0005,
+                0.3,
+                2,
+                4,
+                1.5))
+        );
+        population.add(new Individual(new GerchikUtils(
+                3,
+                0.007,
+                0.003,
+                0.0007,
+                0.6,
+                3,
+                6,
+                2.4))
+        );
+        IntStream.range(0, populationSize)
                 .mapToObj(i -> {
-                    int levelConfirmationTouches = ThreadLocalRandom.current().nextInt(0, 6);
-                    double levelZonePercent = ThreadLocalRandom.current().nextDouble(0.0005, 0.0975);
-                    double breakoutConfirmationPercent = ThreadLocalRandom.current().nextDouble(0.00, 0.005);
-                    double falseBreakoutThreshold = ThreadLocalRandom.current().nextDouble(0.00005, 0.00125);
-                    double volumeMultiplier = ThreadLocalRandom.current().nextDouble(0.05, 0.95);
-                    int confirmationCandles = ThreadLocalRandom.current().nextInt(0, 6);
-                    int maxSignalAge = ThreadLocalRandom.current().nextInt(0, 11);
-                    double volumeConfirmationThreshold = ThreadLocalRandom.current().nextDouble(0.8, 3.0);
+                    int levelConfirmationTouches = ThreadLocalRandom.current().nextInt(0, 11);
+                    double levelZonePercent = ThreadLocalRandom.current().nextDouble(0.00005, 1.5);
+                    double breakoutConfirmationPercent = ThreadLocalRandom.current().nextDouble(0.0003, 0.05);
+                    double falseBreakoutThreshold = ThreadLocalRandom.current().nextDouble(0.00008, 0.00125);
+                    double volumeMultiplier = ThreadLocalRandom.current().nextDouble(0.01, 1.0);
+                    int confirmationCandles = ThreadLocalRandom.current().nextInt(0, 11);
+                    int maxSignalAge = ThreadLocalRandom.current().nextInt(0, 21);
+                    double volumeConfirmationThreshold = ThreadLocalRandom.current().nextDouble(0.01, 10.0);
 
                     GerchikUtils config = new GerchikUtils(
                             levelConfirmationTouches,
@@ -255,12 +313,12 @@ public class TestLevelTrader {
                             volumeMultiplier,
                             confirmationCandles,
                             maxSignalAge,
-                            volumeConfirmationThreshold
-                    );
+                            volumeConfirmationThreshold);
 
                     return new Individual(config);
                 })
                 .collect(Collectors.toList());
+        return population;
     }
 
     static List<Individual> selectParents(List<Individual> population, int tournamentSize) {
@@ -272,8 +330,7 @@ public class TestLevelTrader {
             return tournament.stream()
                     .max(Comparator
                             .comparingDouble((Individual i) -> i.profit)
-                            .thenComparingDouble(i -> i.fitness)
-                    )
+                            .thenComparingDouble(i -> i.fitness))
                     .orElse(ind);
         }).collect(Collectors.toList());
     }
@@ -283,8 +340,12 @@ public class TestLevelTrader {
         GerchikUtils c2 = parent2.config;
         boolean useFirstHalf = ThreadLocalRandom.current().nextBoolean();
         GerchikUtils childConfig = useFirstHalf
-                ? new GerchikUtils(c1.levelConfirmationTouches, c1.levelZonePercent, c1.breakoutConfirmationPercent, c1.falseBreakoutThreshold, c1.volumeMultiplier, c1.confirmationCandles, c1.maxSignalAge, c1.volumeConfirmationThreshold)
-                : new GerchikUtils(c2.levelConfirmationTouches, c2.levelZonePercent, c2.breakoutConfirmationPercent, c2.falseBreakoutThreshold, c2.volumeMultiplier, c2.confirmationCandles, c2.maxSignalAge, c2.volumeConfirmationThreshold);
+                ? new GerchikUtils(c1.levelConfirmationTouches, c1.levelZonePercent, c1.breakoutConfirmationPercent,
+                        c1.falseBreakoutThreshold, c1.volumeMultiplier, c1.confirmationCandles, c1.maxSignalAge,
+                        c1.volumeConfirmationThreshold)
+                : new GerchikUtils(c2.levelConfirmationTouches, c2.levelZonePercent, c2.breakoutConfirmationPercent,
+                        c2.falseBreakoutThreshold, c2.volumeMultiplier, c2.confirmationCandles, c2.maxSignalAge,
+                        c2.volumeConfirmationThreshold);
         return new Individual(childConfig);
     }
 
@@ -303,8 +364,7 @@ public class TestLevelTrader {
                                 .stream()
                                 .map(Level::getPrice)
                                 .sorted()
-                                .collect(Collectors.toList())
-                );
+                                .collect(Collectors.toList()));
                 var result = run(tickerName, currentBalance, levels, config);
                 balance.set(result.getProfit());
                 results.add(result.getWinrate());
@@ -442,8 +502,7 @@ public class TestLevelTrader {
                             Double.parseDouble(values[3]),
                             Double.parseDouble(values[4]),
                             Double.parseDouble(values[4]),
-                            Integer.parseInt(values[5])
-                    ));
+                            Integer.parseInt(values[5])));
                 } catch (NumberFormatException e) {
                     System.err.println("Number format error in line: " + line);
                     e.printStackTrace();
@@ -475,8 +534,8 @@ public class TestLevelTrader {
     }
 
     private static Result calculateTrades(List<TickerCandle> candles,
-                                          List<Integer> longTrades, List<Integer> shortTrades,
-                                          Double balance) {
+            List<Integer> longTrades, List<Integer> shortTrades,
+            Double balance) {
         if (longTrades.isEmpty() && shortTrades.isEmpty()) {
             return new Result(balance, 0.0, "");
         }
@@ -494,7 +553,8 @@ public class TestLevelTrader {
             var cash = ((balance / 100) * RISK);
             if (cash > averagePositionCost) {
                 cash = averagePositionCost;
-            } else continue;
+            } else
+                continue;
 
             var close = candles.get(i).getClose();
             if (longTrades.contains(i) && 0 == count) {
@@ -506,7 +566,8 @@ public class TestLevelTrader {
                 var commission = round(Math.abs((cashOpen / 100) * COMISSION), 4);
                 balance = round(balance - commission, 4);
                 if (debugLogging) {
-                    out.println(candles.get(i).getDate() + " BUY -" + commission + ", BALANCE: " + prevBalance + " -> " + balance + " (" + round(balance - prevBalance, 4) + ")");
+                    out.println(candles.get(i).getDate() + " BUY -" + commission + ", BALANCE: " + prevBalance + " -> "
+                            + balance + " (" + round(balance - prevBalance, 4) + ")");
                 }
             }
             if (shortTrades.contains(i) && 0 == count) {
@@ -518,7 +579,8 @@ public class TestLevelTrader {
                 var commission = round(Math.abs((cashOpen / 100) * COMISSION), 4);
                 balance = round(balance - commission, 4);
                 if (debugLogging) {
-                    out.println(candles.get(i).getDate() + " SELL -" + commission + ", BALANCE: " + prevBalance + " -> " + balance + " (" + round(balance - prevBalance, 4) + ")");
+                    out.println(candles.get(i).getDate() + " SELL -" + commission + ", BALANCE: " + prevBalance + " -> "
+                            + balance + " (" + round(balance - prevBalance, 4) + ")");
                 }
             }
 
@@ -531,14 +593,20 @@ public class TestLevelTrader {
 
             if (longTP || longSL || shortTP || shortSL) {
                 var price = close;
-                if (longTP) price = (prevClose + ((prevClose / 100) * TP));
-                if (shortTP) price = (prevClose - ((prevClose / 100) * TP));
-                if (longSL) price = (prevClose - ((prevClose / 100) * SL));
-                if (shortSL) price = (prevClose + ((prevClose / 100) * SL));
+                if (longTP)
+                    price = (prevClose + ((prevClose / 100) * TP));
+                if (shortTP)
+                    price = (prevClose - ((prevClose / 100) * TP));
+                if (longSL)
+                    price = (prevClose - ((prevClose / 100) * SL));
+                if (shortSL)
+                    price = (prevClose + ((prevClose / 100) * SL));
                 var cashClose = count * price;
                 var operationResult = round(cashClose - cashOpen, 4);
-                if (operationResult > 0) winRateCounter++;
-                if (operationResult < 0) failRateCounter++;
+                if (operationResult > 0)
+                    winRateCounter++;
+                if (operationResult < 0)
+                    failRateCounter++;
                 var commission = round(Math.abs((cashClose / 100) * COMISSION), 4);
                 var prevBalance = balance;
                 var operationResultWithCommission = round(operationResult - commission, 4);
@@ -551,7 +619,9 @@ public class TestLevelTrader {
                 }
 
                 if (debugLogging) {
-                    out.println(candles.get(i).getDate() + " " + (count > 0 ? "SELL: " : "BUY: ") + operationResult + " - " + commission + " = " + operationResultWithCommission + ", BALANCE: " + prevBalance + " -> " + balance + " (" + round(balance - prevBalance, 4) + ")");
+                    out.println(candles.get(i).getDate() + " " + (count > 0 ? "SELL: " : "BUY: ") + operationResult
+                            + " - " + commission + " = " + operationResultWithCommission + ", BALANCE: " + prevBalance
+                            + " -> " + balance + " (" + round(balance - prevBalance, 4) + ")");
                 }
 
                 cashOpen = 0.0;
@@ -560,17 +630,19 @@ public class TestLevelTrader {
         }
 
         var maxDropDownPercent = 100 - ((initBalance - Math.abs(maxDropDown)) / initBalance * 100);
-        var messageMaxDropDown = "MaxDropDown: " + df.format(minimalBalance) + " (" + df.format(maxDropDownPercent) + "%)";
+        var messageMaxDropDown = "MaxDropDown: " + df.format(minimalBalance) + " (" + df.format(maxDropDownPercent)
+                + "%)";
         var winRatePercent = (double) winRateCounter / (winRateCounter + failRateCounter) * 100;
-        var messageWinRate = "WIN/LOSE: " + winRateCounter + "/" + failRateCounter + " (" + df.format(winRatePercent) + "%)";
+        var messageWinRate = "WIN/LOSE: " + winRateCounter + "/" + failRateCounter + " (" + df.format(winRatePercent)
+                + "%)";
         var statTradesMessage = "LONG/SHORT: " + longTrades.size() + "/" + shortTrades.size();
         var resultMessage = statTradesMessage + ", " + messageWinRate + ", " + messageMaxDropDown;
         return new Result(balance, winRatePercent, resultMessage);
     }
 
     private static void plotChart(String ticker,
-                                  List<TickerCandle> candles, List<Double> levelValues,
-                                  List<Integer> longTrades, List<Integer> shortTrades) {
+            List<TickerCandle> candles, List<Double> levelValues,
+            List<Integer> longTrades, List<Integer> shortTrades) {
         if (longTrades.isEmpty() && shortTrades.isEmpty()) {
             return;
         }
@@ -588,8 +660,10 @@ public class TestLevelTrader {
                 levels.get(x).add(i, levelValues.get(x));
             }
 
-            if (candles.get(i).getClose() > max) max = candles.get(i).getClose();
-            if (candles.get(i).getClose() < min) min = candles.get(i).getClose();
+            if (candles.get(i).getClose() > max)
+                max = candles.get(i).getClose();
+            if (candles.get(i).getClose() < min)
+                min = candles.get(i).getClose();
         }
 
         XYSeriesCollection data = new XYSeriesCollection();
@@ -604,8 +678,7 @@ public class TestLevelTrader {
                 PlotOrientation.VERTICAL,
                 true,
                 true,
-                false
-        );
+                false);
 
         for (Integer trade : longTrades) {
             ValueMarker marker = new ValueMarker(trade);
