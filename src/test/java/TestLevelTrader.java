@@ -211,7 +211,7 @@ public class TestLevelTrader {
         GerchikUtils c = individual.config;
 
         if (ThreadLocalRandom.current().nextDouble() < mutationRate) {
-            c.levelZonePercent = ThreadLocalRandom.current().nextDouble(0.5, 1.0);
+            c.levelZonePercent = (double) ThreadLocalRandom.current().nextInt(5, 10) / 10;
         }
         if (ThreadLocalRandom.current().nextDouble() < mutationRate) {
             c.breakoutConfirmationPercent = ThreadLocalRandom.current().nextDouble(0.0001, 2.0);
@@ -226,10 +226,10 @@ public class TestLevelTrader {
             c.maxSignalAge = ThreadLocalRandom.current().nextInt(8, 15);
         }
         if (ThreadLocalRandom.current().nextDouble() < mutationRate) {
-            c.volumeConfirmationThreshold = ThreadLocalRandom.current().nextDouble(2.00, 5.0);
+            c.volumeConfirmationThreshold = (double) ThreadLocalRandom.current().nextInt(20, 50) / 10;
         }
         if (ThreadLocalRandom.current().nextDouble() < mutationRate) {
-            c.minPatternStrength = ThreadLocalRandom.current().nextDouble(0.8, 1.5);
+            c.minPatternStrength = (double) ThreadLocalRandom.current().nextInt(8, 15) / 10;
         }
     }
 
@@ -299,13 +299,13 @@ public class TestLevelTrader {
         IntStream.range(0, populationSize)
                 .mapToObj(i -> {
                     int levelConfirmationTouches = 3;
-                    double levelZonePercent = ThreadLocalRandom.current().nextDouble(0.5, 1.0);
+                    double levelZonePercent = (double) ThreadLocalRandom.current().nextInt(5, 10) / 10;
                     double breakoutConfirmationPercent = ThreadLocalRandom.current().nextDouble(0.0001, 2.0);
                     double falseBreakoutThreshold = ThreadLocalRandom.current().nextDouble(0.0001, 2.0);
                     int confirmationCandles = ThreadLocalRandom.current().nextInt(3, 8);
                     int maxSignalAge = ThreadLocalRandom.current().nextInt(8, 15);
-                    double volumeConfirmationThreshold = ThreadLocalRandom.current().nextDouble(2.00, 5.0);
-                    double minPatternStrength = ThreadLocalRandom.current().nextDouble(0.8, 1.5);
+                    double volumeConfirmationThreshold = (double) ThreadLocalRandom.current().nextInt(20, 50) / 10;
+                    double minPatternStrength = (double) ThreadLocalRandom.current().nextInt(8, 15) / 10;
 
                     GerchikUtils config = new GerchikUtils(
                             levelConfirmationTouches,
