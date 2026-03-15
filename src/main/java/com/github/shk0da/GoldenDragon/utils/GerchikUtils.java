@@ -121,7 +121,7 @@ public class GerchikUtils {
     public double minPatternStrength;
 
     public GerchikUtils() {
-        this(2, 0.005, 0.008, 0.002, 2, 3, 1.3, 0.5);
+        this(2, 0.005, 0.008, 0.002, 2, 3, 1.3, 1.0);
     }
 
     public GerchikUtils(int levelConfirmationTouches, double levelZonePercent, double breakoutConfirmationPercent,

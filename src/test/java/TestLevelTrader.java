@@ -47,7 +47,7 @@ import static java.nio.file.Files.deleteIfExists;
 
 public class TestLevelTrader {
 
-    private static final Double K2 = 0.05;
+    private static final Double K2 = 0.1;
     private static final Double COMISSION = 0.05;
     private static final Double TP = 0.9;
     private static final Double SL = 0.3;
@@ -211,28 +211,25 @@ public class TestLevelTrader {
         GerchikUtils c = individual.config;
 
         if (ThreadLocalRandom.current().nextDouble() < mutationRate) {
-            c.levelConfirmationTouches = ThreadLocalRandom.current().nextInt(0, 11);
+            c.levelZonePercent = ThreadLocalRandom.current().nextDouble(0.5, 1.0);
         }
         if (ThreadLocalRandom.current().nextDouble() < mutationRate) {
-            c.levelZonePercent = ThreadLocalRandom.current().nextDouble(0.00005, 1.5);
+            c.breakoutConfirmationPercent = ThreadLocalRandom.current().nextDouble(0.0001, 2.0);
         }
         if (ThreadLocalRandom.current().nextDouble() < mutationRate) {
-            c.breakoutConfirmationPercent = ThreadLocalRandom.current().nextDouble(0.0003, 0.05);
+            c.falseBreakoutThreshold = ThreadLocalRandom.current().nextDouble(0.0001, 2.0);
         }
         if (ThreadLocalRandom.current().nextDouble() < mutationRate) {
-            c.falseBreakoutThreshold = ThreadLocalRandom.current().nextDouble(0.00008, 0.00125);
+            c.confirmationCandles = ThreadLocalRandom.current().nextInt(3, 8);
         }
         if (ThreadLocalRandom.current().nextDouble() < mutationRate) {
-            c.confirmationCandles = ThreadLocalRandom.current().nextInt(0, 11);
+            c.maxSignalAge = ThreadLocalRandom.current().nextInt(8, 15);
         }
         if (ThreadLocalRandom.current().nextDouble() < mutationRate) {
-            c.maxSignalAge = ThreadLocalRandom.current().nextInt(0, 21);
+            c.volumeConfirmationThreshold = ThreadLocalRandom.current().nextDouble(2.00, 5.0);
         }
         if (ThreadLocalRandom.current().nextDouble() < mutationRate) {
-            c.volumeConfirmationThreshold = ThreadLocalRandom.current().nextDouble(0.01, 10.0);
-        }
-        if (ThreadLocalRandom.current().nextDouble() < mutationRate) {
-            c.minPatternStrength = ThreadLocalRandom.current().nextDouble(0.01, 2.0);
+            c.minPatternStrength = ThreadLocalRandom.current().nextDouble(0.8, 1.5);
         }
     }
 
@@ -247,7 +244,7 @@ public class TestLevelTrader {
                 3,
                 6,
                 2.2,
-                0.5
+                1.0
         )));
         population.add(new Individual(new GerchikUtils(
                 2,
@@ -257,7 +254,7 @@ public class TestLevelTrader {
                 3,
                 5,
                 2.40,
-                0.5
+                1.0
         )));
         population.add(new Individual(new GerchikUtils(
                 2,
@@ -267,7 +264,7 @@ public class TestLevelTrader {
                 3,
                 5,
                 2.40,
-                0.5
+                1.0
         )));
         population.add(new Individual(new GerchikUtils(
                 4,
@@ -277,7 +274,7 @@ public class TestLevelTrader {
                 4,
                 7,
                 2.6,
-                0.5
+                1.0
         )));
         population.add(new Individual(new GerchikUtils(
                 2,
@@ -287,7 +284,7 @@ public class TestLevelTrader {
                 2,
                 4,
                 1.5,
-                0.5
+                1.0
         )));
         population.add(new Individual(new GerchikUtils(
                 3,
@@ -297,18 +294,18 @@ public class TestLevelTrader {
                 3,
                 6,
                 2.4,
-                0.5
+                1.0
         )));
         IntStream.range(0, populationSize)
                 .mapToObj(i -> {
-                    int levelConfirmationTouches = ThreadLocalRandom.current().nextInt(0, 11);
-                    double levelZonePercent = ThreadLocalRandom.current().nextDouble(0.00005, 1.5);
-                    double breakoutConfirmationPercent = ThreadLocalRandom.current().nextDouble(0.0003, 0.05);
-                    double falseBreakoutThreshold = ThreadLocalRandom.current().nextDouble(0.00008, 0.00125);
-                    int confirmationCandles = ThreadLocalRandom.current().nextInt(0, 11);
-                    int maxSignalAge = ThreadLocalRandom.current().nextInt(0, 21);
-                    double volumeConfirmationThreshold = ThreadLocalRandom.current().nextDouble(0.01, 10.0);
-                    double minPatternStrength = ThreadLocalRandom.current().nextDouble(0.01, 2.0);
+                    int levelConfirmationTouches = 3;
+                    double levelZonePercent = ThreadLocalRandom.current().nextDouble(0.5, 1.0);
+                    double breakoutConfirmationPercent = ThreadLocalRandom.current().nextDouble(0.0001, 2.0);
+                    double falseBreakoutThreshold = ThreadLocalRandom.current().nextDouble(0.0001, 2.0);
+                    int confirmationCandles = ThreadLocalRandom.current().nextInt(3, 8);
+                    int maxSignalAge = ThreadLocalRandom.current().nextInt(8, 15);
+                    double volumeConfirmationThreshold = ThreadLocalRandom.current().nextDouble(2.00, 5.0);
+                    double minPatternStrength = ThreadLocalRandom.current().nextDouble(0.8, 1.5);
 
                     GerchikUtils config = new GerchikUtils(
                             levelConfirmationTouches,
