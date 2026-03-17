@@ -58,6 +58,12 @@ public class LevelTrader {
     private static final DateTimeFormatter formatter = DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm:ss");
     private static final Repository<TickerInfo.Key, TickerInfo> tickerRepository = TickerRepository.INSTANCE;
 
+    private static final ThreadLocal<SimpleDateFormat> LOG_TIME_FORMAT =
+            ThreadLocal.withInitial(() -> new SimpleDateFormat("dd.MM.yyyy HH:mm:ss.SSS"));
+
+    private static final long COOLDOWN_DURATION_MS = 5 * 60 * 1000L; // 5 минут
+    private final Map<String, Long> tickerCooldown = new ConcurrentHashMap<>();
+
     private final TCSService tcsService;
     private final LevelTraderConfig levelTraderConfig;
     private final GerchikUtils gerchikUtils;
@@ -90,6 +96,10 @@ public class LevelTrader {
         );
     }
 
+    private static void log(String message) {
+        out.println("[" + LOG_TIME_FORMAT.get().format(new Date()) + "] " + message);
+    }
+
     public static class OrderInfo {
 
         private final String tickerName;
@@ -119,28 +129,17 @@ public class LevelTrader {
             this.tickerJson = tickerJson;
         }
 
-        public String getName() {
-            return name;
-        }
-
-        public TickerCandle getStartOfDay() {
-            return startOfDay;
-        }
-
-        public Double getAtr() {
-            return atr;
-        }
-
-        public TickerJson getTickerJson() {
-            return tickerJson;
-        }
+        public String getName() { return name; }
+        public TickerCandle getStartOfDay() { return startOfDay; }
+        public Double getAtr() { return atr; }
+        public TickerJson getTickerJson() { return tickerJson; }
     }
 
     public void run() {
         var initPortfolioCost = tcsService.getTotalPortfolioCost();
         var infoMessage = "Total Portfolio Cost: " + initPortfolioCost;
         telegramNotifyService.sendMessage(infoMessage);
-        out.println(infoMessage);
+        log(infoMessage);
 
         List<CompletableFuture<Void>> tasks = new ArrayList<>();
         ExecutorService executor = Executors.newFixedThreadPool(levelTraderConfig.getStocks().size());
@@ -159,18 +158,20 @@ public class LevelTrader {
         if (!isWorkingHours()) {
             var buyMessage = "Not working hours! Current Time: " + new Date() + ".\n";
             telegramNotifyService.sendMessage(buyMessage);
-            out.println(buyMessage);
+            log(buyMessage);
 
             shutdownExecutor(executor);
             tcsService.closeAllByMarket(TickerType.STOCK);
 
             var profit = tcsService.getTotalPortfolioCost() - initPortfolioCost;
             var profitInPercents = (tcsService.getTotalPortfolioCost() - initPortfolioCost) / initPortfolioCost * 100;
-            var statsMessage = "Day profit: " + decimalFormat.format(profit) + "₽ (" + decimalFormat.format(profitInPercents) + "%).\n";
+            var statsMessage = "Day profit: " + decimalFormat.format(profit) + "₽ ("
+                    + decimalFormat.format(profitInPercents) + "%).\n";
 
             if (winCounter.get() > 0 && loseCounter.get() > 0) {
                 var winRatePercent = (double) winCounter.get() / (winCounter.get() + loseCounter.get()) * 100;
-                statsMessage += "Win/Lose: " + winCounter.get() + "/" + loseCounter.get() + " (" + decimalFormat.format(winRatePercent) + "%).\n";
+                statsMessage += "Win/Lose: " + winCounter.get() + "/" + loseCounter.get()
+                        + " (" + decimalFormat.format(winRatePercent) + "%).\n";
             }
 
             if (!orders.isEmpty()) {
@@ -189,40 +190,36 @@ public class LevelTrader {
 
                 statsMessage += "Profit by hours:\n";
                 for (Map.Entry<Integer, List<OrderInfo>> entry : timeByOrderInfo.entrySet()) {
-                    var loseCounter = 0;
-                    var winCounter = 0;
+                    var lc = 0;
+                    var wc = 0;
                     var totalProfit = 0.0D;
                     for (OrderInfo orderInfo : entry.getValue()) {
-                        if (orderInfo.profit > 0) {
-                            winCounter++;
-                        } else {
-                            loseCounter++;
-                        }
+                        if (orderInfo.profit > 0) { wc++; } else { lc++; }
                         totalProfit += orderInfo.profit;
                     }
-                    var winRatePercent = (double) winCounter / (winCounter + loseCounter) * 100;
-                    statsMessage += entry.getKey() + ":00 - " + entry.getKey() + ":59 -> " + decimalFormat.format(totalProfit) + ". Win/Lose: " + winCounter + "/" + loseCounter + " (" + decimalFormat.format(winRatePercent) + "%).\n";
+                    var winRatePercent = (double) wc / (wc + lc) * 100;
+                    statsMessage += entry.getKey() + ":00 - " + entry.getKey() + ":59 -> "
+                            + decimalFormat.format(totalProfit) + ". Win/Lose: " + wc + "/" + lc
+                            + " (" + decimalFormat.format(winRatePercent) + "%).\n";
                 }
                 statsMessage += "Profit by ticker:\n";
                 for (Map.Entry<String, List<OrderInfo>> entry : tickerByOrderInfo.entrySet()) {
-                    var loseCounter = 0;
-                    var winCounter = 0;
+                    var lc = 0;
+                    var wc = 0;
                     var totalProfit = 0.0D;
                     for (OrderInfo orderInfo : entry.getValue()) {
-                        if (orderInfo.profit > 0) {
-                            winCounter++;
-                        } else {
-                            loseCounter++;
-                        }
+                        if (orderInfo.profit > 0) { wc++; } else { lc++; }
                         totalProfit += orderInfo.profit;
                     }
-                    var winRatePercent = (double) winCounter / (winCounter + loseCounter) * 100;
-                    statsMessage += entry.getKey() + " -> " + decimalFormat.format(totalProfit) + ". Win/Lose: " + winCounter + "/" + loseCounter + " (" + decimalFormat.format(winRatePercent) + "%).\n";
+                    var winRatePercent = (double) wc / (wc + lc) * 100;
+                    statsMessage += entry.getKey() + " -> " + decimalFormat.format(totalProfit)
+                            + ". Win/Lose: " + wc + "/" + lc
+                            + " (" + decimalFormat.format(winRatePercent) + "%).\n";
                 }
             }
 
             telegramNotifyService.sendMessage(statsMessage);
-            out.println(statsMessage);
+            log(statsMessage);
         }
     }
 
@@ -240,6 +237,18 @@ public class LevelTrader {
     }
 
     private void handleTicker(String name) {
+        Long cooldownUntil = tickerCooldown.get(name);
+        if (cooldownUntil != null) {
+            long remaining = cooldownUntil - System.currentTimeMillis();
+            if (remaining > 0) {
+                log("Ticker " + name + " is on cooldown for " + (remaining / 1000) + "s, skipping.");
+                return;
+            } else {
+                tickerCooldown.remove(name);
+                log("Ticker " + name + " cooldown expired, resuming.");
+            }
+        }
+
         try {
             var tickerDayInfo = TickerDayInfo.register.computeIfAbsent(name, it -> {
                 var weekCandles = getTickerCandles(name, (INDICATORS_SHIFT + 2419), CANDLE_INTERVAL_HOUR, 0);
@@ -292,7 +301,7 @@ public class LevelTrader {
                     var expectedYieldMessage = name + ": " + String.format("%,.2f%s", expectedYield, "%");
                     if (expectedYield > tpPercent && levelTraderConfig.isTpEnabled() && !levelTraderConfig.isTpAuto()) {
                         var closeMessage = "LONG TP " + expectedYieldMessage;
-                        out.println(closeMessage + "\n");
+                        log(closeMessage);
                         tcsService.closeLongByMarket(name, type);
                         telegramNotifyService.sendMessage(closeMessage);
                         winCounter.incrementAndGet();
@@ -300,7 +309,7 @@ public class LevelTrader {
                     }
                     if (expectedYield < (-1) * slPercent && levelTraderConfig.isSlEnabled() && !levelTraderConfig.isSlAuto()) {
                         var closeMessage = "LONG SL " + expectedYieldMessage;
-                        out.println(closeMessage);
+                        log(closeMessage);
                         tcsService.closeLongByMarket(name, type);
                         telegramNotifyService.sendMessage(closeMessage);
                         loseCounter.incrementAndGet();
@@ -313,7 +322,7 @@ public class LevelTrader {
                     var expectedYieldMessage = name + ": " + String.format("%,.2f%s", expectedYield, "%");
                     if (expectedYield > tpPercent && levelTraderConfig.isTpEnabled() && !levelTraderConfig.isTpAuto()) {
                         var closeMessage = "SHORT TP " + expectedYieldMessage;
-                        out.println(closeMessage);
+                        log(closeMessage);
                         tcsService.closeShortByMarket(name, type);
                         telegramNotifyService.sendMessage(closeMessage);
                         winCounter.incrementAndGet();
@@ -321,7 +330,7 @@ public class LevelTrader {
                     }
                     if (expectedYield < (-1) * slPercent && levelTraderConfig.isSlEnabled() && !levelTraderConfig.isSlAuto()) {
                         var closeMessage = "SHORT SL " + expectedYieldMessage;
-                        out.println(closeMessage);
+                        log(closeMessage);
                         tcsService.closeShortByMarket(name, type);
                         telegramNotifyService.sendMessage(closeMessage);
                         loseCounter.incrementAndGet();
@@ -330,10 +339,11 @@ public class LevelTrader {
                 }
             }
         } catch (Exception ex) {
+            long cooldownExpiry = System.currentTimeMillis() + COOLDOWN_DURATION_MS;
+            tickerCooldown.put(name, cooldownExpiry);
             var message = "Failed handle " + name + ": " + ex.getMessage();
+            log(message);
             telegramNotifyService.sendMessage(message);
-            out.println(message);
-            ex.printStackTrace();
         }
     }
 
@@ -365,7 +375,7 @@ public class LevelTrader {
     }
 
     private static TickerJson readTickerFile(String name, String dataDir) {
-        out.println("Read ticker file: " + name);
+        log("Read ticker file: " + name);
         try {
             return objectMapper.readValue(new File(dataDir + "/" + name + "/ticker.json"), TickerJson.class);
         } catch (IOException e) {
@@ -416,7 +426,7 @@ public class LevelTrader {
                 );
             }
         } catch (Exception ex) {
-            out.println("Failed getTickerCandles: " + ex.getMessage());
+            log("Failed getTickerCandles: " + ex.getMessage());
             if (counter++ < 2) {
                 sleep(1_200);
                 return getTickerCandles(name, size, period, counter);
