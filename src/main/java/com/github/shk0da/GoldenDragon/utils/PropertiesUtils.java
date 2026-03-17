@@ -20,7 +20,9 @@ public final class PropertiesUtils {
 
         ClassLoader classLoader = PropertiesUtils.class.getClassLoader();
         try (var internalProperties = classLoader.getResourceAsStream(fileName)) {
-            properties.load(Objects.requireNonNull(internalProperties));
+            if (null != internalProperties) {
+                properties.load(internalProperties);
+            }
         }
 
         if (Files.exists(Path.of(fileName))) {

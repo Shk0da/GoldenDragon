@@ -12,22 +12,20 @@ import java.awt.Color;
 import java.io.BufferedReader;
 import java.io.FileOutputStream;
 import java.io.FileReader;
-import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.text.DecimalFormat;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
-import java.util.Comparator;
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ThreadLocalRandom;
-import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
-import java.util.stream.IntStream;
 import org.jfree.chart.ChartFactory;
 import org.jfree.chart.ChartUtilities;
 import org.jfree.chart.JFreeChart;
@@ -49,625 +47,343 @@ import static java.nio.file.Files.deleteIfExists;
 
 public class TestLevelTrader {
 
-    private static final Double K2 = 0.1;
-    private static final Double COMISSION = 0.05;
-    private static final Double TP = 0.9;
-    private static final Double SL = 0.3;
-    private static final Double RISK = 30.0;
-    private static final Boolean createPlot = false;
-    private static final Boolean debugLogging = false;
-    private static final Double initBalance = 100_000.00;
-    private static final Double averagePositionCost = 10_000.00;
-    private static final List<String> stocks = List.of("CNYRUBF", "USDRUBF", "HEAD", "LKOH", "MTSS", "PLZL", "RTKM", "SBER");
+    private static final double K2 = 0.1, COMISSION = 0.05, TP = 0.9, SL = 0.3, RISK = 30.0;
+    private static final double INIT_BALANCE = 100_000.0, AVG_POS_COST = 10_000.0;
+    private static final boolean CREATE_PLOT = false, DEBUG = false;
+    private static final int MIN_PARAM = 1, MAX_PARAM = 20;
+    private static final List<String> STOCKS = Collections.unmodifiableList(
+            Arrays.asList("CNYRUBF"/*, "USDRUBF", "HEAD", "LKOH", "MTSS", "PLZL", "RTKM", "SBER"*/));
 
-    private static final DecimalFormat df = new DecimalFormat("#.##");
-    private static final DateTimeFormatter formatter = DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm:ss");
+    private static final DecimalFormat DF = new DecimalFormat("#.##");
+    private static final DateTimeFormatter FMT = DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm:ss");
+    private static final Map<String, List<TickerCandle>> CANDLE_CACHE = new ConcurrentHashMap<>();
+    private static final Map<String, List<Double>> LEVELS_CACHE = new ConcurrentHashMap<>();
 
-    private static final Map<String, List<TickerCandle>> candleRegister = new ConcurrentHashMap<>();
-    private static final Map<String, List<Double>> levelsRegister = new ConcurrentHashMap<>();
+    static final class Params {
+        final int touches;
+        final int candles;
 
-    static final class Pair<L, R> {
-
-        public final L left;
-        public final R right;
-
-        Pair(L left, R right) {
-            this.left = left;
-            this.right = right;
+        Params(int touches, int candles) {
+            this.touches = touches;
+            this.candles = candles;
         }
 
-        public L getLeft() {
+        @Override
+        public String toString() {
+            return "touches=" + touches + ", candles=" + candles;
+        }
+    }
+
+    static final class Score implements Comparable<Score> {
+        final Params params;
+        final double winRate;
+        final double profit;
+
+        Score(Params params, double winRate, double profit) {
+            this.params = params;
+            this.winRate = winRate;
+            this.profit = profit;
+        }
+
+        @Override
+        public int compareTo(Score o) {
+            int c = Double.compare(o.profit, this.profit);
+            return c != 0 ? c : Double.compare(o.winRate, this.winRate);
+        }
+    }
+
+    static final class Result {
+        final double profit;
+        final double winRate;
+        final String message;
+
+        Result(double profit, double winRate, String message) {
+            this.profit = profit;
+            this.winRate = winRate;
+            this.message = message;
+        }
+    }
+
+    static final class Pair<L, R> {
+        final L left;
+        final R right;
+
+        Pair(L l, R r) {
+            left = l;
+            right = r;
+        }
+
+        L getLeft() {
             return left;
         }
 
-        public R getRight() {
+        R getRight() {
             return right;
         }
     }
 
-    private static final class Result {
-
-        private final Double profit;
-        private final Double winrate;
-        private final String message;
-
-        public Result(Double profit, Double winrate, String message) {
-            this.profit = profit;
-            this.winrate = winrate;
-            this.message = message;
-        }
-
-        public Double getProfit() {
-            return profit;
-        }
-
-        public Double getWinrate() {
-            return winrate;
-        }
-
-        public String getMessage() {
-            return message;
-        }
-    }
-
-    static class Individual {
-        GerchikUtils config;
-        double fitness;
-        double profit;
-
-        public Individual(GerchikUtils config) {
-            this.config = config;
-        }
-
-        public void evaluate() {
-            Pair<Double, Double> result = run(config);
-            this.fitness = result.getLeft();
-            this.profit = result.getRight();
-        }
-    }
-
     public static void main(String[] args) {
-        Repository<Key, TickerInfo> tickerRepository = TickerRepository.INSTANCE;
-        Map<TickerInfo.Key, TickerInfo> dataFromDisk = loadDataFromDisk(SERIALIZE_NAME, new TypeToken<>() {
-        });
-        tickerRepository.putAll(dataFromDisk);
+        Repository<Key, TickerInfo> repo = TickerRepository.INSTANCE;
+        Map<TickerInfo.Key, TickerInfo> dataFromDisk = loadDataFromDisk(
+                SERIALIZE_NAME, new TypeToken<Map<TickerInfo.Key, TickerInfo>>() {
+                });
+        repo.putAll(dataFromDisk);
 
-        final ThreadLocal<DecimalFormat> df = ThreadLocal.withInitial(() -> new DecimalFormat("#.#####"));
+        int total = (MAX_PARAM - MIN_PARAM + 1) * (MAX_PARAM - MIN_PARAM + 1);
+        out.printf("Полный перебор: %d комбинаций (%d..%d x %d..%d)%n%n",
+                total, MIN_PARAM, MAX_PARAM, MIN_PARAM, MAX_PARAM);
 
-        int populationSize = 100;
-        int generations = 200;
-        double mutationRate = 0.15;
-        int tournamentSize = 5;
-        int eliteCount = 5;
-        int patience = 10; // остановка, если нет улучшений в течение N поколений
+        List<Params> allParams = new ArrayList<>(total);
+        for (int t = MIN_PARAM; t <= MAX_PARAM; t++)
+            for (int c = MIN_PARAM; c <= MAX_PARAM; c++)
+                allParams.add(new Params(t, c));
 
-        List<Individual> population = createInitialPopulation(populationSize);
-        double bestFitness = 0;
-        double bestProfit = 0;
-        int noImprovementCount = 0;
+        long startTime = System.currentTimeMillis();
 
-        for (int generation = 0; generation < generations; generation++) {
-            // Параллельная оценка
-            population.parallelStream().forEach(Individual::evaluate);
+        List<Score> results = allParams.parallelStream().map(p -> {
+            GerchikUtils config = new GerchikUtils(p.touches, p.candles);
+            Pair<Double, Double> r = evaluate(config);
+            return new Score(p, r.getLeft(), r.getRight());
+        }).sorted().collect(Collectors.toList());
 
-            // Сортировка по приспособленности
-            population
-                    .sort(Comparator
-                            .comparingDouble((Individual ind) -> -ind.profit)
-                            .thenComparingDouble(ind -> -ind.fitness));
-            Individual best = population.get(0);
+        long elapsed = System.currentTimeMillis() - startTime;
 
-            System.out.printf("%nGeneration %d | Best Fitness: %.2f%% | Profit: %.2f RUB%n%s%n",
-                    generation,
-                    best.fitness,
-                    best.profit,
-                    best.config);
+        out.printf("%n========== РЕЗУЛЬТАТЫ (%d комбинаций за %.1f сек) ==========%n%n",
+                total, elapsed / 1000.0);
+        out.println("Top-10:");
+        results.stream().limit(10).forEach(s ->
+                out.printf("  %s → WinRate: %.2f%%, Profit: %.2f RUB%n",
+                        s.params, s.winRate, s.profit));
 
-            // Ранняя остановка
-            if (best.fitness > bestFitness || best.profit > bestProfit) {
-                if (best.fitness > bestFitness) {
-                    bestFitness = best.fitness;
-                }
-                if (best.profit > bestProfit) {
-                    bestProfit = best.profit;
-                }
-                noImprovementCount = 0;
-            } else {
-                noImprovementCount++;
-                if (noImprovementCount >= patience) {
-                    System.out.println("Early stopping at generation " + generation);
-                    break;
-                }
-            }
+        Score best = results.get(0);
+        out.printf("%nЛучшая конфигурация: %s%n", best.params);
+        out.printf("WinRate: %.2f%%%n", best.winRate);
+        out.printf("Profit: %.2f RUB%n", best.profit);
 
-            // Элитизм
-            List<Individual> newPopulation = new ArrayList<>(population.subList(0, eliteCount));
-
-            // Селекция родителей
-            List<Individual> parents = selectParents(population, tournamentSize);
-
-            // Кроссовер и мутация
-            while (newPopulation.size() < populationSize) {
-                Individual parent1 = parents.get(ThreadLocalRandom.current().nextInt(parents.size()));
-                Individual parent2 = parents.get(ThreadLocalRandom.current().nextInt(parents.size()));
-                Individual child = crossover(parent1, parent2);
-                mutate(child, mutationRate);
-                newPopulation.add(child);
-            }
-
-            population = newPopulation;
-        }
-
-        // Финальный результат
-        population
-                .sort(Comparator
-                        .comparingDouble((Individual ind) -> -ind.profit)
-                        .thenComparingDouble(ind -> -ind.fitness));
-        Individual best = population.get(0);
-        System.out.println("\nЛучшая конфигурация:");
-        System.out.println("Fitness: " + df.get().format(best.fitness) + "%");
-        System.out.println("Profit: " + df.get().format(best.profit) + " RUB");
-        System.out.println("Config: " + best.config);
-    }
-
-    static void mutate(Individual individual, double mutationRate) {
-        GerchikUtils c = individual.config;
-
-        if (ThreadLocalRandom.current().nextDouble() < mutationRate) {
-            c.levelZonePercent = (double) ThreadLocalRandom.current().nextInt(5, 10) / 10;
-        }
-        if (ThreadLocalRandom.current().nextDouble() < mutationRate) {
-            c.confirmationCandles = ThreadLocalRandom.current().nextInt(3, 8);
-        }
-        if (ThreadLocalRandom.current().nextDouble() < mutationRate) {
-            c.maxSignalAge = ThreadLocalRandom.current().nextInt(8, 15);
-        }
-        if (ThreadLocalRandom.current().nextDouble() < mutationRate) {
-            c.volumeConfirmationThreshold = (double) ThreadLocalRandom.current().nextInt(20, 50) / 10;
-        }
-        if (ThreadLocalRandom.current().nextDouble() < mutationRate) {
-            c.minPatternStrength = (double) ThreadLocalRandom.current().nextInt(8, 15) / 10;
-        }
-    }
-
-    static List<Individual> createInitialPopulation(int populationSize) {
-        List<Individual> population = new ArrayList<>();
-        population.add(new Individual(new GerchikUtils()));
-        population.add(new Individual(new GerchikUtils(
-                3,
-                0.007,
-                3,
-                6,
-                2.2,
-                1.0)));
-        population.add(new Individual(new GerchikUtils(
-                2,
-                0.0078,
-                3,
-                5,
-                2.40,
-                1.0)));
-        population.add(new Individual(new GerchikUtils(
-                2,
-                0.0078,
-                3,
-                5,
-                2.40,
-                1.0)));
-        population.add(new Individual(new GerchikUtils(
-                4,
-                0.01,
-                4,
-                7,
-                2.6,
-                1.0)));
-        population.add(new Individual(new GerchikUtils(
-                2,
-                0.003,
-                2,
-                4,
-                1.5,
-                1.0)));
-        population.add(new Individual(new GerchikUtils(
-                3,
-                0.007,
-                3,
-                6,
-                2.4,
-                1.0)));
-        IntStream.range(0, populationSize)
-                .mapToObj(i -> {
-                    int levelConfirmationTouches = 3;
-                    double levelZonePercent = (double) ThreadLocalRandom.current().nextInt(5, 10) / 10;
-                    int confirmationCandles = ThreadLocalRandom.current().nextInt(3, 8);
-                    int maxSignalAge = ThreadLocalRandom.current().nextInt(8, 15);
-                    double volumeConfirmationThreshold = (double) ThreadLocalRandom.current().nextInt(20, 50) / 10;
-                    double minPatternStrength = (double) ThreadLocalRandom.current().nextInt(8, 15) / 10;
-
-                    GerchikUtils config = new GerchikUtils(
-                            levelConfirmationTouches,
-                            levelZonePercent,
-                            confirmationCandles,
-                            maxSignalAge,
-                            volumeConfirmationThreshold,
-                            minPatternStrength);
-
-                    return new Individual(config);
-                })
-                .collect(Collectors.toList());
-        return population;
-    }
-
-    static List<Individual> selectParents(List<Individual> population, int tournamentSize) {
-        return population.parallelStream().map(ind -> {
-            List<Individual> tournament = new ArrayList<>();
-            for (int i = 0; i < tournamentSize; i++) {
-                tournament.add(population.get(ThreadLocalRandom.current().nextInt(population.size())));
-            }
-            return tournament.stream()
-                    .max(Comparator
-                            .comparingDouble((Individual i) -> i.profit)
-                            .thenComparingDouble(i -> i.fitness))
-                    .orElse(ind);
-        }).collect(Collectors.toList());
-    }
-
-    static Individual crossover(Individual parent1, Individual parent2) {
-        GerchikUtils c1 = parent1.config;
-        GerchikUtils c2 = parent2.config;
-        ThreadLocalRandom rng = ThreadLocalRandom.current();
-        GerchikUtils childConfig = new GerchikUtils(
-                rng.nextBoolean() ? c1.levelConfirmationTouches : c2.levelConfirmationTouches,
-                rng.nextBoolean() ? c1.levelZonePercent : c2.levelZonePercent,
-                rng.nextBoolean() ? c1.confirmationCandles : c2.confirmationCandles,
-                rng.nextBoolean() ? c1.maxSignalAge : c2.maxSignalAge,
-                rng.nextBoolean() ? c1.volumeConfirmationThreshold : c2.volumeConfirmationThreshold,
-                rng.nextBoolean() ? c1.minPatternStrength : c2.minPatternStrength);
-        return new Individual(childConfig);
-    }
-
-    public static Pair<Double, Double> run(GerchikUtils config) {
-        List<Double> results = new ArrayList<>(stocks.size());
-        List<Double> profits = new ArrayList<>(stocks.size());
-        stocks.forEach(tickerName -> {
-            AtomicReference<Double> balance = new AtomicReference<>(initBalance);
+        out.println("\n========== Подробный прогон лучшей конфигурации ==========\n");
+        GerchikUtils bestConfig = new GerchikUtils(best.params.touches, best.params.candles);
+        for (String name : STOCKS) {
             try {
-                String name = tickerName.toLowerCase();
-                var currentBalance = balance.get();
-                var levels = levelsRegister.computeIfAbsent(
-                        name,
-                        it -> new LevelUtils()
-                                .identifyKeyLevels(readCandlesFile(name.toUpperCase(), "data", "candlesHOUR.txt"))
-                                .stream()
-                                .map(Level::getPrice)
-                                .sorted()
-                                .collect(Collectors.toList()));
-                var result = run(tickerName, currentBalance, levels, config);
-                balance.set(result.getProfit());
-                results.add(result.getWinrate());
-                profits.add(result.getProfit());
-            } catch (Exception skip) {
-                // nothing
+                List<Double> levels = getLevels(name.toLowerCase());
+                Result result = runBacktest(name, INIT_BALANCE, levels, bestConfig);
+                out.printf("%-10s: Balance=%.2f, %s%n", name, result.profit, result.message);
+            } catch (Exception e) {
+                out.printf("%-10s: ERROR - %s%n", name, e.getMessage());
             }
-        });
-        var winRate = (results.stream().mapToDouble(it -> it).sum() / (double) results.size());
-        var profit = (profits.stream().mapToDouble(it -> it).sum() / (double) profits.size());
-        return new Pair<>(winRate, profit);
+        }
     }
 
-    public static Result run(String name, double balance, List<Double> levels, GerchikUtils config) throws Exception {
-        List<TickerCandle> full = readCandlesFile(name, "data", "candles5_MIN.txt");
-        var M5 = full.subList((int) (full.size() - (full.size() * K2)), full.size());
-        if (M5.isEmpty()) {
-            return new Result(balance, 0.0, "");
+    static Pair<Double, Double> evaluate(GerchikUtils config) {
+        List<Double> winRates = new ArrayList<>();
+        List<Double> profits = new ArrayList<>();
+        for (String name : STOCKS) {
+            try {
+                List<Double> levels = getLevels(name.toLowerCase());
+                Result result = runBacktest(name, INIT_BALANCE, levels, config);
+                winRates.add(result.winRate);
+                profits.add(result.profit);
+            } catch (Exception ignored) {
+            }
         }
+        double wr = winRates.isEmpty() ? 0 : winRates.stream().mapToDouble(d -> d).average().orElse(0);
+        double pr = profits.isEmpty() ? 0 : profits.stream().mapToDouble(d -> d).average().orElse(0);
+        return new Pair<>(wr, pr);
+    }
+
+    static List<Double> getLevels(String name) {
+        return LEVELS_CACHE.computeIfAbsent(name, n ->
+                new LevelUtils().identifyKeyLevels(readCandles(n.toUpperCase(), "data", "candlesHOUR.txt"))
+                        .stream().map(Level::getPrice).sorted().collect(Collectors.toList()));
+    }
+
+    static Result runBacktest(String name, double balance, List<Double> levels,
+                              GerchikUtils config) throws Exception {
+        List<TickerCandle> full = readCandles(name, "data", "candles5_MIN.txt");
+        List<TickerCandle> M5 = full.subList((int) (full.size() - full.size() * K2), full.size());
+        if (M5.isEmpty()) return new Result(balance, 0.0, "");
 
         Boolean hasTrendUp = null;
-        List<Integer> longTrades = new ArrayList<>();
-        List<Integer> shortTrades = new ArrayList<>();
+        List<Integer> longs = new ArrayList<>();
+        List<Integer> shorts = new ArrayList<>();
         TickerCandle startOfDay = M5.get(0);
+        int minLookback = INDICATORS_SHIFT + 2016;
+        int h1Lookback = 80 * 12;
 
-        for (int i = INDICATORS_SHIFT + 2016, x = 0; i < M5.size(); i++, x++) {
-            LocalDateTime currentDateTime = LocalDateTime.parse(M5.get(x).getDate(), formatter);
-            LocalDateTime startOfDayDateTime = LocalDateTime.parse(startOfDay.getDate(), formatter);
-            if (currentDateTime.getDayOfYear() > startOfDayDateTime.getDayOfYear()) {
-                startOfDay = M5.get(x);
+        for (int i = minLookback; i < M5.size(); i++) {
+            LocalDateTime cur = LocalDateTime.parse(M5.get(i).getDate(), FMT);
+            LocalDateTime sod = LocalDateTime.parse(startOfDay.getDate(), FMT);
+            if (cur.getDayOfYear() > sod.getDayOfYear() || cur.getYear() > sod.getYear()) {
+                startOfDay = M5.get(i);
             }
 
-            if (x > 80 * (60 / 5)) {
-                var subList = M5.subList(x - 80 * (60 / 5), x);
-                List<TickerCandle> H1;
+            if (i >= h1Lookback) {
                 try {
-                    H1 = convertCandles(subList, 1, ChronoUnit.HOURS);
-                } catch (Exception skip) {
-                    H1 = new ArrayList<>();
-                }
-                hasTrendUp = isHasTrendUp(H1);
-            }
-
-            if (Boolean.TRUE.equals(hasTrendUp)) {
-                var candle5 = M5.get(i);
-                var tp = (M5.get(i).getClose() / 100) * TP;
-                var subList = M5.subList(i - (INDICATORS_SHIFT + 2016), i);
-                double atr = calculateATR(subList, 7);
-                var hasUpATR = (startOfDay.getLow() + (atr - (atr * 0.2))) > (candle5.getClose() + tp);
-                if (hasUpATR) {
-                    if (config.getLevelAction(subList, levels).isLong()) {
-                        longTrades.add(i);
-                    }
+                    List<TickerCandle> h1 = convertCandles(
+                            M5.subList(i - h1Lookback, i), 1, ChronoUnit.HOURS);
+                    if (!h1.isEmpty()) hasTrendUp = trendUp(h1);
+                } catch (Exception ignored) {
                 }
             }
 
-            if (Boolean.FALSE.equals(hasTrendUp)) {
-                var candle5 = M5.get(i);
-                var tp = (M5.get(i).getClose() / 100) * TP;
-                var subList = M5.subList(i - (INDICATORS_SHIFT + 2016), i);
-                double atr = calculateATR(subList, 7);
-                var hasDownATR = (candle5.getClose() - tp) + (atr - (atr * 0.2)) < startOfDay.getHigh();
-                if (hasDownATR) {
-                    if (config.getLevelAction(subList, levels).isShort()) {
-                        shortTrades.add(i);
-                    }
-                }
+            TickerCandle candle = M5.get(i);
+            double tp = candle.getClose() / 100 * TP;
+            List<TickerCandle> sub = M5.subList(i - minLookback, i);
+            double atr = calculateATR(sub, 7);
+
+            if (Boolean.TRUE.equals(hasTrendUp)
+                    && (startOfDay.getLow() + atr * 0.8) > (candle.getClose() + tp)) {
+                if (config.getLevelAction(sub, levels).isLong()) longs.add(i);
+            }
+            if (Boolean.FALSE.equals(hasTrendUp)
+                    && (candle.getClose() - tp) + atr * 0.8 < startOfDay.getHigh()) {
+                if (config.getLevelAction(sub, levels).isShort()) shorts.add(i);
             }
         }
 
-        if (createPlot) {
-            plotChart(name, M5, levels, longTrades, shortTrades);
-        }
-        return calculateTrades(M5, longTrades, shortTrades, balance);
+        if (CREATE_PLOT) plotChart(name, M5, levels, longs, shorts);
+        return calcTrades(M5, longs, shorts, balance);
     }
 
-    private synchronized static List<TickerCandle> readCandlesFile(String name, String dataDir, String file) {
-        var key = name + dataDir + file;
-        List<TickerCandle> cached = candleRegister.get(key);
-        if (cached != null) {
-            return new ArrayList<>(cached);
-        }
-        out.println("Read candles file: " + name + "/" + file);
-        List<TickerCandle> tickers = new ArrayList<>();
-        try (BufferedReader br = new BufferedReader(new FileReader(dataDir + "/" + name + "/" + file))) {
-            String line;
-            boolean isFirstLine = true;
-            while ((line = br.readLine()) != null) {
-                if (line.trim().isEmpty() || isFirstLine) {
-                    isFirstLine = false;
-                    continue;
-                }
-
-                String[] values = line.split(",");
-                if (values.length < 6 ||
-                        values[1].isEmpty() || values[2].isEmpty() ||
-                        values[3].isEmpty() || values[4].isEmpty() || values[5].isEmpty()) {
-                    System.err.println("Skipping invalid line: " + line);
-                    continue;
-                }
-
-                try {
-                    tickers.add(new TickerCandle(
-                            name,
-                            values[0],
-                            Double.parseDouble(values[1]),
-                            Double.parseDouble(values[2]),
-                            Double.parseDouble(values[3]),
-                            Double.parseDouble(values[4]),
-                            Double.parseDouble(values[4]),
-                            Integer.parseInt(values[5])));
-                } catch (NumberFormatException e) {
-                    System.err.println("Number format error in line: " + line);
-                    e.printStackTrace();
-                }
-            }
-        } catch (Exception ex) {
-            out.println("Error reading file: " + ex.getMessage());
-            throw new RuntimeException(ex);
-        }
-        candleRegister.put(key, tickers);
-        return new ArrayList<>(tickers);
-    }
-
-    private static Result calculateTrades(List<TickerCandle> candles,
-                                          List<Integer> longTrades, List<Integer> shortTrades,
-                                          Double balance) {
-        if (longTrades.isEmpty() && shortTrades.isEmpty()) {
-            return new Result(balance, 0.0, "");
-        }
-
-        Set<Integer> longSet = new HashSet<>(longTrades);
-        Set<Integer> shortSet = new HashSet<>(shortTrades);
-
-        double maxDropDown = 0.0;
-        double currentInitBalance = balance;
-        double minimalBalance = balance;
-
-        int count = 0;
-        double cashOpen = 0.0;
-        double prevClose = 0.0;
-        int winRateCounter = 0;
-        int failRateCounter = 0;
+    static Result calcTrades(List<TickerCandle> candles, List<Integer> longs,
+                             List<Integer> shorts, double balance) {
+        if (longs.isEmpty() && shorts.isEmpty()) return new Result(balance, 0.0, "");
+        Set<Integer> longSet = new HashSet<>(longs);
+        Set<Integer> shortSet = new HashSet<>(shorts);
+        double initBal = balance, minBal = balance, maxDD = 0;
+        int count = 0, wins = 0, losses = 0;
+        double cashOpen = 0, prevClose = 0;
 
         for (int i = 0; i < candles.size(); i++) {
-            var cash = ((balance / 100) * RISK);
-            if (cash > averagePositionCost) {
-                cash = averagePositionCost;
-            } else {
-                continue;
-            }
+            double cash = balance / 100 * RISK;
+            if (cash > AVG_POS_COST) cash = AVG_POS_COST;
+            else continue;
+            double close = candles.get(i).getClose();
 
-            var close = candles.get(i).getClose();
-
-            // --- Открытие позиций ---
-            if (longSet.contains(i) && count == 0) {
+            if (count == 0 && longSet.contains(i)) {
                 count = (int) (cash / close);
                 cashOpen = count * close;
                 prevClose = close;
-
-                var prevBalance = balance;
-                var commission = round(Math.abs((cashOpen / 100) * COMISSION), 4);
-                balance = round(balance - commission, 4);
-                if (debugLogging) {
-                    out.println(candles.get(i).getDate() + " BUY -" + commission + ", BALANCE: " + prevBalance + " -> "
-                            + balance + " (" + round(balance - prevBalance, 4) + ")");
-                }
-            }
-            if (shortSet.contains(i) && count == 0) {
-                count = (-1) * ((int) (cash / close));
+                balance -= round(Math.abs(cashOpen / 100 * COMISSION), 4);
+            } else if (count == 0 && shortSet.contains(i)) {
+                count = -((int) (cash / close));
                 cashOpen = count * close;
                 prevClose = close;
-
-                var prevBalance = balance;
-                var commission = round(Math.abs((cashOpen / 100) * COMISSION), 4);
-                balance = round(balance - commission, 4);
-                if (debugLogging) {
-                    out.println(candles.get(i).getDate() + " SELL -" + commission + ", BALANCE: " + prevBalance + " -> "
-                            + balance + " (" + round(balance - prevBalance, 4) + ")");
-                }
+                balance -= round(Math.abs(cashOpen / 100 * COMISSION), 4);
             }
 
-            // --- Проверка TP/SL ---
-            var min = candles.get(i).getLow();
-            var max = candles.get(i).getHigh();
+            double lo = candles.get(i).getLow();
+            double hi = candles.get(i).getHigh();
+            boolean ltp = count > 0 && hi >= prevClose * (1 + TP / 100);
+            boolean lsl = count > 0 && lo <= prevClose * (1 - SL / 100);
+            boolean stp = count < 0 && lo <= prevClose * (1 - TP / 100);
+            boolean ssl = count < 0 && hi >= prevClose * (1 + SL / 100);
 
-            var longTP = (count > 0 && max >= (prevClose + ((prevClose / 100) * TP)));
-            var longSL = (count > 0 && min <= (prevClose - ((prevClose / 100) * SL)));
-            var shortTP = (count < 0 && min <= (prevClose - ((prevClose / 100) * TP)));
-            var shortSL = (count < 0 && max >= (prevClose + ((prevClose / 100) * SL)));
-
-            if (longTP || longSL || shortTP || shortSL) {
+            if (ltp || lsl || stp || ssl) {
                 double price;
-                if (longSL) {
-                    price = prevClose - ((prevClose / 100) * SL);
-                } else if (shortSL) {
-                    price = prevClose + ((prevClose / 100) * SL);
-                } else if (longTP) {
-                    price = prevClose + ((prevClose / 100) * TP);
-                } else { // shortTP
-                    price = prevClose - ((prevClose / 100) * TP);
-                }
+                if (lsl) price = prevClose * (1 - SL / 100);
+                else if (ssl) price = prevClose * (1 + SL / 100);
+                else if (ltp) price = prevClose * (1 + TP / 100);
+                else price = prevClose * (1 - TP / 100);
 
-                var cashClose = count * price;
-                var operationResult = round(cashClose - cashOpen, 4);
-                if (operationResult > 0)
-                    winRateCounter++;
-                if (operationResult < 0)
-                    failRateCounter++;
-
-                var commission = round(Math.abs((cashClose / 100) * COMISSION), 4);
-                var prevBalance = balance;
-                var operationResultWithCommission = round(operationResult - commission, 4);
-                balance = round(balance + operationResultWithCommission, 4);
-
-                if (balance < currentInitBalance && (balance - currentInitBalance) < maxDropDown) {
-                    maxDropDown = balance - currentInitBalance;
-                }
-                if (balance < minimalBalance) {
-                    minimalBalance = balance;
-                }
-
-                if (debugLogging) {
-                    out.println(candles.get(i).getDate() + " " + (count > 0 ? "SELL: " : "BUY: ") + operationResult
-                            + " - " + commission + " = " + operationResultWithCommission + ", BALANCE: " + prevBalance
-                            + " -> " + balance + " (" + round(balance - prevBalance, 4) + ")");
-                }
-
-                cashOpen = 0.0;
+                double result = round(count * price - cashOpen, 4);
+                if (result > 0) wins++;
+                else if (result < 0) losses++;
+                double comm = round(Math.abs(count * price / 100 * COMISSION), 4);
+                balance = round(balance + result - comm, 4);
+                if (balance < initBal && balance - initBal < maxDD) maxDD = balance - initBal;
+                if (balance < minBal) minBal = balance;
+                cashOpen = 0;
                 count = 0;
             }
         }
 
-        var maxDropDownPercent = 100 - ((currentInitBalance - Math.abs(maxDropDown)) / currentInitBalance * 100);
-        var messageMaxDropDown = "MaxDropDown: " + df.format(minimalBalance) + " (" + df.format(maxDropDownPercent) + "%)";
-        var totalTrades = winRateCounter + failRateCounter;
-        var winRatePercent = totalTrades > 0 ? (double) winRateCounter / totalTrades * 100 : 0.0;
-        var messageWinRate = "WIN/LOSE: " + winRateCounter + "/" + failRateCounter + " (" + df.format(winRatePercent) + "%)";
-        var statTradesMessage = "LONG/SHORT: " + longTrades.size() + "/" + shortTrades.size();
-        var resultMessage = statTradesMessage + ", " + messageWinRate + ", " + messageMaxDropDown;
-        return new Result(balance, winRatePercent, resultMessage);
+        int total = wins + losses;
+        double wr = total > 0 ? (double) wins / total * 100 : 0;
+        double ddPct = 100 - (initBal - Math.abs(maxDD)) / initBal * 100;
+        String msg = String.format("L/S: %d/%d, W/L: %d/%d (%.1f%%), DD: %s (%.1f%%)",
+                longs.size(), shorts.size(), wins, losses, wr, DF.format(minBal), ddPct);
+        return new Result(balance, wr, msg);
     }
 
-    private static void plotChart(String ticker,
-                                  List<TickerCandle> candles, List<Double> levelValues,
-                                  List<Integer> longTrades, List<Integer> shortTrades) {
-        if (longTrades.isEmpty() && shortTrades.isEmpty()) {
-            return;
-        }
+    static boolean trendUp(List<TickerCandle> candles) {
+        double[] c = new double[candles.size()];
+        for (int i = 0; i < candles.size(); i++) c[i] = candles.get(i).getClose();
+        return IndicatorsUtil.movingAverageWhite(c) >= IndicatorsUtil.movingAverageBlack(c);
+    }
 
-        var max = Double.MIN_VALUE;
-        var min = Double.MAX_VALUE;
-        XYSeries close = new XYSeries("close");
-        List<XYSeries> levels = new ArrayList<>(levelValues.size());
-        for (int x = 0; x < levelValues.size(); x++) {
-            levels.add(new XYSeries("level_" + x));
-        }
-        for (int i = 0; i < candles.size(); i++) {
-            close.add(i, candles.get(i).getClose());
-            for (int x = 0; x < levelValues.size(); x++) {
-                levels.get(x).add(i, levelValues.get(x));
+    synchronized static List<TickerCandle> readCandles(String name, String dir, String file) {
+        String key = name + dir + file;
+        List<TickerCandle> cached = CANDLE_CACHE.get(key);
+        if (cached != null) return new ArrayList<>(cached);
+        out.println("Read: " + name + "/" + file);
+        List<TickerCandle> list = new ArrayList<>();
+        try (BufferedReader br = new BufferedReader(new FileReader(dir + "/" + name + "/" + file))) {
+            String line;
+            boolean first = true;
+            while ((line = br.readLine()) != null) {
+                if (line.trim().isEmpty() || first) {
+                    first = false;
+                    continue;
+                }
+                String[] v = line.split(",");
+                if (v.length < 6) continue;
+                try {
+                    list.add(new TickerCandle(name, v[0],
+                            Double.parseDouble(v[1]), Double.parseDouble(v[2]),
+                            Double.parseDouble(v[3]), Double.parseDouble(v[4]),
+                            Double.parseDouble(v[4]), Integer.parseInt(v[5])));
+                } catch (NumberFormatException ignored) {
+                }
             }
-
-            if (candles.get(i).getClose() > max)
-                max = candles.get(i).getClose();
-            if (candles.get(i).getClose() < min)
-                min = candles.get(i).getClose();
+        } catch (Exception e) {
+            throw new RuntimeException(e);
         }
+        CANDLE_CACHE.put(key, list);
+        return new ArrayList<>(list);
+    }
 
+    static void plotChart(String ticker, List<TickerCandle> candles, List<Double> lvls,
+                          List<Integer> longs, List<Integer> shorts) {
+        if (longs.isEmpty() && shorts.isEmpty()) return;
+        double mx = Double.MIN_VALUE, mn = Double.MAX_VALUE;
+        XYSeries cl = new XYSeries("close");
+        List<XYSeries> ls = new ArrayList<>();
+        for (int x = 0; x < lvls.size(); x++) ls.add(new XYSeries("level_" + x));
+        for (int i = 0; i < candles.size(); i++) {
+            double c = candles.get(i).getClose();
+            cl.add(i, c);
+            for (int x = 0; x < lvls.size(); x++) ls.get(x).add(i, lvls.get(x));
+            if (c > mx) mx = c;
+            if (c < mn) mn = c;
+        }
         XYSeriesCollection data = new XYSeriesCollection();
-        data.addSeries(close);
-        levels.forEach(data::addSeries);
-
+        data.addSeries(cl);
+        ls.forEach(data::addSeries);
         JFreeChart chart = ChartFactory.createXYLineChart(
-                ticker,
-                "Ticks",
-                "ClosePrice",
-                data,
-                PlotOrientation.VERTICAL,
-                true,
-                true,
-                false);
-
-        for (Integer trade : longTrades) {
-            ValueMarker marker = new ValueMarker(trade);
-            marker.setPaint(Color.GREEN);
-            XYPlot plot = (XYPlot) chart.getPlot();
-            plot.addDomainMarker(marker);
+                ticker, "Ticks", "Price", data, PlotOrientation.VERTICAL, true, true, false);
+        XYPlot plot = (XYPlot) chart.getPlot();
+        for (int t : longs) {
+            ValueMarker m = new ValueMarker(t);
+            m.setPaint(Color.GREEN);
+            plot.addDomainMarker(m);
         }
-
-        for (Integer trade : shortTrades) {
-            ValueMarker marker = new ValueMarker(trade);
-            marker.setPaint(Color.RED);
-            XYPlot plot = (XYPlot) chart.getPlot();
-            plot.addDomainMarker(marker);
+        for (int t : shorts) {
+            ValueMarker m = new ValueMarker(t);
+            m.setPaint(Color.RED);
+            plot.addDomainMarker(m);
         }
-
-        var range = ((NumberAxis) ((XYPlot) chart.getPlot()).getRangeAxis());
-        range.setRange(min - (min * 0.1), max + (max * 0.1));
-
+        ((NumberAxis) plot.getRangeAxis()).setRange(mn * 0.9, mx * 1.1);
         try {
-            deleteIfExists(Path.of("data/" + ticker + "/chart.png"));
-            FileOutputStream out = new FileOutputStream("data/" + ticker + "/chart.png");
-            ChartUtilities.writeChartAsPNG(out, chart, 1024 * 8, 600 * 8);
-        } catch (Exception ex) {
-            out.println(ex.getMessage());
+            deleteIfExists(Paths.get("data/" + ticker + "/chart.png"));
+            ChartUtilities.writeChartAsPNG(
+                    new FileOutputStream("data/" + ticker + "/chart.png"), chart, 8192, 4800);
+        } catch (Exception e) {
+            out.println(e.getMessage());
         }
     }
 
-    private static boolean isHasTrendUp(List<TickerCandle> candles) {
-        boolean hasTrendUp;
-        int idx = 0;
-        double[] inClose = new double[candles.size()];
-        for (TickerCandle candle : candles) {
-            inClose[idx++] = candle.getClose();
-        }
-        var maWhite = IndicatorsUtil.movingAverageWhite(inClose);
-        var maBlack = IndicatorsUtil.movingAverageBlack(inClose);
-        hasTrendUp = maWhite >= maBlack;
-        return hasTrendUp;
-    }
-
-    private static double round(double value, int places) {
-        long factor = (long) Math.pow(10, places);
-        var newValue = value * factor;
-        long tmp = Math.round(newValue);
-        return (double) tmp / factor;
+    static double round(double v, int p) {
+        long f = (long) Math.pow(10, p);
+        return (double) Math.round(v * f) / f;
     }
 }

@@ -26,11 +26,7 @@ public class LevelTraderConfig {
     private Double averagePositionCost;
 
     public int levelConfirmationTouches;
-    public double levelZonePercent;
     public int confirmationCandles;
-    public int maxSignalAge;
-    public double volumeConfirmationThreshold;
-    public double minPatternStrength;
 
     public LevelTraderConfig() throws IOException {
         final Properties properties = PropertiesUtils.loadProperties();
@@ -51,11 +47,7 @@ public class LevelTraderConfig {
         averagePositionCost = Double.valueOf(properties.getProperty("levelTrader.averagePositionCost", "10000"));
 
         levelConfirmationTouches = Integer.parseInt(properties.getProperty("levelTrader.levelConfirmationTouches", "3"));
-        levelZonePercent = Double.parseDouble(properties.getProperty("levelTrader.levelZonePercent", "0.63"));
         confirmationCandles = Integer.parseInt(properties.getProperty("levelTrader.confirmationCandles", "3"));
-        maxSignalAge = Integer.parseInt(properties.getProperty("levelTrader.maxSignalAge", "5"));
-        volumeConfirmationThreshold = Double.parseDouble(properties.getProperty("levelTrader.volumeConfirmationThreshold", "2.4"));
-        minPatternStrength = Double.parseDouble(properties.getProperty("levelTrader.minPatternStrength", "0.5"));
     }
 
     public void setDataDir(String dataDir) {
