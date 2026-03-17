@@ -510,20 +510,15 @@ public class TCSService {
     }
 
     public Double getAvailableCash() {
-        out.println("Loading currencies from TCS...");
         sleep(550);
-
         Positions positions = investApi.getOperationsService().getPositionsSync(mainConfig.getTcsAccountId());
-        double availableCash = positions.getMoney()
+        return positions.getMoney()
                 .stream()
                 .filter(it -> marketConfig.getCurrency().equalsIgnoreCase(it.getCurrency()))
                 .map(Money::getValue)
                 .findFirst()
                 .orElse(BigDecimal.ZERO)
                 .doubleValue();
-        out.println(mainConfig.getTcsAccountId() + ": " + availableCash + " " + marketConfig.getCurrency());
-        out.println();
-        return availableCash;
     }
 
     public TickerInfo searchTicker(TickerInfo.Key key) {

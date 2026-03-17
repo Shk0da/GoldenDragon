@@ -286,7 +286,6 @@ public class LevelTrader {
                 var count = currentPosition.getBalance();
                 var expectedYield = currentPosition.getExpectedYield();
                 var positionPrice = currentPosition.getAveragePositionPrice();
-                out.printf("%s: Yield=%,.2f%s\n", name, expectedYield, "%");
                 if (currentPositionBalance > 0 && (expectedYield > tpPercent || expectedYield < ((-1) * slPercent))) {
                     var currentPrice = tcsService.getAvailablePrice(name, type, count, "bids");
                     expectedYield = (currentPrice - positionPrice) / positionPrice * 100;
