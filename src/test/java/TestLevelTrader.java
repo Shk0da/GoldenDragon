@@ -134,7 +134,7 @@ public class TestLevelTrader {
 
         final ThreadLocal<DecimalFormat> df = ThreadLocal.withInitial(() -> new DecimalFormat("#.#####"));
 
-        int populationSize = 50;
+        int populationSize = 100;
         int generations = 200;
         double mutationRate = 0.15;
         int tournamentSize = 5;
@@ -217,12 +217,6 @@ public class TestLevelTrader {
             c.levelZonePercent = (double) ThreadLocalRandom.current().nextInt(5, 10) / 10;
         }
         if (ThreadLocalRandom.current().nextDouble() < mutationRate) {
-            c.breakoutConfirmationPercent = ThreadLocalRandom.current().nextDouble(0.0001, 2.0);
-        }
-        if (ThreadLocalRandom.current().nextDouble() < mutationRate) {
-            c.falseBreakoutThreshold = ThreadLocalRandom.current().nextDouble(0.0001, 2.0);
-        }
-        if (ThreadLocalRandom.current().nextDouble() < mutationRate) {
             c.confirmationCandles = ThreadLocalRandom.current().nextInt(3, 8);
         }
         if (ThreadLocalRandom.current().nextDouble() < mutationRate) {
@@ -242,8 +236,6 @@ public class TestLevelTrader {
         population.add(new Individual(new GerchikUtils(
                 3,
                 0.007,
-                0.002,
-                0.0005,
                 3,
                 6,
                 2.2,
@@ -251,8 +243,6 @@ public class TestLevelTrader {
         population.add(new Individual(new GerchikUtils(
                 2,
                 0.0078,
-                0.0019,
-                0.0005,
                 3,
                 5,
                 2.40,
@@ -260,8 +250,6 @@ public class TestLevelTrader {
         population.add(new Individual(new GerchikUtils(
                 2,
                 0.0078,
-                0.0019,
-                0.0005,
                 3,
                 5,
                 2.40,
@@ -269,8 +257,6 @@ public class TestLevelTrader {
         population.add(new Individual(new GerchikUtils(
                 4,
                 0.01,
-                0.004,
-                0.001,
                 4,
                 7,
                 2.6,
@@ -278,8 +264,6 @@ public class TestLevelTrader {
         population.add(new Individual(new GerchikUtils(
                 2,
                 0.003,
-                0.002,
-                0.0005,
                 2,
                 4,
                 1.5,
@@ -287,8 +271,6 @@ public class TestLevelTrader {
         population.add(new Individual(new GerchikUtils(
                 3,
                 0.007,
-                0.003,
-                0.0007,
                 3,
                 6,
                 2.4,
@@ -297,8 +279,6 @@ public class TestLevelTrader {
                 .mapToObj(i -> {
                     int levelConfirmationTouches = 3;
                     double levelZonePercent = (double) ThreadLocalRandom.current().nextInt(5, 10) / 10;
-                    double breakoutConfirmationPercent = ThreadLocalRandom.current().nextDouble(0.0001, 2.0);
-                    double falseBreakoutThreshold = ThreadLocalRandom.current().nextDouble(0.0001, 2.0);
                     int confirmationCandles = ThreadLocalRandom.current().nextInt(3, 8);
                     int maxSignalAge = ThreadLocalRandom.current().nextInt(8, 15);
                     double volumeConfirmationThreshold = (double) ThreadLocalRandom.current().nextInt(20, 50) / 10;
@@ -307,8 +287,6 @@ public class TestLevelTrader {
                     GerchikUtils config = new GerchikUtils(
                             levelConfirmationTouches,
                             levelZonePercent,
-                            breakoutConfirmationPercent,
-                            falseBreakoutThreshold,
                             confirmationCandles,
                             maxSignalAge,
                             volumeConfirmationThreshold,
@@ -341,8 +319,6 @@ public class TestLevelTrader {
         GerchikUtils childConfig = new GerchikUtils(
                 rng.nextBoolean() ? c1.levelConfirmationTouches : c2.levelConfirmationTouches,
                 rng.nextBoolean() ? c1.levelZonePercent : c2.levelZonePercent,
-                rng.nextBoolean() ? c1.breakoutConfirmationPercent : c2.breakoutConfirmationPercent,
-                rng.nextBoolean() ? c1.falseBreakoutThreshold : c2.falseBreakoutThreshold,
                 rng.nextBoolean() ? c1.confirmationCandles : c2.confirmationCandles,
                 rng.nextBoolean() ? c1.maxSignalAge : c2.maxSignalAge,
                 rng.nextBoolean() ? c1.volumeConfirmationThreshold : c2.volumeConfirmationThreshold,

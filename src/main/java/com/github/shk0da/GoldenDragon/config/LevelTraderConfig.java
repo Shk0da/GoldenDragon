@@ -27,8 +27,6 @@ public class LevelTraderConfig {
 
     public int levelConfirmationTouches;
     public double levelZonePercent;
-    public double breakoutConfirmationPercent;
-    public double falseBreakoutThreshold;
     public int confirmationCandles;
     public int maxSignalAge;
     public double volumeConfirmationThreshold;
@@ -54,8 +52,6 @@ public class LevelTraderConfig {
 
         levelConfirmationTouches = Integer.parseInt(properties.getProperty("levelTrader.levelConfirmationTouches", "3"));
         levelZonePercent = Double.parseDouble(properties.getProperty("levelTrader.levelZonePercent", "0.63"));
-        breakoutConfirmationPercent = Double.parseDouble(properties.getProperty("levelTrader.breakoutConfirmationPercent", "0.0019"));
-        falseBreakoutThreshold = Double.parseDouble(properties.getProperty("levelTrader.falseBreakoutThreshold", "5.0E-4"));
         confirmationCandles = Integer.parseInt(properties.getProperty("levelTrader.confirmationCandles", "3"));
         maxSignalAge = Integer.parseInt(properties.getProperty("levelTrader.maxSignalAge", "5"));
         volumeConfirmationThreshold = Double.parseDouble(properties.getProperty("levelTrader.volumeConfirmationThreshold", "2.4"));

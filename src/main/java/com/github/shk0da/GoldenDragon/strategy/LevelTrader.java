@@ -66,7 +66,6 @@ public class LevelTrader {
 
     private final TCSService tcsService;
     private final LevelTraderConfig levelTraderConfig;
-    private final GerchikUtils gerchikUtils;
 
     private final Double tpPercent;
     private final Double slPercent;
@@ -84,16 +83,6 @@ public class LevelTrader {
         this.slPercent = levelTraderConfig.getSlPercent();
         this.balanceRiskPercent = levelTraderConfig.getBalanceRiskPercent();
         this.averagePositionCost = levelTraderConfig.getAveragePositionCost();
-        this.gerchikUtils = new GerchikUtils(
-                levelTraderConfig.levelConfirmationTouches,
-                levelTraderConfig.levelZonePercent,
-                levelTraderConfig.breakoutConfirmationPercent,
-                levelTraderConfig.falseBreakoutThreshold,
-                levelTraderConfig.confirmationCandles,
-                levelTraderConfig.maxSignalAge,
-                levelTraderConfig.volumeConfirmationThreshold,
-                levelTraderConfig.minPatternStrength
-        );
     }
 
     private static void log(String message) {
@@ -121,18 +110,21 @@ public class LevelTrader {
         private final TickerCandle startOfDay;
         private final Double atr;
         private final TickerJson tickerJson;
+        private final GerchikUtils config;
 
-        public TickerDayInfo(String name, TickerCandle startOfDay, Double atr, TickerJson tickerJson) {
+        public TickerDayInfo(String name, TickerCandle startOfDay, Double atr, TickerJson tickerJson, GerchikUtils config) {
             this.name = name;
             this.startOfDay = startOfDay;
             this.atr = atr;
             this.tickerJson = tickerJson;
+            this.config = config;
         }
 
         public String getName() { return name; }
         public TickerCandle getStartOfDay() { return startOfDay; }
         public Double getAtr() { return atr; }
         public TickerJson getTickerJson() { return tickerJson; }
+        public GerchikUtils getConfig() { return config; }
     }
 
     public void run() {
@@ -251,12 +243,15 @@ public class LevelTrader {
 
         try {
             var tickerDayInfo = TickerDayInfo.register.computeIfAbsent(name, it -> {
+                var config = new GerchikUtils(name);
+                log("Ticker " + name + " use " + config);
                 var weekCandles = getTickerCandles(name, (INDICATORS_SHIFT + 2419), CANDLE_INTERVAL_HOUR, 0);
                 return new TickerDayInfo(
                         name,
                         findStartOfDay(weekCandles),
                         calculateATR(weekCandles, 7),
-                        readTickerFile(name, levelTraderConfig.getDataDir())
+                        readTickerFile(name, levelTraderConfig.getDataDir()),
+                        config
                 );
             });
 
@@ -359,14 +354,14 @@ public class LevelTrader {
 
         if (hasTrendUp) {
             var hasUpATR = (startOfDay.getLow() + (atr - (atr * 0.2))) > (lastCandle.getClose() + tp);
-            if (hasUpATR && gerchikUtils.getLevelAction(candles, levels).isLong()) {
+            if (hasUpATR && tickerDayInfo.config.getLevelAction(candles, levels).isLong()) {
                 return 1;
             }
         }
 
         if (!hasTrendUp) {
             var hasDownATR = (lastCandle.getClose() - tp) + (atr - (atr * 0.2)) < startOfDay.getHigh();
-            if (hasDownATR && gerchikUtils.getLevelAction(candles, levels).isShort()) {
+            if (hasDownATR && tickerDayInfo.config.getLevelAction(candles, levels).isShort()) {
                 return -1;
             }
         }
