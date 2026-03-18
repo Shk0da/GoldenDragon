@@ -20,10 +20,13 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Random;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 import org.jfree.chart.ChartFactory;
 import org.jfree.chart.ChartUtilities;
@@ -57,6 +60,8 @@ public class TestLevelTrader {
     private static final double AVG_POS_COST = 10_000.0;
     private static final boolean CREATE_PLOT = false;
 
+    private static final int RANDOM_ITERATIONS = 500;
+
     private static final List<String> STOCKS = Collections.unmodifiableList(
             Arrays.asList("CNYRUBF", "USDRUBF", "HEAD", "LKOH", "MTSS", "PLZL", "RTKM", "SBER")
     );
@@ -66,6 +71,56 @@ public class TestLevelTrader {
 
     private static final Map<String, List<TickerCandle>> CANDLE_CACHE = new ConcurrentHashMap<>();
     private static final Map<String, List<Double>> LEVELS_CACHE = new ConcurrentHashMap<>();
+    private static final AtomicInteger PROGRESS = new AtomicInteger(0);
+
+    static final class Params {
+        final int levelConfirmationTouches;
+        final double levelZonePercent;
+        final int confirmationCandles;
+        final int maxSignalAge;
+        final double volumeConfirmationThreshold;
+        final double minPatternStrength;
+
+        Params(int levelConfirmationTouches, double levelZonePercent,
+               int confirmationCandles, int maxSignalAge,
+               double volumeConfirmationThreshold, double minPatternStrength) {
+            this.levelConfirmationTouches = levelConfirmationTouches;
+            this.levelZonePercent = levelZonePercent;
+            this.confirmationCandles = confirmationCandles;
+            this.maxSignalAge = maxSignalAge;
+            this.volumeConfirmationThreshold = volumeConfirmationThreshold;
+            this.minPatternStrength = minPatternStrength;
+        }
+
+        @Override
+        public String toString() {
+            return String.format(
+                    "touches=%d, zone=%.2f, candles=%d, age=%d, volThr=%.2f, patStr=%.2f",
+                    levelConfirmationTouches, levelZonePercent,
+                    confirmationCandles, maxSignalAge,
+                    volumeConfirmationThreshold, minPatternStrength);
+        }
+    }
+
+    static final class Score implements Comparable<Score> {
+        final Params params;
+        final double winRate;
+        final double profit;
+        final Map<String, Result> stockResults;
+
+        Score(Params params, double winRate, double profit, Map<String, Result> stockResults) {
+            this.params = params;
+            this.winRate = winRate;
+            this.profit = profit;
+            this.stockResults = stockResults;
+        }
+
+        @Override
+        public int compareTo(Score o) {
+            int c = Double.compare(o.profit, this.profit);
+            return c != 0 ? c : Double.compare(o.winRate, this.winRate);
+        }
+    }
 
     static final class Result {
         final double profit;
@@ -85,44 +140,135 @@ public class TestLevelTrader {
         });
         repo.putAll(dataFromDisk);
 
-        out.println("Запуск теста GerchikUtils");
+        out.printf("Рандомный поиск лучших параметров: %d итераций%n%n", RANDOM_ITERATIONS);
 
         long startTime = System.currentTimeMillis();
+        PROGRESS.set(0);
+        Thread progressThread = startProgressThread(RANDOM_ITERATIONS, startTime);
 
-        GerchikUtils config = new GerchikUtils();
-        Result result = runTestWithDefaultConfig(config);
+        Random rng = new Random();
+        List<Score> results = new ArrayList<>();
+        Score bestSoFar = null;
+        int bestFoundAt = 0;
 
-        long elapsed = System.currentTimeMillis() - startTime;
+        for (int iter = 0; iter < RANDOM_ITERATIONS; iter++) {
+            Params p = randomParams(rng);
+            GerchikUtils config = new GerchikUtils(
+                    p.levelConfirmationTouches,
+                    p.levelZonePercent,
+                    p.confirmationCandles,
+                    p.maxSignalAge,
+                    p.volumeConfirmationThreshold,
+                    p.minPatternStrength
+            );
 
-        out.printf("========== РЕЗУЛЬТАТЫ за %.1f сек ==========%n%n", elapsed / 1000.0);
-        out.printf("WinRate: %.2f%%%n", result.winRate);
-        out.printf("Profit: %.2f RUB%n", result.profit);
-        out.printf("Детали: %s%n", result.message);
-    }
+            Map<String, Result> stockResults = new LinkedHashMap<>();
+            double totalWr = 0, totalPr = 0;
+            int cnt = 0;
 
-    private static Result runTestWithDefaultConfig(GerchikUtils config) {
-        List<Double> winRates = new ArrayList<>();
-        List<Double> profits = new ArrayList<>();
-        for (String name : STOCKS) {
-            try {
-                List<Double> levels = getLevels(name.toLowerCase());
-                Result result = runBacktest(name, INIT_BALANCE, levels, config);
-                winRates.add(result.winRate);
-                profits.add(result.profit);
+            for (String name : STOCKS) {
+                try {
+                    List<Double> levels = getLevels(name.toLowerCase());
+                    Result r = runBacktest(name, INIT_BALANCE, levels, config);
+                    stockResults.put(name, r);
+                    totalWr += r.winRate;
+                    totalPr += r.profit;
+                    cnt++;
+                } catch (Exception e) {
+                    stockResults.put(name, new Result(0, 0, "ERROR: " + e.getMessage()));
+                }
+            }
 
-                String detail = String.format("%-8s | Profit: %9.2f RUB | WinRate: %6.2f%% | %s",
-                        name, result.profit, result.winRate, result.message);
-                out.println(detail);
-            } catch (Exception ignored) {
-                out.printf("%-8s | Ошибка при обработке%n", name);
+            double avgWr = cnt > 0 ? totalWr / cnt : 0;
+            double avgPr = cnt > 0 ? totalPr / cnt : 0;
+            Score score = new Score(p, avgWr, avgPr, stockResults);
+            results.add(score);
+            PROGRESS.incrementAndGet();
+
+            if (bestSoFar == null || score.compareTo(bestSoFar) < 0) {
+                bestSoFar = score;
+                bestFoundAt = iter + 1;
+                printNewBest(bestSoFar, bestFoundAt, RANDOM_ITERATIONS);
             }
         }
 
-        double wr = winRates.isEmpty() ? 0.0 : winRates.stream()
-                .mapToDouble(Double::doubleValue).average().orElse(0.0);
-        double pr = profits.isEmpty() ? 0.0 : profits.stream()
-                .mapToDouble(Double::doubleValue).average().orElse(0.0);
-        return new Result(pr, wr, "Средний результат по всем бумагам");
+        progressThread.interrupt();
+        long elapsed = System.currentTimeMillis() - startTime;
+
+        Collections.sort(results);
+
+        out.println();
+        printProgressFullBar(RANDOM_ITERATIONS, elapsed);
+
+        out.printf("========== РЕЗУЛЬТАТЫ (%d итераций за %.1f сек) ==========%n%n",
+                RANDOM_ITERATIONS, elapsed / 1000.0);
+
+        out.println("Top-10:");
+        results.stream().limit(10).forEach(s ->
+                out.printf("  %s → WinRate: %.2f%%, Profit: %.2f RUB%n",
+                        s.params, s.winRate, s.profit));
+
+        Score best = results.get(0);
+        out.printf("%n%n========== ЛУЧШАЯ КОНФИГУРАЦИЯ (найдена на итерации %d) ==========%n%n", bestFoundAt);
+        out.printf("Параметры: %s%n", best.params);
+        out.printf("Средний WinRate: %.2f%%%n", best.winRate);
+        out.printf("Средний Profit:  %.2f RUB%n%n", best.profit);
+
+        printStockReport(best);
+    }
+
+    private static void printNewBest(Score best, int iteration, int total) {
+        out.printf("%n%n>>> [%d/%d] Новый лучший результат! WinRate: %.2f%%, Profit: %.2f RUB%n",
+                iteration, total, best.winRate, best.profit);
+        out.printf("    Параметры: %s%n", best.params);
+        out.println("    Результаты по бумагам:");
+        for (Map.Entry<String, Result> entry : best.stockResults.entrySet()) {
+            Result r = entry.getValue();
+            out.printf("      %-8s | Profit: %9.2f RUB | WinRate: %6.2f%% | %s%n",
+                    entry.getKey(), r.profit, r.winRate, r.message);
+        }
+        out.println();
+    }
+
+    private static void printStockReport(Score score) {
+        out.println("Подробный отчёт по каждой бумаге:");
+        out.println("─".repeat(100));
+        out.printf("%-8s | %12s | %10s | %s%n", "Бумага", "Profit", "WinRate", "Детали");
+        out.println("─".repeat(100));
+
+        double totalProfit = 0;
+        int profitableCount = 0;
+
+        for (Map.Entry<String, Result> entry : score.stockResults.entrySet()) {
+            Result r = entry.getValue();
+            totalProfit += r.profit;
+            if (r.profit > INIT_BALANCE) profitableCount++;
+
+            out.printf("%-8s | %9.2f RUB | %8.2f%% | %s%n",
+                    entry.getKey(), r.profit, r.winRate, r.message);
+        }
+
+        out.println("─".repeat(100));
+        out.printf("%-8s | %9.2f RUB | %8.2f%% | Прибыльных: %d/%d%n",
+                "ИТОГО",
+                totalProfit / Math.max(1, score.stockResults.size()),
+                score.winRate,
+                profitableCount,
+                score.stockResults.size());
+        out.println("─".repeat(100));
+    }
+
+    static Params randomParams(Random rng) {
+        int levelConfirmationTouches = 1 + rng.nextInt(5);
+        double levelZonePercent = 0.1 + rng.nextDouble() * 0.9;
+        int confirmationCandles = 1 + rng.nextInt(7);
+        int maxSignalAge = 3 + rng.nextInt(13);
+        double volumeConfirmationThreshold = 1.5 + rng.nextDouble();
+        double minPatternStrength = 0.1 + rng.nextDouble() * 0.9;
+        return new Params(
+                levelConfirmationTouches, levelZonePercent,
+                confirmationCandles, maxSignalAge,
+                volumeConfirmationThreshold, minPatternStrength);
     }
 
     static List<Double> getLevels(String name) {
@@ -190,7 +336,7 @@ public class TestLevelTrader {
     }
 
     static Result calcTrades(List<TickerCandle> candles, List<Integer> longs, List<Integer> shorts, double balance) {
-        if (longs.isEmpty() && shorts.isEmpty()) return new Result(balance, 0.0, "");
+        if (longs.isEmpty() && shorts.isEmpty()) return new Result(balance, 0.0, "нет сигналов");
 
         Set<Integer> longSet = new HashSet<>(longs);
         Set<Integer> shortSet = new HashSet<>(shorts);
@@ -248,13 +394,12 @@ public class TestLevelTrader {
         }
 
         int total = wins + losses;
-        double wr = total > 0 ? (double) wins / (double) total * 100.0 : 0.0;
+        double wr = total > 0 ? (double) wins / total * 100.0 : 0.0;
         double ddPct = 100.0 - (initBal - Math.abs(maxDD)) / initBal * 100.0;
 
         String msg = String.format(
                 "L/S: %d/%d, W/L: %d/%d (%.1f%%), DD: %s (%.1f%%)",
-                longs.size(), shorts.size(), wins, losses, wr, DF.format(minBal), ddPct
-        );
+                longs.size(), shorts.size(), wins, losses, wr, DF.format(minBal), ddPct);
 
         return new Result(balance, wr, msg);
     }
@@ -285,15 +430,10 @@ public class TestLevelTrader {
                 if (v.length < 6) continue;
                 try {
                     list.add(new TickerCandle(
-                            name,
-                            v[0],
-                            Double.parseDouble(v[1]),
-                            Double.parseDouble(v[2]),
-                            Double.parseDouble(v[3]),
-                            Double.parseDouble(v[4]),
-                            Double.parseDouble(v[4]),
-                            Integer.parseInt(v[5])
-                    ));
+                            name, v[0],
+                            Double.parseDouble(v[1]), Double.parseDouble(v[2]),
+                            Double.parseDouble(v[3]), Double.parseDouble(v[4]),
+                            Double.parseDouble(v[4]), Integer.parseInt(v[5])));
                 } catch (NumberFormatException ignored) {
                 }
             }
@@ -355,5 +495,58 @@ public class TestLevelTrader {
     static double round(double v, int p) {
         long f = (long) Math.pow(10, p);
         return (double) Math.round(v * f) / f;
+    }
+
+    static String formatDuration(long totalSeconds) {
+        long h = totalSeconds / 3600;
+        long m = (totalSeconds % 3600) / 60;
+        long s = totalSeconds % 60;
+        if (h > 0) return String.format("%dh%02dm%02ds", h, m, s);
+        if (m > 0) return String.format("%dm%02ds", m, s);
+        return String.format("%ds", s);
+    }
+
+    private static void printProgressFullBar(int total, long elapsed) {
+        out.print("\r[");
+        for (int i = 0; i < 40; i++) out.print('█');
+        out.printf("] 100%% (%d/%d) | Done in %s%n%n",
+                total, total, formatDuration(elapsed / 1000));
+    }
+
+    static Thread startProgressThread(int total, long startTime) {
+        Thread thread = new Thread(() -> {
+            int barWidth = 40;
+            try {
+                while (!Thread.currentThread().isInterrupted()) {
+                    Thread.sleep(2000);
+                    int done = PROGRESS.get();
+                    double pct = total == 0 ? 100.0 : (double) done / total * 100.0;
+                    long elapsed = System.currentTimeMillis() - startTime;
+                    double speed = done > 0 ? (double) done / (elapsed / 1000.0) : 0.0;
+                    long etaSec = speed > 0 ? (long) ((total - done) / speed) : 0L;
+
+                    int filled = total == 0 ? barWidth : (int) (barWidth * (double) done / total);
+                    StringBuilder bar = new StringBuilder("[");
+                    for (int i = 0; i < barWidth; i++) {
+                        if (i < filled) bar.append('█');
+                        else if (i == filled) bar.append('▸');
+                        else bar.append('░');
+                    }
+                    bar.append(']');
+
+                    out.printf("\r%s %3.0f%% (%d/%d) | %.1f it/s | ETA: %s | Elapsed: %s",
+                            bar, pct, done, total, speed,
+                            formatDuration(etaSec), formatDuration(elapsed / 1000));
+                    out.flush();
+
+                    if (done >= total) break;
+                }
+            } catch (InterruptedException ignored) {
+            }
+        });
+        thread.setDaemon(true);
+        thread.setName("progress-monitor");
+        thread.start();
+        return thread;
     }
 }
