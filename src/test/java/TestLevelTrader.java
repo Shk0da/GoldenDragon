@@ -61,7 +61,7 @@ public class TestLevelTrader {
     private static final int RANDOM_ITERATIONS = 500;
 
     private static final List<String> STOCKS = Collections.unmodifiableList(
-            Arrays.asList("CNYRUBF"/*, "USDRUBF", "HEAD", "LKOH", "MTSS", "PLZL", "RTKM", "SBER"*/)
+            Arrays.asList("CNYRUBF", "USDRUBF", "HEAD", "LKOH", "MTSS", "PLZL", "RTKM", "SBER")
     );
 
     private static final DecimalFormat DF = new DecimalFormat("#.##");
