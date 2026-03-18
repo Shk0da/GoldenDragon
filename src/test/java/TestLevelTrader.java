@@ -25,6 +25,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 import org.jfree.chart.ChartFactory;
 import org.jfree.chart.ChartUtilities;
@@ -47,17 +48,20 @@ import static java.nio.file.Files.deleteIfExists;
 
 public class TestLevelTrader {
 
-    private static final double K2 = 0.1, COMISSION = 0.05, TP = 0.9, SL = 0.3, RISK = 30.0;
+    private static final double K2 = 0.05, COMISSION = 0.05, TP = 0.9, SL = 0.3, RISK = 30.0;
     private static final double INIT_BALANCE = 100_000.0, AVG_POS_COST = 10_000.0;
-    private static final boolean CREATE_PLOT = false, DEBUG = false;
-    private static final int MIN_PARAM = 1, MAX_PARAM = 20;
+    private static final boolean CREATE_PLOT = false;
+    private static final int MIN_PARAM = 1, MAX_PARAM = 10;
     private static final List<String> STOCKS = Collections.unmodifiableList(
-            Arrays.asList("CNYRUBF"/*, "USDRUBF", "HEAD", "LKOH", "MTSS", "PLZL", "RTKM", "SBER"*/));
+            Arrays.asList("CNYRUBF", "USDRUBF", "HEAD", "LKOH", "MTSS", "PLZL", "RTKM", "SBER")
+    );
 
     private static final DecimalFormat DF = new DecimalFormat("#.##");
     private static final DateTimeFormatter FMT = DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm:ss");
     private static final Map<String, List<TickerCandle>> CANDLE_CACHE = new ConcurrentHashMap<>();
     private static final Map<String, List<Double>> LEVELS_CACHE = new ConcurrentHashMap<>();
+
+    private static final AtomicInteger PROGRESS = new AtomicInteger(0);
 
     static final class Params {
         final int touches;
@@ -113,20 +117,60 @@ public class TestLevelTrader {
             right = r;
         }
 
-        L getLeft() {
-            return left;
-        }
+        L getLeft() { return left; }
+        R getRight() { return right; }
+    }
 
-        R getRight() {
-            return right;
-        }
+    static Thread startProgressThread(int total, long startTime) {
+        Thread thread = new Thread(() -> {
+            int barWidth = 40;
+            try {
+                while (!Thread.currentThread().isInterrupted()) {
+                    Thread.sleep(2000);
+                    int done = PROGRESS.get();
+                    double pct = (double) done / total * 100;
+                    long elapsed = System.currentTimeMillis() - startTime;
+                    double speed = done > 0 ? (double) done / (elapsed / 1000.0) : 0;
+                    long etaSec = speed > 0 ? (long) ((total - done) / speed) : 0;
+
+                    int filled = (int) (barWidth * done / total);
+                    StringBuilder bar = new StringBuilder("[");
+                    for (int i = 0; i < barWidth; i++) {
+                        if (i < filled) bar.append('█');
+                        else if (i == filled) bar.append('▸');
+                        else bar.append('░');
+                    }
+                    bar.append(']');
+
+                    out.printf("\r%s %3.0f%% (%d/%d) | %.1f it/s | ETA: %s | Elapsed: %s",
+                            bar, pct, done, total, speed,
+                            formatDuration(etaSec), formatDuration(elapsed / 1000));
+                    out.flush();
+
+                    if (done >= total) break;
+                }
+            } catch (InterruptedException ignored) {
+            }
+        });
+        thread.setDaemon(true);
+        thread.setName("progress-monitor");
+        thread.start();
+        return thread;
+    }
+
+    static String formatDuration(long totalSeconds) {
+        long h = totalSeconds / 3600;
+        long m = (totalSeconds % 3600) / 60;
+        long s = totalSeconds % 60;
+        if (h > 0) return String.format("%dh%02dm%02ds", h, m, s);
+        if (m > 0) return String.format("%dm%02ds", m, s);
+        return String.format("%ds", s);
     }
 
     public static void main(String[] args) {
         Repository<Key, TickerInfo> repo = TickerRepository.INSTANCE;
         Map<TickerInfo.Key, TickerInfo> dataFromDisk = loadDataFromDisk(
-                SERIALIZE_NAME, new TypeToken<Map<TickerInfo.Key, TickerInfo>>() {
-                });
+                SERIALIZE_NAME, new TypeToken<Map<TickerInfo.Key, TickerInfo>>() {});
         repo.putAll(dataFromDisk);
 
         int total = (MAX_PARAM - MIN_PARAM + 1) * (MAX_PARAM - MIN_PARAM + 1);
@@ -139,16 +183,24 @@ public class TestLevelTrader {
                 allParams.add(new Params(t, c));
 
         long startTime = System.currentTimeMillis();
+        PROGRESS.set(0);
+        Thread progressThread = startProgressThread(total, startTime);
 
         List<Score> results = allParams.parallelStream().map(p -> {
             GerchikUtils config = new GerchikUtils(p.touches, p.candles);
             Pair<Double, Double> r = evaluate(config);
+            PROGRESS.incrementAndGet();
             return new Score(p, r.getLeft(), r.getRight());
         }).sorted().collect(Collectors.toList());
 
+        progressThread.interrupt();
         long elapsed = System.currentTimeMillis() - startTime;
 
-        out.printf("%n========== РЕЗУЛЬТАТЫ (%d комбинаций за %.1f сек) ==========%n%n",
+        out.printf("\r[");
+        for (int i = 0; i < 40; i++) out.print('█');
+        out.printf("] 100%% (%d/%d) | Done in %s%n%n", total, total, formatDuration(elapsed / 1000));
+
+        out.printf("========== РЕЗУЛЬТАТЫ (%d комбинаций за %.1f сек) ==========%n%n",
                 total, elapsed / 1000.0);
         out.println("Top-10:");
         results.stream().limit(10).forEach(s ->
@@ -191,9 +243,15 @@ public class TestLevelTrader {
     }
 
     static List<Double> getLevels(String name) {
-        return LEVELS_CACHE.computeIfAbsent(name, n ->
-                new LevelUtils().identifyKeyLevels(readCandles(n.toUpperCase(), "data", "candlesHOUR.txt"))
-                        .stream().map(Level::getPrice).sorted().collect(Collectors.toList()));
+        return LEVELS_CACHE.computeIfAbsent(name, n -> {
+                    var candles = readCandles(n.toUpperCase(), "data", "candlesHOUR.txt");
+                    List<TickerCandle> sub = candles.subList(0, (int) (candles.size() - candles.size() * K2));
+                    return new LevelUtils().identifyKeyLevels(sub)
+                            .stream()
+                            .map(Level::getPrice)
+                            .sorted().collect(Collectors.toList());
+                }
+        );
     }
 
     static Result runBacktest(String name, double balance, List<Double> levels,
@@ -230,13 +288,18 @@ public class TestLevelTrader {
             List<TickerCandle> sub = M5.subList(i - minLookback, i);
             double atr = calculateATR(sub, 7);
 
-            if (Boolean.TRUE.equals(hasTrendUp)
-                    && (startOfDay.getLow() + atr * 0.8) > (candle.getClose() + tp)) {
-                if (config.getLevelAction(sub, levels).isLong()) longs.add(i);
+            if (Boolean.TRUE.equals(hasTrendUp)) {
+                var hasUpATR = (startOfDay.getLow() + (atr - (atr * 0.2))) > (candle.getClose() + tp);
+                if (hasUpATR && config.getLevelAction(sub, levels).isLong()) {
+                    longs.add(i);
+                }
             }
-            if (Boolean.FALSE.equals(hasTrendUp)
-                    && (candle.getClose() - tp) + atr * 0.8 < startOfDay.getHigh()) {
-                if (config.getLevelAction(sub, levels).isShort()) shorts.add(i);
+
+            if (Boolean.FALSE.equals(hasTrendUp)) {
+                var hasDownATR = (candle.getClose() - tp) + (atr - (atr * 0.2)) < startOfDay.getHigh();
+                if (hasDownATR && config.getLevelAction(sub, levels).isShort()) {
+                    shorts.add(i);
+                }
             }
         }
 

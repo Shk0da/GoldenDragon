@@ -425,7 +425,7 @@ public class TCSService {
     }
 
     public Map<TickerInfo.Key, TickerInfo> getStockList() {
-        out.println("Loading current stocks from TCS...");
+        out.println("Loading current stocks...");
         List<Share> stocks = investApi.getInstrumentsService().getTradableSharesSync();
         return stocks.stream()
                 .map(it -> new TickerInfo(
@@ -442,7 +442,7 @@ public class TCSService {
     }
 
     public Map<TickerInfo.Key, TickerInfo> getBondList() {
-        out.println("Loading current bonds from TCS...");
+        out.println("Loading current bonds...");
         List<Bond> bonds = investApi.getInstrumentsService().getTradableBondsSync();
         return bonds.stream()
                 .map(it -> new TickerInfo(
@@ -459,7 +459,7 @@ public class TCSService {
     }
 
     public Map<TickerInfo.Key, TickerInfo> getEtfList() {
-        out.println("Loading current etfs from TCS...");
+        out.println("Loading current etfs...");
         List<Etf> etfs = investApi.getInstrumentsService().getTradableEtfsSync();
         return etfs.stream()
                 .map(it -> new TickerInfo(
@@ -476,7 +476,7 @@ public class TCSService {
     }
 
     public Map<TickerInfo.Key, TickerInfo> getCurrenciesList() {
-        out.println("Loading current currencies from TCS...");
+        out.println("Loading current currencies...");
         List<Currency> currencies = investApi.getInstrumentsService().getTradableCurrenciesSync();
         return currencies.stream()
                 .map(it -> new TickerInfo(
@@ -493,7 +493,7 @@ public class TCSService {
     }
 
     public Map<TickerInfo.Key, TickerInfo> getFuturesList() {
-        out.println("Loading current features from TCS...");
+        out.println("Loading current features...");
         List<Future> futures = investApi.getInstrumentsService().getTradableFuturesSync();
         return futures.stream()
                 .map(it -> new TickerInfo(
@@ -525,7 +525,7 @@ public class TCSService {
         if (tickerRepository.containsKey(key)) {
             return tickerRepository.getById(key);
         }
-        out.println("Search ticker '" + key.getTicker() + "' from TCS...");
+        out.println("Search ticker '" + key.getTicker() + "'...");
         sleep(550);
 
         TickerInfo tickerInfo;
@@ -698,7 +698,7 @@ public class TCSService {
         }
         String figi = figiByName(key);
         if (isPrintGlass) {
-            out.println("Loading current price '" + key + "' from TCS...");
+            out.println("Loading current price '" + key + "'...");
         }
         sleep(550);
 
