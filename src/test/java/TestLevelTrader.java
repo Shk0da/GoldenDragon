@@ -54,6 +54,7 @@ public class TestLevelTrader {
     private static final Double TP = 0.9;
     private static final Double SL = 0.3;
     private static final Double RISK = 30.0;
+    private static final Boolean defaultOnly = false;
     private static final Boolean createPlot = false;
     private static final Boolean debugLogging = false;
     private static final Double initBalance = 100_000.00;
@@ -130,11 +131,20 @@ public class TestLevelTrader {
 
     public static void main(String[] args) {
         Repository<Key, TickerInfo> tickerRepository = TickerRepository.INSTANCE;
-        Map<TickerInfo.Key, TickerInfo> dataFromDisk = loadDataFromDisk(SERIALIZE_NAME, new TypeToken<>() {
-        });
+        Map<TickerInfo.Key, TickerInfo> dataFromDisk = loadDataFromDisk(SERIALIZE_NAME, new TypeToken<>() {});
         tickerRepository.putAll(dataFromDisk);
 
         final ThreadLocal<DecimalFormat> df = ThreadLocal.withInitial(() -> new DecimalFormat("#.#####"));
+
+        if (defaultOnly) {
+            var defaultConfiguration = new GerchikUtils();
+            var defaultResult = run(defaultConfiguration);
+            System.out.println("\nСтандартная конфигурация:");
+            System.out.println("Fitness: " + df.get().format(defaultResult.left) + "%");
+            System.out.println("Profit: " + df.get().format(defaultResult.right) + " RUB");
+            System.out.println("Config: " + defaultConfiguration);
+            return;
+        }
 
         int populationSize = 50;
         int generations = 200;
@@ -364,7 +374,7 @@ public class TestLevelTrader {
         return new Pair<>(winRate, profit);
     }
 
-    public static Result run(String name, double balance, List<Double> levels, GerchikUtils config) throws Exception {
+    public static Result run(String name, double balance, List<Double> levels, GerchikUtils config) {
         List<TickerCandle> full = readCandlesFile(name, "data", "candles5_MIN.txt");
         var M5 = full.subList((int) (full.size() - (full.size() * K2)), full.size());
         if (M5.isEmpty()) {
