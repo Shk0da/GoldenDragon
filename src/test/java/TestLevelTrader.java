@@ -59,9 +59,8 @@ public class TestLevelTrader {
     private static final Boolean debugLogging = false;
     private static final Double initBalance = 100_000.00;
     private static final Double averagePositionCost = 10_000.00;
-    private static final List<String> stocks = List.of(
-            "CNYRUBF"//, "USDRUBF", "HEAD", "LKOH", "MTSS", "PLZL", "RTKM", "SBER"
-    );
+    // "CNYRUBF", "USDRUBF", "SBER", "GAZP", "LKOH", "MTSS", "NVTK", "ROSN", "HEAD", "RTKM", "PLZL"
+    private static final List<String> stocks = List.of("USDRUBF");
 
     private static final DecimalFormat df = new DecimalFormat("#.##");
     private static final DateTimeFormatter formatter = DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm:ss");
@@ -301,6 +300,14 @@ public class TestLevelTrader {
                 6,
                 2.4,
                 1.0)));
+        // CNYRUBF
+        population.add(new Individual(new GerchikUtils(
+                2,
+                0.7,
+                5,
+                10,
+                2.1,
+                1.3)));
         IntStream.range(0, populationSize)
                 .mapToObj(i -> {
                     int levelConfirmationTouches = 3;

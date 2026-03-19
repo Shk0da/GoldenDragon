@@ -270,7 +270,13 @@ public class TCSService {
         int value = 0;
         double tickerPrice = 0.0;
         for (Map.Entry<Double, Integer> ask : getCurrentPrices(key).get("asks").entrySet()) {
-            tickerPrice = ask.getKey();
+            switch (type) {
+                case FEATURE:
+                    tickerPrice = (ask.getKey() * 1000) * 0.4; // обеспечения составляет 10-40%
+                    break;
+                default:
+                    tickerPrice = ask.getKey();
+            }
             value = value + ask.getValue();
             if (value >= (cashToBuy / tickerPrice)) break;
         }
