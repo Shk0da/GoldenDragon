@@ -724,7 +724,9 @@ public class TCSService {
         currentPrices.put("asks", asksValues);
 
         if (isPrintGlass) {
-            printGlassOfPrices(key.getTicker(), currentPrices);
+            synchronized(this) {
+                printGlassOfPrices(key.getTicker(), currentPrices);
+            }
         }
         pricesRepository.insert(key, currentPrices);
         return currentPrices;
