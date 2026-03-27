@@ -74,6 +74,10 @@ public class LevelUtils {
     // Для расширенного поиска уровней
     private final int consolidationWindow;
     private final double consolidationThreshold;
+    // Динамические параметры
+    private final int extremeWindowPercent; // процент свечей для окна экстремумов
+    private final double wickRatioThreshold; // порог соотношения тени к диапазону
+    private final double bodyRatioThreshold; // порог соотношения тела к диапазону
 
     public LevelUtils() {
         this(0.005, 2, 0.3, 5, 0.003);
@@ -88,17 +92,38 @@ public class LevelUtils {
      */
     public LevelUtils(double levelZonePercent, int minTouchesForLevel, double minStrengthPercentile,
                       int consolidationWindow, double consolidationThreshold) {
+        this(levelZonePercent, minTouchesForLevel, minStrengthPercentile, consolidationWindow,
+                consolidationThreshold, 2, 0.5, 0.35);
+    }
+
+    /**
+     * Полный конструктор с настройкой всех параметров.
+     * @param levelZonePercent       процент для группировки уровней (0.005 = 0.5%)
+     * @param minTouchesForLevel     минимальное количество касаний
+     * @param minStrengthPercentile  минимальный процентиль силы (0.3 = отсекаем нижние 30%)
+     * @param consolidationWindow    окно для поиска зон консолидации
+     * @param consolidationThreshold порог разброса цен для консолидации (0.3%)
+     * @param extremeWindowPercent   процент свечей для окна экстремумов (2 = 2% от истории)
+     * @param wickRatioThreshold     порог соотношения тени к диапазону (0.5 = 50%)
+     * @param bodyRatioThreshold     порог соотношения тела к диапазону (0.35 = 35%)
+     */
+    public LevelUtils(double levelZonePercent, int minTouchesForLevel, double minStrengthPercentile,
+                      int consolidationWindow, double consolidationThreshold,
+                      int extremeWindowPercent, double wickRatioThreshold, double bodyRatioThreshold) {
         this.levelZonePercent = levelZonePercent;
         this.minTouchesForLevel = minTouchesForLevel;
         this.minStrengthPercentile = minStrengthPercentile;
         this.consolidationWindow = consolidationWindow;
         this.consolidationThreshold = consolidationThreshold;
+        this.extremeWindowPercent = extremeWindowPercent;
+        this.wickRatioThreshold = wickRatioThreshold;
+        this.bodyRatioThreshold = bodyRatioThreshold;
     }
 
     /**
      * Основной метод для поиска ключевых уровней.
      * Комбинирует несколько методов определения уровней по стратегии Герчика:
-     * 1. Локальные экстремумы (с расширенным окном)
+     * 1. Локальные экстремумы (с адаптивным окном)
      * 2. Зоны консолидации
      * 3. Уровни, от которых были сильные отбои (длинные тени)
      */
@@ -109,14 +134,17 @@ public class LevelUtils {
 
         List<Level> levels = new ArrayList<>();
 
-        // 1. Локальные экстремумы (окно 2 свечи в каждую сторону для надёжности)
-        findLocalExtremes(candles, levels);
+        // Предварительный расчёт среднего объёма для фильтрации шумовых экстремумов
+        double avgVolume = calculateAvgVolume(candles);
+
+        // 1. Локальные экстремумы (адаптивное окно на основе размера истории)
+        findLocalExtremes(candles, levels, avgVolume);
 
         // 2. Зоны консолидации — горизонтальные уровни, где цена «топталась»
         findConsolidationZones(candles, levels);
 
         // 3. Уровни по длинным теням (сильные отбои)
-        findWickRejections(candles, levels);
+        findWickRejections(candles, levels, avgVolume);
 
         // Группируем близкие уровни
         levels = mergeNearbyLevels(levels);
@@ -126,11 +154,22 @@ public class LevelUtils {
     }
 
     /**
-     * Поиск локальных экстремумов.
-     * Используем окно ±2 свечи для более надёжного определения.
+     * Расчёт среднего объёма за весь период.
      */
-    private void findLocalExtremes(List<TickerCandle> candles, List<Level> levels) {
-        int window = 2; // смотрим 2 свечи в каждую сторону
+    private double calculateAvgVolume(List<TickerCandle> candles) {
+        if (candles.isEmpty()) return 0;
+        double sum = candles.stream().mapToDouble(TickerCandle::getVolume).sum();
+        return sum / candles.size();
+    }
+
+    /**
+     * Поиск локальных экстремумов.
+     * Используем адаптивное окно на основе размера истории.
+     * Учитываем объём — приоритет экстремумам с высоким объёмом.
+     */
+    private void findLocalExtremes(List<TickerCandle> candles, List<Level> levels, double avgVolume) {
+        // Адаптивное окно: 2% от истории, но не менее 2 свечей
+        int window = Math.max(2, candles.size() * extremeWindowPercent / 100);
 
         for (int i = window; i < candles.size() - window; i++) {
             TickerCandle curr = candles.get(i);
@@ -143,17 +182,22 @@ public class LevelUtils {
                 if (candles.get(j).getHigh() >= curr.getHigh()) isLocalMax = false;
             }
 
-            if (isLocalMin) {
+            // Фильтр по объёму: игнорируем экстремумы с объёмом ниже среднего
+            boolean highVolume = curr.getVolume() >= avgVolume * 0.8;
+
+            if (isLocalMin && highVolume) {
                 addLevel(levels, curr.getLow(), true, curr.getVolume());
             }
-            if (isLocalMax) {
+            if (isLocalMax && highVolume) {
                 addLevel(levels, curr.getHigh(), false, curr.getVolume());
             }
         }
     }
 
     /**
+     * Поиск зон консолидации.
      * Если в окне из N свечей разброс цен закрытия мал — это горизонтальный уровень.
+     * Улучшенная логика определения типа уровня (поддержка/сопротивление).
      */
     private void findConsolidationZones(List<TickerCandle> candles, List<Level> levels) {
         for (int i = consolidationWindow; i < candles.size(); i++) {
@@ -175,21 +219,48 @@ public class LevelUtils {
 
             // Если разброс цен в окне меньше порога — зона консолидации
             if (spread <= consolidationThreshold && avgClose > 0) {
-                // Определяем тип: если цена пришла сверху — поддержка, снизу — сопротивление
-                double priceBeforeZone = (i - consolidationWindow > 0)
-                        ? candles.get(i - consolidationWindow - 1).getClose()
-                        : avgClose;
+                // Определяем тип уровня по направлению подхода к зоне
+                Boolean isSupport = null;
+                if (i - consolidationWindow > 0) {
+                    double priceBeforeZone = candles.get(i - consolidationWindow - 1).getClose();
+                    // Цена пришла сверху → поддержка
+                    if (priceBeforeZone > maxClose) {
+                        isSupport = true;
+                    }
+                    // Цена пришла снизу → сопротивление
+                    else if (priceBeforeZone < minClose) {
+                        isSupport = false;
+                    }
+                }
 
-                boolean isSupport = priceBeforeZone > avgClose;
+                // Если тип не определён, используем середину диапазона
+                if (isSupport == null) {
+                    // Проверяем контекст: если цена выше зоны — поддержка, ниже — сопротивление
+                    if (i < candles.size() - 1) {
+                        double currentPrice = candles.get(i).getClose();
+                        isSupport = currentPrice >= avgClose;
+                    } else {
+                        isSupport = true; // по умолчанию поддержка
+                    }
+                }
+
                 addLevel(levels, avgClose, isSupport, sumVolume / consolidationWindow);
             }
         }
     }
 
     /**
+     * Поиск отбоев по длинным теням.
      * Длинная нижняя тень = отбой от поддержки, длинная верхняя = отбой от сопротивления.
+     * Использует динамические пороги на основе среднего диапазона свечей.
      */
-    private void findWickRejections(List<TickerCandle> candles, List<Level> levels) {
+    private void findWickRejections(List<TickerCandle> candles, List<Level> levels, double avgVolume) {
+        // Предварительный расчёт среднего диапазона для динамических порогов
+        double avgRange = candles.stream()
+                .mapToDouble(c -> c.getHigh() - c.getLow())
+                .average()
+                .orElse(1);
+
         for (TickerCandle candle : candles) {
             double range = candle.getHigh() - candle.getLow();
             if (range <= 0) continue;
@@ -198,16 +269,44 @@ public class LevelUtils {
             double lowerWick = Math.min(candle.getOpen(), candle.getClose()) - candle.getLow();
             double upperWick = candle.getHigh() - Math.max(candle.getOpen(), candle.getClose());
 
-            // Длинная нижняя тень (>= 60% диапазона, тело <= 30%) — отбой от поддержки
-            if (lowerWick >= range * 0.6 && body <= range * 0.3) {
-                addLevel(levels, candle.getLow(), true, candle.getVolume());
+            // Динамические пороги на основе среднего диапазона
+            double relativeLowerWick = lowerWick / avgRange;
+            double relativeUpperWick = upperWick / avgRange;
+            double relativeBody = body / avgRange;
+
+            // Фильтр по объёму: отбои с высоким объёмом более значимы
+            boolean highVolume = candle.getVolume() >= avgVolume * 1.2;
+
+            // Длинная нижняя тень — отбой от поддержки
+            // Тень >= 50% среднего диапазона, тело <= 35% среднего диапазона
+            if (relativeLowerWick >= wickRatioThreshold && relativeBody <= bodyRatioThreshold) {
+                // Усиленный уровень для высоких объёмов
+                double volumeMultiplier = highVolume ? 1.5 : 1.0;
+                addLevelWithMultiplier(levels, candle.getLow(), true, candle.getVolume(), volumeMultiplier);
             }
 
-            // Длинная верхняя тень (>= 60% диапазона, тело <= 30%) — отбой от сопротивления
-            if (upperWick >= range * 0.6 && body <= range * 0.3) {
-                addLevel(levels, candle.getHigh(), false, candle.getVolume());
+            // Длинная верхняя тень — отбой от сопротивления
+            if (relativeUpperWick >= wickRatioThreshold && relativeBody <= bodyRatioThreshold) {
+                double volumeMultiplier = highVolume ? 1.5 : 1.0;
+                addLevelWithMultiplier(levels, candle.getHigh(), false, candle.getVolume(), volumeMultiplier);
             }
         }
+    }
+
+    /**
+     * Добавляет уровень с множителем объёма (для усиления значимости).
+     */
+    private void addLevelWithMultiplier(List<Level> levels, double price, boolean isSupport,
+                                        double volume, double multiplier) {
+        for (Level level : levels) {
+            if (level.isSupport() == isSupport && withinZone(level.getPrice(), price)) {
+                level.addTouch(volume * multiplier);
+                return;
+            }
+        }
+        Level newLevel = new Level(price, isSupport);
+        newLevel.addTouch(volume * multiplier);
+        levels.add(newLevel);
     }
 
     /**
@@ -253,28 +352,68 @@ public class LevelUtils {
     }
 
     /**
-     * ✅ Исправление #5: фильтрация по относительному порогу (процентиль),
-     * а не по абсолютному значению minStrength.
+     * Фильтрация уровней с комбинированным скорингом.
+     * Учитывает: количество касаний (40%), силу уровня (40%), объём (20%).
      */
     private List<Level> filterSignificantLevels(List<Level> levels) {
         if (levels.isEmpty()) return levels;
 
-        // Вычисляем порог силы как процентиль
-        List<Double> strengths = levels.stream()
+        // Находим максимумы для нормализации
+        double maxStrength = levels.stream()
                 .mapToDouble(Level::getStrength)
-                .sorted()
-                .boxed()
-                .collect(Collectors.toList());
+                .max()
+                .orElse(1);
+        int maxTouches = levels.stream()
+                .mapToInt(Level::getTouches)
+                .max()
+                .orElse(1);
+        double maxVolume = levels.stream()
+                .mapToDouble(Level::getTotalVolume)
+                .max()
+                .orElse(1);
 
-        int percentileIdx = (int) (strengths.size() * minStrengthPercentile);
-        percentileIdx = Math.min(percentileIdx, strengths.size() - 1);
-        double strengthThreshold = strengths.get(percentileIdx);
+        // Вычисляем скор для каждого уровня
+        List<LevelScore> scored = new ArrayList<>();
+        for (Level level : levels) {
+            double normTouches = (double) level.getTouches() / maxTouches;
+            double normStrength = level.getStrength() / maxStrength;
+            double normVolume = level.getTotalVolume() / maxVolume;
 
-        return levels.stream()
-                .filter(l -> l.getTouches() >= minTouchesForLevel)
-                .filter(l -> l.getStrength() >= strengthThreshold)
-                .sorted(Comparator.comparingDouble(Level::getStrength).reversed())
+            // Комбинированный скор: 40% touches + 40% strength + 20% volume
+            double score = normTouches * 0.4 + normStrength * 0.4 + normVolume * 0.2;
+            scored.add(new LevelScore(level, score));
+        }
+
+        // Сортируем по скору
+        scored.sort(Comparator.comparingDouble(LevelScore::getScore).reversed());
+
+        // Вычисляем порог отсечения по процентилю
+        int cutoffIdx = (int) (scored.size() * minStrengthPercentile);
+        cutoffIdx = Math.max(0, Math.min(cutoffIdx, scored.size() - 1));
+        double scoreThreshold = scored.get(cutoffIdx).getScore();
+
+        // Фильтруем и возвращаем уровни
+        return scored.stream()
+                .filter(ls -> ls.getLevel().getTouches() >= minTouchesForLevel)
+                .filter(ls -> ls.getScore() >= scoreThreshold)
+                .map(LevelScore::getLevel)
                 .collect(Collectors.toList());
+    }
+
+    /**
+     * Вспомогательный класс для хранения уровня и его скоринга.
+     */
+    private static class LevelScore {
+        private final Level level;
+        private final double score;
+
+        LevelScore(Level level, double score) {
+            this.level = level;
+            this.score = score;
+        }
+
+        Level getLevel() { return level; }
+        double getScore() { return score; }
     }
 
     private boolean withinZone(double price1, double price2) {

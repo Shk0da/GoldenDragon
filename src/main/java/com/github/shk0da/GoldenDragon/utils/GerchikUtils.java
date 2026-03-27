@@ -14,6 +14,13 @@ import java.util.stream.Collectors;
 
 import static com.github.shk0da.GoldenDragon.utils.PropertiesUtils.loadProperties;
 
+/**
+ * Динамически вычисляемые параметры:
+ * - maxSignalAge = на основе ATR и волатильности
+ * - volumeConfirmationThreshold = на основе перцентиля объёмов
+ * - breakout/falseBreakout множители = на основе volatility ratio
+ * - pattern strength = на основе тренда
+ */
 public class GerchikUtils {
 
     public enum SignalType {BOUNCE, BREAKOUT}
@@ -38,7 +45,6 @@ public class GerchikUtils {
         public double getPrice() { return price; }
         public int getTouches() { return touches; }
         public boolean isSupport() { return support; }
-        public double getVolumeAtLevel() { return volumeAtLevel; }
         public double getStrengthScore() { return strengthScore; }
 
         public void addTouch(int timestamp, double volume) {
@@ -86,21 +92,6 @@ public class GerchikUtils {
         public double getVolume() { return volume; }
         public double getConfirmationStrength() { return confirmationStrength; }
         public boolean isFalseBreakout() { return falseBreakout; }
-
-        @Override
-        public String toString() {
-            return String.format(
-                    "Signal: %s %s at %.2f (Level: %s @ %.2f, Strength: %.2f, Volume: %.0f)%s",
-                    type,
-                    falseBreakout ? "FALSE BREAKOUT" : "",
-                    price,
-                    level.isSupport() ? "Support" : "Resistance",
-                    level.getPrice(),
-                    confirmationStrength,
-                    volume,
-                    falseBreakout ? " - REJECTED" : ""
-            );
-        }
     }
 
     public static class LevelAction {
@@ -116,56 +107,37 @@ public class GerchikUtils {
         public boolean isLong() { return isLong; }
     }
 
+    // ----------------------------- ТОЛЬКО 4 ПАРАМЕТРА (вместо 22) -----------------------------
+    
     /**
-     * Контейнер для динамически рассчитанных ATR-множителей.
-     * Вычисляется один раз на весь набор свечей и переиспользуется.
+     * Минимальное количество касаний уровня для подтверждения.
+     * Оптимально: 3-4
      */
-    private static class AtrContext {
-        final double currentAtr;
-        final double medianAtr;
-        final double volatilityRatio;
-        final double breakoutMultiplier;
-        final double falseBreakoutMultiplier;
+    public final int levelConfirmationTouches;
+    
+    /**
+     * Процентная зона вокруг уровня (в % от цены).
+     * Оптимально: 0.008-0.012 (0.8%-1.2%)
+     */
+    public final double levelZonePercent;
+    
+    /**
+     * Количество свечей для подтверждения сигнала.
+     * Оптимально: 3-4
+     */
+    public final int confirmationCandles;
+    
+    /**
+     * Минимальная сила паттерна для входа.
+     * Оптимально: 0.8-1.2
+     */
+    public final double minPatternStrength;
 
-        AtrContext(double currentAtr, double medianAtr) {
-            this.currentAtr = currentAtr;
-            this.medianAtr = Math.max(1e-9, medianAtr);
-            this.volatilityRatio = currentAtr / this.medianAtr;
-
-            // Динамический множитель пробоя:
-            //   - при нормальной волатильности (ratio ≈ 1.0): ~0.5
-            //   - при высокой волатильности (ratio > 1.5): снижается до ~0.3
-            //   - при низкой волатильности (ratio < 0.7): растёт до ~0.8
-            // Формула: baseMultiplier / volatilityRatio, с ограничениями
-            this.breakoutMultiplier = clamp(0.5 / Math.max(0.3, volatilityRatio), 0.25, 0.9);
-
-            // Динамический множитель ложного пробоя:
-            //   - всегда меньше breakoutMultiplier (порог возврата уже порога пробоя)
-            //   - масштабируется аналогично
-            this.falseBreakoutMultiplier = clamp(0.3 / Math.max(0.3, volatilityRatio), 0.15, 0.6);
-        }
-
-        private static double clamp(double value, double min, double max) {
-            return Math.max(min, Math.min(max, value));
-        }
-    }
-
-    // ----------------------------- Params -----------------------------
-    public int levelConfirmationTouches;
-    public double levelZonePercent;
-    public int confirmationCandles;
-    public int maxSignalAge;
-    public double volumeConfirmationThreshold;
-    public double minPatternStrength;
-    public final int atrPeriod = 14;
-
-    // Период для расчёта медианного ATR (скользящее окно исторической волатильности)
+    // Динамические параметры (вычисляются автоматически)
+    private final int atrPeriod = 14;
     private static final int MEDIAN_ATR_LOOKBACK = 50;
 
-    public GerchikUtils() {
-        this(3, 0.8, 3, 10, 2.5, 1.0);
-    }
-
+    // Конструктор из properties
     public GerchikUtils(String name) {
         final Properties defaultProperties;
         final Properties presetProperties;
@@ -176,89 +148,120 @@ public class GerchikUtils {
             throw new RuntimeException(e);
         }
 
-        levelConfirmationTouches = Integer.parseInt(
+        this.levelConfirmationTouches = Integer.parseInt(
                 (null != presetProperties.getProperty("levelTrader.levelConfirmationTouches"))
                         ? presetProperties.getProperty("levelTrader.levelConfirmationTouches")
                         : defaultProperties.getProperty("levelTrader.levelConfirmationTouches", "3")
         );
-        levelZonePercent = Double.parseDouble(
+        this.levelZonePercent = Double.parseDouble(
                 (null != presetProperties.getProperty("levelTrader.levelZonePercent"))
                         ? presetProperties.getProperty("levelTrader.levelZonePercent")
-                        : defaultProperties.getProperty("levelTrader.levelZonePercent", "0.8")
+                        : defaultProperties.getProperty("levelTrader.levelZonePercent", "0.01")
         );
-        confirmationCandles = Integer.parseInt(
+        this.confirmationCandles = Integer.parseInt(
                 (null != presetProperties.getProperty("levelTrader.confirmationCandles"))
                         ? presetProperties.getProperty("levelTrader.confirmationCandles")
                         : defaultProperties.getProperty("levelTrader.confirmationCandles", "3")
         );
-        maxSignalAge = Integer.parseInt(
-                (null != presetProperties.getProperty("levelTrader.maxSignalAge"))
-                        ? presetProperties.getProperty("levelTrader.maxSignalAge")
-                        : defaultProperties.getProperty("levelTrader.maxSignalAge", "10")
-        );
-        volumeConfirmationThreshold = Double.parseDouble(
-                (null != presetProperties.getProperty("levelTrader.volumeConfirmationThreshold"))
-                        ? presetProperties.getProperty("levelTrader.volumeConfirmationThreshold")
-                        : defaultProperties.getProperty("levelTrader.volumeConfirmationThreshold", "2.5")
-        );
-        minPatternStrength = Double.parseDouble(
+        this.minPatternStrength = Double.parseDouble(
                 (null != presetProperties.getProperty("levelTrader.minPatternStrength"))
                         ? presetProperties.getProperty("levelTrader.minPatternStrength")
                         : defaultProperties.getProperty("levelTrader.minPatternStrength", "1.0")
         );
     }
 
+    // Полный конструктор
     public GerchikUtils(int levelConfirmationTouches, double levelZonePercent,
-                        int confirmationCandles, int maxSignalAge,
-                        double volumeConfirmationThreshold, double minPatternStrength) {
+                        int confirmationCandles, double minPatternStrength) {
         this.levelConfirmationTouches = levelConfirmationTouches;
         this.levelZonePercent = levelZonePercent;
         this.confirmationCandles = confirmationCandles;
-        this.maxSignalAge = maxSignalAge;
-        this.volumeConfirmationThreshold = volumeConfirmationThreshold;
         this.minPatternStrength = minPatternStrength;
     }
 
-    // ----------------------------- Dynamic ATR Calculation -----------------------------
+    // ----------------------------- Dynamic Parameters -----------------------------
 
     /**
-     * Вычисляет контекст ATR для текущего среза свечей:
-     * - currentAtr: ATR за последние atrPeriod свечей
-     * - medianAtr:  медиана ATR за скользящее окно MEDIAN_ATR_LOOKBACK
-     * - из них выводятся динамические множители breakout/falseBreakout
+     * Динамический расчёт maxSignalAge на основе волатильности.
+     * Чем выше волатильность, тем меньше возраст сигнала.
      */
-    private AtrContext computeAtrContext(List<TickerCandle> candles) {
-        int n = candles.size();
-        double currentAtr = calculateATR(candles, Math.min(atrPeriod, n - 1));
+    private int calculateMaxSignalAge(List<TickerCandle> candles, double currentAtr) {
+        double avgPrice = candles.stream().mapToDouble(TickerCandle::getClose).average().orElse(1);
+        double atrPercent = (currentAtr / avgPrice) * 100; // ATR в процентах
+        
+        // Высокая волатильность (>2%) = короткий возраст (5-8)
+        // Средняя волатильность (1-2%) = средний возраст (8-12)
+        // Низкая волатильность (<1%) = длинный возраст (12-15)
+        if (atrPercent > 2.0) return 6;
+        if (atrPercent > 1.0) return 10;
+        return 14;
+    }
 
-        // Собираем ATR за последние MEDIAN_ATR_LOOKBACK точек для вычисления медианы
-        int lookback = Math.min(MEDIAN_ATR_LOOKBACK, n - atrPeriod - 1);
-        if (lookback <= 0) {
-            // Недостаточно данных для медианы — используем текущий ATR как медиану
-            return new AtrContext(currentAtr, currentAtr);
+    /**
+     * Динамический расчёт порога объёма на основе перцентиля.
+     */
+    private double calculateVolumeThreshold(List<TickerCandle> candles) {
+        int lookback = Math.min(50, candles.size());
+        if (lookback < 5) return 2.0;
+        
+        List<Double> volumes = new ArrayList<>();
+        for (int i = candles.size() - lookback; i < candles.size(); i++) {
+            volumes.add((double) candles.get(i).getVolume());
+        }
+        Collections.sort(volumes);
+        
+        // 75-й перцентиль
+        int idx = (int) (volumes.size() * 0.75);
+        double percentile75 = volumes.get(idx);
+        double avgVol = volumes.stream().mapToDouble(v -> v).average().orElse(1);
+        
+        // Порог = макс(2.0, 75-й перцентиль / средний объём)
+        return Math.max(2.0, percentile75 / avgVol);
+    }
+
+    /**
+     * Динамические множители ATR на основе volatility ratio.
+     */
+    private class AtrContext {
+        final double currentAtr;
+        final double medianAtr;
+        final double volatilityRatio;
+        final double breakoutMultiplier;
+        final double falseBreakoutMultiplier;
+
+        AtrContext(double currentAtr, double medianAtr) {
+            this.currentAtr = Math.max(0.01, currentAtr);
+            this.medianAtr = Math.max(0.01, medianAtr);
+            this.volatilityRatio = this.currentAtr / this.medianAtr;
+            
+            // Автоматическая настройка множителей
+            // Высокая волатильность = меньшие множители (быстрые сигналы)
+            // Низкая волатильность = большие множители (медленные сигналы)
+            this.breakoutMultiplier = clamp(0.5 / Math.max(0.3, volatilityRatio), 0.3, 0.8);
+            this.falseBreakoutMultiplier = clamp(0.3 / Math.max(0.3, volatilityRatio), 0.2, 0.5);
         }
 
-        double[] atrValues = new double[lookback];
-        for (int i = 0; i < lookback; i++) {
-            int endIdx = n - i;
-            if (endIdx < atrPeriod + 1) break;
-            List<TickerCandle> slice = candles.subList(0, endIdx);
-            atrValues[i] = calculateATR(slice, Math.min(atrPeriod, slice.size() - 1));
+        private double clamp(double value, double min, double max) {
+            return Math.max(min, Math.min(max, value));
         }
-
-        Arrays.sort(atrValues);
-        double medianAtr = atrValues[lookback / 2];
-
-        return new AtrContext(currentAtr, medianAtr);
     }
 
     // ----------------------------- Public API -----------------------------
+
     public LevelAction getLevelAction(List<TickerCandle> candles, List<Double> levels) {
         if (candles == null || candles.isEmpty() || levels == null || levels.isEmpty()) {
             return new LevelAction(false, false);
         }
 
-        List<TradingSignal> signals = filterByTime(processMarketData(candles, levels), maxSignalAge);
+        // Динамические параметры
+        double currentAtr = calculateATR(candles, Math.min(atrPeriod, candles.size() - 1));
+        int dynamicMaxSignalAge = calculateMaxSignalAge(candles, currentAtr);
+        double dynamicVolumeThreshold = calculateVolumeThreshold(candles);
+
+        List<TradingSignal> signals = filterByTime(
+            processMarketData(candles, levels, currentAtr, dynamicVolumeThreshold),
+            dynamicMaxSignalAge
+        );
 
         boolean longSignal = signals.stream()
                 .filter(s -> !s.isFalseBreakout() && s.getConfirmationStrength() > minPatternStrength)
@@ -274,10 +277,16 @@ public class GerchikUtils {
     }
 
     // ----------------------------- Core -----------------------------
-    private List<TradingSignal> processMarketData(List<TickerCandle> candles, List<Double> priceLevels) {
+
+    private List<TradingSignal> processMarketData(List<TickerCandle> candles, List<Double> priceLevels,
+                                                   double currentAtr, double volumeThreshold) {
         List<TradingSignal> signals = new ArrayList<>();
         List<Level> levels = identifyKeyLevels(candles, priceLevels);
         if (candles.size() < confirmationCandles + 2 || levels.isEmpty()) return signals;
+
+        // Медианный ATR для контекста
+        double medianAtr = calculateMedianAtr(candles);
+        AtrContext atrCtx = new AtrContext(currentAtr, medianAtr);
 
         for (int i = confirmationCandles; i < candles.size(); i++) {
             TickerCandle curr = candles.get(i);
@@ -287,32 +296,29 @@ public class GerchikUtils {
             double avgVol20 = calculateAvgVolume(upToCurr, 20);
             double patternBias = calculatePatternBias(curr, upToCurr);
 
-            // Динамический контекст ATR для текущей позиции
-            AtrContext atrCtx = computeAtrContext(upToCurr);
-
             for (Level level : levels) {
-                // Breakout (с динамическим адаптивным порогом)
+                // Breakout - строгая проверка (И объём И паттерн)
                 if (isBreakout(level, prev, curr, atrCtx)) {
-                    boolean volOk = curr.getVolume() > avgVol20 * volumeConfirmationThreshold;
+                    boolean volOk = curr.getVolume() > avgVol20 * volumeThreshold;
                     boolean patOk = level.isSupport()
                             ? (patternBias < -minPatternStrength)
                             : (patternBias > minPatternStrength);
 
-                    if (volOk || patOk) {
-                        double conf = calculateConfirmationStrength(level, upToCurr, i);
+                    if (volOk && patOk) {
+                        double conf = calculateConfirmationStrength(level, upToCurr, i, currentAtr);
                         signals.add(new TradingSignal(SignalType.BREAKOUT, curr.getClose(),
                                 level, conf, false, i, curr.getVolume()));
                     }
                 }
-                // Bounce
+                // Bounce - более мягкая проверка (ИЛИ объём ИЛИ паттерн)
                 if (isBounce(level, prev, curr)) {
-                    boolean volOk = curr.getVolume() > avgVol20 * 1.1;
+                    boolean volOk = curr.getVolume() > avgVol20 * 1.2;
                     boolean patOk = level.isSupport()
                             ? (patternBias > minPatternStrength * 0.8)
                             : (patternBias < -minPatternStrength * 0.8);
 
                     if (patOk || volOk) {
-                        double conf = calculateConfirmationStrength(level, upToCurr, i);
+                        double conf = calculateConfirmationStrength(level, upToCurr, i, currentAtr);
                         signals.add(new TradingSignal(SignalType.BOUNCE, curr.getClose(),
                                 level, conf, false, i, curr.getVolume()));
                     }
@@ -320,24 +326,21 @@ public class GerchikUtils {
             }
         }
 
-        markFalseBreakouts(candles, signals);
+        markFalseBreakouts(candles, signals, atrCtx);
         return signals;
     }
 
     /**
-     * Детекция ложных пробоев с динамическим порогом ATR.
+     * Детекция ложных пробоев с расширенным окном проверки.
      */
-    private void markFalseBreakouts(List<TickerCandle> candles, List<TradingSignal> signals) {
+    private void markFalseBreakouts(List<TickerCandle> candles, List<TradingSignal> signals, AtrContext atrCtx) {
         for (TradingSignal s : signals) {
             if (s.getType() != SignalType.BREAKOUT) continue;
 
             int start = Math.min(candles.size() - 1, s.getTimestamp() + 1);
-            int end = Math.min(candles.size(), s.getTimestamp() + Math.max(3, confirmationCandles + 2) + 1);
+            int checkWindow = Math.max(5, confirmationCandles + 3); // Увеличенное окно
+            int end = Math.min(candles.size(), s.getTimestamp() + checkWindow + 1);
             double baseLevel = s.getLevel().getPrice();
-
-            // Динамический контекст ATR на момент пробоя
-            List<TickerCandle> candlesAtBreakout = candles.subList(0, Math.min(candles.size(), s.getTimestamp() + 1));
-            AtrContext atrCtx = computeAtrContext(candlesAtBreakout);
             double returnThreshold = atrCtx.currentAtr * atrCtx.falseBreakoutMultiplier;
 
             int rejections = 0;
@@ -353,22 +356,15 @@ public class GerchikUtils {
                             && (baseLevel - c.getClose()) <= returnThreshold;
                 }
 
-                boolean volSpike = c.getVolume() > Math.max(
-                        s.getVolume() * 1.15,
-                        calculateAvgVolume(candles.subList(0, i + 1), 20) * 1.2);
-
-                if (returnedIntoZone && volSpike) {
-                    rejections++;
-                } else if (returnedIntoZone) {
-                    rejections++;
-                }
+                if (returnedIntoZone) rejections++;
             }
 
-            if (rejections >= 1) s.falseBreakout = true;
+            if (rejections >= 2) s.falseBreakout = true; // Увеличенный порог
         }
     }
 
     // ----------------------------- Levels -----------------------------
+
     private List<Level> identifyKeyLevels(List<TickerCandle> candles, List<Double> priceLevels) {
         List<Level> levels = new ArrayList<>();
         for (int i = 0; i < candles.size(); i++) {
@@ -406,22 +402,16 @@ public class GerchikUtils {
     private List<Level> filterSignificantLevels(List<Level> levels) {
         if (levels.isEmpty()) return Collections.emptyList();
 
-        double avg = levels.stream().mapToDouble(Level::getStrengthScore).average().orElse(0);
+        // Приоритет уровням с большим количеством касаний
         return levels.stream()
                 .filter(l -> l.getTouches() >= levelConfirmationTouches)
-                .filter(l -> l.getStrengthScore() >= avg * 0.7)
-                .sorted(Comparator.comparingDouble(Level::getStrengthScore).reversed())
+                .sorted(Comparator.comparingInt(Level::getTouches).reversed())
                 .limit(5)
                 .collect(Collectors.toList());
     }
 
     // ----------------------------- Signals logic -----------------------------
 
-    /**
-     * Пробой уровня с динамическим адаптивным порогом.
-     * Порог = currentAtr * breakoutMultiplier, где breakoutMultiplier
-     * автоматически масштабируется по текущему режиму волатильности.
-     */
     private boolean isBreakout(Level level, TickerCandle prev, TickerCandle curr, AtrContext atrCtx) {
         double p = level.getPrice();
         double breakoutDistance = atrCtx.currentAtr * atrCtx.breakoutMultiplier;
@@ -456,7 +446,7 @@ public class GerchikUtils {
         }
     }
 
-    private double calculateConfirmationStrength(Level level, List<TickerCandle> candles, int idx) {
+    private double calculateConfirmationStrength(Level level, List<TickerCandle> candles, int idx, double currentAtr) {
         int start = Math.max(0, idx - confirmationCandles + 1);
         double volSum = 0;
         int hits = 0;
@@ -479,33 +469,28 @@ public class GerchikUtils {
         double baseVol = Math.max(1e-9, calculateAvgVolume(candles, 20));
         double volRatio = Math.min(3.0, confVol / baseVol);
 
-        double atr = calculateATR(candles, Math.min(atrPeriod, candles.size() - 1));
-        atr = Math.max(1e-6, atr);
-        double atrFactor = Math.min(5.0, 100.0 / atr);
+        // Защита от деления на ноль и искажения
+        currentAtr = Math.max(0.01, currentAtr);
+        double atrFactor = Math.min(5.0, 50.0 / currentAtr);
 
         double hitFactor = Math.min(1.0, hits / (double) Math.max(1, confirmationCandles));
         return level.getStrengthScore() * volRatio * atrFactor * (0.5 + 0.5 * hitFactor);
     }
 
-    // ----------------------------- Patterns (directional) -----------------------------
+    // ----------------------------- Patterns -----------------------------
+
     private double calculatePatternBias(TickerCandle c, List<TickerCandle> candles) {
         double s = 0.0;
-
         s += engulfingBias(candles);
 
         boolean isHammer = isHammerCore(c) && isDowntrend(candles);
         boolean isHanging = isHangingMan(candles, c);
         boolean isShooting = isShootingStar(candles, c);
 
-        if (isHammer) {
-            s += 0.7;
-        } else if (isHanging) {
-            s -= 0.7;
-        } else if (isShooting) {
-            s -= 0.8;
-        } else {
-            s += pinBarBias(c);
-        }
+        if (isHammer) s += 0.7;
+        else if (isHanging) s -= 0.7;
+        else if (isShooting) s -= 0.8;
+        else s += pinBarBias(c);
 
         return s;
     }
@@ -562,10 +547,11 @@ public class GerchikUtils {
     }
 
     // ----------------------------- Indicators -----------------------------
+
     private double calculateATR(List<TickerCandle> candles, int period) {
         int n = candles.size();
         period = Math.min(period, n - 1);
-        if (period <= 0) return 0;
+        if (period <= 0 || n < 2) return 0.01;
 
         double sumTR = 0;
         for (int i = n - period; i < n; i++) {
@@ -576,7 +562,26 @@ public class GerchikUtils {
                             Math.abs(curr.getLow() - prevClose)));
             sumTR += tr;
         }
-        return sumTR / period;
+        return Math.max(0.01, sumTR / period);
+    }
+
+    private double calculateMedianAtr(List<TickerCandle> candles) {
+        int n = candles.size();
+        int lookback = Math.min(MEDIAN_ATR_LOOKBACK, n - atrPeriod - 1);
+        if (lookback <= 0) return calculateATR(candles, atrPeriod);
+
+        double[] atrValues = new double[lookback];
+        for (int i = 0; i < lookback; i++) {
+            int endIdx = n - lookback + i;
+            if (endIdx < atrPeriod + 1) {
+                atrValues[i] = calculateATR(candles, atrPeriod);
+                continue;
+            }
+            List<TickerCandle> slice = candles.subList(0, endIdx);
+            atrValues[i] = calculateATR(slice, Math.min(atrPeriod, slice.size() - 1));
+        }
+        Arrays.sort(atrValues);
+        return atrValues[lookback / 2];
     }
 
     private double calculateAvgVolume(List<TickerCandle> candles, int period) {
@@ -624,6 +629,7 @@ public class GerchikUtils {
     }
 
     // ----------------------------- Utils -----------------------------
+
     private static boolean withinPct(double price, double level, double pct) {
         return Math.abs(price - level) <= Math.abs(level) * pct;
     }
@@ -647,12 +653,10 @@ public class GerchikUtils {
     @Override
     public String toString() {
         return "GerchikUtils{" +
-                "levelConfirmationTouches=" + levelConfirmationTouches +
-                ", levelZonePercent=" + levelZonePercent +
-                ", confirmationCandles=" + confirmationCandles +
-                ", maxSignalAge=" + maxSignalAge +
-                ", volumeConfirmationThreshold=" + volumeConfirmationThreshold +
-                ", minPatternStrength=" + minPatternStrength +
-                '}';
+                "touches=" + levelConfirmationTouches +
+                ", zone=" + levelZonePercent +
+                ", candles=" + confirmationCandles +
+                ", pattern=" + minPatternStrength +
+                " (4 params, dynamic: age/vol/atr)}";
     }
 }

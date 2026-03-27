@@ -1,3 +1,5 @@
+package com.github.shk0da.GoldenDragon.test;
+
 import com.github.shk0da.GoldenDragon.model.TickerCandle;
 import com.github.shk0da.GoldenDragon.utils.LevelUtils;
 import com.github.shk0da.GoldenDragon.utils.LevelUtils.Level;

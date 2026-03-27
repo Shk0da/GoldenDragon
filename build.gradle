@@ -34,6 +34,6 @@ task uberJar(type: Jar) {
 }
 
 task TestLevelTrader(type:JavaExec) {
-    main = "TestLevelTrader"
+    main = "com.github.shk0da.GoldenDragon.TestLevelTrader"
     classpath = sourceSets.test.runtimeClasspath
 }
