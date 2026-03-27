@@ -31,12 +31,12 @@ import static java.lang.System.out;
 
 public class TestLevelTrader {
 
-    private static final double K2 = 0.025;
+    private static final double K2 = 0.3;
     private static final double COMISSION = 0.05;
     private static final double TP = 1.5;
     private static final double SL = 0.5;
     private static final String[] TICKERS = {
-        "CNYRUBF", "USDRUBF", "SBER", "GAZP", "LKOH", "MTSS", "NVTK", "ROSN", "HEAD", "RTKM", "PLZL"
+            "CNYRUBF", "SBER", "GAZP", "LKOH", "MTSS", "NVTK", "ROSN", "HEAD", "RTKM", "PLZL"
     };
     private static final boolean SAVE_BEST_CONFIGS = true;
     private static final String CONFIG_DIR = ".";
