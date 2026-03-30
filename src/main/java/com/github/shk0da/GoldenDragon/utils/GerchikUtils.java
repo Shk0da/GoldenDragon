@@ -143,7 +143,7 @@ public class GerchikUtils {
         final Properties presetProperties;
         try {
             defaultProperties = loadProperties();
-            presetProperties = loadProperties(name);
+            presetProperties = loadProperties(name + ".properties");
         } catch (IOException e) {
             throw new RuntimeException(e);
         }
