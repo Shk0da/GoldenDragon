@@ -169,7 +169,13 @@ public class TCSService {
         int value = 0;
         double tickerPrice = 0.0;
         for (Map.Entry<Double, Integer> bid : getCurrentPrices(key).get("bids").entrySet()) {
-            tickerPrice = bid.getKey();
+            switch (type) {
+                case FEATURE:
+                    tickerPrice = (bid.getKey() * 1000) * 0.4; // обеспечения составляет 10-40%
+                    break;
+                default:
+                    tickerPrice = bid.getKey();
+            }
             value = value + bid.getValue();
             if (value >= (cashToSell / tickerPrice)) break;
         }
