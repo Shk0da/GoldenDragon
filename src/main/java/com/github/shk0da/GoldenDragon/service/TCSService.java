@@ -554,6 +554,9 @@ public class TCSService {
             case STOCK:
                 tickerInfo = getStockList().get(key);
                 break;
+            case FEATURE:
+                tickerInfo = getFuturesList().get(key);
+                break;
             case UNKNOWN:
             default:
                 throw new RuntimeException("Ticker '" + key.getTicker() + "' not found in TCS");
@@ -593,7 +596,14 @@ public class TCSService {
     public Map<TickerInfo.Key, PositionInfo> getCurrentPositions(TickerType tickerType) {
         sleep(550);
         Map<TickerInfo.Key, PositionInfo> positionInfoList = new HashMap<>();
-        String type = TickerType.STOCK == tickerType ? "share" : tickerType.name();
+        String type;
+        if (TickerType.STOCK == tickerType) {
+            type = "share";
+        } else if (TickerType.FEATURE == tickerType) {
+            type = "futures";
+        } else {
+            type = tickerType.name();
+        }
         Portfolio portfolio = investApi.getOperationsService().getPortfolioSync(mainConfig.getTcsAccountId());
         portfolio.getPositions()
                 .stream()
