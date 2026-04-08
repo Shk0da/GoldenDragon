@@ -81,7 +81,7 @@ public class GoldenDragon {
             // 1. Rebalance
             if ("Rebalance".equals(strategy)) {
                 final RebalanceConfig rebalanceConfig = new RebalanceConfig();
-                new Rebalance(mainConfig, marketConfig, rebalanceConfig, tcsService).run();
+                new Rebalance(marketConfig, rebalanceConfig, tcsService).run();
             }
 
             // 2. RSX

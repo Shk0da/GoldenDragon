@@ -16,7 +16,6 @@ import com.github.shk0da.GoldenDragon.service.TCSService;
 import com.github.shk0da.GoldenDragon.service.TradingViewService;
 import com.github.shk0da.GoldenDragon.service.YahooService;
 import com.google.gson.reflect.TypeToken;
-
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -24,6 +23,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.stream.Collectors;
+
 
 import static com.github.shk0da.GoldenDragon.model.Market.MOEX;
 import static com.github.shk0da.GoldenDragon.utils.SerializationUtils.loadDataFromDisk;
@@ -80,7 +80,7 @@ public class RSX extends Rebalancing {
             out.println("There are no suitable conditions for trading...");
         }
 
-        Map<TickerInfo.Key, PortfolioPosition> positionsToSave = doRebalance(availableCash, previousPositions, targetPositions, 1.0);
+        Map<TickerInfo.Key, PortfolioPosition> positionsToSave = doRebalance(availableCash, targetPositions, 1.0);
         if (!positionsToSave.isEmpty()) {
             saveDataToDisk(serializeName, positionsToSave);
         }

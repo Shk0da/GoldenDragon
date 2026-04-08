@@ -4,13 +4,14 @@ import com.github.shk0da.GoldenDragon.config.MarketConfig;
 import com.github.shk0da.GoldenDragon.model.PortfolioPosition;
 import com.github.shk0da.GoldenDragon.model.PositionInfo;
 import com.github.shk0da.GoldenDragon.model.TickerInfo;
+import com.github.shk0da.GoldenDragon.model.TickerInfo.Key;
 import com.github.shk0da.GoldenDragon.model.TickerType;
 import com.github.shk0da.GoldenDragon.service.TCSService;
-
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
+
 
 import static com.github.shk0da.GoldenDragon.utils.PrintUtils.printCurrentPositions;
 import static java.lang.Math.round;
@@ -28,41 +29,9 @@ public abstract class Rebalancing {
     }
 
     public Map<TickerInfo.Key, PortfolioPosition> doRebalance(double totalPortfolioCost,
-                                                              Map<TickerInfo.Key, PortfolioPosition> previousPositions,
                                                               Map<TickerInfo.Key, PortfolioPosition> targetPositions,
                                                               double positionPercentToDo) {
-        Map<TickerInfo.Key, PortfolioPosition> currentPositions = new HashMap<>();
-        if (null != previousPositions && !previousPositions.isEmpty()) {
-            Map<PortfolioPosition, Double> portfolioPositionToCost = new HashMap<>();
-            out.println();
-            Map<TickerInfo.Key, PositionInfo> positions = tcsService.getCurrentPositions(TickerType.ALL);
-            Map<TickerInfo.Key, Double> prices = new HashMap<>();
-            for (Map.Entry<TickerInfo.Key, PositionInfo> position : positions.entrySet()) {
-                if (previousPositions.containsKey(position.getKey())) {
-                    int balance = position.getValue().getBalance();
-                    double price = tcsService.getPriceInCurrentCurrency(position.getKey(), balance, marketConfig.getCurrency());
-                    double cost = balance * price;
-                    totalPortfolioCost += cost;
-                    prices.put(position.getKey(), price);
-                    portfolioPositionToCost.put(previousPositions.get(position.getKey()), cost);
-                }
-            }
-
-            for (Map.Entry<PortfolioPosition, Double> position : portfolioPositionToCost.entrySet()) {
-                PortfolioPosition portfolioPosition = position.getKey();
-                double percent = round((100 * ((position.getValue()) / totalPortfolioCost)) * 100) / 100.0;
-                currentPositions.put(
-                        new TickerInfo.Key(portfolioPosition.getName(), portfolioPosition.getType()),
-                        new PortfolioPosition(
-                                portfolioPosition.getName(),
-                                portfolioPosition.getType(),
-                                percent
-                        )
-                );
-            }
-            printCurrentPositions(currentPositions, positions, prices, totalPortfolioCost, marketConfig.getCurrency());
-        }
-
+        Map<TickerInfo.Key, PortfolioPosition> currentPositions = getCurrentPositions(totalPortfolioCost, targetPositions);
         Map<TickerInfo.Key, PortfolioPosition> corrections = new HashMap<>();
         if (null != targetPositions && !targetPositions.isEmpty()) {
             for (Map.Entry<TickerInfo.Key, PortfolioPosition> targetPosition : targetPositions.entrySet()) {
@@ -72,18 +41,16 @@ public abstract class Rebalancing {
                     double diff = Math.abs(currentPercent - targetPercent);
                     if (diff >= positionPercentToDo) {
                         targetPercent = currentPercent > targetPercent ? -1 * diff : diff;
-                    } else {
-                        targetPercent = currentPercent;
+                        corrections.put(
+                                targetPosition.getKey(),
+                                new PortfolioPosition(
+                                        targetPosition.getValue().getName(),
+                                        targetPosition.getValue().getType(),
+                                        targetPercent
+                                )
+                        );
                     }
                 }
-                corrections.put(
-                        targetPosition.getKey(),
-                        new PortfolioPosition(
-                                targetPosition.getValue().getName(),
-                                targetPosition.getValue().getType(),
-                                targetPercent
-                        )
-                );
             }
             for (Map.Entry<TickerInfo.Key, PortfolioPosition> currentPosition : currentPositions.entrySet()) {
                 if (!targetPositions.containsKey(currentPosition.getKey())) {
@@ -134,28 +101,44 @@ public abstract class Rebalancing {
         if (isPrintResultTable) {
             out.println();
             double portfolioCost = tcsService.getAvailableCash();
-            Map<TickerInfo.Key, Double> prices = new HashMap<>();
-            Map<TickerInfo.Key, PositionInfo> positions = tcsService.getCurrentPositions(TickerType.ALL);
-
-            for (Map.Entry<TickerInfo.Key, PortfolioPosition> position : positionsToSave.entrySet()) {
-                var currentPosition = positions.get(position.getKey());
-                if (null == currentPosition) continue;
-
-                double price = tcsService.getAvailablePrice(position.getKey(), currentPosition.getBalance(), false);
-
-                String basicCurrency = marketConfig.getCurrency();
-                String currency = tcsService.searchTicker(position.getKey()).getCurrency();
-                if (!basicCurrency.equals(currency)) {
-                    price = tcsService.convertCurrencies(currency, basicCurrency, price);
-                }
-                prices.put(position.getKey(), price);
-
-                portfolioCost += price * currentPosition.getBalance();
-            }
-
-            printCurrentPositions(positionsToSave, positions, prices, portfolioCost, marketConfig.getCurrency());
+            getCurrentPositions(portfolioCost, targetPositions);
         }
 
         return positionsToSave;
+    }
+
+    private Map<TickerInfo.Key, PortfolioPosition> getCurrentPositions(double totalPortfolioCost, Map<Key, PortfolioPosition> targetPositions) {
+        Map<TickerInfo.Key, PortfolioPosition> currentPositions = new HashMap<>();
+        if (null != targetPositions && !targetPositions.isEmpty()) {
+            Map<PortfolioPosition, Double> portfolioPositionToCost = new HashMap<>();
+            out.println();
+            Map<TickerInfo.Key, PositionInfo> positions = tcsService.getCurrentPositions(TickerType.ALL);
+            Map<TickerInfo.Key, Double> prices = new HashMap<>();
+            for (Map.Entry<TickerInfo.Key, PositionInfo> position : positions.entrySet()) {
+                if (targetPositions.containsKey(position.getKey())) {
+                    int balance = position.getValue().getBalance();
+                    double price = tcsService.getPriceInCurrentCurrency(position.getKey(), balance, marketConfig.getCurrency());
+                    double cost = balance * price;
+                    totalPortfolioCost += cost;
+                    prices.put(position.getKey(), price);
+                    portfolioPositionToCost.put(targetPositions.get(position.getKey()), cost);
+                }
+            }
+
+            for (Map.Entry<PortfolioPosition, Double> position : portfolioPositionToCost.entrySet()) {
+                PortfolioPosition portfolioPosition = position.getKey();
+                double percent = round((100 * ((position.getValue()) / totalPortfolioCost)) * 100) / 100.0;
+                currentPositions.put(
+                        new TickerInfo.Key(portfolioPosition.getName(), portfolioPosition.getType()),
+                        new PortfolioPosition(
+                                portfolioPosition.getName(),
+                                portfolioPosition.getType(),
+                                percent
+                        )
+                );
+            }
+            printCurrentPositions(currentPositions, positions, prices, totalPortfolioCost, marketConfig.getCurrency());
+        }
+        return currentPositions;
     }
 }

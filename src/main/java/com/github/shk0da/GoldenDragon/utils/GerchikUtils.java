@@ -656,7 +656,6 @@ public class GerchikUtils {
                 "touches=" + levelConfirmationTouches +
                 ", zone=" + levelZonePercent +
                 ", candles=" + confirmationCandles +
-                ", pattern=" + minPatternStrength +
-                " (4 params, dynamic: age/vol/atr)}";
+                ", pattern=" + minPatternStrength;
     }
 }

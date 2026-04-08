@@ -21,6 +21,7 @@ import java.util.Map;
 import java.util.TreeMap;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
+import javax.annotation.Nullable;
 import ru.tinkoff.piapi.contract.v1.Bond;
 import ru.tinkoff.piapi.contract.v1.CandleInterval;
 import ru.tinkoff.piapi.contract.v1.Currency;
@@ -562,8 +563,10 @@ public class TCSService {
                 throw new RuntimeException("Ticker '" + key.getTicker() + "' not found in TCS");
         }
 
-        tickerRepository.insert(key, tickerInfo);
-        out.println(key.getTicker() + ": " + tickerInfo);
+        if (null != tickerInfo) {
+            tickerRepository.insert(key, tickerInfo);
+            out.println(key.getTicker() + ": " + tickerInfo);
+        }
         return tickerInfo;
     }
 
@@ -593,17 +596,10 @@ public class TCSService {
                 .orElse(null);
     }
 
-    public Map<TickerInfo.Key, PositionInfo> getCurrentPositions(TickerType tickerType) {
+    public Map<TickerInfo.Key, PositionInfo> getCurrentPositions(@Nullable TickerType tickerType) {
         sleep(550);
         Map<TickerInfo.Key, PositionInfo> positionInfoList = new HashMap<>();
-        String type;
-        if (TickerType.STOCK == tickerType) {
-            type = "share";
-        } else if (TickerType.FEATURE == tickerType) {
-            type = "futures";
-        } else {
-            type = tickerType.name();
-        }
+        String type = getTypeFromTickerType(tickerType);
         Portfolio portfolio = investApi.getOperationsService().getPortfolioSync(mainConfig.getTcsAccountId());
         portfolio.getPositions()
                 .stream()
@@ -624,7 +620,7 @@ public class TCSService {
                                 .ifPresent(tickerKey::set);
                     }
                     TickerInfo tickerInfo = searchTicker(tickerKey.get());
-                    if (marketConfig.getCurrency().equals(tickerInfo.getCurrency())) {
+                    if (null != tickerInfo && marketConfig.getCurrency().equals(tickerInfo.getCurrency())) {
                         var expectedYield = it.getExpectedYield().doubleValue();
                         if (0.0 == expectedYield) {
                             var currentPrice = it.getCurrentPrice().getValue().doubleValue();
@@ -650,6 +646,12 @@ public class TCSService {
                     }
                 });
         return positionInfoList;
+    }
+
+    private String getTypeFromTickerType(TickerType tickerType) {
+        if (TickerType.STOCK == tickerType) return  "share";
+        if (TickerType.FEATURE == tickerType) return "futures";
+        return "";
     }
 
     public String figiByName(TickerInfo.Key key) {
