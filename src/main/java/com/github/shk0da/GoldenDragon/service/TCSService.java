@@ -9,19 +9,6 @@ import com.github.shk0da.GoldenDragon.repository.FigiRepository;
 import com.github.shk0da.GoldenDragon.repository.PricesRepository;
 import com.github.shk0da.GoldenDragon.repository.Repository;
 import com.github.shk0da.GoldenDragon.repository.TickerRepository;
-import java.math.BigDecimal;
-import java.time.Instant;
-import java.time.OffsetDateTime;
-import java.util.Date;
-import java.util.HashMap;
-import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
-import java.util.List;
-import java.util.Map;
-import java.util.TreeMap;
-import java.util.concurrent.atomic.AtomicReference;
-import java.util.stream.Collectors;
-import javax.annotation.Nullable;
 import ru.tinkoff.piapi.contract.v1.Bond;
 import ru.tinkoff.piapi.contract.v1.CandleInterval;
 import ru.tinkoff.piapi.contract.v1.Currency;
@@ -41,6 +28,19 @@ import ru.tinkoff.piapi.core.models.Money;
 import ru.tinkoff.piapi.core.models.Portfolio;
 import ru.tinkoff.piapi.core.models.Positions;
 
+import javax.annotation.Nullable;
+import java.math.BigDecimal;
+import java.time.Instant;
+import java.time.OffsetDateTime;
+import java.util.Date;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.TreeMap;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.stream.Collectors;
 
 import static com.github.shk0da.GoldenDragon.config.MainConfig.dateTimeFormat;
 import static com.github.shk0da.GoldenDragon.dictionary.CurrenciesDictionary.getTickerName;
@@ -169,7 +169,7 @@ public class TCSService {
 
         int value = 0;
         double tickerPrice = 0.0;
-        for (Map.Entry<Double, Integer> bid : getCurrentPrices(key).get("bids").entrySet()) {
+        for (Map.Entry<Double, Integer> bid : getCurrentPrices(key, false).get("bids").entrySet()) {
             switch (type) {
                 case FEATURE:
                     tickerPrice = (bid.getKey() * 1000) * 0.4; // обеспечения составляет 10-40%
@@ -276,7 +276,7 @@ public class TCSService {
 
         int value = 0;
         double tickerPrice = 0.0;
-        for (Map.Entry<Double, Integer> ask : getCurrentPrices(key).get("asks").entrySet()) {
+        for (Map.Entry<Double, Integer> ask : getCurrentPrices(key, false).get("asks").entrySet()) {
             switch (type) {
                 case FEATURE:
                     tickerPrice = (ask.getKey() * 1000) * 0.4; // обеспечения составляет 10-40%
@@ -683,6 +683,10 @@ public class TCSService {
 
     public double getAvailablePrice(String name, TickerType type, int count, String glassType) {
         return getAvailablePrice(new TickerInfo.Key(name, type), count, glassType, true);
+    }
+
+    public double getAvailablePrice(String name, TickerType type, int count, String glassType, boolean isPrintGlass) {
+        return getAvailablePrice(new TickerInfo.Key(name, type), count, glassType, isPrintGlass);
     }
 
     public double getAvailablePrice(TickerInfo.Key key, int count, boolean isPrintGlass) {

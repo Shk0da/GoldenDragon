@@ -11,6 +11,9 @@ import com.github.shk0da.GoldenDragon.repository.TickerRepository;
 import com.github.shk0da.GoldenDragon.service.TCSService;
 import com.github.shk0da.GoldenDragon.utils.GerchikUtils;
 import com.github.shk0da.GoldenDragon.utils.IndicatorsUtil;
+import ru.tinkoff.piapi.contract.v1.CandleInterval;
+import ru.tinkoff.piapi.contract.v1.HistoricCandle;
+
 import java.io.File;
 import java.io.IOException;
 import java.sql.Timestamp;
@@ -33,9 +36,6 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
-import ru.tinkoff.piapi.contract.v1.CandleInterval;
-import ru.tinkoff.piapi.contract.v1.HistoricCandle;
-
 
 import static com.github.shk0da.GoldenDragon.model.TickerType.FEATURE;
 import static com.github.shk0da.GoldenDragon.service.TelegramNotifyService.telegramNotifyService;
@@ -291,7 +291,7 @@ public class LevelTrader {
                 var expectedYield = currentPosition.getExpectedYield();
                 var positionPrice = currentPosition.getAveragePositionPrice();
                 if (currentPositionBalance > 0 && (expectedYield > tpPercent || expectedYield < ((-1) * slPercent))) {
-                    var currentPrice = tcsService.getAvailablePrice(name, type, count, "bids");
+                    var currentPrice = tcsService.getAvailablePrice(name, type, count, "bids", false);
                     expectedYield = (currentPrice - positionPrice) / positionPrice * 100;
                     var expectedYieldMessage = name + ": " + String.format("%,.2f%s", expectedYield, "%");
                     if (expectedYield > tpPercent && levelTraderConfig.isTpEnabled() && !levelTraderConfig.isTpAuto()) {
@@ -312,7 +312,7 @@ public class LevelTrader {
                     }
                 }
                 if (currentPositionBalance < 0 && (expectedYield > tpPercent || expectedYield < ((-1) * slPercent))) {
-                    var currentPrice = tcsService.getAvailablePrice(name, type, count, "asks");
+                    var currentPrice = tcsService.getAvailablePrice(name, type, count, "asks", false);
                     expectedYield = (positionPrice - currentPrice) / currentPrice * 100;
                     var expectedYieldMessage = name + ": " + String.format("%,.2f%s", expectedYield, "%");
                     if (expectedYield > tpPercent && levelTraderConfig.isTpEnabled() && !levelTraderConfig.isTpAuto()) {
