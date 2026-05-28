@@ -439,10 +439,8 @@ public class UnifiedStrategy {
                     : decide(name, candles, currentPosition, balance);
             log("Decision for " + name + ": " + decision.action + " (" + decision.reason + ")");
 
-            if (decision.updatedPosition != null) {
-                if ("HOLD".equals(decision.action) && currentPosition.quantity > 0) {
-                    positionStore.put(name, decision.updatedPosition);
-                }
+            if (decision.updatedPosition != null && "HOLD".equals(decision.action)) {
+                positionStore.put(name, decision.updatedPosition);
             }
 
             if ("OPEN".equals(decision.action)) {
