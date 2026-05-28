@@ -74,7 +74,6 @@ public class UnifiedStrategy {
 
     private final Map<String, Long> tickerCooldown = new ConcurrentHashMap<>();
     private final Map<String, Position> positionStore = new ConcurrentHashMap<>();
-
     private final Map<String, String> lastSeenHourBarByTicker = new ConcurrentHashMap<>();
 
     private final BadWeatherFilter badWeatherFilter;
@@ -242,7 +241,6 @@ public class UnifiedStrategy {
         }
 
         UnifiedTraderConfig.TickerParams tpCfg = unifiedTraderConfig.getTickerParams(ticker);
-
         if (!tpCfg.enabled) {
             return new TradingDecision("HOLD", "ticker_disabled");
         }
@@ -250,11 +248,7 @@ public class UnifiedStrategy {
         Candle cur = minuteCandles.get(minuteCandles.size() - 1);
         Position p = position;
         Group grp = Group.valueOf(unifiedTraderConfig.getTickerGroup(ticker));
-        boolean useMinuteCandles = tpCfg.useMinuteCandles;
 
-        // Инкремент candlesHeld вынесен в decide() для корректной работы в бэктесте.
-        // В live-режиме incrementCandlesHeld = true только при смене часа.
-        // В бэктесте incrementCandlesHeld = true только при смене часа.
         if (position.quantity > 0 && incrementCandlesHeld) {
             p = new Position(
                     position.direction,
@@ -308,7 +302,6 @@ public class UnifiedStrategy {
 
                 if (pnlAtr >= 0.5 * trMult) {
                     double beSl = "BUY".equals(dir) ? ep + atr * 0.08 : ep - atr * 0.08;
-
                     if ("BUY".equals(dir) && (p.stopLoss != null ? p.stopLoss : 0.0) < beSl) {
                         p = new Position(p.direction, p.entryPrice, beSl, p.takeProfit,
                                 p.quantity, p.candlesHeld, p.cooldownRemaining);
@@ -317,7 +310,6 @@ public class UnifiedStrategy {
 
                 if (pnlAtr >= 1.0 * trMult) {
                     double trailSl = cur.close - atr * 0.35;
-
                     if ("BUY".equals(dir) && trailSl > (p.stopLoss != null ? p.stopLoss : 0.0)) {
                         p = new Position(p.direction, p.entryPrice, trailSl, p.takeProfit,
                                 p.quantity, p.candlesHeld, p.cooldownRemaining);
@@ -326,7 +318,6 @@ public class UnifiedStrategy {
 
                 if (pnlAtr >= 1.8 * trMult) {
                     double tightTrail = cur.close - atr * 0.20;
-
                     if ("BUY".equals(dir) && tightTrail > (p.stopLoss != null ? p.stopLoss : 0.0)) {
                         p = new Position(p.direction, p.entryPrice, tightTrail, p.takeProfit,
                                 p.quantity, p.candlesHeld, p.cooldownRemaining);
@@ -342,7 +333,7 @@ public class UnifiedStrategy {
                             p.quantity, p.candlesHeld, p.cooldownRemaining - 1));
         }
 
-        if (position.quantity > 0) {
+        if (p.quantity > 0) {
             return new TradingDecision("HOLD", "in_pos", 0.0, 0, null, null, null, p);
         }
 
@@ -412,11 +403,9 @@ public class UnifiedStrategy {
         }
 
         double entry = cur.close;
-
         if (minuteCandles.size() >= 3) {
             Candle prev1 = minuteCandles.get(minuteCandles.size() - 2);
             Candle prev2 = minuteCandles.get(minuteCandles.size() - 3);
-
             boolean pullbackBuy = cur.close < prev1.close && cur.close > prev2.low;
             if (pullbackBuy) {
                 entry = Math.min(cur.open, cur.close);
@@ -741,7 +730,6 @@ public class UnifiedStrategy {
             minusDM[i] = (dn > up && dn > 0) ? dn : 0.0;
         }
 
-        // Wilder smoothing для TR / +DM / -DM
         double trS = 0.0, pdmS = 0.0, mdmS = 0.0;
         for (int i = 1; i <= period; i++) {
             trS += tr[i];
@@ -774,7 +762,6 @@ public class UnifiedStrategy {
             }
         }
 
-        // ADX = Wilder smoothing of DX
         if (n < 2 * period) return dx[n - 1];
 
         double adxSum = 0.0;
@@ -846,7 +833,6 @@ public class UnifiedStrategy {
             }
 
             Position storedPosition = positionStore.getOrDefault(name, new Position());
-            Position currentPosition = storedPosition;
 
             boolean hourChanged = false;
             if (storedPosition.quantity > 0) {
@@ -861,16 +847,11 @@ public class UnifiedStrategy {
                 lastSeenHourBarByTicker.remove(name);
             }
 
-            double balance;
-            if (allocatedBalance > 0.0) {
-                balance = allocatedBalance;
-            } else {
-                balance = tcsService.getAvailableCash();
-            }
+            double balance = allocatedBalance > 0.0 ? allocatedBalance : tcsService.getAvailableCash();
 
             TradingDecision decision = useMinCandles
-                    ? decide(name, candles, minuteCandles, currentPosition, balance, hourChanged)
-                    : decide(name, candles, candles, currentPosition, balance, hourChanged);
+                    ? decide(name, candles, minuteCandles, storedPosition, balance, hourChanged)
+                    : decide(name, candles, candles, storedPosition, balance, hourChanged);
 
             if (decision.updatedPosition != null && "HOLD".equals(decision.action)) {
                 positionStore.put(name, decision.updatedPosition);
@@ -883,8 +864,7 @@ public class UnifiedStrategy {
                     return;
                 }
 
-                boolean isBuy = "BUY".equals(decision.updatedPosition.direction);
-                if (!isBuy) {
+                if (!"BUY".equals(decision.updatedPosition.direction)) {
                     log("Short is disabled for " + name + ", skipping SELL.");
                     return;
                 }
@@ -945,8 +925,7 @@ public class UnifiedStrategy {
                     telegramNotifyService.sendMessage("UnifiedStrategy CLOSED " + name +
                             " (reason: " + decision.reason + ")");
                 } else {
-                    log("Failed to close position for " + name +
-                            " (may not exist in broker account)");
+                    log("Failed to close position for " + name + " (may not exist in broker account)");
                 }
             }
         } catch (Exception ex) {
@@ -1058,7 +1037,8 @@ public class UnifiedStrategy {
     private boolean isWorkingHours() {
         var calendar = new GregorianCalendar();
         var hour = calendar.get(Calendar.HOUR_OF_DAY);
-        return hour == 21 || hour >= 22;
+        var minute = calendar.get(Calendar.MINUTE);
+        return hour < 21 || (hour == 21 && minute == 0);
     }
 
     private void throttleApiCall() {
@@ -1133,12 +1113,13 @@ public class UnifiedStrategy {
             Path dir = Paths.get(dataDir, name);
             Files.createDirectories(dir);
             Path filePath = dir.resolve(fileName);
-            
-            // Читаем существующие свечи из файла
+
             Set<String> existingTimestamps = new HashSet<>();
-            if (Files.exists(filePath)) {
+            boolean fileExists = Files.exists(filePath);
+
+            if (fileExists) {
                 try (BufferedReader reader = Files.newBufferedReader(filePath)) {
-                    String line = reader.readLine(); // Пропускаем заголовок
+                    String line = reader.readLine();
                     while ((line = reader.readLine()) != null) {
                         String[] parts = line.split(",");
                         if (parts.length > 0) {
@@ -1147,16 +1128,13 @@ public class UnifiedStrategy {
                     }
                 }
             }
-            
-            // Записываем только новые свечи
+
             try (FileWriter writer = new FileWriter(filePath.toFile(), true)) {
-                // Если файл новый, записываем заголовок
-                if (!Files.exists(filePath) || Files.size(filePath) == 0) {
+                if (!fileExists || Files.size(filePath) == 0) {
                     writer.write("Datetime,Open,High,Low,Close,Volume" + System.lineSeparator());
                 }
-                
+
                 for (Candle c : candles) {
-                    // Добавляем только свечи, которых еще нет в файле
                     if (!existingTimestamps.contains(c.time)) {
                         writer.write(String.format(
                                 "%s,%s,%s,%s,%s,%s",
@@ -1175,12 +1153,14 @@ public class UnifiedStrategy {
     }
 
     private static void shutdownExecutor(ExecutorService executor) {
+        executor.shutdown();
         try {
             if (!executor.awaitTermination(5, TimeUnit.SECONDS)) {
                 executor.shutdownNow();
             }
         } catch (InterruptedException skip) {
             executor.shutdownNow();
+            Thread.currentThread().interrupt();
         }
     }
 }
