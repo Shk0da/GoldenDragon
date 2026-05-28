@@ -59,6 +59,12 @@ public class UnifiedStrategy {
     private static final long COOLDOWN_DURATION_MS = 5 * 60 * 1000L;
     private final Map<String, Long> tickerCooldown = new ConcurrentHashMap<>();
 
+    /**
+     * Хранилище состояний позиций по тикерам.
+     * Обеспечивает корректную работу trailing stop, candlesHeld, cooldown.
+     */
+    private final Map<String, Position> positionStore = new ConcurrentHashMap<>();
+
     private static final long API_CALL_DELAY_MS = 100;
     private static final Object API_LOCK = new Object();
     private static long lastApiCallTime = 0;
@@ -194,7 +200,7 @@ public class UnifiedStrategy {
         switch (grp) {
             case FX: signal = fxSignal(hourCandles, minuteCandles); break;
             case MIXED: signal = mixedSignal(hourCandles, minuteCandles); break;
-            default: signal = trendSignal(hourCandles, minuteCandles);
+            default: signal = trendSignal(hourCandles);
         }
         if (signal == null)
             return new TradingDecision("HOLD", "noSig", 0.0, 0, null, null, null, p);
@@ -426,39 +432,89 @@ public class UnifiedStrategy {
                 }
             }
 
+            Position currentPosition = positionStore.getOrDefault(name, new Position());
+            double balance = tcsService.getAvailableCash();
             TradingDecision decision = useMinCandles
-                    ? decide(name, candles, minuteCandles, new Position(), 1_000_000.0)
-                    : decide(name, candles, new Position(), 1_000_000.0);
+                    ? decide(name, candles, minuteCandles, currentPosition, balance)
+                    : decide(name, candles, currentPosition, balance);
             log("Decision for " + name + ": " + decision.action + " (" + decision.reason + ")");
 
-            if ("OPEN".equals(decision.action)) {
-                double entryPrice = decision.entryPrice != null ? decision.entryPrice : candles.get(candles.size() - 1).close;
-                double slPrice, tpPrice;
-                boolean isBuy = decision.updatedPosition != null && "BUY".equals(decision.updatedPosition.direction);
-                if (isBuy) {
-                    slPrice = decision.stopLoss != null ? decision.stopLoss : entryPrice * 0.98;
-                    tpPrice = decision.takeProfit != null ? decision.takeProfit : entryPrice * 1.04;
-                } else {
-                    slPrice = decision.stopLoss != null ? decision.stopLoss : entryPrice * 1.02;
-                    tpPrice = decision.takeProfit != null ? decision.takeProfit : entryPrice * 0.96;
+            if (decision.updatedPosition != null) {
+                if ("HOLD".equals(decision.action) && currentPosition.quantity > 0) {
+                    positionStore.put(name, decision.updatedPosition);
                 }
+            }
+
+            if ("OPEN".equals(decision.action)) {
+                if (decision.updatedPosition == null || decision.quantity <= 0) {
+                    log("Invalid OPEN decision for " + name + ", skipping.");
+                    return;
+                }
+
+                double entryPrice = decision.entryPrice != null ? decision.entryPrice : candles.get(candles.size() - 1).close;
+                int qty = decision.quantity;
+                boolean isBuy = "BUY".equals(decision.updatedPosition.direction);
+
+                double positionValue = qty * entryPrice;
+
+                double slPrice = decision.stopLoss != null ? decision.stopLoss :
+                        (isBuy ? entryPrice * 0.98 : entryPrice * 1.02);
+                double tpPrice = decision.takeProfit != null ? decision.takeProfit :
+                        (isBuy ? entryPrice * 1.04 : entryPrice * 0.96);
+
                 double slPercent = Math.abs(entryPrice - slPrice) / entryPrice * 100;
                 double tpPercent = Math.abs(tpPrice - entryPrice) / entryPrice * 100;
 
                 log("Opening " + (isBuy ? "BUY" : "SELL") + " for " + name
-                        + " at " + entryPrice + ", SL: " + String.format("%.2f", slPercent)
+                        + ": qty=" + qty + ", entry=" + entryPrice
+                        + ", value=" + positionValue
+                        + ", SL: " + String.format("%.2f", slPercent)
                         + "%, TP: " + String.format("%.2f", tpPercent) + "%");
 
                 if (isBuy) {
                     throttleApiCall();
-                    tcsService.buyByMarket(name, ticker.getType(), unifiedTraderConfig.getAveragePositionCost(), tpPercent, slPercent);
+                    tcsService.buyByMarket(name, ticker.getType(), positionValue, tpPercent, slPercent);
                 } else {
                     throttleApiCall();
-                    tcsService.sellByMarket(name, ticker.getType(), unifiedTraderConfig.getAveragePositionCost(), tpPercent, slPercent);
+                    tcsService.sellByMarket(name, ticker.getType(), positionValue, tpPercent, slPercent);
                 }
+
+                positionStore.put(name, decision.updatedPosition);
+
                 telegramNotifyService.sendMessage("UnifiedStrategy " + (isBuy ? "BUY" : "SELL") + " " + name
-                        + " at " + entryPrice + ", SL: " + String.format("%.2f", slPercent)
+                        + ": qty=" + qty + ", entry=" + entryPrice
+                        + ", SL: " + String.format("%.2f", slPercent)
                         + "%, TP: " + String.format("%.2f", tpPercent) + "%");
+            }
+
+            if ("CLOSE".equals(decision.action)) {
+                if (currentPosition.quantity <= 0) {
+                    log("CLOSE decision but no position for " + name + ", skipping.");
+                    return;
+                }
+
+                log("Closing position for " + name + ": " + currentPosition.quantity +
+                        " shares, direction=" + currentPosition.direction +
+                        ", reason=" + decision.reason);
+
+                boolean closed = false;
+                if ("BUY".equals(currentPosition.direction)) {
+                    // Для длинной позиции - продаем
+                    closed = tcsService.closeLongByMarket(name, ticker.getType());
+                } else if ("SELL".equals(currentPosition.direction)) {
+                    // Для короткой позиции - покупаем (покрытие)
+                    closed = tcsService.closeShortByMarket(name, ticker.getType());
+                }
+
+                if (closed) {
+                    // Сбрасываем позицию в хранилище с cooldown
+                    positionStore.put(name, new Position(config.cooldownCandles));
+                    telegramNotifyService.sendMessage("UnifiedStrategy CLOSED " + name +
+                            " (reason: " + decision.reason + ")");
+                } else {
+                    log("Failed to close position for " + name +
+                            " (may not exist in broker account)");
+                }
             }
         } catch (Exception ex) {
             long cooldownExpiry = System.currentTimeMillis() + COOLDOWN_DURATION_MS;
@@ -469,7 +525,7 @@ public class UnifiedStrategy {
         }
     }
 
-    public String trendSignal(List<Candle> candles, List<Candle> minuteCandles) {
+    public String trendSignal(List<Candle> candles) {
         if (candles.size() < 60) return null;
         Candle cur = candles.get(candles.size() - 1);
         double p = cur.close;
