@@ -79,6 +79,8 @@ public abstract class BaseStrategy {
     protected final Map<String, String> lastSeenHourBarByTicker = new ConcurrentHashMap<>();
     protected volatile Map<String, List<Candle>> peerCandles = new ConcurrentHashMap<>();
 
+    protected static final int MAX_CONCURRENT_POSITIONS = 8; // Максимум 8 одновременных позиций
+    
     protected BaseStrategy(UnifiedTraderConfig unifiedTraderConfig, TCSService tcsService) {
         this(unifiedTraderConfig, tcsService, new Config());
     }
@@ -310,8 +312,18 @@ public abstract class BaseStrategy {
             return;
         }
 
-        if (!"BUY".equals(decision.updatedPosition.direction)) {
-            log("Short is disabled for " + name + ", skipping SELL.");
+        if (!"BUY".equals(decision.updatedPosition.direction) && !"SELL".equals(decision.updatedPosition.direction)) {
+            log("Invalid direction for " + name + ", skipping.");
+            return;
+        }
+
+        // Проверяем максимальное количество одновременных позиций
+        long currentPositionCount = positionStore.values().stream()
+                .filter(pos -> pos.quantity > 0)
+                .count();
+                
+        if (currentPositionCount >= MAX_CONCURRENT_POSITIONS) {
+            log("Maximum concurrent positions reached (" + MAX_CONCURRENT_POSITIONS + "), skipping " + name);
             return;
         }
 
@@ -322,13 +334,15 @@ public abstract class BaseStrategy {
         int qty = decision.quantity;
         double positionValue = qty * entryPrice;
 
-        double slPrice = decision.stopLoss != null ? decision.stopLoss : entryPrice * 0.98;
-        double tpPrice = decision.takeProfit != null ? decision.takeProfit : entryPrice * 1.04;
+        double slPrice = decision.stopLoss != null ? decision.stopLoss : 
+            ("BUY".equals(decision.updatedPosition.direction) ? entryPrice * 0.98 : entryPrice * 1.02);
+        double tpPrice = decision.takeProfit != null ? decision.takeProfit : 
+            ("BUY".equals(decision.updatedPosition.direction) ? entryPrice * 1.04 : entryPrice * 0.96);
 
         double slPercent = abs(entryPrice - slPrice) / entryPrice * 100;
         double tpPercent = abs(tpPrice - entryPrice) / entryPrice * 100;
 
-        log("Opening BUY for " + name
+        log("Opening " + decision.updatedPosition.direction + " for " + name
                 + ": qty=" + qty
                 + ", entry=" + entryPrice
                 + ", value=" + positionValue
@@ -337,19 +351,23 @@ public abstract class BaseStrategy {
 
         try {
             throttleApiCall();
-            tcsService.buyByMarket(name, ticker.getType(), positionValue, tpPercent, slPercent);
+            if ("BUY".equals(decision.updatedPosition.direction)) {
+                tcsService.buyByMarket(name, ticker.getType(), positionValue, tpPercent, slPercent);
+            } else { // SELL
+                tcsService.sellByMarket(name, ticker.getType(), positionValue, tpPercent, slPercent);
+            }
 
             positionStore.put(name, decision.updatedPosition);
             lastSeenHourBarByTicker.put(name, candles.get(candles.size() - 1).time);
 
-            telegramNotifyService.sendMessage(getStrategyName() + " BUY " + name
+            telegramNotifyService.sendMessage(getStrategyName() + " " + decision.updatedPosition.direction + " " + name
                     + ": qty=" + qty
                     + ", entry=" + entryPrice
                     + ", SL=" + String.format("%.2f", slPercent) + "%"
                     + ", TP=" + String.format("%.2f", tpPercent) + "%");
         } catch (Exception ex) {
-            log("Failed to open BUY for " + name + ": " + ex.getMessage());
-            telegramNotifyService.sendMessage(getStrategyName() + " FAILED BUY " + name + ": " + ex.getMessage());
+            log("Failed to open " + decision.updatedPosition.direction + " for " + name + ": " + ex.getMessage());
+            telegramNotifyService.sendMessage(getStrategyName() + " FAILED " + decision.updatedPosition.direction + " " + name + ": " + ex.getMessage());
         }
     }
 
@@ -368,6 +386,9 @@ public abstract class BaseStrategy {
         if ("BUY".equals(storedPosition.direction)) {
             throttleApiCall();
             closed = tcsService.closeLongByMarket(name, ticker.getType());
+        } else if ("SELL".equals(storedPosition.direction)) {
+            throttleApiCall();
+            closed = tcsService.closeShortByMarket(name, ticker.getType());
         }
 
         if (closed) {
@@ -570,6 +591,8 @@ public abstract class BaseStrategy {
                 boolean closed = false;
                 if ("BUY".equals(position.direction)) {
                     closed = tcsService.closeLongByMarket(tickerName, ticker.getType());
+                } else if ("SELL".equals(position.direction)) {
+                    closed = tcsService.closeShortByMarket(tickerName, ticker.getType());
                 }
 
                 if (closed) {
