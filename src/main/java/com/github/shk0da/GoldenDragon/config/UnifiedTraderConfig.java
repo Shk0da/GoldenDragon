@@ -28,16 +28,19 @@ public class UnifiedTraderConfig {
         public final double marketRegimeConfidenceMin;
         public final int marketRegimeAtrBars;
         public final BadWeatherFilter.Params badWeatherParams;
+        public final boolean enabled;
+        public final double allocationWeight;
 
         public TickerParams(String group, double slMult, double tpMult, double riskP, boolean useMinuteCandles) {
-            this(group, slMult, tpMult, riskP, useMinuteCandles, "", 20.0, 25.0, 30.0, 50.0, 4, new BadWeatherFilter.Params());
+            this(group, slMult, tpMult, riskP, useMinuteCandles, "", 20.0, 25.0, 30.0, 50.0, 4, new BadWeatherFilter.Params(), true, 1.5);
         }
 
         public TickerParams(String group, double slMult, double tpMult, double riskP, boolean useMinuteCandles,
                             String allocationGroup,
                             double marketRegimeAdxRangeThreshold, double marketRegimeAdxUnclearThreshold,
                             double marketRegimeVolumeRatioMin, double marketRegimeConfidenceMin,
-                            int marketRegimeAtrBars, BadWeatherFilter.Params badWeatherParams) {
+                            int marketRegimeAtrBars, BadWeatherFilter.Params badWeatherParams,
+                            boolean enabled, double allocationWeight) {
             this.group = group;
             this.slMult = slMult;
             this.tpMult = tpMult;
@@ -50,6 +53,8 @@ public class UnifiedTraderConfig {
             this.marketRegimeConfidenceMin = marketRegimeConfidenceMin;
             this.marketRegimeAtrBars = marketRegimeAtrBars;
             this.badWeatherParams = badWeatherParams;
+            this.enabled = enabled;
+            this.allocationWeight = allocationWeight;
         }
     }
 
@@ -128,9 +133,12 @@ public class UnifiedTraderConfig {
                 panicVolumeThreshold, minAvgDailyVolume, atrSpikeThreshold
         );
 
+        boolean enabled = Boolean.parseBoolean(properties.getProperty(prefix + "enabled", "true"));
+        double allocationWeight = Double.parseDouble(properties.getProperty(prefix + "allocationWeight", "1.0"));
+
         return new TickerParams(group, slMult, tpMult, riskP, useMinuteCandles, allocationGroup,
                 adxRangeThreshold, adxUnclearThreshold, volumeRatioMin, confidenceMin, atrBars,
-                badWeatherParams);
+                badWeatherParams, enabled, allocationWeight);
     }
 
     private String getGroupDefault(Properties properties, String group, String field, String defaultValue) {

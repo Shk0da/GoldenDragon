@@ -57,6 +57,6 @@ Your main goal is to ensure that the UnifiedStrategy strategy has a PnL of > 10%
 - Ordinary comments in code: start with lowercase, no period at the end.
 
 ## Commands
-- Run backtest strategies: `./gradlew runBacktest`
+- Run backtest strategies: `./gradlew clean runBacktest`
 - Full build: `./gradlew clean uberJar`
 - Run Strategy `./gradlew runStrategy -Pstrategy=UnifiedStrategy`
