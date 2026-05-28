@@ -5,6 +5,7 @@ import com.github.shk0da.GoldenDragon.model.Candle;
 import com.github.shk0da.GoldenDragon.model.Position;
 import com.github.shk0da.GoldenDragon.model.TradingDecision;
 import com.github.shk0da.GoldenDragon.strategy.UnifiedStrategy;
+import com.github.shk0da.GoldenDragon.utils.PropertiesUtils;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -12,9 +13,13 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collections;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Properties;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 public class BacktestRunner {
@@ -44,14 +49,16 @@ public class BacktestRunner {
         public final double exit;
         public final double pnl;
         public final String reason;
+        public final String time;
 
-        public TradeResult(String ticker, String dir, double entry, double exit, double pnl, String reason) {
+        public TradeResult(String ticker, String dir, double entry, double exit, double pnl, String reason, String time) {
             this.ticker = ticker;
             this.dir = dir;
             this.entry = entry;
             this.exit = exit;
             this.pnl = pnl;
             this.reason = reason;
+            this.time = time;
         }
     }
 
@@ -63,7 +70,7 @@ public class BacktestRunner {
     private final double commission;
 
     public BacktestRunner() {
-        this("data", "2022-03-01", "2026-05-01", 1_000_000.0, 100, 0.0005);
+        this("data", "2025-05-01", "2026-05-01", 1_000_000.0, 100, 0.0005);
     }
 
     public BacktestRunner(String dataDir, String startDate, String endDate, double initialBalance, int sharesPerTrade, double commission) {
@@ -80,17 +87,122 @@ public class BacktestRunner {
     }
 
     public void run() throws IOException {
+        String[][] periods = {
+                {"2022-03-01", "2026-05-01", "Full"},
+                {"2022-01-01", "2024-12-31", "2022"},
+                {"2023-01-01", "2024-12-31", "2023"},
+                {"2024-01-01", "2024-12-31", "2024"},
+                {"2025-01-01", "2024-12-31", "2025"},
+                {"2024-07-01", "2024-09-30", "Q3 2024"},
+                {"2025-07-01", "2025-09-30", "Q3 2025"},
+                {"2026-01-01", "2026-02-01", "Jan 2026"},
+                {"2026-02-01", "2026-03-01", "Feb 2026"},
+                {"2026-04-01", "2026-04-01", "Mar 2026"},
+                {"2026-04-01", "2026-05-01", "Apr 2026"},
+        };
+
+        List<String> periodLabels = new ArrayList<>();
+        Map<String, Map<String, List<TradeResult>>> allData = new LinkedHashMap<>();
+        List<String> allTickers = new ArrayList<>();
+
+        for (String[] p : periods) {
+            String label = p[2];
+            periodLabels.add(label);
+            System.out.println("\n" + "=".repeat(90));
+            System.out.println("ПЕРИОД: " + label + " (" + p[0] + " - " + p[1] + ")");
+            System.out.println("=".repeat(90));
+            Map<String, List<TradeResult>> tickerTrades = execute(p[0], p[1]);
+            allData.put(label, tickerTrades);
+            for (String t : tickerTrades.keySet()) {
+                if (!allTickers.contains(t)) allTickers.add(t);
+            }
+        }
+
+        System.out.println("\n" + "=".repeat(90));
+        System.out.println("СРАВНЕНИЕ ПРОСАДОК ПО ПЕРИОДАМ");
+        System.out.println("=".repeat(90));
+
+        StringBuilder header = new StringBuilder();
+        header.append(String.format("%-10s", "Тикер"));
+        for (int i = 0; i < periodLabels.size(); i++) {
+            if (periodLabels.get(i).equals("Full")) continue;
+            header.append(String.format(" %12s", periodLabels.get(i)));
+        }
+        System.out.println(header);
+        System.out.println("-".repeat(header.length()));
+
+        for (String ticker : allTickers) {
+            StringBuilder row = new StringBuilder();
+            row.append(String.format("%-10s", ticker));
+            for (String label : periodLabels) {
+                if (label.equals("Full")) continue;
+                Map<String, List<TradeResult>> tickerData = allData.get(label);
+                List<TradeResult> trades = tickerData != null ? tickerData.get(ticker) : null;
+                if (trades == null || trades.isEmpty()) {
+                    row.append(String.format(" %12s", "—"));
+                } else {
+                    double dd = calcMaxDrawdown(trades) * 100;
+                    row.append(String.format(" %8s", String.format("%.1f%%", dd)));
+                    String risk = assessRisk(dd, 0);
+                    if ("Med".equals(risk)) row.append("⚠");
+                    else if ("High".equals(risk)) row.append("🔥");
+                    else row.append("  ");
+                }
+            }
+            System.out.println(row);
+        }
+
+        System.out.println("-".repeat(header.length()));
+        StringBuilder portRow = new StringBuilder();
+        portRow.append(String.format("%-10s", "ПОРТФЕЛЬ"));
+        for (String label : periodLabels) {
+            if (label.equals("Full")) continue;
+            Map<String, List<TradeResult>> tickerData = allData.get(label);
+            List<TradeResult> allPeriodTrades = tickerData != null
+                    ? tickerData.values().stream().flatMap(List::stream).collect(Collectors.toList())
+                    : Collections.emptyList();
+            if (allPeriodTrades.isEmpty()) {
+                portRow.append(String.format(" %12s", "—"));
+            } else {
+                List<TradeResult> sorted = sortByTime(allPeriodTrades);
+                double dd = calcMaxDrawdown(sorted) * 100;
+                portRow.append(String.format(" %8s", String.format("%.1f%%", dd)));
+                String risk = assessRisk(dd, 0);
+                if ("Med".equals(risk)) portRow.append("⚠");
+                else if ("High".equals(risk)) portRow.append("🔥");
+                else portRow.append("  ");
+            }
+        }
+        System.out.println(portRow);
+    }
+
+    private List<String> loadTickers() throws IOException {
+        Properties props = PropertiesUtils.loadProperties();
+        Set<String> tickers = new LinkedHashSet<>();
+        for (String s : props.getProperty("datacollector.stocks", "").split(",")) {
+            String t = s.trim();
+            if (!t.isEmpty()) tickers.add(t);
+        }
+        for (String key : props.stringPropertyNames()) {
+            if (key.startsWith("unifiedTrader.ticker.")) {
+                String ticker = key.split("\\.")[2];
+                tickers.add(ticker);
+            }
+        }
+        return new ArrayList<>(tickers);
+    }
+
+    private Map<String, List<TradeResult>> execute(String start, String end) throws IOException {
+        List<String> tickers = loadTickers();
         System.out.println("================================================================================");
         System.out.println("БЭКТЕСТ: UnifiedStrategy");
-        System.out.println("Период: " + startDate + " - " + endDate);
+        System.out.println("Период: " + start + " - " + end);
         System.out.println("Начальный баланс: " + String.format("%,.0f", initialBalance));
         System.out.println("================================================================================");
 
-        List<String> tickers = Arrays.asList("CNYRUBF", "GAZPF", "GLDRUBF", "IMOEXF", "LKOH", "MTSS", "NVTK", "ROSN", "SBERF", "USDRUBF");
-        List<TradeResult> uniTrades = new ArrayList<>();
-
+        Map<String, List<TradeResult>> tickerResults = new LinkedHashMap<>();
         for (String ticker : tickers) {
-            List<RawCandle> hourCandles = loadCandles(ticker);
+            List<RawCandle> hourCandles = loadCandles(ticker, start, end);
             if (hourCandles.size() < 100) {
                 System.out.println("\n" + ticker + ": нет данных");
                 continue;
@@ -101,7 +213,7 @@ public class BacktestRunner {
 
             List<RawCandle> minuteCandles;
             if (useMinCandles) {
-                minuteCandles = loadCandles5Min(ticker);
+                minuteCandles = loadCandles5Min(ticker, start, end);
                 if (minuteCandles.isEmpty()) {
                     System.out.println("\n" + ticker + ": нет данных");
                     continue;
@@ -111,11 +223,14 @@ public class BacktestRunner {
             }
 
             List<TradeResult> uniTradesForTicker = simulateUnified(unifiedStrategy, ticker, hourCandles, minuteCandles);
-            uniTrades.addAll(uniTradesForTicker);
+            tickerResults.put(ticker, uniTradesForTicker);
 
             System.out.println("\n" + ticker + ":");
             printTickerDetails("UNI", uniTradesForTicker);
         }
+
+        List<TradeResult> allTrades = tickerResults.values().stream().flatMap(List::stream).collect(Collectors.toList());
+        List<TradeResult> portfolioTrades = sortByTime(allTrades);
 
         System.out.println("\n" + "=".repeat(90));
         System.out.println("СВОДНАЯ ТАБЛИЦА");
@@ -124,24 +239,39 @@ public class BacktestRunner {
         System.out.println("-".repeat(67));
 
         for (String ticker : tickers) {
-            List<TradeResult> uni = uniTrades.stream().filter(t -> t.ticker.equals(ticker)).collect(Collectors.toList());
+            List<TradeResult> uni = tickerResults.getOrDefault(ticker, Collections.emptyList());
             if (uni.isEmpty()) continue;
             printTradeLine(ticker, "UNI", uni);
         }
 
         System.out.println("-".repeat(67));
-        printTradeLine("UNI", "UNI", uniTrades);
+        printTradeLine("ПОРТФЕЛЬ", "UNI", portfolioTrades);
         System.out.println("-".repeat(67));
 
-        double uniPnl = uniTrades.stream().mapToDouble(t -> t.pnl).sum();
-        double uniWr = uniTrades.isEmpty() ? 0.0 : (double) uniTrades.stream().filter(t -> t.pnl > 0).count() / uniTrades.size() * 100;
+        double uniPnl = allTrades.stream().mapToDouble(t -> t.pnl).sum();
+        double uniWr = allTrades.isEmpty() ? 0.0 : (double) allTrades.stream().filter(t -> t.pnl > 0).count() / allTrades.size() * 100;
 
         System.out.println();
-        System.out.println("UNI: PnL=" + String.format("%,.2f", uniPnl) + " WinRate=" + String.format("%.1f", uniWr) + "% Trades=" + uniTrades.size());
+        System.out.println("UNI: PnL=" + String.format("%,.2f", uniPnl) + " WinRate=" + String.format("%.1f", uniWr) + "% Trades=" + portfolioTrades.size());
 
         double endBalanceUNI = initialBalance + uniPnl * sharesPerTrade;
         System.out.println();
         System.out.println("Конечный баланс UNI: " + String.format("%,.2f", endBalanceUNI) + " (" + String.format("%.2f", (endBalanceUNI - initialBalance) / initialBalance * 100) + "%)");
+
+        return tickerResults;
+    }
+
+    private List<TradeResult> sortByTime(List<TradeResult> trades) {
+        DateTimeFormatter fmt = DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm:ss");
+        return trades.stream()
+                .sorted((a, b) -> {
+                    try {
+                        return LocalDateTime.parse(a.time, fmt).compareTo(LocalDateTime.parse(b.time, fmt));
+                    } catch (Exception e) {
+                        return 0;
+                    }
+                })
+                .collect(Collectors.toList());
     }
 
     private void printTradeLine(String label, String strategy, List<TradeResult> trades) {
@@ -185,7 +315,7 @@ public class BacktestRunner {
         }
     }
 
-    private List<RawCandle> loadCandles(String ticker) {
+    private List<RawCandle> loadCandles(String ticker, String startDate, String endDate) {
         File file = new File(dataDir, ticker + "/candlesHOUR.txt");
         if (!file.exists()) return Collections.emptyList();
 
@@ -281,7 +411,7 @@ public class BacktestRunner {
                     String dir = entryDir;
                     int q = pos.quantity;
                     double pnl = UnifiedStrategy.calculatePnl(dir, entryPrice, exitPrice, q, commission);
-                    trades.add(new TradeResult(ticker, dir, entryPrice, exitPrice, pnl, decision.reason));
+                    trades.add(new TradeResult(ticker, dir, entryPrice, exitPrice, pnl, decision.reason, current.time));
                     pos = decision.updatedPosition != null ? decision.updatedPosition : new Position();
                     break;
                 case "HOLD":
@@ -292,7 +422,7 @@ public class BacktestRunner {
         return trades;
     }
 
-    private List<RawCandle> loadCandles5Min(String ticker) {
+    private List<RawCandle> loadCandles5Min(String ticker, String startDate, String endDate) {
         File file = new File(dataDir, ticker + "/candles5_MIN.txt");
         if (!file.exists()) return Collections.emptyList();
 
