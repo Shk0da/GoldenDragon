@@ -39,10 +39,13 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import ru.tinkoff.piapi.contract.v1.CandleInterval;
 import ru.tinkoff.piapi.contract.v1.HistoricCandle;
 
 
+import static com.github.shk0da.GoldenDragon.model.TickerType.FEATURE;
+import static com.github.shk0da.GoldenDragon.model.TickerType.STOCK;
 import static com.github.shk0da.GoldenDragon.service.TelegramNotifyService.telegramNotifyService;
 import static com.github.shk0da.GoldenDragon.utils.TimeUtils.sleep;
 import static java.lang.System.out;
@@ -137,6 +140,7 @@ public class UnifiedStrategy {
             while (isWorkingHours()) {
                 try {
                     refreshPeerCandles(activeTickers);
+                    closeAllPositions(tcsService, unifiedTraderConfig);
                 } catch (Exception ex) {
                     log("Failed to refresh peer candles: " + ex.getMessage());
                 }
@@ -160,6 +164,7 @@ public class UnifiedStrategy {
             var message = "UnifiedStrategy: Not working hours! Current Time: " + new Date() + ".";
             telegramNotifyService.sendMessage(message);
             log(message);
+            shutdownExecutor(executor);
         }
     }
 
@@ -223,18 +228,6 @@ public class UnifiedStrategy {
         if (!snapshot.isEmpty()) {
             setPeerCandles(snapshot);
         }
-    }
-
-    public TradingDecision decide(String ticker, List<Candle> candles, Position position, double balance) {
-        return decide(ticker, candles, candles, position, balance);
-    }
-
-    public TradingDecision decide(String ticker,
-                                  List<Candle> hourCandles,
-                                  List<Candle> minuteCandles,
-                                  Position position,
-                                  double balance) {
-        return decide(ticker, hourCandles, minuteCandles, position, balance, false);
     }
 
     public TradingDecision decide(String ticker,
@@ -1068,6 +1061,20 @@ public class UnifiedStrategy {
         return !(hour == 18 && minute >= 30 || hour >= 19);
     }
 
+    private boolean isEndOfDay() {
+        var calendar = new GregorianCalendar();
+        var hour = calendar.get(Calendar.HOUR_OF_DAY);
+        var minute = calendar.get(Calendar.MINUTE);
+        return (hour == 21 && minute >= 0) || hour >= 22;
+    }
+
+    private boolean isTimeToClosePositions() {
+        var calendar = new GregorianCalendar();
+        var hour = calendar.get(Calendar.HOUR_OF_DAY);
+        var minute = calendar.get(Calendar.MINUTE);
+        return (hour == 20 && minute >= 55) || (hour == 21 && minute >= 0) || hour >= 22;
+    }
+
     private void throttleApiCall() {
         synchronized (API_LOCK) {
             long waitTime = API_CALL_DELAY_MS - (System.currentTimeMillis() - lastApiCallTime);
@@ -1075,6 +1082,67 @@ public class UnifiedStrategy {
                 sleep(waitTime);
             }
             lastApiCallTime = System.currentTimeMillis();
+        }
+    }
+
+    private void closeAllPositions(TCSService tcsService, UnifiedTraderConfig unifiedTraderConfig) {
+        if (!isTimeToClosePositions()) {
+            return;
+        }
+
+        log("End-of-day reached. Closing all positions...");
+        boolean anyClosed = false;
+
+        for (Map.Entry<String, Position> entry : positionStore.entrySet()) {
+            String tickerName = entry.getKey();
+            Position position = entry.getValue();
+
+            if (position.quantity > 0) {
+                try {
+                    UnifiedTraderConfig.TickerParams tickerParams = unifiedTraderConfig.getTickerParams(tickerName);
+                    if (!tickerParams.enabled) {
+                        continue;
+                    }
+
+                    TickerInfo ticker = TickerRepository.INSTANCE.getAll().values().stream()
+                            .filter(t -> t.getType() == TickerType.STOCK || t.getType() == TickerType.FEATURE)
+                            .filter(t -> t.getName().equalsIgnoreCase(tickerName) || t.getTicker().equalsIgnoreCase(tickerName))
+                            .findFirst()
+                            .orElse(null);
+
+                    if (ticker == null) {
+                        log("Ticker " + tickerName + " not found, skipping position close.");
+                        continue;
+                    }
+
+                    log("Closing position for " + tickerName + ": " + position.quantity + " shares");
+                    throttleApiCall();
+
+                    boolean closed = false;
+                    if ("BUY".equals(position.direction)) {
+                        closed = tcsService.closeLongByMarket(tickerName, ticker.getType());
+                    }
+
+                    if (closed) {
+                        positionStore.put(tickerName, new Position(config.cooldownCandles));
+                        lastSeenHourBarByTicker.remove(tickerName);
+                        anyClosed = true;
+                        telegramNotifyService.sendMessage("UnifiedStrategy EOD CLOSED " + tickerName +
+                                " (" + position.quantity + " shares)");
+                    } else {
+                        log("Failed to close position for " + tickerName);
+                    }
+                } catch (Exception ex) {
+                    log("Error closing position for " + tickerName + ": " + ex.getMessage());
+                }
+            }
+        }
+
+        tcsService.closeAllByMarket(STOCK);
+        tcsService.closeAllByMarket(FEATURE);
+
+        if (anyClosed) {
+            log("End-of-day position closing completed.");
         }
     }
 
@@ -1122,5 +1190,15 @@ public class UnifiedStrategy {
 
     private static void log(String message) {
         out.println("[" + LOG_TIME_FORMAT.get().format(new Date()) + "] " + message);
+    }
+
+    private static void shutdownExecutor(ExecutorService executor) {
+        try {
+            if (!executor.awaitTermination(5, TimeUnit.SECONDS)) {
+                executor.shutdownNow();
+            }
+        } catch (InterruptedException skip) {
+            executor.shutdownNow();
+        }
     }
 }

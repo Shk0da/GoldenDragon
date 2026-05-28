@@ -116,11 +116,13 @@ public class BacktestRunner {
         final double pnl;
         final double dd;
         final List<EquityPoint> equityCurve;
+        final int totalTrades;
 
-        PortfolioPeriodResult(double pnl, double dd, List<EquityPoint> equityCurve) {
+        PortfolioPeriodResult(double pnl, double dd, List<EquityPoint> equityCurve, int totalTrades) {
             this.pnl = pnl;
             this.dd = dd;
             this.equityCurve = equityCurve;
+            this.totalTrades = totalTrades;
         }
     }
 
@@ -184,21 +186,21 @@ public class BacktestRunner {
                               Map<String, Map<String, TickerPeriodResult>> allData,
                               Map<String, PortfolioPeriodResult> portfolioData,
                               List<String> allTickers) {
-        System.out.println("\n" + "=".repeat(140));
+        System.out.println("\n" + "=".repeat(170));
         System.out.println("РЕЗУЛЬТАТЫ ПО ПЕРИОДАМ");
-        System.out.println("=".repeat(140));
+        System.out.println("=".repeat(170));
 
         StringBuilder header = new StringBuilder();
         header.append(String.format("%-6s", "Тикер"));
         for (String label : periodLabels) {
-            header.append(String.format(" %12s", label));
+            header.append(String.format(" %17s", label));
         }
         System.out.println(header);
 
         StringBuilder subHeader = new StringBuilder();
         subHeader.append(String.format("%-10s", ""));
         for (String ignored : periodLabels) {
-            subHeader.append(String.format(" %6s %5s", "PnL", "DD%"));
+            subHeader.append(String.format(" %6s %5s %4s", "PnL", "DD%", "Trd"));
         }
         System.out.println(subHeader);
         System.out.println("-".repeat(header.length()));
@@ -213,12 +215,13 @@ public class BacktestRunner {
                 TickerPeriodResult result = tickerData != null ? tickerData.get(ticker) : null;
 
                 if (result == null || result.trades.isEmpty()) {
-                    row.append(String.format(" %13s", "—"));
+                    row.append(String.format(" %17s", "—"));
                 } else {
                     hasAny = true;
-                    row.append(String.format(" %6s %5s",
+                    row.append(String.format(" %6s %5s %4d",
                             formatCompactPnL(result.pnl),
-                            formatCompactDD(result.dd * 100.0)));
+                            formatCompactDD(result.dd * 100.0),
+                            result.trades.size()));
                 }
             }
 
@@ -237,14 +240,15 @@ public class BacktestRunner {
             if (result == null) {
                 portRow.append(String.format(" %13s", "—"));
             } else {
-                portRow.append(String.format(" %6s %5s",
+                portRow.append(String.format(" %6s %5s %4d",
                         formatCompactPnL(result.pnl),
-                        formatCompactDD(result.dd * 100.0)));
+                        formatCompactDD(result.dd * 100.0),
+                        result.totalTrades));
             }
         }
 
         System.out.println(portRow);
-        System.out.println("=".repeat(140));
+        System.out.println("=".repeat(170));
     }
 
     private Map<String, TickerPeriodResult> execute(String start,
@@ -386,6 +390,9 @@ public class BacktestRunner {
 
             boolean hourChanged = hourIdx != lastSeenHourIdx;
 
+            // Check for end-of-day (21:00) to close positions
+            boolean endOfDay = minDt.getHour() == 21 && minDt.getMinute() == 0;
+            
             double equity = cash;
             if (pos.quantity > 0) {
                 equity += pos.quantity * current.close;
@@ -393,6 +400,30 @@ public class BacktestRunner {
             equityCurve.add(new EquityPoint(current.time, equity));
 
             if (hourIdx + 1 < MIN_HOURS_REQUIRED) {
+                lastSeenHourIdx = hourIdx;
+                continue;
+            }
+
+            // Close all positions at end of day (21:00)
+            if (endOfDay && pos.quantity > 0) {
+                double exitPrice = current.close;
+                int q = pos.quantity;
+                
+                double exitValue = q * exitPrice;
+                double entryValue = q * entryPrice;
+                double totalCommission = (entryValue + exitValue) * commission;
+                double pnl = exitValue - entryValue - totalCommission;
+                
+                trades.add(new TradeResult(
+                        ticker, "BUY", entryPrice, exitPrice, pnl, "eod_close", current.time
+                ));
+                
+                double exitCommission = exitValue * commission;
+                cash += (exitValue - exitCommission);
+                pos = new Position();
+                entryPrice = 0.0;
+                
+                // Continue to next iteration since we've closed the position
                 lastSeenHourIdx = hourIdx;
                 continue;
             }
@@ -480,7 +511,12 @@ public class BacktestRunner {
         }
 
         double finalBalance = cash;
-        if (pos.quantity > 0 && !wrappedMin.isEmpty()) {
+        // Only close positions at end of period if we haven't already closed them at end of day
+        LocalDateTime lastTime = wrappedMin.isEmpty() ? null : 
+            LocalDateTime.parse(wrappedMin.get(wrappedMin.size() - 1).time, DATE_TIME_FMT);
+        boolean alreadyClosedAtEOD = lastTime != null && lastTime.getHour() == 21 && lastTime.getMinute() == 0;
+        
+        if (pos.quantity > 0 && !wrappedMin.isEmpty() && !alreadyClosedAtEOD) {
             double lastPrice = wrappedMin.get(wrappedMin.size() - 1).close;
             int q = pos.quantity;
             double exitValue = q * lastPrice;
@@ -503,22 +539,24 @@ public class BacktestRunner {
 
     private PortfolioPeriodResult buildPortfolioPeriodResult(Map<String, TickerPeriodResult> tickerResults) {
         if (tickerResults == null || tickerResults.isEmpty()) {
-            return new PortfolioPeriodResult(0.0, 0.0, Collections.emptyList());
+            return new PortfolioPeriodResult(0.0, 0.0, Collections.emptyList(), 0);
         }
 
         double totalStartBalance = 0.0;
         double totalFinalBalance = 0.0;
+        int totalTrades = 0;
 
         for (TickerPeriodResult result : tickerResults.values()) {
             totalStartBalance += result.startBalance;
             totalFinalBalance += result.startBalance + result.pnl;
+            totalTrades += result.trades.size();
         }
 
         List<EquityPoint> portfolioEquity = mergePortfolioEquity(tickerResults);
         double dd = calcMaxDrawdownByEquity(portfolioEquity);
         double pnl = totalFinalBalance - totalStartBalance;
 
-        return new PortfolioPeriodResult(pnl, dd, portfolioEquity);
+        return new PortfolioPeriodResult(pnl, dd, portfolioEquity, totalTrades);
     }
 
     private List<EquityPoint> mergePortfolioEquity(Map<String, TickerPeriodResult> tickerResults) {
