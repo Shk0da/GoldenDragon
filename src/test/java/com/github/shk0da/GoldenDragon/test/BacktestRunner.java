@@ -89,12 +89,9 @@ public class BacktestRunner {
     public void run() throws IOException {
         String[][] periods = {
                 {"2022-03-01", "2026-05-01", "Full"},
-                {"2022-01-01", "2024-12-31", "2022"},
                 {"2023-01-01", "2024-12-31", "2023"},
                 {"2024-01-01", "2024-12-31", "2024"},
                 {"2025-01-01", "2024-12-31", "2025"},
-                {"2024-07-01", "2024-09-30", "Q3 2024"},
-                {"2025-07-01", "2025-09-30", "Q3 2025"},
                 {"2026-01-01", "2026-02-01", "Jan 2026"},
                 {"2026-02-01", "2026-03-01", "Feb 2026"},
                 {"2026-04-01", "2026-04-01", "Mar 2026"},
@@ -104,13 +101,11 @@ public class BacktestRunner {
         List<String> periodLabels = new ArrayList<>();
         Map<String, Map<String, List<TradeResult>>> allData = new LinkedHashMap<>();
         List<String> allTickers = new ArrayList<>();
+        List<String> missingTickers = new ArrayList<>();
 
         for (String[] p : periods) {
             String label = p[2];
             periodLabels.add(label);
-            System.out.println("\n" + "=".repeat(90));
-            System.out.println("ПЕРИОД: " + label + " (" + p[0] + " - " + p[1] + ")");
-            System.out.println("=".repeat(90));
             Map<String, List<TradeResult>> tickerTrades = execute(p[0], p[1]);
             allData.put(label, tickerTrades);
             for (String t : tickerTrades.keySet()) {
@@ -118,62 +113,87 @@ public class BacktestRunner {
             }
         }
 
-        System.out.println("\n" + "=".repeat(90));
-        System.out.println("СРАВНЕНИЕ ПРОСАДОК ПО ПЕРИОДАМ");
-        System.out.println("=".repeat(90));
+        System.out.println("\n" + "=".repeat(180));
+        System.out.println("РЕЗУЛЬТАТЫ ПО ПЕРИОДАМ");
+        System.out.println("=".repeat(180));
 
         StringBuilder header = new StringBuilder();
         header.append(String.format("%-10s", "Тикер"));
-        for (int i = 0; i < periodLabels.size(); i++) {
-            if (periodLabels.get(i).equals("Full")) continue;
-            header.append(String.format(" %12s", periodLabels.get(i)));
+        for (String label : periodLabels) {
+            header.append(String.format(" %18s", label));
         }
         System.out.println(header);
+
+        StringBuilder subHeader = new StringBuilder();
+        subHeader.append(String.format("%-10s", ""));
+        for (String ignored : periodLabels) {
+            subHeader.append("   PnL         DD  ");
+        }
+        System.out.println(subHeader);
+
         System.out.println("-".repeat(header.length()));
 
         for (String ticker : allTickers) {
             StringBuilder row = new StringBuilder();
             row.append(String.format("%-10s", ticker));
+            boolean hasAny = false;
             for (String label : periodLabels) {
-                if (label.equals("Full")) continue;
                 Map<String, List<TradeResult>> tickerData = allData.get(label);
                 List<TradeResult> trades = tickerData != null ? tickerData.get(ticker) : null;
                 if (trades == null || trades.isEmpty()) {
-                    row.append(String.format(" %12s", "—"));
+                    row.append(String.format(" %18s", "—"));
                 } else {
+                    hasAny = true;
+                    double pnl = trades.stream().mapToDouble(t -> t.pnl).sum();
                     double dd = calcMaxDrawdown(trades) * 100;
-                    row.append(String.format(" %8s", String.format("%.1f%%", dd)));
-                    String risk = assessRisk(dd, 0);
-                    if ("Med".equals(risk)) row.append("⚠");
-                    else if ("High".equals(risk)) row.append("🔥");
-                    else row.append("  ");
+                    String pnlStr = formatPnL(pnl);
+                    String ddStr = formatDD(dd);
+                    row.append(String.format(" %8s %9s", pnlStr, ddStr));
                 }
             }
-            System.out.println(row);
+            if (hasAny) System.out.println(row);
         }
 
         System.out.println("-".repeat(header.length()));
+
         StringBuilder portRow = new StringBuilder();
         portRow.append(String.format("%-10s", "ПОРТФЕЛЬ"));
         for (String label : periodLabels) {
-            if (label.equals("Full")) continue;
             Map<String, List<TradeResult>> tickerData = allData.get(label);
             List<TradeResult> allPeriodTrades = tickerData != null
                     ? tickerData.values().stream().flatMap(List::stream).collect(Collectors.toList())
                     : Collections.emptyList();
             if (allPeriodTrades.isEmpty()) {
-                portRow.append(String.format(" %12s", "—"));
+                portRow.append(String.format(" %18s", "—"));
             } else {
                 List<TradeResult> sorted = sortByTime(allPeriodTrades);
+                double pnl = allPeriodTrades.stream().mapToDouble(t -> t.pnl).sum();
                 double dd = calcMaxDrawdown(sorted) * 100;
-                portRow.append(String.format(" %8s", String.format("%.1f%%", dd)));
-                String risk = assessRisk(dd, 0);
-                if ("Med".equals(risk)) portRow.append("⚠");
-                else if ("High".equals(risk)) portRow.append("🔥");
-                else portRow.append("  ");
+                portRow.append(String.format(" %8s %9s", formatPnL(pnl), formatDD(dd)));
             }
         }
         System.out.println(portRow);
+        System.out.println("=".repeat(180));
+    }
+
+    private String formatPnL(double pnl) {
+        String sign = pnl >= 0 ? "+" : "";
+        if (Math.abs(pnl) >= 1_000_000) {
+            return sign + String.format("%.2fM", pnl / 1_000_000);
+        }
+        if (Math.abs(pnl) >= 1_000) {
+            return sign + String.format("%.0fK", pnl / 1_000);
+        }
+        return sign + String.format("%.0f", pnl);
+    }
+
+    private String formatDD(double dd) {
+        String risk = assessRisk(dd, 0);
+        String marker;
+        if ("High".equals(risk)) marker = "🔥";
+        else if ("Med".equals(risk)) marker = "⚠";
+        else marker = " ";
+        return String.format("%.1f%%%s", dd, marker);
     }
 
     private List<String> loadTickers() throws IOException {
@@ -194,17 +214,11 @@ public class BacktestRunner {
 
     private Map<String, List<TradeResult>> execute(String start, String end) throws IOException {
         List<String> tickers = loadTickers();
-        System.out.println("================================================================================");
-        System.out.println("БЭКТЕСТ: UnifiedStrategy");
-        System.out.println("Период: " + start + " - " + end);
-        System.out.println("Начальный баланс: " + String.format("%,.0f", initialBalance));
-        System.out.println("================================================================================");
 
         Map<String, List<TradeResult>> tickerResults = new LinkedHashMap<>();
         for (String ticker : tickers) {
             List<RawCandle> hourCandles = loadCandles(ticker, start, end);
             if (hourCandles.size() < 100) {
-                System.out.println("\n" + ticker + ": нет данных");
                 continue;
             }
 
@@ -215,7 +229,6 @@ public class BacktestRunner {
             if (useMinCandles) {
                 minuteCandles = loadCandles5Min(ticker, start, end);
                 if (minuteCandles.isEmpty()) {
-                    System.out.println("\n" + ticker + ": нет данных");
                     continue;
                 }
             } else {
@@ -224,39 +237,7 @@ public class BacktestRunner {
 
             List<TradeResult> uniTradesForTicker = simulateUnified(unifiedStrategy, ticker, hourCandles, minuteCandles);
             tickerResults.put(ticker, uniTradesForTicker);
-
-            System.out.println("\n" + ticker + ":");
-            printTickerDetails("UNI", uniTradesForTicker);
         }
-
-        List<TradeResult> allTrades = tickerResults.values().stream().flatMap(List::stream).collect(Collectors.toList());
-        List<TradeResult> portfolioTrades = sortByTime(allTrades);
-
-        System.out.println("\n" + "=".repeat(90));
-        System.out.println("СВОДНАЯ ТАБЛИЦА");
-        System.out.println("=".repeat(90));
-        System.out.println(String.format("%-10s %7s %9s %12s %8s %7s %4s", "Инструмент", "Сделок", "WinRate", "PnL", "Просадка", "Шарп", "Риск"));
-        System.out.println("-".repeat(67));
-
-        for (String ticker : tickers) {
-            List<TradeResult> uni = tickerResults.getOrDefault(ticker, Collections.emptyList());
-            if (uni.isEmpty()) continue;
-            printTradeLine(ticker, "UNI", uni);
-        }
-
-        System.out.println("-".repeat(67));
-        printTradeLine("ПОРТФЕЛЬ", "UNI", portfolioTrades);
-        System.out.println("-".repeat(67));
-
-        double uniPnl = allTrades.stream().mapToDouble(t -> t.pnl).sum();
-        double uniWr = allTrades.isEmpty() ? 0.0 : (double) allTrades.stream().filter(t -> t.pnl > 0).count() / allTrades.size() * 100;
-
-        System.out.println();
-        System.out.println("UNI: PnL=" + String.format("%,.2f", uniPnl) + " WinRate=" + String.format("%.1f", uniWr) + "% Trades=" + portfolioTrades.size());
-
-        double endBalanceUNI = initialBalance + uniPnl * sharesPerTrade;
-        System.out.println();
-        System.out.println("Конечный баланс UNI: " + String.format("%,.2f", endBalanceUNI) + " (" + String.format("%.2f", (endBalanceUNI - initialBalance) / initialBalance * 100) + "%)");
 
         return tickerResults;
     }
@@ -272,47 +253,6 @@ public class BacktestRunner {
                     }
                 })
                 .collect(Collectors.toList());
-    }
-
-    private void printTradeLine(String label, String strategy, List<TradeResult> trades) {
-        int total = trades.size();
-        if (total == 0) return;
-        long wins = trades.stream().filter(t -> t.pnl > 0).count();
-        double wr = (double) wins / total * 100;
-        double pnl = trades.stream().mapToDouble(t -> t.pnl).sum();
-        double dd = calcMaxDrawdown(trades) * 100;
-        double sharpe = calcSharpe(trades);
-        String risk = assessRisk(dd, sharpe);
-        String wrStr = wr >= 60.0 ? String.format("%.1f", wr) + "% ✅" : String.format("%.1f", wr) + "%";
-        String pnlStr = pnl >= 0 ? "+" + String.format("%,.2f", pnl) : String.format("%,.2f", pnl);
-        String ddStr = dd < 10.0 ? String.format("%.1f", dd) : String.format("%.1f", dd) + "⚠";
-        String sharpeStr = sharpe >= 1.0 ? String.format("%.2f", sharpe) : String.format("%.2f", sharpe);
-        System.out.println(String.format("%-10s %7d %9s %12s %8s %7s %4s", label, total, wrStr, pnlStr, ddStr + "%", sharpeStr, risk));
-    }
-
-    private void printTickerDetails(String strategy, List<TradeResult> trades) {
-        int total = trades.size();
-        long wins = trades.stream().filter(t -> t.pnl > 0).count();
-        double wr = total > 0 ? (double) wins / total * 100 : 0.0;
-        double totalPnl = trades.stream().mapToDouble(t -> t.pnl).sum();
-        double avgPnl = total > 0 ? totalPnl / total : 0.0;
-
-        long tp = trades.stream().filter(t -> "take_profit".equals(t.reason)).count();
-        long sl = trades.stream().filter(t -> "stop_loss".equals(t.reason)).count();
-        long expired = trades.stream().filter(t -> "expired".equals(t.reason)).count();
-        long unknown = total - tp - sl - expired;
-
-        System.out.print("  " + strategy + ": ");
-        System.out.println(total + " сделок | " + String.format("%.1f", wr) + "% (" + wins + "/" + total + ") | ср." + String.format("%,+.2f", avgPnl) + " | PnL " + String.format("%,+.2f", totalPnl));
-        System.out.println("    → TP:" + tp + "  SL:" + sl + "  Expired:" + expired + "  Unknown:" + unknown);
-
-        if (total > 0) {
-            double maxDd = calcMaxDrawdown(trades);
-            double sharpe = calcSharpe(trades);
-            double pf = calcProfitFactor(trades);
-            String risk = assessRisk(maxDd * 100, sharpe);
-            System.out.println("    → MaxDD: " + String.format("%.1f", maxDd * 100) + "% | Sharpe: " + String.format("%.2f", sharpe) + " | PF: " + String.format("%.2f", pf) + " | Risk: " + risk);
-        }
     }
 
     private List<RawCandle> loadCandles(String ticker, String startDate, String endDate) {
