@@ -21,6 +21,7 @@ public class UnifiedTraderConfig {
         public final double tpMult;
         public final double riskP;
         public final boolean useMinuteCandles;
+        public final String allocationGroup;
         public final double marketRegimeAdxRangeThreshold;
         public final double marketRegimeAdxUnclearThreshold;
         public final double marketRegimeVolumeRatioMin;
@@ -29,10 +30,11 @@ public class UnifiedTraderConfig {
         public final BadWeatherFilter.Params badWeatherParams;
 
         public TickerParams(String group, double slMult, double tpMult, double riskP, boolean useMinuteCandles) {
-            this(group, slMult, tpMult, riskP, useMinuteCandles, 20.0, 25.0, 30.0, 50.0, 4, new BadWeatherFilter.Params());
+            this(group, slMult, tpMult, riskP, useMinuteCandles, "", 20.0, 25.0, 30.0, 50.0, 4, new BadWeatherFilter.Params());
         }
 
         public TickerParams(String group, double slMult, double tpMult, double riskP, boolean useMinuteCandles,
+                            String allocationGroup,
                             double marketRegimeAdxRangeThreshold, double marketRegimeAdxUnclearThreshold,
                             double marketRegimeVolumeRatioMin, double marketRegimeConfidenceMin,
                             int marketRegimeAtrBars, BadWeatherFilter.Params badWeatherParams) {
@@ -41,6 +43,7 @@ public class UnifiedTraderConfig {
             this.tpMult = tpMult;
             this.riskP = riskP;
             this.useMinuteCandles = useMinuteCandles;
+            this.allocationGroup = allocationGroup;
             this.marketRegimeAdxRangeThreshold = marketRegimeAdxRangeThreshold;
             this.marketRegimeAdxUnclearThreshold = marketRegimeAdxUnclearThreshold;
             this.marketRegimeVolumeRatioMin = marketRegimeVolumeRatioMin;
@@ -87,6 +90,7 @@ public class UnifiedTraderConfig {
                 prefix + "riskP", getGroupDefault(properties, group, "riskP", "0.01")));
         boolean useMinuteCandles = Boolean.parseBoolean(properties.getProperty(
                 prefix + "useMinuteCandles", "true"));
+        String allocationGroup = properties.getProperty(prefix + "allocationGroup", "");
 
         double adxRangeThreshold = Double.parseDouble(properties.getProperty(
                 prefix + "marketRegimeAdxRangeThreshold", "20.0"));
@@ -124,7 +128,7 @@ public class UnifiedTraderConfig {
                 panicVolumeThreshold, minAvgDailyVolume, atrSpikeThreshold
         );
 
-        return new TickerParams(group, slMult, tpMult, riskP, useMinuteCandles,
+        return new TickerParams(group, slMult, tpMult, riskP, useMinuteCandles, allocationGroup,
                 adxRangeThreshold, adxUnclearThreshold, volumeRatioMin, confidenceMin, atrBars,
                 badWeatherParams);
     }

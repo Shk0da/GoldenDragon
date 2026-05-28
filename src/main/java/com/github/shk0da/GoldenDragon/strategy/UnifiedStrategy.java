@@ -2,6 +2,7 @@ package com.github.shk0da.GoldenDragon.strategy;
 
 import com.github.shk0da.GoldenDragon.config.UnifiedTraderConfig;
 import com.github.shk0da.GoldenDragon.filters.BadWeatherFilter;
+import com.github.shk0da.GoldenDragon.filters.GroupConfirmationFilter;
 import com.github.shk0da.GoldenDragon.filters.MarketRegimeFilter;
 import com.github.shk0da.GoldenDragon.model.Candle;
 import com.github.shk0da.GoldenDragon.model.Config;
@@ -73,6 +74,11 @@ public class UnifiedStrategy {
 
     private final BadWeatherFilter badWeatherFilter;
     private final MarketRegimeFilter marketRegimeFilter;
+    private Map<String, List<Candle>> peerCandles;
+
+    public void setPeerCandles(Map<String, List<Candle>> peerCandles) {
+        this.peerCandles = peerCandles;
+    }
 
     public UnifiedStrategy(UnifiedTraderConfig unifiedTraderConfig, TCSService tcsService) {
         this(unifiedTraderConfig, tcsService, new Config());
@@ -225,6 +231,16 @@ public class UnifiedStrategy {
 
         double entry = cur.close;
 
+        // Проверка подтверждения от группы аллокации
+        boolean isBuy = signal.startsWith("TB") || signal.startsWith("FXB") || signal.startsWith("MXB");
+        String allocationGroup = tpCfg.allocationGroup;
+        if (allocationGroup != null && !allocationGroup.isEmpty() && peerCandles != null) {
+            if (!GroupConfirmationFilter.isConfirmed(ticker, isBuy, peerCandles)) {
+                return new TradingDecision("HOLD", "noGroupConf_" + signal,
+                        0.0, 0, null, null, null, p);
+            }
+        }
+
         double slMult = tpCfg.slMult;
         double tpMult = tpCfg.tpMult;
         double riskP = tpCfg.riskP;
@@ -237,7 +253,6 @@ public class UnifiedStrategy {
         int qty = (int) Math.min(Math.max(1, Math.floor(maxRisk / slDist)), maxQty);
         if (qty <= 0) return new TradingDecision("HOLD", "qty0", 0.0, 0, null, null, null, p);
 
-        boolean isBuy = signal.startsWith("TB") || signal.startsWith("FXB") || signal.startsWith("MXB");
         double sl = isBuy ? entry - slDist : entry + slDist;
         double tp = isBuy ? entry + tpDist : entry - tpDist;
         String dirName = isBuy ? "BUY" : "SELL";

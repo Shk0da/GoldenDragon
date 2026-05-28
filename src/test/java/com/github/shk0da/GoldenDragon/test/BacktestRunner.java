@@ -229,27 +229,59 @@ public class BacktestRunner {
         List<String> tickers = loadTickers();
         double perTickerBalance = tickers.isEmpty() ? 0 : initialBalance / tickers.size();
 
-        Map<String, List<TradeResult>> tickerResults = new LinkedHashMap<>();
+        // Pre-load all hourly candles for group confirmation
+        UnifiedTraderConfig config = new UnifiedTraderConfig();
+        Map<String, List<Candle>> allHourlyCandles = new LinkedHashMap<>();
         for (String ticker : tickers) {
-            List<RawCandle> hourCandles = loadCandles(ticker, start, end);
-            if (hourCandles.size() < 100) {
-                continue;
+            List<RawCandle> raw = loadCandles(ticker, start, end);
+            if (raw.size() < 100) continue;
+            List<Candle> wrapped = new ArrayList<>();
+            for (RawCandle c : raw) {
+                wrapped.add(new Candle(c.time, c.open, c.high, c.low, c.close, c.volume));
             }
+            allHourlyCandles.put(ticker, wrapped);
+        }
 
-            UnifiedStrategy unifiedStrategy = new UnifiedStrategy(new UnifiedTraderConfig(), null);
+        // Build allocation group -> tickers mapping
+        Map<String, List<String>> groupTickers = new LinkedHashMap<>();
+        for (String ticker : allHourlyCandles.keySet()) {
+            String allocGroup = config.getTickerParams(ticker).allocationGroup;
+            if (allocGroup != null && !allocGroup.isEmpty()) {
+                groupTickers.computeIfAbsent(allocGroup, k -> new ArrayList<>()).add(ticker);
+            }
+        }
+
+        Map<String, List<TradeResult>> tickerResults = new LinkedHashMap<>();
+        for (String ticker : allHourlyCandles.keySet()) {
+            List<Candle> hourCandles = allHourlyCandles.get(ticker);
+
+            UnifiedStrategy unifiedStrategy = new UnifiedStrategy(config, null);
             boolean useMinCandles = unifiedStrategy.getUnifiedTraderConfig().getTickerParams(ticker).useMinuteCandles;
 
-            List<RawCandle> minuteCandles;
+            List<RawCandle> minuteCandlesRaw;
             if (useMinCandles) {
-                minuteCandles = loadCandles5Min(ticker, start, end);
-                if (minuteCandles.isEmpty()) {
+                minuteCandlesRaw = loadCandles5Min(ticker, start, end);
+                if (minuteCandlesRaw.isEmpty()) {
                     continue;
                 }
             } else {
-                minuteCandles = hourCandles;
+                minuteCandlesRaw = loadCandles(ticker, start, end);
             }
 
-            SimulateResult result = simulateUnified(unifiedStrategy, ticker, hourCandles, minuteCandles, perTickerBalance);
+            // Build peer ticker list for group confirmation
+            String allocGroup = config.getTickerParams(ticker).allocationGroup;
+            List<String> peerTickers = new ArrayList<>();
+            if (allocGroup != null && !allocGroup.isEmpty()) {
+                List<String> groupMembers = groupTickers.get(allocGroup);
+                if (groupMembers != null) {
+                    for (String peer : groupMembers) {
+                        if (!peer.equals(ticker)) peerTickers.add(peer);
+                    }
+                }
+            }
+
+            SimulateResult result = simulateUnified(unifiedStrategy, ticker, hourCandles,
+                    minuteCandlesRaw, perTickerBalance, allHourlyCandles, peerTickers);
             tickerResults.put(ticker, result.trades);
         }
 
@@ -302,14 +334,14 @@ public class BacktestRunner {
             return Collections.emptyList();
         }
     }
-    private SimulateResult simulateUnified(UnifiedStrategy strategy, String ticker, List<RawCandle> hourCandles, List<RawCandle> minuteCandles, double startBalance) {
+    private SimulateResult simulateUnified(UnifiedStrategy strategy, String ticker,
+                                            List<Candle> wrappedHour, List<RawCandle> minuteCandlesRaw,
+                                            double startBalance,
+                                            Map<String, List<Candle>> allHourlyCandles,
+                                            List<String> peerTickers) {
         List<TradeResult> trades = new ArrayList<>();
-        List<Candle> wrappedHour = new ArrayList<>();
-        for (RawCandle c : hourCandles) {
-            wrappedHour.add(new Candle(c.time, c.open, c.high, c.low, c.close, c.volume));
-        }
         List<Candle> wrappedMin = new ArrayList<>();
-        for (RawCandle c : minuteCandles) {
+        for (RawCandle c : minuteCandlesRaw) {
             wrappedMin.add(new Candle(c.time, c.open, c.high, c.low, c.close, c.volume));
         }
         double balance = startBalance;
@@ -337,6 +369,20 @@ public class BacktestRunner {
 
             List<Candle> hourHistory = wrappedHour.subList(0, hourIdx);
             List<Candle> minHistory = wrappedMin.subList(0, i + 1);
+
+            // Build time-synced peer candle data for group confirmation (no look-ahead)
+            Map<String, List<Candle>> currentPeerCandles = null;
+            if (!peerTickers.isEmpty() && allHourlyCandles != null) {
+                currentPeerCandles = new java.util.HashMap<>();
+                for (String peer : peerTickers) {
+                    List<Candle> peerAll = allHourlyCandles.get(peer);
+                    if (peerAll != null && hourIdx <= peerAll.size()) {
+                        currentPeerCandles.put(peer, peerAll.subList(0, Math.min(hourIdx, peerAll.size())));
+                    }
+                }
+                strategy.setPeerCandles(currentPeerCandles);
+            }
+
             TradingDecision decision = strategy.decide(ticker, hourHistory, minHistory, pos, balance);
 
             switch (decision.action) {
