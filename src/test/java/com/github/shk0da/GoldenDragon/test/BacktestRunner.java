@@ -5,8 +5,6 @@ import com.github.shk0da.GoldenDragon.model.Candle;
 import com.github.shk0da.GoldenDragon.model.Position;
 import com.github.shk0da.GoldenDragon.model.TradingDecision;
 import com.github.shk0da.GoldenDragon.strategy.UnifiedStrategy;
-import com.google.gson.Gson;
-import com.google.gson.reflect.TypeToken;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -17,7 +15,6 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
-import java.util.Map;
 import java.util.stream.Collectors;
 
 public class BacktestRunner {
@@ -65,8 +62,6 @@ public class BacktestRunner {
     private final int sharesPerTrade;
     private final double commission;
 
-    private final Gson gson = new Gson();
-
     public BacktestRunner() {
         this("data", "2022-03-01", "2026-05-01", 1_000_000.0, 100, 0.0005);
     }
@@ -86,13 +81,12 @@ public class BacktestRunner {
 
     public void run() throws IOException {
         System.out.println("================================================================================");
-        System.out.println("БЭКТЕСТ: LevelTrader vs UnifiedStrategy");
+        System.out.println("БЭКТЕСТ: UnifiedStrategy");
         System.out.println("Период: " + startDate + " - " + endDate);
         System.out.println("Начальный баланс: " + String.format("%,.0f", initialBalance));
         System.out.println("================================================================================");
 
         List<String> tickers = Arrays.asList("CNYRUBF", "GAZPF", "GLDRUBF", "IMOEXF", "LKOH", "MTSS", "NVTK", "ROSN", "SBERF", "USDRUBF");
-        List<TradeResult> ltTrades = new ArrayList<>();
         List<TradeResult> uniTrades = new ArrayList<>();
 
         for (String ticker : tickers) {
@@ -116,14 +110,10 @@ public class BacktestRunner {
                 minuteCandles = hourCandles;
             }
 
-            List<TradeResult> ltTradesForTicker = simulateLevelTrader(ticker, hourCandles);
-            ltTrades.addAll(ltTradesForTicker);
-
             List<TradeResult> uniTradesForTicker = simulateUnified(unifiedStrategy, ticker, hourCandles, minuteCandles);
             uniTrades.addAll(uniTradesForTicker);
 
             System.out.println("\n" + ticker + ":");
-            printTickerDetails("LT", ltTradesForTicker);
             printTickerDetails("UNI", uniTradesForTicker);
         }
 
@@ -134,31 +124,23 @@ public class BacktestRunner {
         System.out.println("-".repeat(67));
 
         for (String ticker : tickers) {
-            List<TradeResult> lt = ltTrades.stream().filter(t -> t.ticker.equals(ticker)).collect(Collectors.toList());
             List<TradeResult> uni = uniTrades.stream().filter(t -> t.ticker.equals(ticker)).collect(Collectors.toList());
-            if (lt.isEmpty() && uni.isEmpty()) continue;
-            printTradeLine(ticker, "LT", lt);
+            if (uni.isEmpty()) continue;
             printTradeLine(ticker, "UNI", uni);
         }
 
         System.out.println("-".repeat(67));
-        printTradeLine("LT", "LT", ltTrades);
         printTradeLine("UNI", "UNI", uniTrades);
         System.out.println("-".repeat(67));
 
-        double ltPnl = ltTrades.stream().mapToDouble(t -> t.pnl).sum();
-        double ltWr = ltTrades.isEmpty() ? 0.0 : (double) ltTrades.stream().filter(t -> t.pnl > 0).count() / ltTrades.size() * 100;
         double uniPnl = uniTrades.stream().mapToDouble(t -> t.pnl).sum();
         double uniWr = uniTrades.isEmpty() ? 0.0 : (double) uniTrades.stream().filter(t -> t.pnl > 0).count() / uniTrades.size() * 100;
 
         System.out.println();
-        System.out.println("LT:  PnL=" + String.format("%,.2f", ltPnl) + " WinRate=" + String.format("%.1f", ltWr) + "% Trades=" + ltTrades.size());
         System.out.println("UNI: PnL=" + String.format("%,.2f", uniPnl) + " WinRate=" + String.format("%.1f", uniWr) + "% Trades=" + uniTrades.size());
 
-        double endBalanceLT = initialBalance + ltPnl * sharesPerTrade;
         double endBalanceUNI = initialBalance + uniPnl * sharesPerTrade;
         System.out.println();
-        System.out.println("Конечный баланс LT:  " + String.format("%,.2f", endBalanceLT) + " (" + String.format("%.2f", (endBalanceLT - initialBalance) / initialBalance * 100) + "%)");
         System.out.println("Конечный баланс UNI: " + String.format("%,.2f", endBalanceUNI) + " (" + String.format("%.2f", (endBalanceUNI - initialBalance) / initialBalance * 100) + "%)");
     }
 
@@ -236,125 +218,6 @@ public class BacktestRunner {
             return Collections.emptyList();
         }
     }
-
-    @SuppressWarnings("unchecked")
-    private List<Double> loadLevels(String ticker) {
-        try {
-            File file = new File(dataDir, ticker + "/ticker.json");
-            if (!file.exists()) return Collections.emptyList();
-            java.lang.reflect.Type mapType = new TypeToken<Map<String, Object>>() {}.getType();
-            Map<String, Object> map = gson.fromJson(Files.readString(file.toPath()), mapType);
-            Object levelsObj = map.get("levels");
-            if (levelsObj instanceof List) {
-                return (List<Double>) levelsObj;
-            }
-            return Collections.emptyList();
-        } catch (Exception e) {
-            return Collections.emptyList();
-        }
-    }
-
-    private List<TradeResult> simulateLevelTrader(String ticker, List<RawCandle> candles) {
-        List<TradeResult> trades = new ArrayList<>();
-        if (candles.size() < 100) return trades;
-        List<Double> levels = loadLevels(ticker);
-        double slMult = 0.8;
-        double tpMult = 1.5;
-        double riskP = 0.015;
-        String posDir = "";
-        double posEntry = 0.0;
-        double posSl = 0.0;
-        double posTp = 0.0;
-        int posHeld = 0;
-        int posQty = 0;
-        boolean inPos = false;
-
-        for (int i = 60; i < candles.size(); i++) {
-            RawCandle c = candles.get(i);
-            List<RawCandle> hist = candles.subList(0, i + 1);
-
-            if (inPos) {
-                posHeld++;
-                boolean slHit = ("BUY".equals(posDir) && c.low <= posSl) || ("SELL".equals(posDir) && c.high >= posSl);
-                boolean tpHit = ("BUY".equals(posDir) && c.high >= posTp) || ("SELL".equals(posDir) && c.low <= posTp);
-
-                Double exitPrice = null;
-                String reason = null;
-                if (tpHit) {
-                    exitPrice = posTp;
-                    reason = "take_profit";
-                } else if (slHit) {
-                    exitPrice = posSl;
-                    reason = "stop_loss";
-                } else if (posHeld >= 48) {
-                    exitPrice = c.close;
-                    reason = "expired";
-                }
-
-                if (exitPrice != null) {
-                    double rawPnl = "BUY".equals(posDir) ? exitPrice - posEntry : posEntry - exitPrice;
-                    double pnl = rawPnl * posQty * (1 - commission);
-                    trades.add(new TradeResult(ticker, posDir, posEntry, exitPrice, pnl, reason));
-                    inPos = false;
-                }
-                continue;
-            }
-
-            double atr = calcAtr(hist, 14);
-            double maFast = calcSma(hist, 7);
-            double maSlow = calcSma(hist, 63);
-            boolean trendUp = maFast > maSlow;
-            List<RawCandle> avgVolWindow = hist.subList(Math.max(0, hist.size() - 20), hist.size());
-            double avgVol = avgVolWindow.stream().mapToDouble(r -> (double) r.volume).average().orElse(0.0);
-
-            RawCandle cForLevels = c;
-            boolean nearLevel = levels.stream().anyMatch(lvl -> Math.abs(cForLevels.close - lvl) <= Math.abs(lvl) * 0.01);
-            if (!nearLevel) continue;
-
-            List<RawCandle> last5 = hist.subList(Math.max(0, hist.size() - 5), hist.size());
-            long upCount = last5.stream().filter(r -> r.close > r.open).count();
-            long downCount = last5.stream().filter(r -> r.close < r.open).count();
-            boolean isUptrend = upCount >= 3;
-            boolean isDowntrend = downCount >= 3;
-
-            RawCandle cForEntry = c;
-            if (trendUp && isUptrend
-                    && levels.stream().anyMatch(lvl -> cForEntry.low <= lvl * 1.005 && cForEntry.close > lvl)
-                    && c.volume > avgVol * 1.5) {
-                double entry = c.close;
-                double sl = entry - atr * slMult;
-                double tp = entry + atr * tpMult;
-                double risk = entry - sl;
-                if (risk <= 0.0) continue;
-                int qty = Math.max(1, (int) Math.floor(initialBalance * riskP / risk));
-                posDir = "BUY";
-                posEntry = entry;
-                posSl = sl;
-                posTp = tp;
-                posHeld = 0;
-                posQty = qty;
-                inPos = true;
-            } else if (!trendUp && isDowntrend
-                    && levels.stream().anyMatch(lvl -> cForEntry.high >= lvl * 0.995 && cForEntry.close < lvl)
-                    && c.volume > avgVol * 1.5) {
-                double entry = c.close;
-                double sl = entry + atr * slMult;
-                double tp = entry - atr * tpMult;
-                double risk = sl - entry;
-                if (risk <= 0.0) continue;
-                int qty = Math.max(1, (int) Math.floor(initialBalance * riskP / risk));
-                posDir = "SELL";
-                posEntry = entry;
-                posSl = sl;
-                posTp = tp;
-                posHeld = 0;
-                posQty = qty;
-                inPos = true;
-            }
-        }
-        return trades;
-    }
-
     private List<TradeResult> simulateUnified(UnifiedStrategy strategy, String ticker, List<RawCandle> hourCandles, List<RawCandle> minuteCandles) {
         List<TradeResult> trades = new ArrayList<>();
         List<Candle> wrappedHour = new ArrayList<>();
@@ -463,12 +326,6 @@ public class BacktestRunner {
         }
     }
 
-    private double calcSma(List<RawCandle> candles, int period) {
-        if (candles.size() < period) return candles.get(candles.size() - 1).close;
-        return candles.subList(candles.size() - period, candles.size()).stream()
-                .mapToDouble(c -> c.close).average().orElse(0.0);
-    }
-
     private double calcMaxDrawdown(List<TradeResult> trades) {
         double peak = initialBalance;
         double maxDd = 0;
@@ -504,14 +361,4 @@ public class BacktestRunner {
         return "High";
     }
 
-    private double calcAtr(List<RawCandle> candles, int period) {
-        if (candles.size() < period + 1) return 0.0;
-        double sum = 0.0;
-        for (int i = candles.size() - period; i < candles.size(); i++) {
-            RawCandle c = candles.get(i);
-            RawCandle p = candles.get(i - 1);
-            sum += Math.max(Math.max(c.high - c.low, Math.abs(c.high - p.close)), Math.abs(c.low - p.close));
-        }
-        return sum / period;
-    }
 }
