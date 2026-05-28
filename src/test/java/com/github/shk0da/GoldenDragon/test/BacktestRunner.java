@@ -144,7 +144,7 @@ public class BacktestRunner {
 
     public void run() throws IOException {
         String[][] periods = {
-                {"2025-09-01", "2025-10-01", "2025.09       2025.10       2025"},
+                {"2025-09-01", "2025-10-01", "2025.09"},
                 {"2025-10-01", "2025-11-01", "2025.10"},
                 {"2025-11-01", "2025-12-01", "2025.11"},
                 {"2025-12-01", "2025-12-31", "2025.12"},
@@ -189,9 +189,9 @@ public class BacktestRunner {
         System.out.println("=".repeat(140));
 
         StringBuilder header = new StringBuilder();
-        header.append(String.format("%-10s", "Тикер"));
+        header.append(String.format("%-6s", "Тикер"));
         for (String label : periodLabels) {
-            header.append(String.format(" %13s", label));
+            header.append(String.format(" %12s", label));
         }
         System.out.println(header);
 
@@ -374,6 +374,7 @@ public class BacktestRunner {
         Position pos = new Position();
         double entryPrice = 0.0;
         int hourIdx = -1;
+        int lastSeenHourIdx = -1;
 
         for (int i = 0; i < wrappedMin.size(); i++) {
             Candle current = wrappedMin.get(i);
@@ -383,13 +384,18 @@ public class BacktestRunner {
                 hourIdx++;
             }
 
+            boolean hourChanged = hourIdx != lastSeenHourIdx;
+
             double equity = cash;
             if (pos.quantity > 0) {
                 equity += pos.quantity * current.close;
             }
             equityCurve.add(new EquityPoint(current.time, equity));
 
-            if (hourIdx + 1 < MIN_HOURS_REQUIRED) continue;
+            if (hourIdx + 1 < MIN_HOURS_REQUIRED) {
+                lastSeenHourIdx = hourIdx;
+                continue;
+            }
 
             List<Candle> hourHistory = wrappedHour.subList(0, hourIdx + 1);
             List<Candle> minHistory = wrappedMin.subList(0, i + 1);
@@ -413,18 +419,20 @@ public class BacktestRunner {
                 }
             }
 
-            TradingDecision decision = strategy.decide(ticker, hourHistory, minHistory, pos, cash);
+            Position posForDecide = pos;
+            if (pos.quantity > 0 && !hourChanged) {
+                // откатываем будущий инкремент: передадим candlesHeld - 1,
+                // но проще - не трогаем, а после decide() откатим candlesHeld.
+            }
+
+            TradingDecision decision = strategy.decide(ticker, hourHistory, minHistory, posForDecide, cash);
 
             switch (decision.action) {
                 case "OPEN":
-                    if (decision.updatedPosition == null || decision.quantity <= 0) continue;
+                    if (decision.updatedPosition == null || decision.quantity <= 0) break;
 
-                    // long-only backtest: short сигналы игнорируем
-                    if (!"BUY".equals(decision.updatedPosition.direction)) {
-                        continue;
-                    }
-
-                    if (pos.quantity > 0) continue;
+                    if (!"BUY".equals(decision.updatedPosition.direction)) break;
+                    if (pos.quantity > 0) break;
 
                     double openEntry = decision.updatedPosition.entryPrice != null
                             ? decision.updatedPosition.entryPrice
@@ -434,7 +442,7 @@ public class BacktestRunner {
                     double positionValue = openQty * openEntry;
                     double entryCommission = positionValue * commission;
 
-                    if (positionValue + entryCommission > cash) continue;
+                    if (positionValue + entryCommission > cash) break;
 
                     cash -= (positionValue + entryCommission);
                     pos = decision.updatedPosition;
@@ -444,33 +452,68 @@ public class BacktestRunner {
                 case "CLOSE":
                     if (pos.quantity <= 0) {
                         pos = decision.updatedPosition != null ? decision.updatedPosition : pos;
-                        continue;
+                        break;
                     }
 
                     double exitPrice = decision.entryPrice != null ? decision.entryPrice : current.close;
                     int q = pos.quantity;
-                    double pnl = UnifiedStrategy.calculatePnl("BUY", entryPrice, exitPrice, q, commission);
+
+                    double exitValue = q * exitPrice;
+                    double entryValue = q * entryPrice;
+                    double totalCommission = (entryValue + exitValue) * commission;
+                    double pnl = exitValue - entryValue - totalCommission;
 
                     trades.add(new TradeResult(
                             ticker, "BUY", entryPrice, exitPrice, pnl, decision.reason, current.time
                     ));
 
-                    double exitValue = q * exitPrice;
                     double exitCommission = exitValue * commission;
                     cash += (exitValue - exitCommission);
 
                     pos = decision.updatedPosition != null ? decision.updatedPosition : new Position();
+                    entryPrice = 0.0;
                     break;
 
                 case "HOLD":
-                    pos = decision.updatedPosition != null ? decision.updatedPosition : pos;
+                    Position updated = decision.updatedPosition != null ? decision.updatedPosition : pos;
+
+                    // BUG FIX #2: откатываем инкремент candlesHeld, если час не сменился.
+                    if (pos.quantity > 0 && updated.quantity > 0 && !hourChanged) {
+                        int correctedHeld = Math.max(pos.candlesHeld, updated.candlesHeld - 1);
+                        updated = new Position(
+                                updated.direction,
+                                updated.entryPrice,
+                                updated.stopLoss,
+                                updated.takeProfit,
+                                updated.quantity,
+                                correctedHeld,
+                                updated.cooldownRemaining
+                        );
+                    }
+                    pos = updated;
                     break;
             }
+
+            lastSeenHourIdx = hourIdx;
         }
 
         double finalBalance = cash;
         if (pos.quantity > 0 && !wrappedMin.isEmpty()) {
-            finalBalance += pos.quantity * wrappedMin.get(wrappedMin.size() - 1).close;
+            double lastPrice = wrappedMin.get(wrappedMin.size() - 1).close;
+            int q = pos.quantity;
+            double exitValue = q * lastPrice;
+            double entryValue = q * entryPrice;
+            double totalCommission = (entryValue + exitValue) * commission;
+            double pnl = exitValue - entryValue - totalCommission;
+
+            trades.add(new TradeResult(
+                    ticker, "BUY", entryPrice, lastPrice, pnl,
+                    "period_end", wrappedMin.get(wrappedMin.size() - 1).time
+            ));
+
+            double exitCommission = exitValue * commission;
+            finalBalance += (exitValue - exitCommission);
+            pos = new Position();
         }
 
         return new SimulateResult(trades, equityCurve, finalBalance);
