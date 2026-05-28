@@ -46,3 +46,9 @@ task runStrategy(type: JavaExec) {
     def strategyName = project.findProperty('strategy') ?: 'UnifiedStrategy'
     args strategyName
 }
+
+task runTcsTest(type: JavaExec) {
+    main = 'com.github.shk0da.GoldenDragon.test.TCSServiceTest'
+    classpath = sourceSets.test.runtimeClasspath
+    workingDir = rootDir
+}

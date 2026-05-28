@@ -47,7 +47,6 @@ import static com.github.shk0da.GoldenDragon.dictionary.CurrenciesDictionary.get
 import static com.github.shk0da.GoldenDragon.service.TelegramNotifyService.telegramNotifyService;
 import static com.github.shk0da.GoldenDragon.utils.PrintUtils.printGlassOfPrices;
 import static com.github.shk0da.GoldenDragon.utils.TimeUtils.sleep;
-import static java.lang.Double.parseDouble;
 import static java.lang.Math.round;
 import static java.lang.System.out;
 import static java.util.stream.Collectors.toCollection;
@@ -171,13 +170,7 @@ public class TCSService {
         int value = 0;
         double tickerPrice = 0.0;
         for (Map.Entry<Double, Integer> bid : getCurrentPrices(key, false).get("bids").entrySet()) {
-            switch (type) {
-                case FEATURE:
-                    tickerPrice = (bid.getKey() * 1000) * 0.4; // обеспечения составляет 10-40%
-                    break;
-                default:
-                    tickerPrice = bid.getKey();
-            }
+            tickerPrice = bid.getKey();
             value = value + bid.getValue();
             if (value >= (cashToSell / tickerPrice)) break;
         }
@@ -278,13 +271,7 @@ public class TCSService {
         int value = 0;
         double tickerPrice = 0.0;
         for (Map.Entry<Double, Integer> ask : getCurrentPrices(key, false).get("asks").entrySet()) {
-            switch (type) {
-                case FEATURE:
-                    tickerPrice = (ask.getKey() * 1000) * 0.4; // обеспечения составляет 10-40%
-                    break;
-                default:
-                    tickerPrice = ask.getKey();
-            }
+            tickerPrice = ask.getKey();
             value = value + ask.getValue();
             if (value >= (cashToBuy / tickerPrice)) break;
         }
@@ -330,10 +317,7 @@ public class TCSService {
         Quotation orderPrice = Quotation.newBuilder().build();
         if (price > 0.0) {
             type = OrderType.ORDER_TYPE_LIMIT;
-            orderPrice = Quotation.newBuilder()
-                    .setUnits(Math.round((price - (price % 1))))
-                    .setNano((int) (Math.round((price % 1) * 100)))
-                    .build();
+            orderPrice = createQuotation(price);
         }
 
         try {
@@ -375,13 +359,13 @@ public class TCSService {
                         double slPrice = isFullPrice ? stopLose : executedPrice - ((executedPrice / 100) * stopLose);
                         stopPrice = normalizePrice(slPrice, tickerInfo.getMinPriceIncrement());
                     }
-                    Quotation stopLosePrice = Quotation.newBuilder()
-                            .setUnits(Math.round((stopPrice - (stopPrice % 1))))
-                            .setNano((int) (Math.round((stopPrice % 1) * 100)))
-                            .build();
+                    Quotation stopLosePrice = createQuotation(stopPrice);
                     out.println(key.getTicker() + " StopLose target: " + toDouble(stopLosePrice));
-                    investApi.getStopOrdersService().postStopOrderGoodTillCancel(
-                            figi, quantity, orderPrice, stopLosePrice,
+                    investApi.getStopOrdersService().postStopOrderGoodTillCancelSync(
+                            figi, 
+                            quantity, 
+                            stopLosePrice,  // trigger price - цена активации
+                            stopLosePrice,  // price - цена исполнения (для stop-loss равна trigger)
                             stopOrderDirection,
                             mainConfig.getTcsAccountId(),
                             STOP_ORDER_TYPE_STOP_LOSS
@@ -409,13 +393,13 @@ public class TCSService {
                         double tpPrice = isFullPrice ? takeProfit : executedPrice + ((executedPrice / 100) * takeProfit);
                         takePrice = normalizePrice(tpPrice, tickerInfo.getMinPriceIncrement());
                     }
-                    Quotation takeProfitPrice = Quotation.newBuilder()
-                            .setUnits(Math.round((takePrice - (takePrice % 1))))
-                            .setNano((int) (Math.round((takePrice % 1) * 100)))
-                            .build();
+                    Quotation takeProfitPrice = createQuotation(takePrice);
                     out.println(key.getTicker() + " TakeProfit target: " + toDouble(takeProfitPrice));
-                    investApi.getStopOrdersService().postStopOrderGoodTillCancel(
-                            figi, quantity, orderPrice, takeProfitPrice,
+                    investApi.getStopOrdersService().postStopOrderGoodTillCancelSync(
+                            figi,
+                            quantity,
+                            takeProfitPrice,  // trigger price
+                            takeProfitPrice,  // price
                             stopOrderDirection,
                             mainConfig.getTcsAccountId(),
                             STOP_ORDER_TYPE_TAKE_PROFIT
@@ -436,6 +420,21 @@ public class TCSService {
             telegramNotifyService.sendMessage(message);
             return 0;
         }
+    }
+    
+    /**
+     * Создает Quotation с правильным расчетом units и nano
+     * nano должен быть в диапазоне 0-999_999_999 (части единицы)
+     */
+    private static Quotation createQuotation(double price) {
+        long units = (long) price;
+        double fractional = price - units;
+        // nano - это дробная часть, умноженная на 1_000_000_000
+        int nano = (int) Math.round(fractional * 1_000_000_000);
+        return Quotation.newBuilder()
+                .setUnits(units)
+                .setNano(nano)
+                .build();
     }
 
     public Map<TickerInfo.Key, TickerInfo> getStockList() {
@@ -778,7 +777,9 @@ public class TCSService {
     }
 
     private static Double toDouble(long units, int nano) {
-        return units + parseDouble("0." + nano);
+        // nano всегда положительный, units может быть отрицательным
+        double fractional = nano / 1_000_000_000.0;
+        return units + fractional;
     }
 
     private static Double normalizePrice(double price, double priceStep) {
