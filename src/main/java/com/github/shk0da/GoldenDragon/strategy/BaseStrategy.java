@@ -1,0 +1,858 @@
+package com.github.shk0da.GoldenDragon.strategy;
+
+import com.github.shk0da.GoldenDragon.config.UnifiedTraderConfig;
+import com.github.shk0da.GoldenDragon.model.Candle;
+import com.github.shk0da.GoldenDragon.model.Config;
+import com.github.shk0da.GoldenDragon.model.Position;
+import com.github.shk0da.GoldenDragon.model.TickerCandle;
+import com.github.shk0da.GoldenDragon.model.TickerInfo;
+import com.github.shk0da.GoldenDragon.model.TickerType;
+import com.github.shk0da.GoldenDragon.model.TradingDecision;
+import com.github.shk0da.GoldenDragon.repository.TickerRepository;
+import com.github.shk0da.GoldenDragon.service.TCSService;
+import com.github.shk0da.GoldenDragon.utils.IndicatorsUtil;
+import java.io.BufferedReader;
+import java.io.File;
+import java.io.FileWriter;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.sql.Timestamp;
+import java.text.SimpleDateFormat;
+import java.time.DayOfWeek;
+import java.time.LocalDateTime;
+import java.time.LocalTime;
+import java.time.OffsetDateTime;
+import java.util.ArrayList;
+import java.util.Calendar;
+import java.util.Date;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import ru.tinkoff.piapi.contract.v1.CandleInterval;
+import ru.tinkoff.piapi.contract.v1.HistoricCandle;
+
+
+import static com.github.shk0da.GoldenDragon.model.TickerType.FEATURE;
+import static com.github.shk0da.GoldenDragon.model.TickerType.STOCK;
+import static com.github.shk0da.GoldenDragon.service.TelegramNotifyService.telegramNotifyService;
+import static com.github.shk0da.GoldenDragon.utils.TimeUtils.sleep;
+import static java.lang.Math.abs;
+import static java.lang.Math.max;
+import static java.lang.System.out;
+import static java.util.concurrent.CompletableFuture.allOf;
+import static java.util.concurrent.CompletableFuture.runAsync;
+
+public abstract class BaseStrategy {
+
+    protected final Config config;
+    protected final TCSService tcsService;
+    protected final UnifiedTraderConfig unifiedTraderConfig;
+
+    protected static final ThreadLocal<SimpleDateFormat> LOG_TIME_FORMAT = ThreadLocal.withInitial(
+            () -> new SimpleDateFormat("dd.MM.yyyy HH:mm:ss.SSS")
+    );
+
+    protected static final ThreadLocal<SimpleDateFormat> CANDLE_TIME_FORMAT = ThreadLocal.withInitial(
+            () -> new SimpleDateFormat("dd.MM.yyyy HH:mm:ss")
+    );
+
+    protected static final long COOLDOWN_DURATION_MS = 5 * 60 * 1000L;
+    protected static final long API_CALL_DELAY_MS = 100;
+    protected static final Object API_LOCK = new Object();
+
+    protected static final LocalTime WORK_START_TIME = LocalTime.of(10, 0);
+    protected static final LocalTime EOD_CLOSE_TIME = LocalTime.of(21, 0);
+
+    protected static long lastApiCallTime = 0;
+
+    protected final Map<String, Long> tickerCooldown = new ConcurrentHashMap<>();
+    protected final Map<String, Position> positionStore = new ConcurrentHashMap<>();
+    protected final Map<String, String> lastSeenHourBarByTicker = new ConcurrentHashMap<>();
+    protected volatile Map<String, List<Candle>> peerCandles = new ConcurrentHashMap<>();
+
+    protected BaseStrategy(UnifiedTraderConfig unifiedTraderConfig, TCSService tcsService) {
+        this(unifiedTraderConfig, tcsService, new Config());
+    }
+
+    protected BaseStrategy(UnifiedTraderConfig unifiedTraderConfig, TCSService tcsService, Config config) {
+        this.config = config;
+        this.tcsService = tcsService;
+        this.unifiedTraderConfig = unifiedTraderConfig;
+    }
+
+    public void setPeerCandles(Map<String, List<Candle>> peerCandles) {
+        this.peerCandles = peerCandles != null ? new ConcurrentHashMap<>(peerCandles) : new ConcurrentHashMap<>();
+    }
+
+    public void run() {
+        if (tcsService == null) {
+            log(getStrategyName() + " stopped: tcsService is null.");
+            return;
+        }
+
+        throttleApiCall();
+        var initPortfolioCost = safeGetTotalPortfolioCost();
+        var infoMessage = getStrategyName() + " started. Total Portfolio Cost: " + initPortfolioCost;
+        telegramNotifyService.sendMessage(infoMessage);
+        log(infoMessage);
+
+        List<String> activeTickers = new ArrayList<>();
+        for (String ticker : unifiedTraderConfig.getStocks()) {
+            try {
+                if (unifiedTraderConfig.getTickerParams(ticker).enabled) {
+                    activeTickers.add(ticker);
+                }
+            } catch (Exception ex) {
+                log("Failed to load config for ticker " + ticker + ": " + ex.getMessage());
+            }
+        }
+
+        if (activeTickers.isEmpty()) {
+            log("No active tickers found. " + getStrategyName() + " stopped.");
+            return;
+        }
+
+        if (isEndOfDayReached() || !isTradingDay()) {
+            var message = getStrategyName() + ": outside working hours, closing positions if needed.";
+            log(message);
+            telegramNotifyService.sendMessage(message);
+            closeAllPositions(tcsService, unifiedTraderConfig);
+            return;
+        }
+
+        ExecutorService executor = Executors.newFixedThreadPool(activeTickers.size() + 1);
+        Map<String, Double> capitalAllocation = computeCapitalAllocation(activeTickers);
+
+        try {
+            List<CompletableFuture<Void>> tasks = new ArrayList<>();
+
+            tasks.add(runAsync(() -> {
+                while (isWorkingHours()) {
+                    try {
+                        refreshPeerCandles(activeTickers);
+                    } catch (Exception ex) {
+                        log("Failed to refresh peer candles: " + ex.getMessage());
+                    }
+                    sleep(60_000);
+                }
+            }, executor));
+
+            for (String name : activeTickers) {
+                double allocatedBalance = capitalAllocation.getOrDefault(name, 0.0);
+                tasks.add(runAsync(() -> {
+                    while (isWorkingHours()) {
+                        processTicker(name, tcsService, unifiedTraderConfig, allocatedBalance);
+                        sleep(30_000);
+                    }
+                }, executor));
+            }
+
+            allOf(tasks.toArray(new CompletableFuture[0])).join();
+        } finally {
+            closeAllPositions(tcsService, unifiedTraderConfig);
+            shutdownExecutor(executor);
+
+            var endPortfolioCost = safeGetTotalPortfolioCost();
+            var message = getStrategyName() + " stopped. Total Portfolio Cost: " + endPortfolioCost;
+            telegramNotifyService.sendMessage(message);
+            log(message);
+        }
+    }
+
+    protected abstract String getStrategyName();
+
+    public abstract TradingDecision decide(String ticker,
+                                           List<Candle> hourCandles,
+                                           List<Candle> minuteCandles,
+                                           Position position,
+                                           double balance,
+                                           boolean incrementCandlesHeld);
+
+    protected void refreshPeerCandles(List<String> tickers) {
+        if (tcsService == null) {
+            return;
+        }
+
+        Map<String, List<Candle>> snapshot = new HashMap<>();
+        String dataDir = unifiedTraderConfig.getDataDir();
+
+        for (String ticker : tickers) {
+            try {
+                TickerInfo info = findTickerInfo(ticker);
+                if (info == null) continue;
+
+                List<Candle> hourCandles = loadOrRefreshCandles(
+                        ticker, info.getFigi(), dataDir, OffsetDateTime.now(), CandleInterval.CANDLE_INTERVAL_HOUR
+                );
+                if (hourCandles != null && !hourCandles.isEmpty()) {
+                    snapshot.put(ticker, hourCandles);
+                }
+            } catch (Exception ex) {
+                log("refreshPeerCandles failed for " + ticker + ": " + ex.getMessage());
+            }
+        }
+
+        if (!snapshot.isEmpty()) {
+            setPeerCandles(snapshot);
+        }
+    }
+
+    public void processTicker(String name,
+                              TCSService tcsService,
+                              UnifiedTraderConfig unifiedTraderConfig,
+                              double allocatedBalance) {
+        if (tcsService == null) {
+            return;
+        }
+
+        Long cooldownUntil = tickerCooldown.get(name);
+        if (cooldownUntil != null) {
+            long remaining = cooldownUntil - System.currentTimeMillis();
+            if (remaining > 0) {
+                log("Ticker " + name + " is on cooldown for " + (remaining / 1000) + "s, skipping.");
+                return;
+            } else {
+                tickerCooldown.remove(name);
+                log("Ticker " + name + " cooldown expired, resuming.");
+            }
+        }
+
+        try {
+            if (!isWorkingHours()) {
+                return;
+            }
+
+            UnifiedTraderConfig.TickerParams tickerParams = unifiedTraderConfig.getTickerParams(name);
+            if (!tickerParams.enabled) {
+                log("Ticker " + name + " disabled, skipping.");
+                return;
+            }
+
+            TickerInfo ticker = findTickerInfo(name);
+            if (ticker == null) {
+                log("Ticker " + name + " not found, skipping.");
+                return;
+            }
+
+            String figi = ticker.getFigi();
+            OffsetDateTime now = OffsetDateTime.now();
+            String dataDir = unifiedTraderConfig.getDataDir();
+
+            List<Candle> hourCandles = loadOrRefreshCandles(name, figi, dataDir, now, CandleInterval.CANDLE_INTERVAL_HOUR);
+            if (hourCandles == null || hourCandles.isEmpty()) {
+                log("No hourly candles for " + name + ", skipping.");
+                return;
+            }
+
+            boolean useMinCandles = tickerParams.useMinuteCandles;
+            List<Candle> minuteCandles = hourCandles;
+
+            if (useMinCandles) {
+                minuteCandles = loadOrRefreshCandles(name, figi, dataDir, now, CandleInterval.CANDLE_INTERVAL_5_MIN);
+                if (minuteCandles == null || minuteCandles.isEmpty()) {
+                    log("No minute candles for " + name + ", skipping.");
+                    return;
+                }
+            }
+
+            Position storedPosition = positionStore.getOrDefault(name, new Position());
+
+            boolean hourChanged = false;
+            if (storedPosition.quantity > 0) {
+                String lastHourBar = hourCandles.get(hourCandles.size() - 1).time;
+                String prevSeen = lastSeenHourBarByTicker.get(name);
+
+                if (prevSeen == null || !prevSeen.equals(lastHourBar)) {
+                    hourChanged = true;
+                    lastSeenHourBarByTicker.put(name, lastHourBar);
+                }
+            } else {
+                lastSeenHourBarByTicker.remove(name);
+            }
+
+            double balance = allocatedBalance > 0.0 ? allocatedBalance : tcsService.getAvailableCash();
+
+            TradingDecision decision = decide(name, hourCandles, minuteCandles, storedPosition, balance, hourChanged);
+
+            if (decision.updatedPosition != null && "HOLD".equals(decision.action)) {
+                positionStore.put(name, decision.updatedPosition);
+            }
+
+            if ("OPEN".equals(decision.action)) {
+                openPosition(name, ticker, hourCandles, decision);
+            }
+
+            if ("CLOSE".equals(decision.action)) {
+                closePosition(name, ticker, storedPosition, decision);
+            }
+        } catch (Exception ex) {
+            long cooldownExpiry = System.currentTimeMillis() + COOLDOWN_DURATION_MS;
+            tickerCooldown.put(name, cooldownExpiry);
+            String message = getStrategyName() + " error for " + name + ": " + ex.getMessage();
+            log(message);
+            telegramNotifyService.sendMessage(message);
+        }
+    }
+
+    protected void openPosition(String name, TickerInfo ticker, List<Candle> candles, TradingDecision decision) {
+        log("Decision for " + name + ": " + decision.action + " (" + decision.reason + ")");
+        if (decision.updatedPosition == null || decision.quantity <= 0) {
+            log("Invalid OPEN decision for " + name + ", skipping.");
+            return;
+        }
+
+        if (!"BUY".equals(decision.updatedPosition.direction)) {
+            log("Short is disabled for " + name + ", skipping SELL.");
+            return;
+        }
+
+        double entryPrice = decision.entryPrice != null
+                ? decision.entryPrice
+                : candles.get(candles.size() - 1).close;
+
+        int qty = decision.quantity;
+        double positionValue = qty * entryPrice;
+
+        double slPrice = decision.stopLoss != null ? decision.stopLoss : entryPrice * 0.98;
+        double tpPrice = decision.takeProfit != null ? decision.takeProfit : entryPrice * 1.04;
+
+        double slPercent = abs(entryPrice - slPrice) / entryPrice * 100;
+        double tpPercent = abs(tpPrice - entryPrice) / entryPrice * 100;
+
+        log("Opening BUY for " + name
+                + ": qty=" + qty
+                + ", entry=" + entryPrice
+                + ", value=" + positionValue
+                + ", SL=" + String.format("%.2f", slPercent) + "%"
+                + ", TP=" + String.format("%.2f", tpPercent) + "%");
+
+        try {
+            throttleApiCall();
+            tcsService.buyByMarket(name, ticker.getType(), positionValue, tpPercent, slPercent);
+
+            positionStore.put(name, decision.updatedPosition);
+            lastSeenHourBarByTicker.put(name, candles.get(candles.size() - 1).time);
+
+            telegramNotifyService.sendMessage(getStrategyName() + " BUY " + name
+                    + ": qty=" + qty
+                    + ", entry=" + entryPrice
+                    + ", SL=" + String.format("%.2f", slPercent) + "%"
+                    + ", TP=" + String.format("%.2f", tpPercent) + "%");
+        } catch (Exception ex) {
+            log("Failed to open BUY for " + name + ": " + ex.getMessage());
+            telegramNotifyService.sendMessage(getStrategyName() + " FAILED BUY " + name + ": " + ex.getMessage());
+        }
+    }
+
+    protected void closePosition(String name, TickerInfo ticker, Position storedPosition, TradingDecision decision) {
+        log("Decision for " + name + ": " + decision.action + " (" + decision.reason + ")");
+        if (storedPosition.quantity <= 0) {
+            log("CLOSE decision but no position for " + name + ", skipping.");
+            return;
+        }
+
+        log("Closing position for " + name + ": " + storedPosition.quantity +
+                " shares, direction=" + storedPosition.direction +
+                ", reason=" + decision.reason);
+
+        boolean closed = false;
+        if ("BUY".equals(storedPosition.direction)) {
+            throttleApiCall();
+            closed = tcsService.closeLongByMarket(name, ticker.getType());
+        }
+
+        if (closed) {
+            positionStore.put(name, getCooldownPosition());
+            lastSeenHourBarByTicker.remove(name);
+            telegramNotifyService.sendMessage(getStrategyName() + " CLOSED " + name +
+                    " (reason: " + decision.reason + ")");
+        } else {
+            log("Failed to close position for " + name + " (may not exist in broker account)");
+        }
+    }
+
+    protected Position getCooldownPosition() {
+        return new Position(config.cooldownCandles);
+    }
+
+    protected Double safeGetTotalPortfolioCost() {
+        if (tcsService == null) {
+            return 0.0;
+        }
+        try {
+            return tcsService.getTotalPortfolioCost();
+        } catch (Exception ex) {
+            log("Failed to read portfolio cost: " + ex.getMessage());
+            return 0.0;
+        }
+    }
+
+    protected TickerInfo findTickerInfo(String name) {
+        return TickerRepository.INSTANCE.getAll().values().stream()
+                .filter(t -> t.getType() == TickerType.STOCK || t.getType() == TickerType.FEATURE)
+                .filter(t -> t.getName().equalsIgnoreCase(name) || t.getTicker().equalsIgnoreCase(name))
+                .findFirst()
+                .orElse(null);
+    }
+
+    protected List<Candle> loadOrRefreshCandles(String name,
+                                                String figi,
+                                                String dataDir,
+                                                OffsetDateTime now,
+                                                CandleInterval interval) {
+        if (tcsService == null) {
+            return readCachedCandles(name, dataDir, interval);
+        }
+
+        String fileName = interval == CandleInterval.CANDLE_INTERVAL_HOUR ? "candlesHOUR.txt" : "candles5_MIN.txt";
+        File candleFile = new File(dataDir + "/" + name + "/" + fileName);
+
+        List<Candle> candles = readCachedCandles(name, dataDir, interval);
+        if (candles != null && !candles.isEmpty() && isCandleDataFresh(candles, interval)) {
+            return candles;
+        }
+
+        throttleApiCall();
+
+        List<HistoricCandle> historicCandles = tcsService.getCandles(
+                figi,
+                interval == CandleInterval.CANDLE_INTERVAL_HOUR ? now.minusMinutes(24 * 60) : now.minusMinutes(6 * 60),
+                now,
+                interval
+        );
+
+        List<Candle> refreshed = new ArrayList<>();
+        for (HistoricCandle hc : historicCandles) {
+            Timestamp ts = new Timestamp(hc.getTime().getSeconds() * 1000);
+            refreshed.add(new Candle(
+                    CANDLE_TIME_FORMAT.get().format(ts),
+                    IndicatorsUtil.toDouble(hc.getOpen()),
+                    IndicatorsUtil.toDouble(hc.getHigh()),
+                    IndicatorsUtil.toDouble(hc.getLow()),
+                    IndicatorsUtil.toDouble(hc.getClose()),
+                    hc.getVolume()
+            ));
+        }
+
+        if (!refreshed.isEmpty()) {
+            writeCandlesToFile(name, dataDir, fileName, refreshed);
+            return refreshed;
+        }
+
+        if (candleFile.exists() && candles != null && !candles.isEmpty()) {
+            return candles;
+        }
+
+        return refreshed;
+    }
+
+    protected List<Candle> readCachedCandles(String name, String dataDir, CandleInterval interval) {
+        try {
+            List<TickerCandle> cached = DataCollector.readCandlesFile(name, dataDir, interval);
+            if (cached == null || cached.isEmpty()) {
+                return null;
+            }
+
+            List<Candle> candles = new ArrayList<>(cached.size());
+            for (TickerCandle tc : cached) {
+                candles.add(new Candle(tc.getDate(), tc.getOpen(), tc.getHigh(), tc.getLow(), tc.getClose(), tc.getVolume()));
+            }
+            return candles;
+        } catch (Exception ex) {
+            log("Failed to read cached candles for " + name + ": " + ex.getMessage());
+            return null;
+        }
+    }
+
+    protected boolean isCandleDataFresh(List<Candle> candles, CandleInterval interval) {
+        if (candles == null || candles.isEmpty()) {
+            return false;
+        }
+
+        try {
+            String lastTimeStr = candles.get(candles.size() - 1).time;
+            Date lastCandleDate = CANDLE_TIME_FORMAT.get().parse(lastTimeStr);
+
+            Calendar lastCal = Calendar.getInstance();
+            lastCal.setTime(lastCandleDate);
+
+            Calendar nowCal = Calendar.getInstance();
+
+            boolean sameDay = lastCal.get(Calendar.YEAR) == nowCal.get(Calendar.YEAR)
+                    && lastCal.get(Calendar.DAY_OF_YEAR) == nowCal.get(Calendar.DAY_OF_YEAR);
+
+            if (!sameDay) {
+                return false;
+            }
+
+            if (interval == CandleInterval.CANDLE_INTERVAL_HOUR) {
+                return lastCal.get(Calendar.HOUR_OF_DAY) == nowCal.get(Calendar.HOUR_OF_DAY);
+            }
+
+            return lastCal.get(Calendar.HOUR_OF_DAY) == nowCal.get(Calendar.HOUR_OF_DAY)
+                    && (lastCal.get(Calendar.MINUTE) / 5) == (nowCal.get(Calendar.MINUTE) / 5);
+        } catch (Exception ex) {
+            return false;
+        }
+    }
+
+    protected boolean isTradingDay() {
+        DayOfWeek day = LocalDateTime.now().getDayOfWeek();
+        return day != DayOfWeek.SATURDAY && day != DayOfWeek.SUNDAY;
+    }
+
+    protected boolean isWorkingHours() {
+        if (!isTradingDay()) {
+            return false;
+        }
+        LocalTime now = LocalTime.now();
+        return !now.isBefore(WORK_START_TIME) && now.isBefore(EOD_CLOSE_TIME);
+    }
+
+    protected boolean isEndOfDayReached() {
+        if (!isTradingDay()) {
+            return true;
+        }
+        LocalTime now = LocalTime.now();
+        return !now.isBefore(EOD_CLOSE_TIME);
+    }
+
+    protected void throttleApiCall() {
+        synchronized (API_LOCK) {
+            long waitTime = API_CALL_DELAY_MS - (System.currentTimeMillis() - lastApiCallTime);
+            if (waitTime > 0) {
+                sleep(waitTime);
+            }
+            lastApiCallTime = System.currentTimeMillis();
+        }
+    }
+
+    protected void closeAllPositions(TCSService tcsService, UnifiedTraderConfig unifiedTraderConfig) {
+        if (tcsService == null) {
+            return;
+        }
+
+        log("End-of-day reached. Closing all positions...");
+        boolean anyClosed = false;
+
+        for (Map.Entry<String, Position> entry : positionStore.entrySet()) {
+            String tickerName = entry.getKey();
+            Position position = entry.getValue();
+
+            if (position.quantity <= 0) {
+                continue;
+            }
+
+            try {
+                UnifiedTraderConfig.TickerParams tickerParams = unifiedTraderConfig.getTickerParams(tickerName);
+                if (!tickerParams.enabled) {
+                    continue;
+                }
+
+                TickerInfo ticker = findTickerInfo(tickerName);
+                if (ticker == null) {
+                    log("Ticker " + tickerName + " not found, skipping position close.");
+                    continue;
+                }
+
+                log("Closing position for " + tickerName + ": " + position.quantity + " shares");
+                throttleApiCall();
+
+                boolean closed = false;
+                if ("BUY".equals(position.direction)) {
+                    closed = tcsService.closeLongByMarket(tickerName, ticker.getType());
+                }
+
+                if (closed) {
+                    positionStore.put(tickerName, getCooldownPosition());
+                    lastSeenHourBarByTicker.remove(tickerName);
+                    anyClosed = true;
+                    telegramNotifyService.sendMessage(getStrategyName() + " EOD CLOSED " + tickerName +
+                            " (" + position.quantity + " shares)");
+                } else {
+                    log("Failed to close position for " + tickerName);
+                }
+            } catch (Exception ex) {
+                log("Error closing position for " + tickerName + ": " + ex.getMessage());
+            }
+        }
+
+        try {
+            tcsService.closeAllByMarket(STOCK);
+        } catch (Exception ex) {
+            log("Failed to close all STOCK positions: " + ex.getMessage());
+        }
+
+        try {
+            tcsService.closeAllByMarket(FEATURE);
+        } catch (Exception ex) {
+            log("Failed to close all FEATURE positions: " + ex.getMessage());
+        }
+
+        if (anyClosed) {
+            log("End-of-day position closing completed.");
+        }
+    }
+
+    protected void writeCandlesToFile(String name, String dataDir, String fileName, List<Candle> candles) {
+        try {
+            Path dir = Paths.get(dataDir, name);
+            Files.createDirectories(dir);
+            Path filePath = dir.resolve(fileName);
+
+            boolean fileExists = Files.exists(filePath);
+            Set<String> existingTimestamps = new HashSet<>();
+
+            if (fileExists) {
+                try (BufferedReader reader = Files.newBufferedReader(filePath)) {
+                    String line = reader.readLine();
+                    while ((line = reader.readLine()) != null) {
+                        String[] parts = line.split(",");
+                        if (parts.length > 0) {
+                            existingTimestamps.add(parts[0]);
+                        }
+                    }
+                }
+            }
+
+            boolean writeHeader = !fileExists || Files.size(filePath) == 0;
+
+            try (FileWriter writer = new FileWriter(filePath.toFile(), true)) {
+                if (writeHeader) {
+                    writer.write("Datetime,Open,High,Low,Close,Volume" + System.lineSeparator());
+                }
+
+                for (Candle c : candles) {
+                    if (existingTimestamps.add(c.time)) {
+                        writer.write(String.format(
+                                "%s,%s,%s,%s,%s,%s",
+                                c.time, c.open, c.high, c.low, c.close, c.volume
+                        ) + System.lineSeparator());
+                    }
+                }
+            }
+        } catch (IOException ex) {
+            log("Failed to write candles file for " + name + ": " + ex.getMessage());
+        }
+    }
+
+    protected static void log(String message) {
+        out.println("[" + LOG_TIME_FORMAT.get().format(new Date()) + "] " + message);
+    }
+
+    protected static void shutdownExecutor(ExecutorService executor) {
+        executor.shutdown();
+        try {
+            if (!executor.awaitTermination(5, TimeUnit.SECONDS)) {
+                executor.shutdownNow();
+            }
+        } catch (InterruptedException skip) {
+            executor.shutdownNow();
+            Thread.currentThread().interrupt();
+        }
+    }
+
+    protected double ema(List<Candle> candles, int period) {
+        if (candles == null || candles.isEmpty()) return 0.0;
+        if (candles.size() < period) return candles.get(candles.size() - 1).close;
+
+        double[] c = candles.stream().mapToDouble(cdl -> cdl.close).toArray();
+        double k = 2.0 / (period + 1);
+        double e = 0.0;
+
+        for (int i = 0; i < period; i++) e += c[i];
+        e /= period;
+
+        for (int i = period; i < c.length; i++) {
+            e = c[i] * k + e * (1 - k);
+        }
+
+        return e;
+    }
+
+    protected double atrVal(List<Candle> candles, int period) {
+        if (candles == null || candles.size() < period + 1) return 0.0;
+
+        double sum = 0.0;
+        for (int i = candles.size() - period; i < candles.size(); i++) {
+            Candle c = candles.get(i);
+            Candle p = candles.get(i - 1);
+            sum += max(
+                    max(c.high - c.low, abs(c.high - p.close)),
+                    abs(c.low - p.close)
+            );
+        }
+        return sum / period;
+    }
+
+    protected double rsiVal(List<Candle> candles, int period) {
+        if (candles == null || candles.size() < period + 1) return 50.0;
+
+        double g = 0.0;
+        double l = 0.0;
+        double[] c = candles.stream().mapToDouble(cdl -> cdl.close).toArray();
+
+        for (int i = c.length - period; i < c.length; i++) {
+            double ch = c[i] - c[i - 1];
+            if (ch >= 0.0) g += ch;
+            else l += abs(ch);
+        }
+
+        double ag = g / period;
+        double al = l / period;
+        if (al == 0.0) return 100.0;
+
+        return 100.0 - (100.0 / (1.0 + ag / al));
+    }
+
+    protected double adxVal(List<Candle> candles, int period) {
+        if (candles == null || candles.size() < period * 2 + 1) return 0.0;
+
+        int n = candles.size();
+        double[] tr = new double[n];
+        double[] plusDM = new double[n];
+        double[] minusDM = new double[n];
+
+        for (int i = 1; i < n; i++) {
+            Candle c = candles.get(i);
+            Candle prev = candles.get(i - 1);
+
+            tr[i] = max(
+                    max(c.high - c.low, abs(c.high - prev.close)),
+                    abs(c.low - prev.close)
+            );
+
+            double up = c.high - prev.high;
+            double dn = prev.low - c.low;
+
+            plusDM[i] = (up > dn && up > 0) ? up : 0.0;
+            minusDM[i] = (dn > up && dn > 0) ? dn : 0.0;
+        }
+
+        double trS = 0.0, pdmS = 0.0, mdmS = 0.0;
+        for (int i = 1; i <= period; i++) {
+            trS += tr[i];
+            pdmS += plusDM[i];
+            mdmS += minusDM[i];
+        }
+
+        double[] dx = new double[n];
+        int dxStart = period;
+
+        if (trS > 0) {
+            double pDI = (pdmS / trS) * 100.0;
+            double mDI = (mdmS / trS) * 100.0;
+            double sum = pDI + mDI;
+            dx[dxStart] = sum > 0 ? abs(pDI - mDI) / sum * 100.0 : 0.0;
+        }
+
+        for (int i = period + 1; i < n; i++) {
+            trS = trS - (trS / period) + tr[i];
+            pdmS = pdmS - (pdmS / period) + plusDM[i];
+            mdmS = mdmS - (mdmS / period) + minusDM[i];
+
+            if (trS > 0) {
+                double pDI = (pdmS / trS) * 100.0;
+                double mDI = (mdmS / trS) * 100.0;
+                double sum = pDI + mDI;
+                dx[i] = sum > 0 ? abs(pDI - mDI) / sum * 100.0 : 0.0;
+            } else {
+                dx[i] = 0.0;
+            }
+        }
+
+        if (n < 2 * period) return dx[n - 1];
+
+        double adxSum = 0.0;
+        for (int i = period; i < 2 * period; i++) {
+            adxSum += dx[i];
+        }
+        double adx = adxSum / period;
+
+        for (int i = 2 * period; i < n; i++) {
+            adx = (adx * (period - 1) + dx[i]) / period;
+        }
+
+        return adx;
+    }
+
+    protected double emaAtr(List<Candle> candles, int period) {
+        if (candles == null || candles.isEmpty()) {
+            return 0.0;
+        }
+
+        if (candles.size() < period + 5) {
+            return atrVal(candles, period);
+        }
+
+        List<Double> vals = new ArrayList<>();
+        for (int i = Math.max(0, candles.size() - 20); i < candles.size(); i++) {
+            if (i < period + 1) {
+                continue;
+            }
+
+            double s = 0.0;
+            for (int j = i - period; j < i; j++) {
+                Candle c = candles.get(j);
+                Candle p = candles.get(j - 1);
+                s += max(
+                        max(c.high - c.low, abs(c.high - p.close)),
+                        abs(c.low - p.close)
+                );
+            }
+            vals.add(s / period);
+        }
+
+        return vals.isEmpty()
+                ? atrVal(candles, period)
+                : vals.stream().mapToDouble(v -> v).average().orElse(0.0);
+    }
+
+    protected Map<String, Double> computeCapitalAllocation(List<String> tickers) {
+        Map<String, Double> weights = new HashMap<>();
+        double totalWeight = 0.0;
+
+        for (String ticker : tickers) {
+            try {
+                UnifiedTraderConfig.TickerParams params = unifiedTraderConfig.getTickerParams(ticker);
+                if (!params.enabled) {
+                    continue;
+                }
+
+                double weight = params.allocationWeight > 0.0 ? params.allocationWeight : 1.0;
+                weights.put(ticker, weight);
+                totalWeight += weight;
+            } catch (Exception ex) {
+                log("Failed to read allocation weight for ticker " + ticker + ": " + ex.getMessage());
+            }
+        }
+
+        if (weights.isEmpty() || totalWeight <= 0.0) {
+            return new HashMap<>();
+        }
+
+        double totalCash;
+        try {
+            totalCash = tcsService.getAvailableCash();
+        } catch (Exception ex) {
+            log("Failed to read available cash for allocation: " + ex.getMessage());
+            return new HashMap<>();
+        }
+
+        Map<String, Double> allocation = new HashMap<>();
+        for (Map.Entry<String, Double> e : weights.entrySet()) {
+            allocation.put(e.getKey(), totalCash * (e.getValue() / totalWeight));
+        }
+
+        return allocation;
+    }
+}
