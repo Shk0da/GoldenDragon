@@ -33,7 +33,15 @@ task uberJar(type: Jar) {
     }
 }
 
-task TestLevelTrader(type:JavaExec) {
-    main = "com.github.shk0da.GoldenDragon.test.TestLevelTrader"
+task runBacktest(type: JavaExec) {
+    main = 'com.github.shk0da.GoldenDragon.test.BacktestRunner'
     classpath = sourceSets.test.runtimeClasspath
+    workingDir = rootDir
+}
+
+task runStrategy(type: JavaExec) {
+    main = 'com.github.shk0da.GoldenDragon.GoldenDragon'
+    classpath = sourceSets.test.runtimeClasspath
+    workingDir = rootDir
+    args strategy
 }

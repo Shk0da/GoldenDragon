@@ -6,6 +6,7 @@ import com.github.shk0da.GoldenDragon.config.MainConfig;
 import com.github.shk0da.GoldenDragon.config.MarketConfig;
 import com.github.shk0da.GoldenDragon.config.RSXConfig;
 import com.github.shk0da.GoldenDragon.config.RebalanceConfig;
+import com.github.shk0da.GoldenDragon.config.UnifiedTraderConfig;
 import com.github.shk0da.GoldenDragon.model.Market;
 import com.github.shk0da.GoldenDragon.model.TickerInfo;
 import com.github.shk0da.GoldenDragon.repository.Repository;
@@ -17,6 +18,7 @@ import com.github.shk0da.GoldenDragon.strategy.IndicatorTrader;
 import com.github.shk0da.GoldenDragon.strategy.LevelTrader;
 import com.github.shk0da.GoldenDragon.strategy.RSX;
 import com.github.shk0da.GoldenDragon.strategy.Rebalance;
+import com.github.shk0da.GoldenDragon.strategy.UnifiedStrategy;
 import com.google.gson.reflect.TypeToken;
 import java.io.FileDescriptor;
 import java.io.FileOutputStream;
@@ -114,6 +116,14 @@ public class GoldenDragon {
                 LevelTraderConfig levelTraderConfig = new LevelTraderConfig();
                 new LevelTrader(levelTraderConfig, tcsService).run();
                 telegramNotifyService.sendMessage("Stop LevelTrader");
+            }
+
+            // 7. UnifiedStrategy
+            if ("UnifiedStrategy".equals(strategy)) {
+                telegramNotifyService.sendMessage("Run UnifiedStrategy");
+                UnifiedTraderConfig unifiedTraderConfig = new UnifiedTraderConfig();
+                new UnifiedStrategy(unifiedTraderConfig, tcsService).run();
+                telegramNotifyService.sendMessage("Stop UnifiedStrategy");
             }
         } catch (Exception ex) {
             out.printf("Error: %s%n", ex.getMessage());
