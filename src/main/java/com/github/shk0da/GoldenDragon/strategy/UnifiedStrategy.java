@@ -98,10 +98,6 @@ public class UnifiedStrategy {
         this.marketRegimeFilter = new MarketRegimeFilter(config.marketRegimeFilterEnabled);
     }
 
-    public UnifiedTraderConfig getUnifiedTraderConfig() {
-        return unifiedTraderConfig;
-    }
-
     public void setPeerCandles(Map<String, List<Candle>> peerCandles) {
         this.peerCandles = peerCandles;
     }
