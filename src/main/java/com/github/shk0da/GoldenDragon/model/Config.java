@@ -18,6 +18,9 @@ public class Config {
     public final int atrSpikeWindow;
     public final int cooldownCandles;
 
+    // Market Regime Filter parameters
+    public final boolean marketRegimeFilterEnabled;
+
     // Bad Weather Filter parameters
     public final boolean badWeatherFilterEnabled;
     public final double badWeatherLowVolumeThreshold;
@@ -48,6 +51,8 @@ public class Config {
         this.cooldownCandles = 3;
 
         // Bad Weather Filter defaults
+        this.marketRegimeFilterEnabled = true;
+
         this.badWeatherFilterEnabled = false; // Disabled by default
         this.badWeatherLowVolumeThreshold = 0.5;
         this.badWeatherLowAtrThreshold = 0.7;
@@ -87,6 +92,8 @@ public class Config {
         this.atrSpikeThreshold = 3.0;
         this.atrSpikeWindow = 10;
         this.cooldownCandles = 3;
+
+        this.marketRegimeFilterEnabled = true;
 
         this.badWeatherFilterEnabled = badWeatherFilterEnabled;
         this.badWeatherLowVolumeThreshold = badWeatherLowVolumeThreshold;

@@ -2,6 +2,7 @@ package com.github.shk0da.GoldenDragon.strategy;
 
 import com.github.shk0da.GoldenDragon.config.UnifiedTraderConfig;
 import com.github.shk0da.GoldenDragon.filters.BadWeatherFilter;
+import com.github.shk0da.GoldenDragon.filters.MarketRegimeFilter;
 import com.github.shk0da.GoldenDragon.model.Candle;
 import com.github.shk0da.GoldenDragon.model.Config;
 import com.github.shk0da.GoldenDragon.model.Group;
@@ -71,6 +72,7 @@ public class UnifiedStrategy {
     private static long lastApiCallTime = 0;
 
     private final BadWeatherFilter badWeatherFilter;
+    private final MarketRegimeFilter marketRegimeFilter;
 
     public UnifiedStrategy(UnifiedTraderConfig unifiedTraderConfig, TCSService tcsService) {
         this(unifiedTraderConfig, tcsService, new Config());
@@ -92,6 +94,7 @@ public class UnifiedStrategy {
                 config.badWeatherMinAvgDailyVolume,
                 config.badWeatherAtrSpikeThreshold
         );
+        this.marketRegimeFilter = new MarketRegimeFilter(config.marketRegimeFilterEnabled);
     }
 
     public void run() {
@@ -183,10 +186,24 @@ public class UnifiedStrategy {
         if (position.quantity > 0)
             return new TradingDecision("HOLD", "in_pos", 0.0, 0, null, null, null, p);
 
+        UnifiedTraderConfig.TickerParams tpCfg = unifiedTraderConfig.getTickerParams(ticker);
+
         // Проверка фильтра "плохая погода" перед открытием новой позиции
-        if (!badWeatherFilter.canTrade(hourCandles, cur.close)) {
-            String reason = badWeatherFilter.getBlockReason(hourCandles, cur.close);
+        if (!badWeatherFilter.canTrade(hourCandles, cur.close, tpCfg.badWeatherParams)) {
+            String reason = badWeatherFilter.getBlockReason(hourCandles, cur.close, tpCfg.badWeatherParams);
             return new TradingDecision("HOLD", reason != null ? "BAD_WEATHER_" + reason : "BAD_WEATHER",
+                    0.0, 0, null, null, null, p);
+        }
+
+        // Проверка фильтра рыночного режима
+        MarketRegimeFilter.FilterResult regimeResult = marketRegimeFilter.evaluate(hourCandles,
+                tpCfg.marketRegimeAdxRangeThreshold,
+                tpCfg.marketRegimeAdxUnclearThreshold,
+                tpCfg.marketRegimeVolumeRatioMin,
+                tpCfg.marketRegimeConfidenceMin,
+                tpCfg.marketRegimeAtrBars);
+        if (!regimeResult.canTrade) {
+            return new TradingDecision("HOLD", "REGIME_" + regimeResult.reason,
                     0.0, 0, null, null, null, p);
         }
 
@@ -208,7 +225,6 @@ public class UnifiedStrategy {
 
         double entry = cur.close;
 
-        UnifiedTraderConfig.TickerParams tpCfg = unifiedTraderConfig.getTickerParams(ticker);
         double slMult = tpCfg.slMult;
         double tpMult = tpCfg.tpMult;
         double riskP = tpCfg.riskP;
@@ -216,7 +232,7 @@ public class UnifiedStrategy {
         double slDist = dAtr * slMult;
         double tpDist = dAtr * tpMult;
 
-        double maxRisk = balance * riskP;
+        double maxRisk = balance * riskP * regimeResult.positionMultiplier;
         double maxQty = Math.floor(balance / entry);
         int qty = (int) Math.min(Math.max(1, Math.floor(maxRisk / slDist)), maxQty);
         if (qty <= 0) return new TradingDecision("HOLD", "qty0", 0.0, 0, null, null, null, p);
@@ -226,7 +242,8 @@ public class UnifiedStrategy {
         double tp = isBuy ? entry + tpDist : entry - tpDist;
         String dirName = isBuy ? "BUY" : "SELL";
 
-        return new TradingDecision("OPEN", signal, 0.7, qty, sl, tp, entry, new Position(dirName, entry, sl, tp, qty, 0));
+        double tradeConfidence = regimeResult.confidence / 100.0;
+        return new TradingDecision("OPEN", signal, tradeConfidence, qty, sl, tp, entry, new Position(dirName, entry, sl, tp, qty, 0));
     }
 
     public void processTicker(String name, TCSService tcsService, UnifiedTraderConfig unifiedTraderConfig) {

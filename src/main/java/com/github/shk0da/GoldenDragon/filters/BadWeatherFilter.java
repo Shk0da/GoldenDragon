@@ -23,6 +23,45 @@ public class BadWeatherFilter {
     // Включён ли фильтр
     private final boolean enabled;
 
+    public static class Params {
+
+        public final double lowVolumeThreshold;
+        public final double lowAtrThreshold;
+        public final double minRangePercent;
+        public final double highAtrThreshold;
+        public final double maxSpreadPercent;
+        public final double maxWickRatio;
+        public final double panicVolumeThreshold;
+        public final double minAvgDailyVolume;
+        public final double atrSpikeThreshold;
+
+        public Params() {
+            this(0.5, 0.7, 0.005, 2.0, 0.01, 0.4, 3.0, 100000, 2.5);
+        }
+
+        public Params(
+                double lowVolumeThreshold,
+                double lowAtrThreshold,
+                double minRangePercent,
+                double highAtrThreshold,
+                double maxSpreadPercent,
+                double maxWickRatio,
+                double panicVolumeThreshold,
+                double minAvgDailyVolume,
+                double atrSpikeThreshold
+        ) {
+            this.lowVolumeThreshold = lowVolumeThreshold;
+            this.lowAtrThreshold = lowAtrThreshold;
+            this.minRangePercent = minRangePercent;
+            this.highAtrThreshold = highAtrThreshold;
+            this.maxSpreadPercent = maxSpreadPercent;
+            this.maxWickRatio = maxWickRatio;
+            this.panicVolumeThreshold = panicVolumeThreshold;
+            this.minAvgDailyVolume = minAvgDailyVolume;
+            this.atrSpikeThreshold = atrSpikeThreshold;
+        }
+    }
+
     public BadWeatherFilter(
             boolean enabled,
             double lowVolumeThreshold,
@@ -70,30 +109,26 @@ public class BadWeatherFilter {
      * @return true если торговля разрешена, false если "плохая погода"
      */
     public boolean canTrade(List<Candle> candles, double currentPrice) {
+        return canTrade(candles, currentPrice, new Params(
+                lowVolumeThreshold, lowAtrThreshold, minRangePercent,
+                highAtrThreshold, maxSpreadPercent, maxWickRatio,
+                panicVolumeThreshold, minAvgDailyVolume, atrSpikeThreshold
+        ));
+    }
+
+    public boolean canTrade(List<Candle> candles, double currentPrice, Params params) {
         if (!enabled) {
             return true;
         }
 
         if (candles == null || candles.size() < 30) {
-            return false; // Недостаточно данных
-        }
-
-        // Проверяем все условия "плохой погоды"
-        if (isLowActivity(candles)) {
             return false;
         }
 
-        if (isChaoticActivity(candles, currentPrice)) {
-            return false;
-        }
-
-        if (isPoorLiquidity(candles, currentPrice)) {
-            return false;
-        }
-
-        if (isTurbulentRegime(candles)) {
-            return false;
-        }
+        if (isLowActivity(candles, params)) return false;
+        if (isChaoticActivity(candles, currentPrice, params)) return false;
+        if (isPoorLiquidity(candles, currentPrice, params)) return false;
+        if (isTurbulentRegime(candles, params)) return false;
 
         return true;
     }
@@ -101,34 +136,30 @@ public class BadWeatherFilter {
     /**
      * 1. Слишком низкая активность
      */
-    private boolean isLowActivity(List<Candle> candles) {
+    private boolean isLowActivity(List<Candle> candles, Params params) {
         int lookback = Math.min(20, candles.size() - 1);
         if (lookback < 10) return true;
 
         Candle current = candles.get(candles.size() - 1);
 
-        // Средний объём
         long avgVolume = 0;
         for (int i = candles.size() - lookback; i < candles.size(); i++) {
             avgVolume += candles.get(i).volume;
         }
         avgVolume /= lookback;
 
-        // Текущий объём слишком низкий
-        if (current.volume < avgVolume * lowVolumeThreshold) {
+        if (current.volume < avgVolume * params.lowVolumeThreshold) {
             return true;
         }
 
-        // ATR слишком мал
         double atr = calculateAtr(candles, lookback);
         double avgAtr = calculateAvgAtr(candles, lookback * 2);
-        if (avgAtr > 0 && atr < avgAtr * lowAtrThreshold) {
+        if (avgAtr > 0 && atr < avgAtr * params.lowAtrThreshold) {
             return true;
         }
 
-        // Инструмент в слишком узком диапазоне
         double rangePercent = (current.high - current.low) / current.close;
-        if (rangePercent < minRangePercent) {
+        if (rangePercent < params.minRangePercent) {
             return true;
         }
 
@@ -138,42 +169,38 @@ public class BadWeatherFilter {
     /**
      * 2. Слишком хаотичная / опасная активность
      */
-    private boolean isChaoticActivity(List<Candle> candles, double currentPrice) {
+    private boolean isChaoticActivity(List<Candle> candles, double currentPrice, Params params) {
         int lookback = Math.min(20, candles.size() - 1);
         if (lookback < 10) return false;
 
         Candle current = candles.get(candles.size() - 1);
 
-        // ATR аномально высокий
         double atr = calculateAtr(candles, lookback);
         double avgAtr = calculateAvgAtr(candles, lookback * 2);
-        if (avgAtr > 0 && atr > avgAtr * highAtrThreshold) {
+        if (avgAtr > 0 && atr > avgAtr * params.highAtrThreshold) {
             return true;
         }
 
-        // Длинные тени
         double body = Math.abs(current.close - current.open);
         double range = current.high - current.low;
         if (range > 0) {
             double upperWick = current.high - Math.max(current.open, current.close);
             double lowerWick = Math.min(current.open, current.close) - current.low;
             double wickRatio = Math.max(upperWick, lowerWick) / range;
-            if (wickRatio > maxWickRatio) {
+            if (wickRatio > params.maxWickRatio) {
                 return true;
             }
         }
 
-        // Панический объём без подтверждения
         long avgVolume = 0;
         for (int i = candles.size() - lookback; i < candles.size(); i++) {
             avgVolume += candles.get(i).volume;
         }
         avgVolume /= lookback;
 
-        if (current.volume > avgVolume * panicVolumeThreshold) {
-            // Проверяем, есть ли подтверждение движения
+        if (current.volume > avgVolume * params.panicVolumeThreshold) {
             double bodyPercent = body / current.close;
-            if (bodyPercent < 0.005) { // Тело свечи слишком маленькое
+            if (bodyPercent < 0.005) {
                 return true;
             }
         }
@@ -184,25 +211,23 @@ public class BadWeatherFilter {
     /**
      * 3. Плохая ликвидность
      */
-    private boolean isPoorLiquidity(List<Candle> candles, double currentPrice) {
+    private boolean isPoorLiquidity(List<Candle> candles, double currentPrice, Params params) {
         int lookback = Math.min(20, candles.size() - 1);
         if (lookback < 10) return true;
 
-        // Средний объём ниже минимального
         long avgVolume = 0;
         for (int i = candles.size() - lookback; i < candles.size(); i++) {
             avgVolume += candles.get(i).volume;
         }
         avgVolume /= lookback;
 
-        if (avgVolume < minAvgDailyVolume) {
+        if (avgVolume < params.minAvgDailyVolume) {
             return true;
         }
 
-        // Спред слишком широкий (оцениваем через диапазон свечи)
         Candle current = candles.get(candles.size() - 1);
         double spreadPercent = (current.high - current.low) / current.close;
-        if (spreadPercent > maxSpreadPercent) {
+        if (spreadPercent > params.maxSpreadPercent) {
             return true;
         }
 
@@ -212,19 +237,17 @@ public class BadWeatherFilter {
     /**
      * 4. Новостной / турбулентный режим
      */
-    private boolean isTurbulentRegime(List<Candle> candles) {
+    private boolean isTurbulentRegime(List<Candle> candles, Params params) {
         int lookback = Math.min(10, candles.size() - 1);
         if (lookback < 5) return false;
 
-        // Резкий скачок ATR
         double currentAtr = calculateAtr(candles, lookback);
         double prevAvgAtr = calculateAvgAtr(candles.subList(0, candles.size() - lookback), lookback);
 
-        if (prevAvgAtr > 0 && currentAtr > prevAvgAtr * atrSpikeThreshold) {
+        if (prevAvgAtr > 0 && currentAtr > prevAvgAtr * params.atrSpikeThreshold) {
             return true;
         }
 
-        // Экстремальный объём
         long currentVolume = candles.get(candles.size() - 1).volume;
         long avgVolume = 0;
         int volLookback = Math.min(20, candles.size() - 1);
@@ -233,7 +256,7 @@ public class BadWeatherFilter {
         }
         avgVolume /= volLookback;
 
-        if (avgVolume > 0 && currentVolume > avgVolume * panicVolumeThreshold) {
+        if (avgVolume > 0 && currentVolume > avgVolume * params.panicVolumeThreshold) {
             return true;
         }
 
@@ -287,6 +310,14 @@ public class BadWeatherFilter {
      * Возвращает описание причины запрета торговли (для отладки)
      */
     public String getBlockReason(List<Candle> candles, double currentPrice) {
+        return getBlockReason(candles, currentPrice, new Params(
+                lowVolumeThreshold, lowAtrThreshold, minRangePercent,
+                highAtrThreshold, maxSpreadPercent, maxWickRatio,
+                panicVolumeThreshold, minAvgDailyVolume, atrSpikeThreshold
+        ));
+    }
+
+    public String getBlockReason(List<Candle> candles, double currentPrice, Params params) {
         if (!enabled) {
             return null;
         }
@@ -295,21 +326,10 @@ public class BadWeatherFilter {
             return "INSUFFICIENT_DATA";
         }
 
-        if (isLowActivity(candles)) {
-            return "LOW_ACTIVITY";
-        }
-
-        if (isChaoticActivity(candles, currentPrice)) {
-            return "CHAOTIC_ACTIVITY";
-        }
-
-        if (isPoorLiquidity(candles, currentPrice)) {
-            return "POOR_LIQUIDITY";
-        }
-
-        if (isTurbulentRegime(candles)) {
-            return "TURBULENT_REGIME";
-        }
+        if (isLowActivity(candles, params)) return "LOW_ACTIVITY";
+        if (isChaoticActivity(candles, currentPrice, params)) return "CHAOTIC_ACTIVITY";
+        if (isPoorLiquidity(candles, currentPrice, params)) return "POOR_LIQUIDITY";
+        if (isTurbulentRegime(candles, params)) return "TURBULENT_REGIME";
 
         return null;
     }
