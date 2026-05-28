@@ -932,17 +932,22 @@ public class UnifiedStrategy {
                         + ", SL=" + String.format("%.2f", slPercent) + "%"
                         + ", TP=" + String.format("%.2f", tpPercent) + "%");
 
-                throttleApiCall();
-                tcsService.buyByMarket(name, ticker.getType(), positionValue, tpPercent, slPercent);
+                try {
+                    throttleApiCall();
+                    tcsService.buyByMarket(name, ticker.getType(), positionValue, tpPercent, slPercent);
 
-                positionStore.put(name, decision.updatedPosition);
-                lastSeenHourBarByTicker.put(name, candles.get(candles.size() - 1).time);
+                    positionStore.put(name, decision.updatedPosition);
+                    lastSeenHourBarByTicker.put(name, candles.get(candles.size() - 1).time);
 
-                telegramNotifyService.sendMessage("UnifiedStrategy BUY " + name
-                        + ": qty=" + qty
-                        + ", entry=" + entryPrice
-                        + ", SL=" + String.format("%.2f", slPercent) + "%"
-                        + ", TP=" + String.format("%.2f", tpPercent) + "%");
+                    telegramNotifyService.sendMessage("UnifiedStrategy BUY " + name
+                            + ": qty=" + qty
+                            + ", entry=" + entryPrice
+                            + ", SL=" + String.format("%.2f", slPercent) + "%"
+                            + ", TP=" + String.format("%.2f", tpPercent) + "%");
+                } catch (Exception ex) {
+                    log("Failed to open BUY for " + name + ": " + ex.getMessage());
+                    telegramNotifyService.sendMessage("UnifiedStrategy FAILED BUY " + name + ": " + ex.getMessage());
+                }
             }
 
             if ("CLOSE".equals(decision.action)) {
@@ -1095,6 +1100,9 @@ public class UnifiedStrategy {
     }
 
     private boolean isEndOfDayReached() {
+        if (!isTradingDay()) {
+            return true;
+        }
         LocalTime now = LocalTime.now();
         return !now.isBefore(EOD_CLOSE_TIME);
     }
