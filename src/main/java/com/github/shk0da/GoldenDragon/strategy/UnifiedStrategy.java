@@ -215,6 +215,8 @@ public class UnifiedStrategy {
 
             List<Candle> candles = null;
             String dataDir = unifiedTraderConfig.getDataDir();
+            SimpleDateFormat df = new SimpleDateFormat("dd.MM.yyyy HH:mm:ss");
+
             File candleFile = new File(dataDir + "/" + name + "/candlesHOUR.txt");
             if (candleFile.exists()) {
                 List<TickerCandle> cached = DataCollector.readCandlesFile(name, dataDir, CandleInterval.CANDLE_INTERVAL_HOUR);
@@ -223,7 +225,54 @@ public class UnifiedStrategy {
                     for (TickerCandle tc : cached) {
                         candles.add(new Candle(tc.getDate(), tc.getOpen(), tc.getHigh(), tc.getLow(), tc.getClose(), tc.getVolume()));
                     }
-                    log("Using cached candles for " + name + " (" + candles.size() + " candles)");
+                    try {
+                        String lastTimeStr = candles.get(candles.size() - 1).time;
+                        Date lastCandleDate = df.parse(lastTimeStr);
+                        Calendar lastCal = Calendar.getInstance();
+                        lastCal.setTime(lastCandleDate);
+                        Calendar nowCal = Calendar.getInstance();
+
+                        boolean isCurrentHour = lastCal.get(Calendar.YEAR) == nowCal.get(Calendar.YEAR)
+                                && lastCal.get(Calendar.DAY_OF_YEAR) == nowCal.get(Calendar.DAY_OF_YEAR)
+                                && lastCal.get(Calendar.HOUR_OF_DAY) == nowCal.get(Calendar.HOUR_OF_DAY);
+
+                        if (isCurrentHour) {
+                            log("Cached candles are current for " + name + " (" + candles.size() + " candles)");
+                        } else {
+                            log("Updating candles for " + name + ", last: " + lastTimeStr);
+                            throttleApiCall();
+                            List<HistoricCandle> newCandles = tcsService.getCandles(
+                                    figi,
+                                    lastCandleDate.toInstant().plusSeconds(3600),
+                                    now.toInstant(),
+                                    CandleInterval.CANDLE_INTERVAL_HOUR
+                            );
+                            if (!newCandles.isEmpty()) {
+                                log("Appending " + newCandles.size() + " new candles for " + name);
+                                try (FileWriter writer = new FileWriter(candleFile, true)) {
+                                    for (HistoricCandle hc : newCandles) {
+                                        Timestamp ts = new Timestamp(hc.getTime().getSeconds() * 1000);
+                                        Candle c = new Candle(
+                                                df.format(ts),
+                                                IndicatorsUtil.toDouble(hc.getOpen()),
+                                                IndicatorsUtil.toDouble(hc.getHigh()),
+                                                IndicatorsUtil.toDouble(hc.getLow()),
+                                                IndicatorsUtil.toDouble(hc.getClose()),
+                                                hc.getVolume()
+                                        );
+                                        candles.add(c);
+                                        writer.write(String.format(
+                                                "%s,%s,%s,%s,%s,%s",
+                                                c.time, c.open, c.high, c.low, c.close, c.volume
+                                        ) + System.lineSeparator());
+                                    }
+                                }
+                            }
+                        }
+                    } catch (Exception e) {
+                        log("Failed to check candle freshness for " + name + ": " + e.getMessage() + ", refetching all");
+                        candles = null;
+                    }
                 }
             }
 
@@ -237,7 +286,6 @@ public class UnifiedStrategy {
                 );
                 log("Fetched " + historicCandles.size() + " candles for " + name);
 
-                SimpleDateFormat df = new SimpleDateFormat("dd.MM.yyyy HH:mm:ss");
                 candles = new ArrayList<>();
                 for (HistoricCandle hc : historicCandles) {
                     Timestamp ts = new Timestamp(hc.getTime().getSeconds() * 1000);
