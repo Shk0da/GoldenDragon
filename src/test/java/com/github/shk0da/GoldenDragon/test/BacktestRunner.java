@@ -63,22 +63,16 @@ public class BacktestRunner {
     }
 
     private final String dataDir;
-    private final String startDate;
-    private final String endDate;
     private final double initialBalance;
-    private final int sharesPerTrade;
     private final double commission;
 
     public BacktestRunner() {
-        this("data", "2025-05-01", "2026-05-01", 1_000_000.0, 100, 0.0005);
+        this("data", 1_000_000.0, 0.0005);
     }
 
-    public BacktestRunner(String dataDir, String startDate, String endDate, double initialBalance, int sharesPerTrade, double commission) {
+    public BacktestRunner(String dataDir, double initialBalance, double commission) {
         this.dataDir = dataDir;
-        this.startDate = startDate;
-        this.endDate = endDate;
         this.initialBalance = initialBalance;
-        this.sharesPerTrade = sharesPerTrade;
         this.commission = commission;
     }
 
@@ -101,7 +95,6 @@ public class BacktestRunner {
         List<String> periodLabels = new ArrayList<>();
         Map<String, Map<String, List<TradeResult>>> allData = new LinkedHashMap<>();
         List<String> allTickers = new ArrayList<>();
-        List<String> missingTickers = new ArrayList<>();
 
         for (String[] p : periods) {
             String label = p[2];
@@ -113,21 +106,21 @@ public class BacktestRunner {
             }
         }
 
-        System.out.println("\n" + "=".repeat(180));
+        System.out.println("\n" + "=".repeat(110));
         System.out.println("РЕЗУЛЬТАТЫ ПО ПЕРИОДАМ");
-        System.out.println("=".repeat(180));
+        System.out.println("=".repeat(110));
 
         StringBuilder header = new StringBuilder();
         header.append(String.format("%-10s", "Тикер"));
         for (String label : periodLabels) {
-            header.append(String.format(" %18s", label));
+            header.append(String.format(" %11s", label));
         }
         System.out.println(header);
 
         StringBuilder subHeader = new StringBuilder();
         subHeader.append(String.format("%-10s", ""));
         for (String ignored : periodLabels) {
-            subHeader.append("   PnL         DD  ");
+            subHeader.append(String.format(" %5s %5s", "PnL", "DD%"));
         }
         System.out.println(subHeader);
 
@@ -141,14 +134,14 @@ public class BacktestRunner {
                 Map<String, List<TradeResult>> tickerData = allData.get(label);
                 List<TradeResult> trades = tickerData != null ? tickerData.get(ticker) : null;
                 if (trades == null || trades.isEmpty()) {
-                    row.append(String.format(" %18s", "—"));
+                    row.append(String.format(" %11s", "—"));
                 } else {
                     hasAny = true;
                     double pnl = trades.stream().mapToDouble(t -> t.pnl).sum();
                     double dd = calcMaxDrawdown(trades) * 100;
-                    String pnlStr = formatPnL(pnl);
-                    String ddStr = formatDD(dd);
-                    row.append(String.format(" %8s %9s", pnlStr, ddStr));
+                    String pnlStr = formatCompactPnL(pnl);
+                    String ddStr = formatCompactDD(dd);
+                    row.append(String.format(" %5s %5s", pnlStr, ddStr));
                 }
             }
             if (hasAny) System.out.println(row);
@@ -164,36 +157,43 @@ public class BacktestRunner {
                     ? tickerData.values().stream().flatMap(List::stream).collect(Collectors.toList())
                     : Collections.emptyList();
             if (allPeriodTrades.isEmpty()) {
-                portRow.append(String.format(" %18s", "—"));
+                portRow.append(String.format(" %11s", "—"));
             } else {
                 List<TradeResult> sorted = sortByTime(allPeriodTrades);
                 double pnl = allPeriodTrades.stream().mapToDouble(t -> t.pnl).sum();
                 double dd = calcMaxDrawdown(sorted) * 100;
-                portRow.append(String.format(" %8s %9s", formatPnL(pnl), formatDD(dd)));
+                portRow.append(String.format(" %5s %5s", formatCompactPnL(pnl), formatCompactDD(dd)));
             }
         }
         System.out.println(portRow);
-        System.out.println("=".repeat(180));
+        System.out.println("=".repeat(110));
     }
 
-    private String formatPnL(double pnl) {
-        String sign = pnl >= 0 ? "+" : "";
-        if (Math.abs(pnl) >= 1_000_000) {
-            return sign + String.format("%.2fM", pnl / 1_000_000);
+    private String formatCompactPnL(double pnl) {
+        String sign = pnl >= 0 ? "+" : "-";
+        double abs = Math.abs(pnl);
+        if (abs >= 1_000_000) {
+            if (abs >= 10_000_000) {
+                return String.format("%5s", sign + (int) (abs / 1_000_000) + "M");
+            }
+            return String.format("%5s", sign + String.format("%.1f", abs / 1_000_000) + "M");
         }
-        if (Math.abs(pnl) >= 1_000) {
-            return sign + String.format("%.0fK", pnl / 1_000);
+        if (abs >= 1_000) {
+            if (abs >= 100_000) {
+                return String.format("%5s", sign + (int) (abs / 1_000) + "K");
+            }
+            return String.format("%5s", sign + String.format("%.0f", abs / 1_000) + "K");
         }
-        return sign + String.format("%.0f", pnl);
+        return String.format("%5s", sign + String.format("%.0f", abs));
     }
 
-    private String formatDD(double dd) {
-        String risk = assessRisk(dd, 0);
+    private String formatCompactDD(double dd) {
+        String risk = assessRisk(dd);
         String marker;
-        if ("High".equals(risk)) marker = "🔥";
-        else if ("Med".equals(risk)) marker = "⚠";
+        if ("High".equals(risk)) marker = "*";
+        else if ("Med".equals(risk)) marker = "!";
         else marker = " ";
-        return String.format("%.1f%%%s", dd, marker);
+        return String.format("%4s", marker + String.format("%.1f", dd));
     }
 
     private List<String> loadTickers() throws IOException {
@@ -418,14 +418,7 @@ public class BacktestRunner {
         return mean / std;
     }
 
-    private double calcProfitFactor(List<TradeResult> trades) {
-        double grossProfit = trades.stream().filter(t -> t.pnl > 0).mapToDouble(t -> t.pnl).sum();
-        double grossLoss = trades.stream().filter(t -> t.pnl < 0).mapToDouble(t -> Math.abs(t.pnl)).sum();
-        if (grossLoss == 0) return Double.POSITIVE_INFINITY;
-        return grossProfit / grossLoss;
-    }
-
-    private String assessRisk(double ddPct, double sharpe) {
+    private String assessRisk(double ddPct) {
         if (ddPct < 10.0) return "Low";
         if (ddPct < 25.0) return "Med";
         return "High";
