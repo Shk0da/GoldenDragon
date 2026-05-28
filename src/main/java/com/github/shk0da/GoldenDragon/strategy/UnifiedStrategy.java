@@ -1061,13 +1061,6 @@ public class UnifiedStrategy {
         return hour == 21 || hour >= 22;
     }
 
-    private boolean isTimeToClosePositions() {
-        var calendar = new GregorianCalendar();
-        var hour = calendar.get(Calendar.HOUR_OF_DAY);
-        var minute = calendar.get(Calendar.MINUTE);
-        return (hour == 20 && minute >= 55) || (hour == 21 && minute >= 0) || hour >= 22;
-    }
-
     private void throttleApiCall() {
         synchronized (API_LOCK) {
             long waitTime = API_CALL_DELAY_MS - (System.currentTimeMillis() - lastApiCallTime);
@@ -1079,10 +1072,6 @@ public class UnifiedStrategy {
     }
 
     private void closeAllPositions(TCSService tcsService, UnifiedTraderConfig unifiedTraderConfig) {
-        if (!isTimeToClosePositions()) {
-            return;
-        }
-
         log("End-of-day reached. Closing all positions...");
         boolean anyClosed = false;
 
