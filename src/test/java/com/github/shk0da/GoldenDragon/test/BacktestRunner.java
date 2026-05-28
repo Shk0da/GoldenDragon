@@ -387,9 +387,9 @@ public class BacktestRunner {
             if (pos.quantity > 0) {
                 equity += pos.quantity * current.close;
             }
-            equityCurve.add(new EquityPoint(current.time, Math.max(0.0, equity)));
+            equityCurve.add(new EquityPoint(current.time, equity));
 
-            if (hourIdx < MIN_HOURS_REQUIRED) continue;
+            if (hourIdx + 1 < MIN_HOURS_REQUIRED) continue;
 
             List<Candle> hourHistory = wrappedHour.subList(0, hourIdx + 1);
             List<Candle> minHistory = wrappedMin.subList(0, i + 1);
