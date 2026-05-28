@@ -1,5 +1,7 @@
 # Agent Instructions
 
+Your main goal is to ensure that the UnifiedStrategy strategy has a PnL of > 10% per month and a DD of < 10%.
+
 - Respond only in Russian unless specified otherwise.
 - Write code comments, commit messages, and documentation in English.
 - Follow existing code, package structure, and project patterns.
@@ -52,7 +54,7 @@
 - Headings: capitalize first letter, no period at the end.
 - Sentences: capitalize first letter, end with a period.
 - Lists: start with lowercase, no period at the end.
-- Ordinary (non-KDoc) comments in code: start with lowercase, no period at the end.
+- Ordinary comments in code: start with lowercase, no period at the end.
 
 ## Commands
 - Run backtest strategies: `./gradlew runBacktest`
