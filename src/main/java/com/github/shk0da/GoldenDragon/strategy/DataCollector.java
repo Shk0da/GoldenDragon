@@ -91,7 +91,7 @@ public class DataCollector {
         out.println("Create candles '" + namePeriod + "' file: " + name);
         var lastCandleTime = Date.from(
                 LocalDate.now()
-                        .minusYears(5)
+                        .minusYears(1)
                         .atTime(LocalTime.MIDNIGHT)
                         .atZone(ZoneId.systemDefault())
                         .toInstant()

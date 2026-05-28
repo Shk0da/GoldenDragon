@@ -15,6 +15,7 @@ import com.github.shk0da.GoldenDragon.model.TradingDecision;
 import com.github.shk0da.GoldenDragon.repository.TickerRepository;
 import com.github.shk0da.GoldenDragon.service.TCSService;
 import com.github.shk0da.GoldenDragon.utils.IndicatorsUtil;
+import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileWriter;
 import java.io.IOException;
@@ -30,8 +31,10 @@ import java.util.Calendar;
 import java.util.Date;
 import java.util.GregorianCalendar;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
@@ -1079,13 +1082,37 @@ public class UnifiedStrategy {
         try {
             Path dir = Paths.get(dataDir, name);
             Files.createDirectories(dir);
-            try (FileWriter writer = new FileWriter(dir.resolve(fileName).toFile())) {
-                writer.write("Datetime,Open,High,Low,Close,Volume" + System.lineSeparator());
+            Path filePath = dir.resolve(fileName);
+            
+            // Читаем существующие свечи из файла
+            Set<String> existingTimestamps = new HashSet<>();
+            if (Files.exists(filePath)) {
+                try (BufferedReader reader = Files.newBufferedReader(filePath)) {
+                    String line = reader.readLine(); // Пропускаем заголовок
+                    while ((line = reader.readLine()) != null) {
+                        String[] parts = line.split(",");
+                        if (parts.length > 0) {
+                            existingTimestamps.add(parts[0]);
+                        }
+                    }
+                }
+            }
+            
+            // Записываем только новые свечи
+            try (FileWriter writer = new FileWriter(filePath.toFile(), true)) {
+                // Если файл новый, записываем заголовок
+                if (!Files.exists(filePath) || Files.size(filePath) == 0) {
+                    writer.write("Datetime,Open,High,Low,Close,Volume" + System.lineSeparator());
+                }
+                
                 for (Candle c : candles) {
-                    writer.write(String.format(
-                            "%s,%s,%s,%s,%s,%s",
-                            c.time, c.open, c.high, c.low, c.close, c.volume
-                    ) + System.lineSeparator());
+                    // Добавляем только свечи, которых еще нет в файле
+                    if (!existingTimestamps.contains(c.time)) {
+                        writer.write(String.format(
+                                "%s,%s,%s,%s,%s,%s",
+                                c.time, c.open, c.high, c.low, c.close, c.volume
+                        ) + System.lineSeparator());
+                    }
                 }
             }
         } catch (IOException ex) {
