@@ -17,7 +17,7 @@ import static java.lang.Math.floor;
 import static java.lang.Math.max;
 import static java.lang.Math.min;
 
-public class HighWinRateUnifiedStrategy extends BaseStrategy {
+public class HighWinRateStrategy extends BaseStrategy {
 
     private final BadWeatherFilter badWeatherFilter;
     private final MarketRegimeFilter marketRegimeFilter;
@@ -37,11 +37,11 @@ public class HighWinRateUnifiedStrategy extends BaseStrategy {
     private static final int COOLDOWN_CANDLES = 2;
     private static final double ADX_MIN = 18.0;
 
-    public HighWinRateUnifiedStrategy(UnifiedTraderConfig unifiedTraderConfig, TCSService tcsService) {
+    public HighWinRateStrategy(UnifiedTraderConfig unifiedTraderConfig, TCSService tcsService) {
         this(unifiedTraderConfig, tcsService, new Config());
     }
 
-    public HighWinRateUnifiedStrategy(UnifiedTraderConfig unifiedTraderConfig, TCSService tcsService, Config config) {
+    public HighWinRateStrategy(UnifiedTraderConfig unifiedTraderConfig, TCSService tcsService, Config config) {
         super(unifiedTraderConfig, tcsService, config);
         this.badWeatherFilter = new BadWeatherFilter(
                 config.badWeatherFilterEnabled,

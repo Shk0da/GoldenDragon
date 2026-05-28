@@ -15,7 +15,7 @@ import static java.lang.Math.floor;
 import static java.lang.Math.max;
 import static java.lang.Math.min;
 
-public class ScalpingUnifiedStrategy extends BaseStrategy {
+public class ScalpingStrategy extends BaseStrategy {
 
     private static final int EMA_TREND = 24;
     private static final int EMA_FAST = 3;
@@ -47,11 +47,11 @@ public class ScalpingUnifiedStrategy extends BaseStrategy {
 
     private int consecutiveLosses = 0;
 
-    public ScalpingUnifiedStrategy(UnifiedTraderConfig unifiedTraderConfig, TCSService tcsService) {
+    public ScalpingStrategy(UnifiedTraderConfig unifiedTraderConfig, TCSService tcsService) {
         this(unifiedTraderConfig, tcsService, new Config());
     }
 
-    public ScalpingUnifiedStrategy(UnifiedTraderConfig unifiedTraderConfig, TCSService tcsService, Config config) {
+    public ScalpingStrategy(UnifiedTraderConfig unifiedTraderConfig, TCSService tcsService, Config config) {
         super(unifiedTraderConfig, tcsService, config);
     }
 

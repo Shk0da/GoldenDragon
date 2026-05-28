@@ -28,8 +28,13 @@ public class LevelTraderConfig {
     public int levelConfirmationTouches;
     public int confirmationCandles;
 
-    public LevelTraderConfig() throws IOException {
-        final Properties properties = PropertiesUtils.loadProperties();
+    public LevelTraderConfig() {
+        final Properties properties;
+        try {
+            properties = PropertiesUtils.loadProperties();
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
 
         dataDir = properties.getProperty("datacollector.dataDir", "data");
         stocks = stream(properties.getProperty(

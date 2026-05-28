@@ -4,6 +4,9 @@ import com.github.shk0da.GoldenDragon.config.UnifiedTraderConfig;
 import com.github.shk0da.GoldenDragon.model.Candle;
 import com.github.shk0da.GoldenDragon.model.Position;
 import com.github.shk0da.GoldenDragon.model.TradingDecision;
+import com.github.shk0da.GoldenDragon.strategy.BaseStrategy;
+import com.github.shk0da.GoldenDragon.strategy.HighWinRateStrategy;
+import com.github.shk0da.GoldenDragon.strategy.ScalpingStrategy;
 import com.github.shk0da.GoldenDragon.strategy.UnifiedStrategy;
 import com.github.shk0da.GoldenDragon.utils.PropertiesUtils;
 import java.io.File;
@@ -28,12 +31,31 @@ import java.util.TreeSet;
 
 public class BacktestRunner {
 
+    private static class StrategyFactory {
+        public static BaseStrategy createStrategy(String strategyName, UnifiedTraderConfig config) {
+            switch (strategyName) {
+                case "UnifiedStrategy":
+                    return new UnifiedStrategy(config, null);
+                case "HighWinRateStrategy":
+                    return new HighWinRateStrategy(config, null);
+                case "ScalpingStrategy":
+                    return new ScalpingStrategy(config, null);
+                default:
+                    throw new IllegalArgumentException("Unknown strategy: " + strategyName);
+            }
+        }
+    }
+
     private static final DateTimeFormatter DATE_FMT = DateTimeFormatter.ofPattern("dd.MM.yyyy");
     private static final DateTimeFormatter DATE_TIME_FMT = DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm:ss");
 
     private static final int MIN_HOURS_REQUIRED = 60;
     private static final LocalTime WORK_START_TIME = LocalTime.of(10, 0);
     private static final LocalTime EOD_CLOSE_TIME = LocalTime.of(21, 0);
+
+    private static final String[] ALL_STRATEGIES = {
+            "UnifiedStrategy"
+    };
 
     public static class RawCandle {
         public final String time;
@@ -146,10 +168,22 @@ public class BacktestRunner {
     }
 
     public static void main(String[] args) throws IOException {
-        new BacktestRunner().run();
+        BacktestRunner runner = new BacktestRunner();
+        
+        // Run for all strategies
+        for (String strategyName : ALL_STRATEGIES) {
+            System.out.println("\n" + "=".repeat(100));
+            System.out.println("RUNNING BACKTEST FOR STRATEGY: " + strategyName);
+            System.out.println("=".repeat(100));
+            runner.run(strategyName);
+        }
     }
 
     public void run() throws IOException {
+        run("UnifiedStrategy");
+    }
+
+    public void run(String strategyName) throws IOException {
         String[][] periods = {
                 {"2025-09-01", "2025-10-01", "2025.09"},
                 {"2025-10-01", "2025-11-01", "2025.10"},
@@ -177,22 +211,23 @@ public class BacktestRunner {
 
             periodLabels.add(label);
 
-            Map<String, TickerPeriodResult> tickerResults = execute(start, endExclusive, activeTickers, config);
+            Map<String, TickerPeriodResult> tickerResults = execute(strategyName, start, endExclusive, activeTickers, config);
             allData.put(label, tickerResults);
 
             PortfolioPeriodResult portfolioResult = buildPortfolioPeriodResult(tickerResults);
             portfolioData.put(label, portfolioResult);
         }
 
-        printResults(periodLabels, allData, portfolioData, activeTickers);
+        printResults(strategyName, periodLabels, allData, portfolioData, activeTickers);
     }
 
-    private void printResults(List<String> periodLabels,
+    private void printResults(String strategyName,
+                              List<String> periodLabels,
                               Map<String, Map<String, TickerPeriodResult>> allData,
                               Map<String, PortfolioPeriodResult> portfolioData,
                               List<String> allTickers) {
         System.out.println("\n" + "=".repeat(170));
-        System.out.println("РЕЗУЛЬТАТЫ ПО ПЕРИОДАМ");
+        System.out.println("РЕЗУЛЬТАТЫ ПО ПЕРИОДАМ ДЛЯ СТРАТЕГИИ: " + strategyName);
         System.out.println("=".repeat(170));
 
         StringBuilder header = new StringBuilder();
@@ -256,7 +291,8 @@ public class BacktestRunner {
         System.out.println("=".repeat(170));
     }
 
-    private Map<String, TickerPeriodResult> execute(String start,
+    private Map<String, TickerPeriodResult> execute(String strategyName,
+                                                    String start,
                                                     String endExclusive,
                                                     List<String> tickers,
                                                     UnifiedTraderConfig config) throws IOException {
@@ -293,7 +329,7 @@ public class BacktestRunner {
             if (!params.enabled) continue;
 
             List<Candle> hourCandles = allHourlyCandles.get(ticker);
-            UnifiedStrategy strategy = new UnifiedStrategy(config, null);
+            BaseStrategy strategy = StrategyFactory.createStrategy(strategyName, config);
 
             boolean useMinCandles = params.useMinuteCandles;
             List<RawCandle> minuteCandlesRaw = useMinCandles
@@ -331,7 +367,7 @@ public class BacktestRunner {
         return tickerResults;
     }
 
-    private SimulateResult simulateUnifiedLongOnly(UnifiedStrategy strategy,
+    private SimulateResult simulateUnifiedLongOnly(BaseStrategy strategy,
                                                    String ticker,
                                                    List<Candle> wrappedHour,
                                                    List<RawCandle> minuteCandlesRaw,
