@@ -68,7 +68,7 @@ public class BacktestRunner {
     private final Gson gson = new Gson();
 
     public BacktestRunner() {
-        this("data", "2024-10-01", "2025-06-01", 1_000_000.0, 100, 0.0005);
+        this("data", "2022-03-01", "2026-05-01", 1_000_000.0, 100, 0.0005);
     }
 
     public BacktestRunner(String dataDir, String startDate, String endDate, double initialBalance, int sharesPerTrade, double commission) {
@@ -97,16 +97,28 @@ public class BacktestRunner {
 
         for (String ticker : tickers) {
             List<RawCandle> hourCandles = loadCandles(ticker);
-            List<RawCandle> minuteCandles = loadCandles5Min(ticker);
-            if (hourCandles.size() < 100 || minuteCandles.isEmpty()) {
+            if (hourCandles.size() < 100) {
                 System.out.println("\n" + ticker + ": нет данных");
                 continue;
+            }
+
+            UnifiedStrategy unifiedStrategy = new UnifiedStrategy(new UnifiedTraderConfig(), null);
+            boolean useMinCandles = unifiedStrategy.getUnifiedTraderConfig().getTickerParams(ticker).useMinuteCandles;
+
+            List<RawCandle> minuteCandles;
+            if (useMinCandles) {
+                minuteCandles = loadCandles5Min(ticker);
+                if (minuteCandles.isEmpty()) {
+                    System.out.println("\n" + ticker + ": нет данных");
+                    continue;
+                }
+            } else {
+                minuteCandles = hourCandles;
             }
 
             List<TradeResult> ltTradesForTicker = simulateLevelTrader(ticker, hourCandles);
             ltTrades.addAll(ltTradesForTicker);
 
-            UnifiedStrategy unifiedStrategy = new UnifiedStrategy(new UnifiedTraderConfig(), null);
             List<TradeResult> uniTradesForTicker = simulateUnified(unifiedStrategy, ticker, hourCandles, minuteCandles);
             uniTrades.addAll(uniTradesForTicker);
 

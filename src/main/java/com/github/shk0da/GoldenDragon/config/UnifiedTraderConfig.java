@@ -19,12 +19,14 @@ public class UnifiedTraderConfig {
         public final double slMult;
         public final double tpMult;
         public final double riskP;
+        public final boolean useMinuteCandles;
 
-        public TickerParams(String group, double slMult, double tpMult, double riskP) {
+        public TickerParams(String group, double slMult, double tpMult, double riskP, boolean useMinuteCandles) {
             this.group = group;
             this.slMult = slMult;
             this.tpMult = tpMult;
             this.riskP = riskP;
+            this.useMinuteCandles = useMinuteCandles;
         }
     }
 
@@ -55,7 +57,9 @@ public class UnifiedTraderConfig {
                     prefix + "tpMult", getGroupDefault(properties, group, "tpMult", "2.5")));
             double riskP = Double.parseDouble(properties.getProperty(
                     prefix + "riskP", getGroupDefault(properties, group, "riskP", "0.01")));
-            result.put(stock, new TickerParams(group, slMult, tpMult, riskP));
+            boolean useMinuteCandles = Boolean.parseBoolean(properties.getProperty(
+                    prefix + "useMinuteCandles", "true"));
+            result.put(stock, new TickerParams(group, slMult, tpMult, riskP, useMinuteCandles));
         }
         return result;
     }
@@ -69,7 +73,7 @@ public class UnifiedTraderConfig {
     public TickerParams getTickerParams(String ticker) {
         TickerParams params = tickerParams.get(ticker);
         if (params != null) return params;
-        return new TickerParams("TREND", 1.2, 2.5, 0.01);
+        return new TickerParams("TREND", 1.2, 2.5, 0.01, true);
     }
 
     public String getTickerGroup(String ticker) {

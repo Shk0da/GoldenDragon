@@ -49,6 +49,10 @@ public class UnifiedStrategy {
     private final TCSService tcsService;
     private final UnifiedTraderConfig unifiedTraderConfig;
 
+    public UnifiedTraderConfig getUnifiedTraderConfig() {
+        return unifiedTraderConfig;
+    }
+
     private static final ThreadLocal<SimpleDateFormat> LOG_TIME_FORMAT = ThreadLocal.withInitial(
             () -> new SimpleDateFormat("dd.MM.yyyy HH:mm:ss.SSS")
     );
@@ -308,93 +312,98 @@ public class UnifiedStrategy {
                 writeCandlesToFile(name, dataDir, "candlesHOUR.txt", candles);
             }
 
+            boolean useMinCandles = unifiedTraderConfig.getTickerParams(name).useMinuteCandles;
             List<Candle> minuteCandles = null;
-            File minCandleFile = new File(dataDir + "/" + name + "/candles5_MIN.txt");
-            if (minCandleFile.exists()) {
-                List<TickerCandle> cached = DataCollector.readCandlesFile(name, dataDir, CandleInterval.CANDLE_INTERVAL_5_MIN);
-                if (!cached.isEmpty()) {
-                    minuteCandles = new ArrayList<>();
-                    for (TickerCandle tc : cached) {
-                        minuteCandles.add(new Candle(tc.getDate(), tc.getOpen(), tc.getHigh(), tc.getLow(), tc.getClose(), tc.getVolume()));
-                    }
-                    try {
-                        String lastTimeStr = minuteCandles.get(minuteCandles.size() - 1).time;
-                        Date lastCandleDate = df.parse(lastTimeStr);
-                        Calendar lastCal = Calendar.getInstance();
-                        lastCal.setTime(lastCandleDate);
-                        Calendar nowCal = Calendar.getInstance();
+            if (useMinCandles) {
+                File minCandleFile = new File(dataDir + "/" + name + "/candles5_MIN.txt");
+                if (minCandleFile.exists()) {
+                    List<TickerCandle> cached = DataCollector.readCandlesFile(name, dataDir, CandleInterval.CANDLE_INTERVAL_5_MIN);
+                    if (!cached.isEmpty()) {
+                        minuteCandles = new ArrayList<>();
+                        for (TickerCandle tc : cached) {
+                            minuteCandles.add(new Candle(tc.getDate(), tc.getOpen(), tc.getHigh(), tc.getLow(), tc.getClose(), tc.getVolume()));
+                        }
+                        try {
+                            String lastTimeStr = minuteCandles.get(minuteCandles.size() - 1).time;
+                            Date lastCandleDate = df.parse(lastTimeStr);
+                            Calendar lastCal = Calendar.getInstance();
+                            lastCal.setTime(lastCandleDate);
+                            Calendar nowCal = Calendar.getInstance();
 
-                        boolean isCurrent5Min = lastCal.get(Calendar.YEAR) == nowCal.get(Calendar.YEAR)
-                                && lastCal.get(Calendar.DAY_OF_YEAR) == nowCal.get(Calendar.DAY_OF_YEAR)
-                                && lastCal.get(Calendar.HOUR_OF_DAY) == nowCal.get(Calendar.HOUR_OF_DAY)
-                                && (lastCal.get(Calendar.MINUTE) / 5) == (nowCal.get(Calendar.MINUTE) / 5);
+                            boolean isCurrent5Min = lastCal.get(Calendar.YEAR) == nowCal.get(Calendar.YEAR)
+                                    && lastCal.get(Calendar.DAY_OF_YEAR) == nowCal.get(Calendar.DAY_OF_YEAR)
+                                    && lastCal.get(Calendar.HOUR_OF_DAY) == nowCal.get(Calendar.HOUR_OF_DAY)
+                                    && (lastCal.get(Calendar.MINUTE) / 5) == (nowCal.get(Calendar.MINUTE) / 5);
 
-                        if (isCurrent5Min) {
-                            log("Cached 5-min candles are current for " + name + " (" + minuteCandles.size() + " candles)");
-                        } else {
-                            log("Updating 5-min candles for " + name + ", last: " + lastTimeStr);
-                            throttleApiCall();
-                            List<HistoricCandle> newCandles = tcsService.getCandles(
-                                    figi,
-                                    lastCandleDate.toInstant().plusSeconds(300),
-                                    now.toInstant(),
-                                    CandleInterval.CANDLE_INTERVAL_5_MIN
-                            );
-                            if (!newCandles.isEmpty()) {
-                                log("Appending " + newCandles.size() + " new 5-min candles for " + name);
-                                try (FileWriter writer = new FileWriter(minCandleFile, true)) {
-                                    for (HistoricCandle hc : newCandles) {
-                                        Timestamp ts = new Timestamp(hc.getTime().getSeconds() * 1000);
-                                        Candle c = new Candle(
-                                                df.format(ts),
-                                                IndicatorsUtil.toDouble(hc.getOpen()),
-                                                IndicatorsUtil.toDouble(hc.getHigh()),
-                                                IndicatorsUtil.toDouble(hc.getLow()),
-                                                IndicatorsUtil.toDouble(hc.getClose()),
-                                                hc.getVolume()
-                                        );
-                                        minuteCandles.add(c);
-                                        writer.write(String.format(
-                                                "%s,%s,%s,%s,%s,%s",
-                                                c.time, c.open, c.high, c.low, c.close, c.volume
-                                        ) + System.lineSeparator());
+                            if (isCurrent5Min) {
+                                log("Cached 5-min candles are current for " + name + " (" + minuteCandles.size() + " candles)");
+                            } else {
+                                log("Updating 5-min candles for " + name + ", last: " + lastTimeStr);
+                                throttleApiCall();
+                                List<HistoricCandle> newCandles = tcsService.getCandles(
+                                        figi,
+                                        lastCandleDate.toInstant().plusSeconds(300),
+                                        now.toInstant(),
+                                        CandleInterval.CANDLE_INTERVAL_5_MIN
+                                );
+                                if (!newCandles.isEmpty()) {
+                                    log("Appending " + newCandles.size() + " new 5-min candles for " + name);
+                                    try (FileWriter writer = new FileWriter(minCandleFile, true)) {
+                                        for (HistoricCandle hc : newCandles) {
+                                            Timestamp ts = new Timestamp(hc.getTime().getSeconds() * 1000);
+                                            Candle c = new Candle(
+                                                    df.format(ts),
+                                                    IndicatorsUtil.toDouble(hc.getOpen()),
+                                                    IndicatorsUtil.toDouble(hc.getHigh()),
+                                                    IndicatorsUtil.toDouble(hc.getLow()),
+                                                    IndicatorsUtil.toDouble(hc.getClose()),
+                                                    hc.getVolume()
+                                            );
+                                            minuteCandles.add(c);
+                                            writer.write(String.format(
+                                                    "%s,%s,%s,%s,%s,%s",
+                                                    c.time, c.open, c.high, c.low, c.close, c.volume
+                                            ) + System.lineSeparator());
+                                        }
                                     }
                                 }
                             }
+                        } catch (Exception e) {
+                            log("Failed to check 5-min candle freshness for " + name + ": " + e.getMessage() + ", refetching all");
+                            minuteCandles = null;
                         }
-                    } catch (Exception e) {
-                        log("Failed to check 5-min candle freshness for " + name + ": " + e.getMessage() + ", refetching all");
-                        minuteCandles = null;
                     }
                 }
-            }
 
-            if (minuteCandles == null) {
-                throttleApiCall();
-                List<HistoricCandle> historicCandles = tcsService.getCandles(
-                        figi,
-                        now.minusMinutes(6 * 60),
-                        now,
-                        CandleInterval.CANDLE_INTERVAL_5_MIN
-                );
-                log("Fetched " + historicCandles.size() + " 5-min candles for " + name);
+                if (minuteCandles == null) {
+                    throttleApiCall();
+                    List<HistoricCandle> historicCandles = tcsService.getCandles(
+                            figi,
+                            now.minusMinutes(6 * 60),
+                            now,
+                            CandleInterval.CANDLE_INTERVAL_5_MIN
+                    );
+                    log("Fetched " + historicCandles.size() + " 5-min candles for " + name);
 
-                minuteCandles = new ArrayList<>();
-                for (HistoricCandle hc : historicCandles) {
-                    Timestamp ts = new Timestamp(hc.getTime().getSeconds() * 1000);
-                    minuteCandles.add(new Candle(
-                            df.format(ts),
-                            IndicatorsUtil.toDouble(hc.getOpen()),
-                            IndicatorsUtil.toDouble(hc.getHigh()),
-                            IndicatorsUtil.toDouble(hc.getLow()),
-                            IndicatorsUtil.toDouble(hc.getClose()),
-                            hc.getVolume()
-                    ));
+                    minuteCandles = new ArrayList<>();
+                    for (HistoricCandle hc : historicCandles) {
+                        Timestamp ts = new Timestamp(hc.getTime().getSeconds() * 1000);
+                        minuteCandles.add(new Candle(
+                                df.format(ts),
+                                IndicatorsUtil.toDouble(hc.getOpen()),
+                                IndicatorsUtil.toDouble(hc.getHigh()),
+                                IndicatorsUtil.toDouble(hc.getLow()),
+                                IndicatorsUtil.toDouble(hc.getClose()),
+                                hc.getVolume()
+                        ));
+                    }
+                    writeCandlesToFile(name, dataDir, "candles5_MIN.txt", minuteCandles);
                 }
-                writeCandlesToFile(name, dataDir, "candles5_MIN.txt", minuteCandles);
             }
 
-            TradingDecision decision = decide(name, candles, minuteCandles, new Position(), 1_000_000.0);
+            TradingDecision decision = useMinCandles
+                    ? decide(name, candles, minuteCandles, new Position(), 1_000_000.0)
+                    : decide(name, candles, new Position(), 1_000_000.0);
             log("Decision for " + name + ": " + decision.action + " (" + decision.reason + ")");
 
             if ("OPEN".equals(decision.action)) {
