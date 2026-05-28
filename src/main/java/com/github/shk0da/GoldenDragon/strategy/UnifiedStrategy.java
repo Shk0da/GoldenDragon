@@ -1058,15 +1058,7 @@ public class UnifiedStrategy {
     private boolean isWorkingHours() {
         var calendar = new GregorianCalendar();
         var hour = calendar.get(Calendar.HOUR_OF_DAY);
-        var minute = calendar.get(Calendar.MINUTE);
-        return !(hour == 18 && minute >= 30 || hour >= 19);
-    }
-
-    private boolean isEndOfDay() {
-        var calendar = new GregorianCalendar();
-        var hour = calendar.get(Calendar.HOUR_OF_DAY);
-        var minute = calendar.get(Calendar.MINUTE);
-        return (hour == 21 && minute >= 0) || hour >= 22;
+        return hour == 21 || hour >= 22;
     }
 
     private boolean isTimeToClosePositions() {
