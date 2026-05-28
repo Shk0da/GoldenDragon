@@ -1,4 +1,4 @@
-package com.github.shk0da.GoldenDragon.strategy;
+package com.github.shk0da.GoldenDragon.filters;
 
 import com.github.shk0da.GoldenDragon.model.Candle;
 import java.util.List;
