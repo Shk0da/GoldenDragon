@@ -24,12 +24,14 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.sql.Timestamp;
 import java.text.SimpleDateFormat;
+import java.time.DayOfWeek;
+import java.time.LocalDateTime;
+import java.time.LocalTime;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Calendar;
 import java.util.Date;
-import java.util.GregorianCalendar;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -70,6 +72,9 @@ public class UnifiedStrategy {
     private static final long API_CALL_DELAY_MS = 100;
     private static final Object API_LOCK = new Object();
 
+    private static final LocalTime WORK_START_TIME = LocalTime.of(10, 0);
+    private static final LocalTime EOD_CLOSE_TIME = LocalTime.of(21, 0);
+
     private static long lastApiCallTime = 0;
 
     private final Map<String, Long> tickerCooldown = new ConcurrentHashMap<>();
@@ -78,7 +83,7 @@ public class UnifiedStrategy {
 
     private final BadWeatherFilter badWeatherFilter;
     private final MarketRegimeFilter marketRegimeFilter;
-    private volatile Map<String, List<Candle>> peerCandles;
+    private volatile Map<String, List<Candle>> peerCandles = new ConcurrentHashMap<>();
 
     public UnifiedStrategy(UnifiedTraderConfig unifiedTraderConfig, TCSService tcsService) {
         this(unifiedTraderConfig, tcsService, new Config());
@@ -104,12 +109,17 @@ public class UnifiedStrategy {
     }
 
     public void setPeerCandles(Map<String, List<Candle>> peerCandles) {
-        this.peerCandles = peerCandles;
+        this.peerCandles = peerCandles != null ? new ConcurrentHashMap<>(peerCandles) : new ConcurrentHashMap<>();
     }
 
     public void run() {
+        if (tcsService == null) {
+            log("UnifiedStrategy stopped: tcsService is null.");
+            return;
+        }
+
         throttleApiCall();
-        var initPortfolioCost = tcsService.getTotalPortfolioCost();
+        var initPortfolioCost = safeGetTotalPortfolioCost();
         var infoMessage = "UnifiedStrategy started. Total Portfolio Cost: " + initPortfolioCost;
         telegramNotifyService.sendMessage(infoMessage);
         log(infoMessage);
@@ -130,41 +140,62 @@ public class UnifiedStrategy {
             return;
         }
 
-        Map<String, Double> capitalAllocation = computeCapitalAllocation(activeTickers);
-
-        List<CompletableFuture<Void>> tasks = new ArrayList<>();
-        ExecutorService executor = Executors.newFixedThreadPool(activeTickers.size() + 1);
-
-        tasks.add(runAsync(() -> {
-            while (isWorkingHours()) {
-                try {
-                    refreshPeerCandles(activeTickers);
-                } catch (Exception ex) {
-                    log("Failed to refresh peer candles: " + ex.getMessage());
-                }
-                sleep(60_000);
-            }
-        }, executor));
-
-        for (String name : activeTickers) {
-            double allocatedBalance = capitalAllocation.getOrDefault(name, 0.0);
-            tasks.add(runAsync(() -> {
-                while (isWorkingHours()) {
-                    this.processTicker(name, tcsService, unifiedTraderConfig, allocatedBalance);
-                    sleep(30_000);
-                }
-            }, executor));
+        if (isEndOfDayReached() || !isTradingDay()) {
+            var message = "UnifiedStrategy: outside working hours, closing positions if needed.";
+            log(message);
+            telegramNotifyService.sendMessage(message);
+            closeAllPositions(tcsService, unifiedTraderConfig);
+            return;
         }
 
-        allOf(tasks.toArray(new CompletableFuture[0])).join();
+        ExecutorService executor = Executors.newFixedThreadPool(activeTickers.size() + 1);
+        Map<String, Double> capitalAllocation = computeCapitalAllocation(activeTickers);
 
-        if (!isWorkingHours()) {
-            var endPortfolioCost = tcsService.getTotalPortfolioCost();
-            var message = "UnifiedStrategy: Not working hours! Total Portfolio Cost: " + endPortfolioCost;
-            telegramNotifyService.sendMessage(message);
-            log(message);
+        try {
+            List<CompletableFuture<Void>> tasks = new ArrayList<>();
+
+            tasks.add(runAsync(() -> {
+                while (isWorkingHours()) {
+                    try {
+                        refreshPeerCandles(activeTickers);
+                    } catch (Exception ex) {
+                        log("Failed to refresh peer candles: " + ex.getMessage());
+                    }
+                    sleep(60_000);
+                }
+            }, executor));
+
+            for (String name : activeTickers) {
+                double allocatedBalance = capitalAllocation.getOrDefault(name, 0.0);
+                tasks.add(runAsync(() -> {
+                    while (isWorkingHours()) {
+                        processTicker(name, tcsService, unifiedTraderConfig, allocatedBalance);
+                        sleep(30_000);
+                    }
+                }, executor));
+            }
+
+            allOf(tasks.toArray(new CompletableFuture[0])).join();
+        } finally {
             closeAllPositions(tcsService, unifiedTraderConfig);
             shutdownExecutor(executor);
+
+            var endPortfolioCost = safeGetTotalPortfolioCost();
+            var message = "UnifiedStrategy stopped. Total Portfolio Cost: " + endPortfolioCost;
+            telegramNotifyService.sendMessage(message);
+            log(message);
+        }
+    }
+
+    private Double safeGetTotalPortfolioCost() {
+        if (tcsService == null) {
+            return 0.0;
+        }
+        try {
+            return tcsService.getTotalPortfolioCost();
+        } catch (Exception ex) {
+            log("Failed to read portfolio cost: " + ex.getMessage());
+            return 0.0;
         }
     }
 
@@ -202,6 +233,10 @@ public class UnifiedStrategy {
     }
 
     private void refreshPeerCandles(List<String> tickers) {
+        if (tcsService == null) {
+            return;
+        }
+
         Map<String, List<Candle>> snapshot = new HashMap<>();
         String dataDir = unifiedTraderConfig.getDataDir();
 
@@ -390,7 +425,7 @@ public class UnifiedStrategy {
         }
 
         String allocationGroup = tpCfg.allocationGroup;
-        if (allocationGroup != null && !allocationGroup.isEmpty() && peerCandles != null) {
+        if (allocationGroup != null && !allocationGroup.isEmpty() && peerCandles != null && !peerCandles.isEmpty()) {
             if (!GroupConfirmationFilter.isConfirmed(ticker, true, peerCandles)) {
                 return new TradingDecision("HOLD", "noGroupConf_" + signal,
                         0.0, 0, null, null, null, p);
@@ -781,6 +816,10 @@ public class UnifiedStrategy {
                               TCSService tcsService,
                               UnifiedTraderConfig unifiedTraderConfig,
                               double allocatedBalance) {
+        if (tcsService == null) {
+            return;
+        }
+
         Long cooldownUntil = tickerCooldown.get(name);
         if (cooldownUntil != null) {
             long remaining = cooldownUntil - System.currentTimeMillis();
@@ -794,6 +833,10 @@ public class UnifiedStrategy {
         }
 
         try {
+            if (!isWorkingHours()) {
+                return;
+            }
+
             UnifiedTraderConfig.TickerParams tickerParams = unifiedTraderConfig.getTickerParams(name);
             if (!tickerParams.enabled) {
                 log("Ticker " + name + " disabled, skipping.");
@@ -942,6 +985,10 @@ public class UnifiedStrategy {
                                               String dataDir,
                                               OffsetDateTime now,
                                               CandleInterval interval) {
+        if (tcsService == null) {
+            return readCachedCandles(name, dataDir, interval);
+        }
+
         String fileName = interval == CandleInterval.CANDLE_INTERVAL_HOUR ? "candlesHOUR.txt" : "candles5_MIN.txt";
         File candleFile = new File(dataDir + "/" + name + "/" + fileName);
 
@@ -1034,11 +1081,22 @@ public class UnifiedStrategy {
         }
     }
 
+    private boolean isTradingDay() {
+        DayOfWeek day = LocalDateTime.now().getDayOfWeek();
+        return day != DayOfWeek.SATURDAY && day != DayOfWeek.SUNDAY;
+    }
+
     private boolean isWorkingHours() {
-        var calendar = new GregorianCalendar();
-        var hour = calendar.get(Calendar.HOUR_OF_DAY);
-        var minute = calendar.get(Calendar.MINUTE);
-        return hour < 21 || (hour == 21 && minute == 0);
+        if (!isTradingDay()) {
+            return false;
+        }
+        LocalTime now = LocalTime.now();
+        return !now.isBefore(WORK_START_TIME) && now.isBefore(EOD_CLOSE_TIME);
+    }
+
+    private boolean isEndOfDayReached() {
+        LocalTime now = LocalTime.now();
+        return !now.isBefore(EOD_CLOSE_TIME);
     }
 
     private void throttleApiCall() {
@@ -1052,6 +1110,10 @@ public class UnifiedStrategy {
     }
 
     private void closeAllPositions(TCSService tcsService, UnifiedTraderConfig unifiedTraderConfig) {
+        if (tcsService == null) {
+            return;
+        }
+
         log("End-of-day reached. Closing all positions...");
         boolean anyClosed = false;
 
@@ -1059,49 +1121,60 @@ public class UnifiedStrategy {
             String tickerName = entry.getKey();
             Position position = entry.getValue();
 
-            if (position.quantity > 0) {
-                try {
-                    UnifiedTraderConfig.TickerParams tickerParams = unifiedTraderConfig.getTickerParams(tickerName);
-                    if (!tickerParams.enabled) {
-                        continue;
-                    }
+            if (position.quantity <= 0) {
+                continue;
+            }
 
-                    TickerInfo ticker = TickerRepository.INSTANCE.getAll().values().stream()
-                            .filter(t -> t.getType() == TickerType.STOCK || t.getType() == TickerType.FEATURE)
-                            .filter(t -> t.getName().equalsIgnoreCase(tickerName) || t.getTicker().equalsIgnoreCase(tickerName))
-                            .findFirst()
-                            .orElse(null);
-
-                    if (ticker == null) {
-                        log("Ticker " + tickerName + " not found, skipping position close.");
-                        continue;
-                    }
-
-                    log("Closing position for " + tickerName + ": " + position.quantity + " shares");
-                    throttleApiCall();
-
-                    boolean closed = false;
-                    if ("BUY".equals(position.direction)) {
-                        closed = tcsService.closeLongByMarket(tickerName, ticker.getType());
-                    }
-
-                    if (closed) {
-                        positionStore.put(tickerName, new Position(config.cooldownCandles));
-                        lastSeenHourBarByTicker.remove(tickerName);
-                        anyClosed = true;
-                        telegramNotifyService.sendMessage("UnifiedStrategy EOD CLOSED " + tickerName +
-                                " (" + position.quantity + " shares)");
-                    } else {
-                        log("Failed to close position for " + tickerName);
-                    }
-                } catch (Exception ex) {
-                    log("Error closing position for " + tickerName + ": " + ex.getMessage());
+            try {
+                UnifiedTraderConfig.TickerParams tickerParams = unifiedTraderConfig.getTickerParams(tickerName);
+                if (!tickerParams.enabled) {
+                    continue;
                 }
+
+                TickerInfo ticker = TickerRepository.INSTANCE.getAll().values().stream()
+                        .filter(t -> t.getType() == TickerType.STOCK || t.getType() == TickerType.FEATURE)
+                        .filter(t -> t.getName().equalsIgnoreCase(tickerName) || t.getTicker().equalsIgnoreCase(tickerName))
+                        .findFirst()
+                        .orElse(null);
+
+                if (ticker == null) {
+                    log("Ticker " + tickerName + " not found, skipping position close.");
+                    continue;
+                }
+
+                log("Closing position for " + tickerName + ": " + position.quantity + " shares");
+                throttleApiCall();
+
+                boolean closed = false;
+                if ("BUY".equals(position.direction)) {
+                    closed = tcsService.closeLongByMarket(tickerName, ticker.getType());
+                }
+
+                if (closed) {
+                    positionStore.put(tickerName, new Position(config.cooldownCandles));
+                    lastSeenHourBarByTicker.remove(tickerName);
+                    anyClosed = true;
+                    telegramNotifyService.sendMessage("UnifiedStrategy EOD CLOSED " + tickerName +
+                            " (" + position.quantity + " shares)");
+                } else {
+                    log("Failed to close position for " + tickerName);
+                }
+            } catch (Exception ex) {
+                log("Error closing position for " + tickerName + ": " + ex.getMessage());
             }
         }
 
-        tcsService.closeAllByMarket(STOCK);
-        tcsService.closeAllByMarket(FEATURE);
+        try {
+            tcsService.closeAllByMarket(STOCK);
+        } catch (Exception ex) {
+            log("Failed to close all STOCK positions: " + ex.getMessage());
+        }
+
+        try {
+            tcsService.closeAllByMarket(FEATURE);
+        } catch (Exception ex) {
+            log("Failed to close all FEATURE positions: " + ex.getMessage());
+        }
 
         if (anyClosed) {
             log("End-of-day position closing completed.");
@@ -1114,8 +1187,8 @@ public class UnifiedStrategy {
             Files.createDirectories(dir);
             Path filePath = dir.resolve(fileName);
 
-            Set<String> existingTimestamps = new HashSet<>();
             boolean fileExists = Files.exists(filePath);
+            Set<String> existingTimestamps = new HashSet<>();
 
             if (fileExists) {
                 try (BufferedReader reader = Files.newBufferedReader(filePath)) {
@@ -1129,13 +1202,15 @@ public class UnifiedStrategy {
                 }
             }
 
+            boolean writeHeader = !fileExists || Files.size(filePath) == 0;
+
             try (FileWriter writer = new FileWriter(filePath.toFile(), true)) {
-                if (!fileExists || Files.size(filePath) == 0) {
+                if (writeHeader) {
                     writer.write("Datetime,Open,High,Low,Close,Volume" + System.lineSeparator());
                 }
 
                 for (Candle c : candles) {
-                    if (!existingTimestamps.contains(c.time)) {
+                    if (existingTimestamps.add(c.time)) {
                         writer.write(String.format(
                                 "%s,%s,%s,%s,%s,%s",
                                 c.time, c.open, c.high, c.low, c.close, c.volume
