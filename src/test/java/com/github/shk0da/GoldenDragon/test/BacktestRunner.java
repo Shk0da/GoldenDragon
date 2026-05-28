@@ -62,6 +62,16 @@ public class BacktestRunner {
         }
     }
 
+    private static class SimulateResult {
+        final List<TradeResult> trades;
+        final double finalBalance;
+
+        SimulateResult(List<TradeResult> trades, double finalBalance) {
+            this.trades = trades;
+            this.finalBalance = finalBalance;
+        }
+    }
+
     private final String dataDir;
     private final double initialBalance;
     private final double commission;
@@ -138,7 +148,10 @@ public class BacktestRunner {
                 } else {
                     hasAny = true;
                     double pnl = trades.stream().mapToDouble(t -> t.pnl).sum();
-                    double dd = calcMaxDrawdown(trades) * 100;
+                    Map<String, List<TradeResult>> periodData = allData.get(label);
+                    int numTickersInPeriod = periodData != null ? periodData.size() : 1;
+                    double perTickerBal = initialBalance / numTickersInPeriod;
+                    double dd = calcMaxDrawdown(trades, perTickerBal) * 100;
                     String pnlStr = formatCompactPnL(pnl);
                     String ddStr = formatCompactDD(dd);
                     row.append(String.format(" %5s %5s", pnlStr, ddStr));
@@ -161,7 +174,7 @@ public class BacktestRunner {
             } else {
                 List<TradeResult> sorted = sortByTime(allPeriodTrades);
                 double pnl = allPeriodTrades.stream().mapToDouble(t -> t.pnl).sum();
-                double dd = calcMaxDrawdown(sorted) * 100;
+                double dd = calcMaxDrawdown(sorted, initialBalance) * 100;
                 portRow.append(String.format(" %5s %5s", formatCompactPnL(pnl), formatCompactDD(dd)));
             }
         }
@@ -214,6 +227,7 @@ public class BacktestRunner {
 
     private Map<String, List<TradeResult>> execute(String start, String end) throws IOException {
         List<String> tickers = loadTickers();
+        double perTickerBalance = tickers.isEmpty() ? 0 : initialBalance / tickers.size();
 
         Map<String, List<TradeResult>> tickerResults = new LinkedHashMap<>();
         for (String ticker : tickers) {
@@ -235,8 +249,8 @@ public class BacktestRunner {
                 minuteCandles = hourCandles;
             }
 
-            List<TradeResult> uniTradesForTicker = simulateUnified(unifiedStrategy, ticker, hourCandles, minuteCandles);
-            tickerResults.put(ticker, uniTradesForTicker);
+            SimulateResult result = simulateUnified(unifiedStrategy, ticker, hourCandles, minuteCandles, perTickerBalance);
+            tickerResults.put(ticker, result.trades);
         }
 
         return tickerResults;
@@ -288,7 +302,7 @@ public class BacktestRunner {
             return Collections.emptyList();
         }
     }
-    private List<TradeResult> simulateUnified(UnifiedStrategy strategy, String ticker, List<RawCandle> hourCandles, List<RawCandle> minuteCandles) {
+    private SimulateResult simulateUnified(UnifiedStrategy strategy, String ticker, List<RawCandle> hourCandles, List<RawCandle> minuteCandles, double startBalance) {
         List<TradeResult> trades = new ArrayList<>();
         List<Candle> wrappedHour = new ArrayList<>();
         for (RawCandle c : hourCandles) {
@@ -298,6 +312,7 @@ public class BacktestRunner {
         for (RawCandle c : minuteCandles) {
             wrappedMin.add(new Candle(c.time, c.open, c.high, c.low, c.close, c.volume));
         }
+        double balance = startBalance;
         Position pos = new Position();
         double entryPrice = 0.0;
         String entryDir = "BUY";
@@ -322,13 +337,18 @@ public class BacktestRunner {
 
             List<Candle> hourHistory = wrappedHour.subList(0, hourIdx);
             List<Candle> minHistory = wrappedMin.subList(0, i + 1);
-            TradingDecision decision = strategy.decide(ticker, hourHistory, minHistory, pos, initialBalance);
+            TradingDecision decision = strategy.decide(ticker, hourHistory, minHistory, pos, balance);
 
             switch (decision.action) {
                 case "OPEN":
                     if (decision.updatedPosition == null) continue;
+                    double openEntry = decision.updatedPosition.entryPrice != null
+                            ? decision.updatedPosition.entryPrice : current.close;
+                    double positionValue = decision.quantity * openEntry;
+                    if (positionValue > balance) continue;
+                    balance -= positionValue;
                     pos = decision.updatedPosition;
-                    entryPrice = pos.entryPrice != null ? pos.entryPrice : current.close;
+                    entryPrice = openEntry;
                     entryDir = pos.direction != null ? pos.direction : "BUY";
                     break;
                 case "CLOSE":
@@ -352,6 +372,7 @@ public class BacktestRunner {
                     int q = pos.quantity;
                     double pnl = UnifiedStrategy.calculatePnl(dir, entryPrice, exitPrice, q, commission);
                     trades.add(new TradeResult(ticker, dir, entryPrice, exitPrice, pnl, decision.reason, current.time));
+                    balance += q * exitPrice;
                     pos = decision.updatedPosition != null ? decision.updatedPosition : new Position();
                     break;
                 case "HOLD":
@@ -359,7 +380,7 @@ public class BacktestRunner {
                     break;
             }
         }
-        return trades;
+        return new SimulateResult(trades, balance);
     }
 
     private List<RawCandle> loadCandles5Min(String ticker, String startDate, String endDate) {
@@ -396,10 +417,10 @@ public class BacktestRunner {
         }
     }
 
-    private double calcMaxDrawdown(List<TradeResult> trades) {
-        double peak = initialBalance;
+    private double calcMaxDrawdown(List<TradeResult> trades, double startBalance) {
+        double peak = startBalance;
         double maxDd = 0;
-        double equity = initialBalance;
+        double equity = startBalance;
         for (TradeResult t : trades) {
             equity += t.pnl;
             if (equity > peak) peak = equity;
