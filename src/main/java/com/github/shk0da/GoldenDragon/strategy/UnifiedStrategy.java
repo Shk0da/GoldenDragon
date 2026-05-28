@@ -63,10 +63,28 @@ public class UnifiedStrategy {
     private static final Object API_LOCK = new Object();
     private static long lastApiCallTime = 0;
 
+    private final BadWeatherFilter badWeatherFilter;
+
     public UnifiedStrategy(UnifiedTraderConfig unifiedTraderConfig, TCSService tcsService) {
-        this.config = new Config();
+        this(unifiedTraderConfig, tcsService, new Config());
+    }
+
+    public UnifiedStrategy(UnifiedTraderConfig unifiedTraderConfig, TCSService tcsService, Config config) {
+        this.config = config;
         this.tcsService = tcsService;
         this.unifiedTraderConfig = unifiedTraderConfig;
+        this.badWeatherFilter = new BadWeatherFilter(
+                config.badWeatherFilterEnabled,
+                config.badWeatherLowVolumeThreshold,
+                config.badWeatherLowAtrThreshold,
+                config.badWeatherMinRangePercent,
+                config.badWeatherHighAtrThreshold,
+                config.badWeatherMaxSpreadPercent,
+                config.badWeatherMaxWickRatio,
+                config.badWeatherPanicVolumeThreshold,
+                config.badWeatherMinAvgDailyVolume,
+                config.badWeatherAtrSpikeThreshold
+        );
     }
 
     public void run() {
@@ -157,6 +175,13 @@ public class UnifiedStrategy {
                             p.quantity, p.candlesHeld, p.cooldownRemaining - 1));
         if (position.quantity > 0)
             return new TradingDecision("HOLD", "in_pos", 0.0, 0, null, null, null, p);
+
+        // Проверка фильтра "плохая погода" перед открытием новой позиции
+        if (!badWeatherFilter.canTrade(hourCandles, cur.close)) {
+            String reason = badWeatherFilter.getBlockReason(hourCandles, cur.close);
+            return new TradingDecision("HOLD", reason != null ? "BAD_WEATHER_" + reason : "BAD_WEATHER",
+                    0.0, 0, null, null, null, p);
+        }
 
         double dAtr = atrVal(hourCandles, config.atrPeriod);
         double avgAtr = emaAtr(hourCandles, config.atrPeriod);
