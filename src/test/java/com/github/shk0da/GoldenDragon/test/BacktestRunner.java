@@ -9,8 +9,10 @@ import com.github.shk0da.GoldenDragon.utils.PropertiesUtils;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
+import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -28,7 +30,10 @@ public class BacktestRunner {
 
     private static final DateTimeFormatter DATE_FMT = DateTimeFormatter.ofPattern("dd.MM.yyyy");
     private static final DateTimeFormatter DATE_TIME_FMT = DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm:ss");
+
     private static final int MIN_HOURS_REQUIRED = 60;
+    private static final LocalTime WORK_START_TIME = LocalTime.of(10, 0);
+    private static final LocalTime EOD_CLOSE_TIME = LocalTime.of(21, 0);
 
     public static class RawCandle {
         public final String time;
@@ -149,7 +154,7 @@ public class BacktestRunner {
                 {"2025-09-01", "2025-10-01", "2025.09"},
                 {"2025-10-01", "2025-11-01", "2025.10"},
                 {"2025-11-01", "2025-12-01", "2025.11"},
-                {"2025-12-01", "2025-12-31", "2025.12"},
+                {"2025-12-01", "2026-01-01", "2025.12"},
                 {"2026-01-01", "2026-02-01", "2026.01"},
                 {"2026-02-01", "2026-03-01", "2026.02"},
                 {"2026-03-01", "2026-04-01", "2026.03"},
@@ -167,12 +172,12 @@ public class BacktestRunner {
 
         for (String[] p : periods) {
             String start = p[0];
-            String end = p[1];
+            String endExclusive = p[1];
             String label = p[2];
 
             periodLabels.add(label);
 
-            Map<String, TickerPeriodResult> tickerResults = execute(start, end, activeTickers, config);
+            Map<String, TickerPeriodResult> tickerResults = execute(start, endExclusive, activeTickers, config);
             allData.put(label, tickerResults);
 
             PortfolioPeriodResult portfolioResult = buildPortfolioPeriodResult(tickerResults);
@@ -191,7 +196,7 @@ public class BacktestRunner {
         System.out.println("=".repeat(170));
 
         StringBuilder header = new StringBuilder();
-        header.append(String.format("%-6s", "Тикер"));
+        header.append(String.format("%-10s", "Тикер"));
         for (String label : periodLabels) {
             header.append(String.format(" %17s", label));
         }
@@ -238,7 +243,7 @@ public class BacktestRunner {
         for (String label : periodLabels) {
             PortfolioPeriodResult result = portfolioData.get(label);
             if (result == null) {
-                portRow.append(String.format(" %13s", "—"));
+                portRow.append(String.format(" %17s", "—"));
             } else {
                 portRow.append(String.format(" %6s %5s %4d",
                         formatCompactPnL(result.pnl),
@@ -252,7 +257,7 @@ public class BacktestRunner {
     }
 
     private Map<String, TickerPeriodResult> execute(String start,
-                                                    String end,
+                                                    String endExclusive,
                                                     List<String> tickers,
                                                     UnifiedTraderConfig config) throws IOException {
         if (tickers.isEmpty()) {
@@ -263,7 +268,7 @@ public class BacktestRunner {
         Map<String, List<Candle>> allHourlyCandles = new LinkedHashMap<>();
 
         for (String ticker : tickers) {
-            List<RawCandle> raw = loadCandles(ticker, start, end);
+            List<RawCandle> raw = loadCandles(ticker, start, endExclusive);
             if (raw.size() < MIN_HOURS_REQUIRED) continue;
 
             List<Candle> wrapped = new ArrayList<>(raw.size());
@@ -292,21 +297,10 @@ public class BacktestRunner {
 
             boolean useMinCandles = params.useMinuteCandles;
             List<RawCandle> minuteCandlesRaw = useMinCandles
-                    ? loadCandles5Min(ticker, start, end)
-                    : loadCandles(ticker, start, end);
+                    ? loadCandles5Min(ticker, start, endExclusive)
+                    : loadCandles(ticker, start, endExclusive);
 
             if (minuteCandlesRaw.isEmpty()) continue;
-
-            String allocGroup = params.allocationGroup;
-            List<String> peerTickers = new ArrayList<>();
-            if (allocGroup != null && !allocGroup.isEmpty()) {
-                List<String> groupMembers = groupTickers.get(allocGroup);
-                if (groupMembers != null) {
-                    for (String peer : groupMembers) {
-                        if (!peer.equals(ticker)) peerTickers.add(peer);
-                    }
-                }
-            }
 
             double startBalance = capitalAllocation.getOrDefault(ticker, 0.0);
             if (startBalance <= 0.0) continue;
@@ -318,7 +312,8 @@ public class BacktestRunner {
                     minuteCandlesRaw,
                     startBalance,
                     allHourlyCandles,
-                    peerTickers
+                    groupTickers,
+                    config
             );
 
             double pnl = result.finalBalance - startBalance;
@@ -342,7 +337,8 @@ public class BacktestRunner {
                                                    List<RawCandle> minuteCandlesRaw,
                                                    double startBalance,
                                                    Map<String, List<Candle>> allHourlyCandles,
-                                                   List<String> peerTickers) {
+                                                   Map<String, List<String>> groupTickers,
+                                                   UnifiedTraderConfig strategyConfig) {
         if (wrappedHour == null || wrappedHour.isEmpty() || minuteCandlesRaw == null || minuteCandlesRaw.isEmpty()) {
             return new SimulateResult(Collections.emptyList(), Collections.emptyList(), startBalance);
         }
@@ -363,15 +359,12 @@ public class BacktestRunner {
         }
 
         Map<String, List<LocalDateTime>> peerTimesMap = new HashMap<>();
-        for (String peer : peerTickers) {
-            List<Candle> peerCandles = allHourlyCandles.get(peer);
-            if (peerCandles == null) continue;
-
-            List<LocalDateTime> peerTimes = new ArrayList<>(peerCandles.size());
-            for (Candle c : peerCandles) {
+        for (Map.Entry<String, List<Candle>> e : allHourlyCandles.entrySet()) {
+            List<LocalDateTime> peerTimes = new ArrayList<>(e.getValue().size());
+            for (Candle c : e.getValue()) {
                 peerTimes.add(LocalDateTime.parse(c.time, DATE_TIME_FMT));
             }
-            peerTimesMap.put(peer, peerTimes);
+            peerTimesMap.put(e.getKey(), peerTimes);
         }
 
         double cash = startBalance;
@@ -379,10 +372,42 @@ public class BacktestRunner {
         double entryPrice = 0.0;
         int hourIdx = -1;
         int lastSeenHourIdx = -1;
-
+        LocalDate lastEodCloseDate = null;
         for (int i = 0; i < wrappedMin.size(); i++) {
             Candle current = wrappedMin.get(i);
             LocalDateTime minDt = minTimes.get(i);
+
+            if (!isTradingDay(minDt.toLocalDate()) || !isWithinWorkingHours(minDt.toLocalTime())) {
+                if (pos.quantity > 0
+                        && !minDt.toLocalTime().isBefore(EOD_CLOSE_TIME)
+                        && !minDt.toLocalDate().equals(lastEodCloseDate)) {
+
+                    double exitPrice = current.close;
+                    int q = pos.quantity;
+
+                    double exitValue = q * exitPrice;
+                    double entryValue = q * entryPrice;
+                    double totalCommission = (entryValue + exitValue) * commission;
+                    double pnl = exitValue - entryValue - totalCommission;
+
+                    trades.add(new TradeResult(
+                            ticker, "BUY", entryPrice, exitPrice, pnl, "eod_close", current.time
+                    ));
+
+                    double exitCommission = exitValue * commission;
+                    cash += (exitValue - exitCommission);
+                    pos = new Position();
+                    entryPrice = 0.0;
+                    lastEodCloseDate = minDt.toLocalDate();
+                }
+
+                double offHoursEquity = cash;
+                if (pos.quantity > 0) {
+                    offHoursEquity += pos.quantity * current.close;
+                }
+                equityCurve.add(new EquityPoint(current.time, offHoursEquity));
+                continue;
+            }
 
             while (hourIdx + 1 < hourTimes.size() && !hourTimes.get(hourIdx + 1).isAfter(minDt)) {
                 hourIdx++;
@@ -390,9 +415,6 @@ public class BacktestRunner {
 
             boolean hourChanged = hourIdx != lastSeenHourIdx;
 
-            // Check for end-of-day (21:00) to close positions
-            boolean endOfDay = minDt.getHour() == 21 && minDt.getMinute() == 0;
-            
             double equity = cash;
             if (pos.quantity > 0) {
                 equity += pos.quantity * current.close;
@@ -404,59 +426,23 @@ public class BacktestRunner {
                 continue;
             }
 
-            // Close all positions at end of day (21:00)
-            if (endOfDay && pos.quantity > 0) {
-                double exitPrice = current.close;
-                int q = pos.quantity;
-                
-                double exitValue = q * exitPrice;
-                double entryValue = q * entryPrice;
-                double totalCommission = (entryValue + exitValue) * commission;
-                double pnl = exitValue - entryValue - totalCommission;
-                
-                trades.add(new TradeResult(
-                        ticker, "BUY", entryPrice, exitPrice, pnl, "eod_close", current.time
-                ));
-                
-                double exitCommission = exitValue * commission;
-                cash += (exitValue - exitCommission);
-                pos = new Position();
-                entryPrice = 0.0;
-                
-                // Continue to next iteration since we've closed the position
-                lastSeenHourIdx = hourIdx;
-                continue;
-            }
-
             List<Candle> hourHistory = wrappedHour.subList(0, hourIdx + 1);
             List<Candle> minHistory = wrappedMin.subList(0, i + 1);
 
-            if (!peerTickers.isEmpty() && allHourlyCandles != null) {
-                Map<String, List<Candle>> currentPeerCandles = new HashMap<>();
-
-                for (String peer : peerTickers) {
-                    List<Candle> peerAll = allHourlyCandles.get(peer);
-                    List<LocalDateTime> peerTimes = peerTimesMap.get(peer);
-                    if (peerAll == null || peerTimes == null || peerTimes.isEmpty()) continue;
-
-                    int peerIdx = upperBound(peerTimes, minDt);
-                    if (peerIdx >= 0) {
-                        currentPeerCandles.put(peer, peerAll.subList(0, peerIdx + 1));
-                    }
-                }
-
-                if (!currentPeerCandles.isEmpty()) {
-                    strategy.setPeerCandles(currentPeerCandles);
-                }
+            Map<String, List<Candle>> currentPeerCandles = buildCurrentPeerCandles(
+                    ticker, minDt, allHourlyCandles, groupTickers, peerTimesMap, hourHistory, strategyConfig
+            );
+            if (!currentPeerCandles.isEmpty()) {
+                strategy.setPeerCandles(currentPeerCandles);
+            } else {
+                strategy.setPeerCandles(Collections.emptyMap());
             }
 
-            // Передаем hourChanged в decide() для корректного инкремента candlesHeld
             TradingDecision decision = strategy.decide(ticker, hourHistory, minHistory, pos, cash, hourChanged);
 
             switch (decision.action) {
                 case "OPEN":
                     if (decision.updatedPosition == null || decision.quantity <= 0) break;
-
                     if (!"BUY".equals(decision.updatedPosition.direction)) break;
                     if (pos.quantity > 0) break;
 
@@ -511,12 +497,7 @@ public class BacktestRunner {
         }
 
         double finalBalance = cash;
-        // Only close positions at end of period if we haven't already closed them at end of day
-        LocalDateTime lastTime = wrappedMin.isEmpty() ? null : 
-            LocalDateTime.parse(wrappedMin.get(wrappedMin.size() - 1).time, DATE_TIME_FMT);
-        boolean alreadyClosedAtEOD = lastTime != null && lastTime.getHour() == 21 && lastTime.getMinute() == 0;
-        
-        if (pos.quantity > 0 && !wrappedMin.isEmpty() && !alreadyClosedAtEOD) {
+        if (pos.quantity > 0 && !wrappedMin.isEmpty()) {
             double lastPrice = wrappedMin.get(wrappedMin.size() - 1).close;
             int q = pos.quantity;
             double exitValue = q * lastPrice;
@@ -531,10 +512,45 @@ public class BacktestRunner {
 
             double exitCommission = exitValue * commission;
             finalBalance += (exitValue - exitCommission);
-            pos = new Position();
         }
 
         return new SimulateResult(trades, equityCurve, finalBalance);
+    }
+
+    private Map<String, List<Candle>> buildCurrentPeerCandles(String ticker,
+                                                              LocalDateTime minDt,
+                                                              Map<String, List<Candle>> allHourlyCandles,
+                                                              Map<String, List<String>> groupTickers,
+                                                              Map<String, List<LocalDateTime>> peerTimesMap,
+                                                              List<Candle> currentTickerHourHistory,
+                                                              UnifiedTraderConfig config) {
+        Map<String, List<Candle>> result = new HashMap<>();
+        result.put(ticker, currentTickerHourHistory);
+
+        String allocGroup = config.getTickerParams(ticker).allocationGroup;
+        if (allocGroup == null || allocGroup.isEmpty()) {
+            return result;
+        }
+
+        List<String> members = groupTickers.getOrDefault(allocGroup, Collections.emptyList());
+        for (String peer : members) {
+            if (peer.equals(ticker)) {
+                continue;
+            }
+
+            List<Candle> peerAll = allHourlyCandles.get(peer);
+            List<LocalDateTime> peerTimes = peerTimesMap.get(peer);
+            if (peerAll == null || peerTimes == null || peerTimes.isEmpty()) {
+                continue;
+            }
+
+            int peerIdx = upperBound(peerTimes, minDt);
+            if (peerIdx >= 0) {
+                result.put(peer, peerAll.subList(0, peerIdx + 1));
+            }
+        }
+
+        return result;
     }
 
     private PortfolioPeriodResult buildPortfolioPeriodResult(Map<String, TickerPeriodResult> tickerResults) {
@@ -693,12 +709,12 @@ public class BacktestRunner {
         return new ArrayList<>(tickers);
     }
 
-    private List<RawCandle> loadCandles(String ticker, String startDate, String endDate) {
+    private List<RawCandle> loadCandles(String ticker, String startDate, String endExclusiveDate) {
         File file = new File(dataDir, ticker + "/candlesHOUR.txt");
         if (!file.exists()) return Collections.emptyList();
 
         LocalDate start = LocalDate.parse(startDate);
-        LocalDate end = LocalDate.parse(endDate);
+        LocalDate endExclusive = LocalDate.parse(endExclusiveDate);
 
         try {
             List<String> lines = Files.readAllLines(file.toPath());
@@ -716,7 +732,7 @@ public class BacktestRunner {
                     String datePart = spaceIdx >= 0 ? parts[0].substring(0, spaceIdx) : parts[0];
                     LocalDate dt = LocalDate.parse(datePart, DATE_FMT);
 
-                    if (dt.isBefore(start) || dt.isAfter(end)) continue;
+                    if (dt.isBefore(start) || !dt.isBefore(endExclusive)) continue;
 
                     result.add(new RawCandle(
                             parts[0],
@@ -737,12 +753,12 @@ public class BacktestRunner {
         }
     }
 
-    private List<RawCandle> loadCandles5Min(String ticker, String startDate, String endDate) {
+    private List<RawCandle> loadCandles5Min(String ticker, String startDate, String endExclusiveDate) {
         File file = new File(dataDir, ticker + "/candles5_MIN.txt");
         if (!file.exists()) return Collections.emptyList();
 
         LocalDate start = LocalDate.parse(startDate);
-        LocalDate end = LocalDate.parse(endDate);
+        LocalDate endExclusive = LocalDate.parse(endExclusiveDate);
 
         try {
             List<String> lines = Files.readAllLines(file.toPath());
@@ -760,7 +776,7 @@ public class BacktestRunner {
                     String datePart = spaceIdx >= 0 ? parts[0].substring(0, spaceIdx) : parts[0];
                     LocalDate dt = LocalDate.parse(datePart, DATE_FMT);
 
-                    if (dt.isBefore(start) || dt.isAfter(end)) continue;
+                    if (dt.isBefore(start) || !dt.isBefore(endExclusive)) continue;
 
                     result.add(new RawCandle(
                             parts[0],
@@ -779,6 +795,15 @@ public class BacktestRunner {
         } catch (IOException e) {
             return Collections.emptyList();
         }
+    }
+
+    private boolean isTradingDay(LocalDate date) {
+        DayOfWeek day = date.getDayOfWeek();
+        return day != DayOfWeek.SATURDAY && day != DayOfWeek.SUNDAY;
+    }
+
+    private boolean isWithinWorkingHours(LocalTime time) {
+        return !time.isBefore(WORK_START_TIME) && time.isBefore(EOD_CLOSE_TIME);
     }
 
     private double calcMaxDrawdownByEquity(List<EquityPoint> equityCurve) {
