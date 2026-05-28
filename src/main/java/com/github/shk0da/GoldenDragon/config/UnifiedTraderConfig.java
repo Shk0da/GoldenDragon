@@ -2,7 +2,9 @@ package com.github.shk0da.GoldenDragon.config;
 
 import com.github.shk0da.GoldenDragon.utils.PropertiesUtils;
 import java.io.IOException;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Properties;
 
 
@@ -11,9 +13,25 @@ import static java.util.stream.Collectors.toList;
 
 public class UnifiedTraderConfig {
 
+    public static class TickerParams {
+
+        public final String group;
+        public final double slMult;
+        public final double tpMult;
+        public final double riskP;
+
+        public TickerParams(String group, double slMult, double tpMult, double riskP) {
+            this.group = group;
+            this.slMult = slMult;
+            this.tpMult = tpMult;
+            this.riskP = riskP;
+        }
+    }
+
     private String dataDir;
     private List<String> stocks;
     private Double averagePositionCost;
+    private final Map<String, TickerParams> tickerParams;
 
     public UnifiedTraderConfig() throws IOException {
         final Properties properties = PropertiesUtils.loadProperties();
@@ -23,6 +41,40 @@ public class UnifiedTraderConfig {
                 properties.getProperty("datacollector.stocks")
         ).split(",")).collect(toList());
         averagePositionCost = Double.valueOf(properties.getProperty("unifiedTrader.averagePositionCost", "10000"));
+        this.tickerParams = loadTickerParams(properties);
+    }
+
+    private Map<String, TickerParams> loadTickerParams(Properties properties) {
+        Map<String, TickerParams> result = new HashMap<>();
+        for (String stock : stocks) {
+            String prefix = "unifiedTrader.ticker." + stock + ".";
+            String group = properties.getProperty(prefix + "group", "TREND");
+            double slMult = Double.parseDouble(properties.getProperty(
+                    prefix + "slMult", getGroupDefault(properties, group, "slMult", "1.2")));
+            double tpMult = Double.parseDouble(properties.getProperty(
+                    prefix + "tpMult", getGroupDefault(properties, group, "tpMult", "2.5")));
+            double riskP = Double.parseDouble(properties.getProperty(
+                    prefix + "riskP", getGroupDefault(properties, group, "riskP", "0.01")));
+            result.put(stock, new TickerParams(group, slMult, tpMult, riskP));
+        }
+        return result;
+    }
+
+    private String getGroupDefault(Properties properties, String group, String field, String defaultValue) {
+        String prefix = "unifiedTrader.group." + group + ".";
+        String value = properties.getProperty(prefix + field);
+        return value != null ? value : defaultValue;
+    }
+
+    public TickerParams getTickerParams(String ticker) {
+        TickerParams params = tickerParams.get(ticker);
+        if (params != null) return params;
+        return new TickerParams("TREND", 1.2, 2.5, 0.01);
+    }
+
+    public String getTickerGroup(String ticker) {
+        TickerParams params = tickerParams.get(ticker);
+        return params != null ? params.group : "TREND";
     }
 
     public void setDataDir(String dataDir) {
@@ -47,7 +99,7 @@ public class UnifiedTraderConfig {
 
     @Override
     public String toString() {
-        return "LevelTraderConfig{" +
+        return "UnifiedTraderConfig{" +
                 "dataDir='" + dataDir + '\'' +
                 ", stocks=" + stocks +
                 '}';

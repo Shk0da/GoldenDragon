@@ -1,8 +1,13 @@
 package com.github.shk0da.GoldenDragon.strategy;
 
 import com.github.shk0da.GoldenDragon.config.UnifiedTraderConfig;
+import com.github.shk0da.GoldenDragon.model.Candle;
+import com.github.shk0da.GoldenDragon.model.Config;
+import com.github.shk0da.GoldenDragon.model.Group;
+import com.github.shk0da.GoldenDragon.model.Position;
 import com.github.shk0da.GoldenDragon.model.TickerInfo;
 import com.github.shk0da.GoldenDragon.model.TickerType;
+import com.github.shk0da.GoldenDragon.model.TradingDecision;
 import com.github.shk0da.GoldenDragon.repository.TickerRepository;
 import com.github.shk0da.GoldenDragon.service.TCSService;
 import com.github.shk0da.GoldenDragon.utils.IndicatorsUtil;
@@ -11,162 +16,36 @@ import java.text.SimpleDateFormat;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Calendar;
+import java.util.Date;
+import java.util.GregorianCalendar;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import ru.tinkoff.piapi.contract.v1.CandleInterval;
 import ru.tinkoff.piapi.contract.v1.HistoricCandle;
 
 
+import static com.github.shk0da.GoldenDragon.service.TelegramNotifyService.telegramNotifyService;
 import static com.github.shk0da.GoldenDragon.utils.TimeUtils.sleep;
+import static java.lang.System.out;
 import static java.util.concurrent.CompletableFuture.allOf;
 import static java.util.concurrent.CompletableFuture.runAsync;
 
 public class UnifiedStrategy {
 
-    public static class Config {
-        public final int emaTrend;
-        public final int emaFast;
-        public final int emaSlow;
-        public final int rsiPeriod;
-        public final int adxPeriod;
-        public final int atrPeriod;
-        public final double adxMin;
-        public final double rsiOversold;
-        public final double rsiOverbought;
-        public final double commission;
-        public final int maxCandlesHold;
-        public final int maxCandlesHoldFx;
-        public final double atrSpikeThreshold;
-        public final int atrSpikeWindow;
-        public final int cooldownCandles;
-
-        public Config() {
-            this.emaTrend = 24;
-            this.emaFast = 3;
-            this.emaSlow = 7;
-            this.rsiPeriod = 14;
-            this.adxPeriod = 14;
-            this.atrPeriod = 14;
-            this.adxMin = 20.0;
-            this.rsiOversold = 25.0;
-            this.rsiOverbought = 75.0;
-            this.commission = 0.0005;
-            this.maxCandlesHold = 24;
-            this.maxCandlesHoldFx = 12;
-            this.atrSpikeThreshold = 3.0;
-            this.atrSpikeWindow = 10;
-            this.cooldownCandles = 3;
-        }
-
-        public Config(int emaTrend, int emaFast, int emaSlow, int rsiPeriod, int adxPeriod, int atrPeriod,
-                      double adxMin, double rsiOversold, double rsiOverbought, double commission,
-                      int maxCandlesHold, int maxCandlesHoldFx, double atrSpikeThreshold,
-                      int atrSpikeWindow, int cooldownCandles) {
-            this.emaTrend = emaTrend;
-            this.emaFast = emaFast;
-            this.emaSlow = emaSlow;
-            this.rsiPeriod = rsiPeriod;
-            this.adxPeriod = adxPeriod;
-            this.atrPeriod = atrPeriod;
-            this.adxMin = adxMin;
-            this.rsiOversold = rsiOversold;
-            this.rsiOverbought = rsiOverbought;
-            this.commission = commission;
-            this.maxCandlesHold = maxCandlesHold;
-            this.maxCandlesHoldFx = maxCandlesHoldFx;
-            this.atrSpikeThreshold = atrSpikeThreshold;
-            this.atrSpikeWindow = atrSpikeWindow;
-            this.cooldownCandles = cooldownCandles;
-        }
-    }
-
-    public static class Candle {
-        public final String time;
-        public final double open;
-        public final double high;
-        public final double low;
-        public final double close;
-        public final long volume;
-
-        public Candle(String time, double open, double high, double low, double close, long volume) {
-            this.time = time;
-            this.open = open;
-            this.high = high;
-            this.low = low;
-            this.close = close;
-            this.volume = volume;
-        }
-    }
-
-    public static class Position {
-        public final String direction;
-        public final Double entryPrice;
-        public final Double stopLoss;
-        public final Double takeProfit;
-        public final int quantity;
-        public final int candlesHeld;
-        public final int cooldownRemaining;
-
-        public Position() {
-            this(null, null, null, null, 0, 0, 0);
-        }
-
-        public Position(int cooldownRemaining) {
-            this(null, null, null, null, 0, 0, cooldownRemaining);
-        }
-
-        public Position(String direction, Double entryPrice, Double stopLoss, Double takeProfit,
-                        int quantity, int candlesHeld) {
-            this(direction, entryPrice, stopLoss, takeProfit, quantity, candlesHeld, 0);
-        }
-
-        public Position(String direction, Double entryPrice, Double stopLoss, Double takeProfit,
-                        int quantity, int candlesHeld, int cooldownRemaining) {
-            this.direction = direction;
-            this.entryPrice = entryPrice;
-            this.stopLoss = stopLoss;
-            this.takeProfit = takeProfit;
-            this.quantity = quantity;
-            this.candlesHeld = candlesHeld;
-            this.cooldownRemaining = cooldownRemaining;
-        }
-    }
-
-    public static class TradingDecision {
-        public final String action;
-        public final String reason;
-        public final double confidence;
-        public final int quantity;
-        public final Double stopLoss;
-        public final Double takeProfit;
-        public final Double entryPrice;
-        public final Position updatedPosition;
-
-        public TradingDecision(String action, String reason) {
-            this(action, reason, 0.0, 0, null, null, null, null);
-        }
-
-        public TradingDecision(String action, String reason, double confidence, int quantity,
-                               Double stopLoss, Double takeProfit, Double entryPrice, Position updatedPosition) {
-            this.action = action;
-            this.reason = reason;
-            this.confidence = confidence;
-            this.quantity = quantity;
-            this.stopLoss = stopLoss;
-            this.takeProfit = takeProfit;
-            this.entryPrice = entryPrice;
-            this.updatedPosition = updatedPosition;
-        }
-    }
-
-    public enum Group { TREND, FX, MIXED }
-
     private final Config config;
 
     private final TCSService tcsService;
     private final UnifiedTraderConfig unifiedTraderConfig;
+
+    private static final ThreadLocal<SimpleDateFormat> LOG_TIME_FORMAT =
+            ThreadLocal.withInitial(() -> new SimpleDateFormat("dd.MM.yyyy HH:mm:ss.SSS"));
+    private static final long COOLDOWN_DURATION_MS = 5 * 60 * 1000L;
+    private final Map<String, Long> tickerCooldown = new ConcurrentHashMap<>();
 
     public UnifiedStrategy(UnifiedTraderConfig unifiedTraderConfig, TCSService tcsService) {
         this.config = new Config();
@@ -174,21 +53,29 @@ public class UnifiedStrategy {
         this.unifiedTraderConfig = unifiedTraderConfig;
     }
 
-    public Group getGroup(String ticker) {
-        switch (ticker) {
-            case "CNYRUBF": return Group.FX;
-            case "USDRUBF": return Group.TREND;
-            case "GLDRUBF": return Group.MIXED;
-            default: return Group.TREND;
-        }
+    private static void log(String message) {
+        out.println("[" + LOG_TIME_FORMAT.get().format(new Date()) + "] " + message);
+    }
+
+    private boolean isWorkingHours() {
+        var calendar = new GregorianCalendar();
+        var hour = calendar.get(Calendar.HOUR_OF_DAY);
+        var minute = calendar.get(Calendar.MINUTE);
+        return !(hour == 18 && minute >= 30 || hour >= 19);
     }
 
     public void run() {
+        sleep(1_000);
+        var initPortfolioCost = tcsService.getTotalPortfolioCost();
+        var infoMessage = "UnifiedStrategy started. Total Portfolio Cost: " + initPortfolioCost;
+        telegramNotifyService.sendMessage(infoMessage);
+        log(infoMessage);
+
         List<CompletableFuture<Void>> tasks = new ArrayList<>();
         ExecutorService executor = Executors.newFixedThreadPool(unifiedTraderConfig.getStocks().size());
         for (String name : unifiedTraderConfig.getStocks()) {
             tasks.add(runAsync(() -> {
-                while (true) {
+                while (isWorkingHours()) {
                     this.processTicker(name, tcsService, unifiedTraderConfig);
                     sleep(30_000);
                 }
@@ -196,13 +83,19 @@ public class UnifiedStrategy {
             sleep(1_000);
         }
         allOf(tasks.toArray(new CompletableFuture[0])).join();
+
+        if (!isWorkingHours()) {
+            var buyMessage = "UnifiedStrategy: Not working hours! Current Time: " + new Date() + ".";
+            telegramNotifyService.sendMessage(buyMessage);
+            log(buyMessage);
+        }
     }
 
     public TradingDecision decide(String ticker, List<Candle> candles, Position position, double balance) {
         if (candles.size() < 60) return new TradingDecision("HOLD", "init");
         Candle cur = candles.get(candles.size() - 1);
         Position p = position;
-        Group grp = getGroup(ticker);
+        Group grp = Group.valueOf(unifiedTraderConfig.getTickerGroup(ticker));
 
         if (position.quantity > 0) {
             Double sl = position.stopLoss;
@@ -272,12 +165,10 @@ public class UnifiedStrategy {
 
         double entry = cur.close;
 
-        double slMult, tpMult, riskP;
-        if ("USDRUBF".equals(ticker)) { slMult = 1.5; tpMult = 3.5; riskP = 0.003; }
-        else if ("LKOH".equals(ticker)) { slMult = 1.2; tpMult = 3.0; riskP = 0.005; }
-        else if (grp == Group.FX) { slMult = 0.8; tpMult = 1.2; riskP = 0.005; }
-        else if (grp == Group.TREND) { slMult = 1.2; tpMult = 2.5; riskP = 0.01; }
-        else { slMult = 1.0; tpMult = 2.0; riskP = 0.0075; }
+        UnifiedTraderConfig.TickerParams tpCfg = unifiedTraderConfig.getTickerParams(ticker);
+        double slMult = tpCfg.slMult;
+        double tpMult = tpCfg.tpMult;
+        double riskP = tpCfg.riskP;
 
         double slDist = dAtr * slMult;
         double tpDist = dAtr * tpMult;
@@ -297,17 +188,37 @@ public class UnifiedStrategy {
     }
 
     public void processTicker(String name, TCSService tcsService, UnifiedTraderConfig unifiedTraderConfig) {
+        Long cooldownUntil = tickerCooldown.get(name);
+        if (cooldownUntil != null) {
+            long remaining = cooldownUntil - System.currentTimeMillis();
+            if (remaining > 0) {
+                log("Ticker " + name + " is on cooldown for " + (remaining / 1000) + "s, skipping.");
+                return;
+            } else {
+                tickerCooldown.remove(name);
+                log("Ticker " + name + " cooldown expired, resuming.");
+            }
+        }
+
         try {
             TickerInfo ticker = TickerRepository.INSTANCE.getAll().values().stream()
                     .filter(t -> t.getType() == TickerType.STOCK || t.getType() == TickerType.FEATURE)
                     .filter(t -> t.getName().equalsIgnoreCase(name) || t.getTicker().equalsIgnoreCase(name))
                     .findFirst().orElse(null);
-            if (ticker == null) return;
+            if (ticker == null) {
+                log("Ticker " + name + " not found, skipping.");
+                return;
+            }
 
             String figi = ticker.getFigi();
             OffsetDateTime now = OffsetDateTime.now();
+            log("Processing " + name + " (" + figi + ")");
+
+            sleep(1_550);
             List<HistoricCandle> historicCandles = tcsService.getCandles(figi,
                     now.minusMinutes(24 * 60), now, CandleInterval.CANDLE_INTERVAL_HOUR);
+
+            log("Fetched " + historicCandles.size() + " candles for " + name);
 
             SimpleDateFormat df = new SimpleDateFormat("dd.MM.yyyy HH:mm:ss");
             List<Candle> candles = new ArrayList<>();
@@ -324,6 +235,8 @@ public class UnifiedStrategy {
             }
 
             TradingDecision decision = decide(name, candles, new Position(), 1_000_000.0);
+            log("Decision for " + name + ": " + decision.action + " (" + decision.reason + ")");
+
             if ("OPEN".equals(decision.action)) {
                 double entryPrice = decision.entryPrice != null ? decision.entryPrice : candles.get(candles.size() - 1).close;
                 double slPrice, tpPrice;
@@ -337,14 +250,29 @@ public class UnifiedStrategy {
                 }
                 double slPercent = Math.abs(entryPrice - slPrice) / entryPrice * 100;
                 double tpPercent = Math.abs(tpPrice - entryPrice) / entryPrice * 100;
+
+                log("Opening " + (isBuy ? "BUY" : "SELL") + " for " + name
+                        + " at " + entryPrice + ", SL: " + String.format("%.2f", slPercent)
+                        + "%, TP: " + String.format("%.2f", tpPercent) + "%");
+
                 if (isBuy) {
+                    sleep(1_000);
                     tcsService.buyByMarket(name, ticker.getType(), unifiedTraderConfig.getAveragePositionCost(), tpPercent, slPercent);
                 } else {
+                    sleep(1_000);
                     tcsService.sellByMarket(name, ticker.getType(), unifiedTraderConfig.getAveragePositionCost(), tpPercent, slPercent);
                 }
+
+                telegramNotifyService.sendMessage("UnifiedStrategy " + (isBuy ? "BUY" : "SELL") + " " + name
+                        + " at " + entryPrice + ", SL: " + String.format("%.2f", slPercent)
+                        + "%, TP: " + String.format("%.2f", tpPercent) + "%");
             }
         } catch (Exception ex) {
-            System.err.println("UnifiedStrategy error for " + name + ": " + ex.getMessage());
+            long cooldownExpiry = System.currentTimeMillis() + COOLDOWN_DURATION_MS;
+            tickerCooldown.put(name, cooldownExpiry);
+            var message = "UnifiedStrategy error for " + name + ": " + ex.getMessage();
+            log(message);
+            telegramNotifyService.sendMessage(message);
         }
     }
 
@@ -526,9 +454,5 @@ public class UnifiedStrategy {
     public static double calculatePnl(String dir, double entry, double exit, int qty, double com) {
         double ev = entry * qty, xv = exit * qty;
         return "BUY".equals(dir) ? xv - ev - (ev + xv) * com : ev - xv - (ev + xv) * com;
-    }
-
-    public static double calculatePnl(String dir, double entry, double exit, int qty) {
-        return calculatePnl(dir, entry, exit, qty, 0.0005);
     }
 }

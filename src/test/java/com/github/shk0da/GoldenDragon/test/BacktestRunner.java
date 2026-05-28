@@ -1,6 +1,9 @@
 package com.github.shk0da.GoldenDragon.test;
 
 import com.github.shk0da.GoldenDragon.config.UnifiedTraderConfig;
+import com.github.shk0da.GoldenDragon.model.Candle;
+import com.github.shk0da.GoldenDragon.model.Position;
+import com.github.shk0da.GoldenDragon.model.TradingDecision;
 import com.github.shk0da.GoldenDragon.strategy.UnifiedStrategy;
 import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
@@ -329,18 +332,18 @@ public class BacktestRunner {
 
     private List<TradeResult> simulateUnified(UnifiedStrategy strategy, String ticker, List<RawCandle> candles) {
         List<TradeResult> trades = new ArrayList<>();
-        List<UnifiedStrategy.Candle> wrapped = new ArrayList<>();
+        List<Candle> wrapped = new ArrayList<>();
         for (RawCandle c : candles) {
-            wrapped.add(new UnifiedStrategy.Candle(c.time, c.open, c.high, c.low, c.close, c.volume));
+            wrapped.add(new Candle(c.time, c.open, c.high, c.low, c.close, c.volume));
         }
-        UnifiedStrategy.Position pos = new UnifiedStrategy.Position();
+        Position pos = new Position();
         double entryPrice = 0.0;
         String entryDir = "BUY";
 
         for (int i = 60; i < wrapped.size(); i++) {
-            List<UnifiedStrategy.Candle> history = wrapped.subList(0, i + 1);
-            UnifiedStrategy.Candle current = wrapped.get(i);
-            UnifiedStrategy.TradingDecision decision = strategy.decide(ticker, history, pos, initialBalance);
+            List<Candle> history = wrapped.subList(0, i + 1);
+            Candle current = wrapped.get(i);
+            TradingDecision decision = strategy.decide(ticker, history, pos, initialBalance);
 
             switch (decision.action) {
                 case "OPEN":
@@ -370,7 +373,7 @@ public class BacktestRunner {
                     int q = pos.quantity;
                     double pnl = UnifiedStrategy.calculatePnl(dir, entryPrice, exitPrice, q, commission);
                     trades.add(new TradeResult(ticker, dir, entryPrice, exitPrice, pnl, decision.reason));
-                    pos = decision.updatedPosition != null ? decision.updatedPosition : new UnifiedStrategy.Position();
+                    pos = decision.updatedPosition != null ? decision.updatedPosition : new Position();
                     break;
                 case "HOLD":
                     pos = decision.updatedPosition != null ? decision.updatedPosition : pos;
