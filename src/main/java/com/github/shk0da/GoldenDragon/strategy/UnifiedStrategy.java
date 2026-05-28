@@ -231,6 +231,15 @@ public class UnifiedStrategy {
                                   List<Candle> minuteCandles,
                                   Position position,
                                   double balance) {
+        return decide(ticker, hourCandles, minuteCandles, position, balance, false);
+    }
+
+    public TradingDecision decide(String ticker,
+                                  List<Candle> hourCandles,
+                                  List<Candle> minuteCandles,
+                                  Position position,
+                                  double balance,
+                                  boolean incrementCandlesHeld) {
         if (hourCandles == null || hourCandles.size() < 60 || minuteCandles == null || minuteCandles.isEmpty()) {
             return new TradingDecision("HOLD", "init");
         }
@@ -246,29 +255,20 @@ public class UnifiedStrategy {
         Group grp = Group.valueOf(unifiedTraderConfig.getTickerGroup(ticker));
         boolean useMinuteCandles = tpCfg.useMinuteCandles;
 
-        // BUG FIX #2: candlesHeld измеряется в часовых барах (унифицировано между live и бэктестом).
-        // Множитель *12 убран как нерелевантный.
-        if (position.quantity > 0) {
-            Double sl = position.stopLoss;
-            Double tp = position.takeProfit;
-            String dir = position.direction;
-            int maxH = grp == Group.FX ? config.maxCandlesHoldFx : config.maxCandlesHold;
-
-            if (sl != null && (("BUY".equals(dir) && cur.low <= sl) || ("SELL".equals(dir) && cur.high >= sl))) {
-                return new TradingDecision("CLOSE", "stop_loss", 0.0, position.quantity,
-                        null, null, sl, new Position(config.cooldownCandles));
-            }
-
-            if (tp != null && (("BUY".equals(dir) && cur.high >= tp) || ("SELL".equals(dir) && cur.low <= tp))) {
-                return new TradingDecision("CLOSE", "take_profit", 0.0, position.quantity,
-                        null, null, tp, new Position(config.cooldownCandles));
-            }
-
-            if (position.candlesHeld >= maxH) {
-                return new TradingDecision("CLOSE", "expired", 0.0, position.quantity,
-                        null, null, cur.close, new Position(config.cooldownCandles));
-            }
-
+        // Инкремент candlesHeld вынесен в decide() для корректной работы в бэктесте.
+        // В live-режиме incrementCandlesHeld = true только при смене часа.
+        // В бэктесте incrementCandlesHeld = true только при смене часа.
+        if (position.quantity > 0 && incrementCandlesHeld) {
+            p = new Position(
+                    position.direction,
+                    position.entryPrice,
+                    position.stopLoss,
+                    position.takeProfit,
+                    position.quantity,
+                    position.candlesHeld + 1,
+                    position.cooldownRemaining
+            );
+        } else if (position.quantity > 0) {
             p = new Position(
                     position.direction,
                     position.entryPrice,
@@ -278,8 +278,30 @@ public class UnifiedStrategy {
                     position.candlesHeld,
                     position.cooldownRemaining
             );
+        }
 
-            double ep = position.entryPrice != null ? position.entryPrice : cur.close;
+        if (p.quantity > 0) {
+            Double sl = p.stopLoss;
+            Double tp = p.takeProfit;
+            String dir = p.direction;
+            int maxH = grp == Group.FX ? config.maxCandlesHoldFx : config.maxCandlesHold;
+
+            if (sl != null && (("BUY".equals(dir) && cur.low <= sl) || ("SELL".equals(dir) && cur.high >= sl))) {
+                return new TradingDecision("CLOSE", "stop_loss", 0.0, p.quantity,
+                        null, null, sl, new Position(config.cooldownCandles));
+            }
+
+            if (tp != null && (("BUY".equals(dir) && cur.high >= tp) || ("SELL".equals(dir) && cur.low <= tp))) {
+                return new TradingDecision("CLOSE", "take_profit", 0.0, p.quantity,
+                        null, null, tp, new Position(config.cooldownCandles));
+            }
+
+            if (p.candlesHeld >= maxH) {
+                return new TradingDecision("CLOSE", "expired", 0.0, p.quantity,
+                        null, null, cur.close, new Position(config.cooldownCandles));
+            }
+
+            double ep = p.entryPrice != null ? p.entryPrice : cur.close;
             double pnlAbs = "BUY".equals(dir) ? cur.close - ep : ep - cur.close;
             double atr = atrVal(hourCandles, config.atrPeriod);
 
@@ -290,7 +312,7 @@ public class UnifiedStrategy {
                 if (pnlAtr >= 0.5 * trMult) {
                     double beSl = "BUY".equals(dir) ? ep + atr * 0.08 : ep - atr * 0.08;
 
-                    if ("BUY".equals(dir) && (position.stopLoss != null ? position.stopLoss : 0.0) < beSl) {
+                    if ("BUY".equals(dir) && (p.stopLoss != null ? p.stopLoss : 0.0) < beSl) {
                         p = new Position(p.direction, p.entryPrice, beSl, p.takeProfit,
                                 p.quantity, p.candlesHeld, p.cooldownRemaining);
                     }
@@ -299,7 +321,7 @@ public class UnifiedStrategy {
                 if (pnlAtr >= 1.0 * trMult) {
                     double trailSl = cur.close - atr * 0.35;
 
-                    if ("BUY".equals(dir) && trailSl > (position.stopLoss != null ? position.stopLoss : 0.0)) {
+                    if ("BUY".equals(dir) && trailSl > (p.stopLoss != null ? p.stopLoss : 0.0)) {
                         p = new Position(p.direction, p.entryPrice, trailSl, p.takeProfit,
                                 p.quantity, p.candlesHeld, p.cooldownRemaining);
                     }
@@ -308,7 +330,7 @@ public class UnifiedStrategy {
                 if (pnlAtr >= 1.8 * trMult) {
                     double tightTrail = cur.close - atr * 0.20;
 
-                    if ("BUY".equals(dir) && tightTrail > (position.stopLoss != null ? position.stopLoss : 0.0)) {
+                    if ("BUY".equals(dir) && tightTrail > (p.stopLoss != null ? p.stopLoss : 0.0)) {
                         p = new Position(p.direction, p.entryPrice, tightTrail, p.takeProfit,
                                 p.quantity, p.candlesHeld, p.cooldownRemaining);
                     }
@@ -829,20 +851,13 @@ public class UnifiedStrategy {
             Position storedPosition = positionStore.getOrDefault(name, new Position());
             Position currentPosition = storedPosition;
 
+            boolean hourChanged = false;
             if (storedPosition.quantity > 0) {
                 String lastHourBar = candles.get(candles.size() - 1).time;
                 String prevSeen = lastSeenHourBarByTicker.get(name);
 
                 if (prevSeen == null || !prevSeen.equals(lastHourBar)) {
-                    currentPosition = new Position(
-                            storedPosition.direction,
-                            storedPosition.entryPrice,
-                            storedPosition.stopLoss,
-                            storedPosition.takeProfit,
-                            storedPosition.quantity,
-                            storedPosition.candlesHeld + 1,
-                            storedPosition.cooldownRemaining
-                    );
+                    hourChanged = true;
                     lastSeenHourBarByTicker.put(name, lastHourBar);
                 }
             } else {
@@ -857,8 +872,8 @@ public class UnifiedStrategy {
             }
 
             TradingDecision decision = useMinCandles
-                    ? decide(name, candles, minuteCandles, currentPosition, balance)
-                    : decide(name, candles, currentPosition, balance);
+                    ? decide(name, candles, minuteCandles, currentPosition, balance, hourChanged)
+                    : decide(name, candles, candles, currentPosition, balance, hourChanged);
 
             if (decision.updatedPosition != null && "HOLD".equals(decision.action)) {
                 positionStore.put(name, decision.updatedPosition);

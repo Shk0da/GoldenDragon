@@ -419,13 +419,8 @@ public class BacktestRunner {
                 }
             }
 
-            Position posForDecide = pos;
-            if (pos.quantity > 0 && !hourChanged) {
-                // откатываем будущий инкремент: передадим candlesHeld - 1,
-                // но проще - не трогаем, а после decide() откатим candlesHeld.
-            }
-
-            TradingDecision decision = strategy.decide(ticker, hourHistory, minHistory, posForDecide, cash);
+            // Передаем hourChanged в decide() для корректного инкремента candlesHeld
+            TradingDecision decision = strategy.decide(ticker, hourHistory, minHistory, pos, cash, hourChanged);
 
             switch (decision.action) {
                 case "OPEN":
@@ -475,22 +470,9 @@ public class BacktestRunner {
                     break;
 
                 case "HOLD":
-                    Position updated = decision.updatedPosition != null ? decision.updatedPosition : pos;
-
-                    // BUG FIX #2: откатываем инкремент candlesHeld, если час не сменился.
-                    if (pos.quantity > 0 && updated.quantity > 0 && !hourChanged) {
-                        int correctedHeld = Math.max(pos.candlesHeld, updated.candlesHeld - 1);
-                        updated = new Position(
-                                updated.direction,
-                                updated.entryPrice,
-                                updated.stopLoss,
-                                updated.takeProfit,
-                                updated.quantity,
-                                correctedHeld,
-                                updated.cooldownRemaining
-                        );
+                    if (decision.updatedPosition != null) {
+                        pos = decision.updatedPosition;
                     }
-                    pos = updated;
                     break;
             }
 
