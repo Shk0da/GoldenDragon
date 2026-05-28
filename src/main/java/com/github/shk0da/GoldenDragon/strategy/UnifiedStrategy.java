@@ -140,7 +140,6 @@ public class UnifiedStrategy {
             while (isWorkingHours()) {
                 try {
                     refreshPeerCandles(activeTickers);
-                    closeAllPositions(tcsService, unifiedTraderConfig);
                 } catch (Exception ex) {
                     log("Failed to refresh peer candles: " + ex.getMessage());
                 }
@@ -161,9 +160,11 @@ public class UnifiedStrategy {
         allOf(tasks.toArray(new CompletableFuture[0])).join();
 
         if (!isWorkingHours()) {
-            var message = "UnifiedStrategy: Not working hours! Current Time: " + new Date() + ".";
+            var endPortfolioCost = tcsService.getTotalPortfolioCost();
+            var message = "UnifiedStrategy: Not working hours! Total Portfolio Cost: " + endPortfolioCost;
             telegramNotifyService.sendMessage(message);
             log(message);
+            closeAllPositions(tcsService, unifiedTraderConfig);
             shutdownExecutor(executor);
         }
     }
