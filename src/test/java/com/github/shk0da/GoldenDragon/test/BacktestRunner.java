@@ -11,6 +11,7 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -95,17 +96,18 @@ public class BacktestRunner {
         List<TradeResult> uniTrades = new ArrayList<>();
 
         for (String ticker : tickers) {
-            List<RawCandle> candles = loadCandles(ticker);
-            if (candles.size() < 100) {
+            List<RawCandle> hourCandles = loadCandles(ticker);
+            List<RawCandle> minuteCandles = loadCandles5Min(ticker);
+            if (hourCandles.size() < 100 || minuteCandles.isEmpty()) {
                 System.out.println("\n" + ticker + ": нет данных");
                 continue;
             }
 
-            List<TradeResult> ltTradesForTicker = simulateLevelTrader(ticker, candles);
+            List<TradeResult> ltTradesForTicker = simulateLevelTrader(ticker, hourCandles);
             ltTrades.addAll(ltTradesForTicker);
 
             UnifiedStrategy unifiedStrategy = new UnifiedStrategy(new UnifiedTraderConfig(), null);
-            List<TradeResult> uniTradesForTicker = simulateUnified(unifiedStrategy, ticker, candles);
+            List<TradeResult> uniTradesForTicker = simulateUnified(unifiedStrategy, ticker, hourCandles, minuteCandles);
             uniTrades.addAll(uniTradesForTicker);
 
             System.out.println("\n" + ticker + ":");
@@ -330,20 +332,41 @@ public class BacktestRunner {
         return trades;
     }
 
-    private List<TradeResult> simulateUnified(UnifiedStrategy strategy, String ticker, List<RawCandle> candles) {
+    private List<TradeResult> simulateUnified(UnifiedStrategy strategy, String ticker, List<RawCandle> hourCandles, List<RawCandle> minuteCandles) {
         List<TradeResult> trades = new ArrayList<>();
-        List<Candle> wrapped = new ArrayList<>();
-        for (RawCandle c : candles) {
-            wrapped.add(new Candle(c.time, c.open, c.high, c.low, c.close, c.volume));
+        List<Candle> wrappedHour = new ArrayList<>();
+        for (RawCandle c : hourCandles) {
+            wrappedHour.add(new Candle(c.time, c.open, c.high, c.low, c.close, c.volume));
+        }
+        List<Candle> wrappedMin = new ArrayList<>();
+        for (RawCandle c : minuteCandles) {
+            wrappedMin.add(new Candle(c.time, c.open, c.high, c.low, c.close, c.volume));
         }
         Position pos = new Position();
         double entryPrice = 0.0;
         String entryDir = "BUY";
 
-        for (int i = 60; i < wrapped.size(); i++) {
-            List<Candle> history = wrapped.subList(0, i + 1);
-            Candle current = wrapped.get(i);
-            TradingDecision decision = strategy.decide(ticker, history, pos, initialBalance);
+        DateTimeFormatter dtf = DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm:ss");
+        int hourIdx = 0;
+
+        for (int i = 0; i < wrappedMin.size(); i++) {
+            Candle current = wrappedMin.get(i);
+            LocalDateTime minDt = LocalDateTime.parse(current.time, dtf);
+
+            while (hourIdx < wrappedHour.size()) {
+                LocalDateTime hourDt = LocalDateTime.parse(wrappedHour.get(hourIdx).time, dtf);
+                if (!hourDt.isAfter(minDt)) {
+                    hourIdx++;
+                } else {
+                    break;
+                }
+            }
+
+            if (hourIdx < 60) continue;
+
+            List<Candle> hourHistory = wrappedHour.subList(0, hourIdx);
+            List<Candle> minHistory = wrappedMin.subList(0, i + 1);
+            TradingDecision decision = strategy.decide(ticker, hourHistory, minHistory, pos, initialBalance);
 
             switch (decision.action) {
                 case "OPEN":
@@ -381,6 +404,40 @@ public class BacktestRunner {
             }
         }
         return trades;
+    }
+
+    private List<RawCandle> loadCandles5Min(String ticker) {
+        File file = new File(dataDir, ticker + "/candles5_MIN.txt");
+        if (!file.exists()) return Collections.emptyList();
+
+        DateTimeFormatter fmt = DateTimeFormatter.ofPattern("dd.MM.yyyy");
+        LocalDate start = LocalDate.parse(startDate);
+        LocalDate end = LocalDate.parse(endDate);
+
+        try {
+            List<String> lines = Files.readAllLines(file.toPath());
+            List<RawCandle> result = new ArrayList<>();
+            for (int i = 1; i < lines.size(); i++) {
+                String line = lines.get(i).trim();
+                if (line.isEmpty()) continue;
+                try {
+                    String[] parts = line.split(",");
+                    if (parts.length < 6) continue;
+                    int spaceIdx = parts[0].indexOf(' ');
+                    String datePart = spaceIdx >= 0 ? parts[0].substring(0, spaceIdx) : parts[0];
+                    LocalDate dt = LocalDate.parse(datePart, fmt);
+                    if (dt.isBefore(start) || dt.isAfter(end)) continue;
+                    result.add(new RawCandle(
+                            parts[0], Double.parseDouble(parts[1]), Double.parseDouble(parts[2]),
+                            Double.parseDouble(parts[3]), Double.parseDouble(parts[4]), Long.parseLong(parts[5])
+                    ));
+                } catch (Exception ignored) {
+                }
+            }
+            return result;
+        } catch (IOException e) {
+            return Collections.emptyList();
+        }
     }
 
     private double calcSma(List<RawCandle> candles, int period) {

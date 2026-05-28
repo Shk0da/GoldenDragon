@@ -92,8 +92,12 @@ public class UnifiedStrategy {
     }
 
     public TradingDecision decide(String ticker, List<Candle> candles, Position position, double balance) {
-        if (candles.size() < 60) return new TradingDecision("HOLD", "init");
-        Candle cur = candles.get(candles.size() - 1);
+        return decide(ticker, candles, candles, position, balance);
+    }
+
+    public TradingDecision decide(String ticker, List<Candle> hourCandles, List<Candle> minuteCandles, Position position, double balance) {
+        if (hourCandles.size() < 60) return new TradingDecision("HOLD", "init");
+        Candle cur = minuteCandles.get(minuteCandles.size() - 1);
         Position p = position;
         Group grp = Group.valueOf(unifiedTraderConfig.getTickerGroup(ticker));
 
@@ -102,6 +106,9 @@ public class UnifiedStrategy {
             Double tp = position.takeProfit;
             String dir = position.direction;
             int maxH = grp == Group.FX ? config.maxCandlesHoldFx : config.maxCandlesHold;
+            if (minuteCandles != hourCandles) {
+                maxH = maxH * 12;
+            }
 
             if (sl != null && (("BUY".equals(dir) && cur.close <= sl) || ("SELL".equals(dir) && cur.close >= sl)))
                 return new TradingDecision("CLOSE", "stop_loss", 0.0, position.quantity,
@@ -117,7 +124,7 @@ public class UnifiedStrategy {
                     position.quantity, position.candlesHeld + 1, position.cooldownRemaining);
             double ep = position.entryPrice != null ? position.entryPrice : cur.close;
             double pnlAbs = "BUY".equals(dir) ? cur.close - ep : ep - cur.close;
-            double atr = atrVal(candles, config.atrPeriod);
+            double atr = atrVal(hourCandles, config.atrPeriod);
 
             if (atr > 0.0 && pnlAbs > 0) {
                 double pnlAtr = pnlAbs / atr;
@@ -147,8 +154,8 @@ public class UnifiedStrategy {
         if (position.quantity > 0)
             return new TradingDecision("HOLD", "in_pos", 0.0, 0, null, null, null, p);
 
-        double dAtr = atrVal(candles, config.atrPeriod);
-        double avgAtr = emaAtr(candles, config.atrPeriod);
+        double dAtr = atrVal(hourCandles, config.atrPeriod);
+        double avgAtr = emaAtr(hourCandles, config.atrPeriod);
         if (dAtr <= 0.0 || avgAtr <= 0.0)
             return new TradingDecision("HOLD", "ATR0", 0.0, 0, null, null, null, p);
         if (dAtr > avgAtr * config.atrSpikeThreshold)
@@ -156,9 +163,9 @@ public class UnifiedStrategy {
 
         String signal;
         switch (grp) {
-            case FX: signal = fxSignal(candles); break;
-            case MIXED: signal = mixedSignal(candles); break;
-            default: signal = trendSignal(candles);
+            case FX: signal = fxSignal(hourCandles, minuteCandles); break;
+            case MIXED: signal = mixedSignal(hourCandles, minuteCandles); break;
+            default: signal = trendSignal(hourCandles, minuteCandles);
         }
         if (signal == null)
             return new TradingDecision("HOLD", "noSig", 0.0, 0, null, null, null, p);
@@ -298,10 +305,96 @@ public class UnifiedStrategy {
                             hc.getVolume()
                     ));
                 }
-                writeCandlesToFile(name, dataDir, candles);
+                writeCandlesToFile(name, dataDir, "candlesHOUR.txt", candles);
             }
 
-            TradingDecision decision = decide(name, candles, new Position(), 1_000_000.0);
+            List<Candle> minuteCandles = null;
+            File minCandleFile = new File(dataDir + "/" + name + "/candles5_MIN.txt");
+            if (minCandleFile.exists()) {
+                List<TickerCandle> cached = DataCollector.readCandlesFile(name, dataDir, CandleInterval.CANDLE_INTERVAL_5_MIN);
+                if (!cached.isEmpty()) {
+                    minuteCandles = new ArrayList<>();
+                    for (TickerCandle tc : cached) {
+                        minuteCandles.add(new Candle(tc.getDate(), tc.getOpen(), tc.getHigh(), tc.getLow(), tc.getClose(), tc.getVolume()));
+                    }
+                    try {
+                        String lastTimeStr = minuteCandles.get(minuteCandles.size() - 1).time;
+                        Date lastCandleDate = df.parse(lastTimeStr);
+                        Calendar lastCal = Calendar.getInstance();
+                        lastCal.setTime(lastCandleDate);
+                        Calendar nowCal = Calendar.getInstance();
+
+                        boolean isCurrent5Min = lastCal.get(Calendar.YEAR) == nowCal.get(Calendar.YEAR)
+                                && lastCal.get(Calendar.DAY_OF_YEAR) == nowCal.get(Calendar.DAY_OF_YEAR)
+                                && lastCal.get(Calendar.HOUR_OF_DAY) == nowCal.get(Calendar.HOUR_OF_DAY)
+                                && (lastCal.get(Calendar.MINUTE) / 5) == (nowCal.get(Calendar.MINUTE) / 5);
+
+                        if (isCurrent5Min) {
+                            log("Cached 5-min candles are current for " + name + " (" + minuteCandles.size() + " candles)");
+                        } else {
+                            log("Updating 5-min candles for " + name + ", last: " + lastTimeStr);
+                            throttleApiCall();
+                            List<HistoricCandle> newCandles = tcsService.getCandles(
+                                    figi,
+                                    lastCandleDate.toInstant().plusSeconds(300),
+                                    now.toInstant(),
+                                    CandleInterval.CANDLE_INTERVAL_5_MIN
+                            );
+                            if (!newCandles.isEmpty()) {
+                                log("Appending " + newCandles.size() + " new 5-min candles for " + name);
+                                try (FileWriter writer = new FileWriter(minCandleFile, true)) {
+                                    for (HistoricCandle hc : newCandles) {
+                                        Timestamp ts = new Timestamp(hc.getTime().getSeconds() * 1000);
+                                        Candle c = new Candle(
+                                                df.format(ts),
+                                                IndicatorsUtil.toDouble(hc.getOpen()),
+                                                IndicatorsUtil.toDouble(hc.getHigh()),
+                                                IndicatorsUtil.toDouble(hc.getLow()),
+                                                IndicatorsUtil.toDouble(hc.getClose()),
+                                                hc.getVolume()
+                                        );
+                                        minuteCandles.add(c);
+                                        writer.write(String.format(
+                                                "%s,%s,%s,%s,%s,%s",
+                                                c.time, c.open, c.high, c.low, c.close, c.volume
+                                        ) + System.lineSeparator());
+                                    }
+                                }
+                            }
+                        }
+                    } catch (Exception e) {
+                        log("Failed to check 5-min candle freshness for " + name + ": " + e.getMessage() + ", refetching all");
+                        minuteCandles = null;
+                    }
+                }
+            }
+
+            if (minuteCandles == null) {
+                throttleApiCall();
+                List<HistoricCandle> historicCandles = tcsService.getCandles(
+                        figi,
+                        now.minusMinutes(6 * 60),
+                        now,
+                        CandleInterval.CANDLE_INTERVAL_5_MIN
+                );
+                log("Fetched " + historicCandles.size() + " 5-min candles for " + name);
+
+                minuteCandles = new ArrayList<>();
+                for (HistoricCandle hc : historicCandles) {
+                    Timestamp ts = new Timestamp(hc.getTime().getSeconds() * 1000);
+                    minuteCandles.add(new Candle(
+                            df.format(ts),
+                            IndicatorsUtil.toDouble(hc.getOpen()),
+                            IndicatorsUtil.toDouble(hc.getHigh()),
+                            IndicatorsUtil.toDouble(hc.getLow()),
+                            IndicatorsUtil.toDouble(hc.getClose()),
+                            hc.getVolume()
+                    ));
+                }
+                writeCandlesToFile(name, dataDir, "candles5_MIN.txt", minuteCandles);
+            }
+
+            TradingDecision decision = decide(name, candles, minuteCandles, new Position(), 1_000_000.0);
             log("Decision for " + name + ": " + decision.action + " (" + decision.reason + ")");
 
             if ("OPEN".equals(decision.action)) {
@@ -342,7 +435,7 @@ public class UnifiedStrategy {
         }
     }
 
-    public String trendSignal(List<Candle> candles) {
+    public String trendSignal(List<Candle> candles, List<Candle> minuteCandles) {
         if (candles.size() < 60) return null;
         Candle cur = candles.get(candles.size() - 1);
         double p = cur.close;
@@ -374,10 +467,10 @@ public class UnifiedStrategy {
         return null;
     }
 
-    public String fxSignal(List<Candle> candles) {
+    public String fxSignal(List<Candle> candles, List<Candle> minuteCandles) {
         if (candles.size() < 30) return null;
         double rsi = rsiVal(candles, config.rsiPeriod);
-        String pat = candlePattern(candles);
+        String pat = candlePattern(minuteCandles);
 
         boolean extremeBuy = rsi <= config.rsiOversold;
         boolean extremeSell = rsi >= config.rsiOverbought;
@@ -390,7 +483,7 @@ public class UnifiedStrategy {
         return null;
     }
 
-    public String mixedSignal(List<Candle> candles) {
+    public String mixedSignal(List<Candle> candles, List<Candle> minuteCandles) {
         if (candles.size() < 60) return null;
         Candle cur = candles.get(candles.size() - 1);
         double p = cur.close;
@@ -399,7 +492,7 @@ public class UnifiedStrategy {
         double emaS = ema(candles, config.emaSlow);
         double adx = adxVal(candles, config.adxPeriod);
         double rsi = rsiVal(candles, config.rsiPeriod);
-        String pat = candlePattern(candles);
+        String pat = candlePattern(minuteCandles);
 
         boolean uptrend = p > emaT, dnTrend = p < emaT;
         boolean emaUp = emaF > emaS, emaDn = emaF < emaS;
@@ -543,11 +636,11 @@ public class UnifiedStrategy {
         }
     }
 
-    private void writeCandlesToFile(String name, String dataDir, List<Candle> candles) {
+    private void writeCandlesToFile(String name, String dataDir, String fileName, List<Candle> candles) {
         try {
             Path dir = Paths.get(dataDir, name);
             Files.createDirectories(dir);
-            try (FileWriter writer = new FileWriter(dir.resolve("candlesHOUR.txt").toFile())) {
+            try (FileWriter writer = new FileWriter(dir.resolve(fileName).toFile())) {
                 writer.write("Datetime,Open,High,Low,Close,Volume" + System.lineSeparator());
                 for (Candle c : candles) {
                     writer.write(String.format(
