@@ -5,12 +5,19 @@ import com.github.shk0da.GoldenDragon.model.Candle;
 import com.github.shk0da.GoldenDragon.model.Config;
 import com.github.shk0da.GoldenDragon.model.Group;
 import com.github.shk0da.GoldenDragon.model.Position;
+import com.github.shk0da.GoldenDragon.model.TickerCandle;
 import com.github.shk0da.GoldenDragon.model.TickerInfo;
 import com.github.shk0da.GoldenDragon.model.TickerType;
 import com.github.shk0da.GoldenDragon.model.TradingDecision;
 import com.github.shk0da.GoldenDragon.repository.TickerRepository;
 import com.github.shk0da.GoldenDragon.service.TCSService;
 import com.github.shk0da.GoldenDragon.utils.IndicatorsUtil;
+import java.io.File;
+import java.io.FileWriter;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.sql.Timestamp;
 import java.text.SimpleDateFormat;
 import java.time.OffsetDateTime;
@@ -42,10 +49,15 @@ public class UnifiedStrategy {
     private final TCSService tcsService;
     private final UnifiedTraderConfig unifiedTraderConfig;
 
-    private static final ThreadLocal<SimpleDateFormat> LOG_TIME_FORMAT =
-            ThreadLocal.withInitial(() -> new SimpleDateFormat("dd.MM.yyyy HH:mm:ss.SSS"));
+    private static final ThreadLocal<SimpleDateFormat> LOG_TIME_FORMAT = ThreadLocal.withInitial(
+            () -> new SimpleDateFormat("dd.MM.yyyy HH:mm:ss.SSS")
+    );
     private static final long COOLDOWN_DURATION_MS = 5 * 60 * 1000L;
     private final Map<String, Long> tickerCooldown = new ConcurrentHashMap<>();
+
+    private static final long API_CALL_DELAY_MS = 100;
+    private static final Object API_LOCK = new Object();
+    private static long lastApiCallTime = 0;
 
     public UnifiedStrategy(UnifiedTraderConfig unifiedTraderConfig, TCSService tcsService) {
         this.config = new Config();
@@ -53,19 +65,8 @@ public class UnifiedStrategy {
         this.unifiedTraderConfig = unifiedTraderConfig;
     }
 
-    private static void log(String message) {
-        out.println("[" + LOG_TIME_FORMAT.get().format(new Date()) + "] " + message);
-    }
-
-    private boolean isWorkingHours() {
-        var calendar = new GregorianCalendar();
-        var hour = calendar.get(Calendar.HOUR_OF_DAY);
-        var minute = calendar.get(Calendar.MINUTE);
-        return !(hour == 18 && minute >= 30 || hour >= 19);
-    }
-
     public void run() {
-        sleep(1_000);
+        throttleApiCall();
         var initPortfolioCost = tcsService.getTotalPortfolioCost();
         var infoMessage = "UnifiedStrategy started. Total Portfolio Cost: " + initPortfolioCost;
         telegramNotifyService.sendMessage(infoMessage);
@@ -80,7 +81,6 @@ public class UnifiedStrategy {
                     sleep(30_000);
                 }
             }, executor));
-            sleep(1_000);
         }
         allOf(tasks.toArray(new CompletableFuture[0])).join();
 
@@ -183,8 +183,7 @@ public class UnifiedStrategy {
         double tp = isBuy ? entry + tpDist : entry - tpDist;
         String dirName = isBuy ? "BUY" : "SELL";
 
-        return new TradingDecision("OPEN", signal, 0.7, qty, sl, tp, entry,
-                new Position(dirName, entry, sl, tp, qty, 0));
+        return new TradingDecision("OPEN", signal, 0.7, qty, sl, tp, entry, new Position(dirName, entry, sl, tp, qty, 0));
     }
 
     public void processTicker(String name, TCSService tcsService, UnifiedTraderConfig unifiedTraderConfig) {
@@ -214,24 +213,44 @@ public class UnifiedStrategy {
             OffsetDateTime now = OffsetDateTime.now();
             log("Processing " + name + " (" + figi + ")");
 
-            sleep(1_550);
-            List<HistoricCandle> historicCandles = tcsService.getCandles(figi,
-                    now.minusMinutes(24 * 60), now, CandleInterval.CANDLE_INTERVAL_HOUR);
+            List<Candle> candles = null;
+            String dataDir = unifiedTraderConfig.getDataDir();
+            File candleFile = new File(dataDir + "/" + name + "/candlesHOUR.txt");
+            if (candleFile.exists()) {
+                List<TickerCandle> cached = DataCollector.readCandlesFile(name, dataDir, CandleInterval.CANDLE_INTERVAL_HOUR);
+                if (!cached.isEmpty()) {
+                    candles = new ArrayList<>();
+                    for (TickerCandle tc : cached) {
+                        candles.add(new Candle(tc.getDate(), tc.getOpen(), tc.getHigh(), tc.getLow(), tc.getClose(), tc.getVolume()));
+                    }
+                    log("Using cached candles for " + name + " (" + candles.size() + " candles)");
+                }
+            }
 
-            log("Fetched " + historicCandles.size() + " candles for " + name);
+            if (candles == null) {
+                throttleApiCall();
+                List<HistoricCandle> historicCandles = tcsService.getCandles(
+                        figi,
+                        now.minusMinutes(24 * 60),
+                        now,
+                        CandleInterval.CANDLE_INTERVAL_HOUR
+                );
+                log("Fetched " + historicCandles.size() + " candles for " + name);
 
-            SimpleDateFormat df = new SimpleDateFormat("dd.MM.yyyy HH:mm:ss");
-            List<Candle> candles = new ArrayList<>();
-            for (HistoricCandle hc : historicCandles) {
-                Timestamp ts = new Timestamp(hc.getTime().getSeconds() * 1000);
-                candles.add(new Candle(
-                        df.format(ts),
-                        IndicatorsUtil.toDouble(hc.getOpen()),
-                        IndicatorsUtil.toDouble(hc.getHigh()),
-                        IndicatorsUtil.toDouble(hc.getLow()),
-                        IndicatorsUtil.toDouble(hc.getClose()),
-                        hc.getVolume()
-                ));
+                SimpleDateFormat df = new SimpleDateFormat("dd.MM.yyyy HH:mm:ss");
+                candles = new ArrayList<>();
+                for (HistoricCandle hc : historicCandles) {
+                    Timestamp ts = new Timestamp(hc.getTime().getSeconds() * 1000);
+                    candles.add(new Candle(
+                            df.format(ts),
+                            IndicatorsUtil.toDouble(hc.getOpen()),
+                            IndicatorsUtil.toDouble(hc.getHigh()),
+                            IndicatorsUtil.toDouble(hc.getLow()),
+                            IndicatorsUtil.toDouble(hc.getClose()),
+                            hc.getVolume()
+                    ));
+                }
+                writeCandlesToFile(name, dataDir, candles);
             }
 
             TradingDecision decision = decide(name, candles, new Position(), 1_000_000.0);
@@ -256,13 +275,12 @@ public class UnifiedStrategy {
                         + "%, TP: " + String.format("%.2f", tpPercent) + "%");
 
                 if (isBuy) {
-                    sleep(1_000);
+                    throttleApiCall();
                     tcsService.buyByMarket(name, ticker.getType(), unifiedTraderConfig.getAveragePositionCost(), tpPercent, slPercent);
                 } else {
-                    sleep(1_000);
+                    throttleApiCall();
                     tcsService.sellByMarket(name, ticker.getType(), unifiedTraderConfig.getAveragePositionCost(), tpPercent, slPercent);
                 }
-
                 telegramNotifyService.sendMessage("UnifiedStrategy " + (isBuy ? "BUY" : "SELL") + " " + name
                         + " at " + entryPrice + ", SL: " + String.format("%.2f", slPercent)
                         + "%, TP: " + String.format("%.2f", tpPercent) + "%");
@@ -454,5 +472,44 @@ public class UnifiedStrategy {
     public static double calculatePnl(String dir, double entry, double exit, int qty, double com) {
         double ev = entry * qty, xv = exit * qty;
         return "BUY".equals(dir) ? xv - ev - (ev + xv) * com : ev - xv - (ev + xv) * com;
+    }
+
+    private static void log(String message) {
+        out.println("[" + LOG_TIME_FORMAT.get().format(new Date()) + "] " + message);
+    }
+
+    private boolean isWorkingHours() {
+        var calendar = new GregorianCalendar();
+        var hour = calendar.get(Calendar.HOUR_OF_DAY);
+        var minute = calendar.get(Calendar.MINUTE);
+        return !(hour == 18 && minute >= 30 || hour >= 19);
+    }
+
+    private void throttleApiCall() {
+        synchronized (API_LOCK) {
+            long waitTime = API_CALL_DELAY_MS - (System.currentTimeMillis() - lastApiCallTime);
+            if (waitTime > 0) {
+                sleep(waitTime);
+            }
+            lastApiCallTime = System.currentTimeMillis();
+        }
+    }
+
+    private void writeCandlesToFile(String name, String dataDir, List<Candle> candles) {
+        try {
+            Path dir = Paths.get(dataDir, name);
+            Files.createDirectories(dir);
+            try (FileWriter writer = new FileWriter(dir.resolve("candlesHOUR.txt").toFile())) {
+                writer.write("Datetime,Open,High,Low,Close,Volume" + System.lineSeparator());
+                for (Candle c : candles) {
+                    writer.write(String.format(
+                            "%s,%s,%s,%s,%s,%s",
+                            c.time, c.open, c.high, c.low, c.close, c.volume
+                    ) + System.lineSeparator());
+                }
+            }
+        } catch (IOException ex) {
+            log("Failed to write candles file for " + name + ": " + ex.getMessage());
+        }
     }
 }
