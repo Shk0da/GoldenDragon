@@ -127,11 +127,11 @@ public class BacktestRunner {
             printTickerDetails("UNI", uniTradesForTicker);
         }
 
-        System.out.println("\n" + "=".repeat(72));
+        System.out.println("\n" + "=".repeat(90));
         System.out.println("СВОДНАЯ ТАБЛИЦА");
-        System.out.println("=".repeat(72));
-        System.out.println(String.format("%-10s %7s %9s %10s %12s", "Инструмент", "Сделок", "WinRate", "Ср.PnL", "PnL"));
-        System.out.println("-".repeat(50));
+        System.out.println("=".repeat(90));
+        System.out.println(String.format("%-10s %7s %9s %12s %8s %7s %4s", "Инструмент", "Сделок", "WinRate", "PnL", "Просадка", "Шарп", "Риск"));
+        System.out.println("-".repeat(67));
 
         for (String ticker : tickers) {
             List<TradeResult> lt = ltTrades.stream().filter(t -> t.ticker.equals(ticker)).collect(Collectors.toList());
@@ -141,10 +141,10 @@ public class BacktestRunner {
             printTradeLine(ticker, "UNI", uni);
         }
 
-        System.out.println("-".repeat(50));
+        System.out.println("-".repeat(67));
         printTradeLine("LT", "LT", ltTrades);
         printTradeLine("UNI", "UNI", uniTrades);
-        System.out.println("-".repeat(50));
+        System.out.println("-".repeat(67));
 
         double ltPnl = ltTrades.stream().mapToDouble(t -> t.pnl).sum();
         double ltWr = ltTrades.isEmpty() ? 0.0 : (double) ltTrades.stream().filter(t -> t.pnl > 0).count() / ltTrades.size() * 100;
@@ -167,12 +167,15 @@ public class BacktestRunner {
         if (total == 0) return;
         long wins = trades.stream().filter(t -> t.pnl > 0).count();
         double wr = (double) wins / total * 100;
-        double avgPnl = trades.stream().mapToDouble(t -> t.pnl).sum() / total;
         double pnl = trades.stream().mapToDouble(t -> t.pnl).sum();
+        double dd = calcMaxDrawdown(trades) * 100;
+        double sharpe = calcSharpe(trades);
+        String risk = assessRisk(dd, sharpe);
         String wrStr = wr >= 60.0 ? String.format("%.1f", wr) + "% ✅" : String.format("%.1f", wr) + "%";
-        String avgStr = avgPnl >= 0 ? "+" + String.format("%,.2f", avgPnl) : String.format("%,.2f", avgPnl);
         String pnlStr = pnl >= 0 ? "+" + String.format("%,.2f", pnl) : String.format("%,.2f", pnl);
-        System.out.println(String.format("%-10s %7d %9s %10s %12s", label, total, wrStr, avgStr, pnlStr));
+        String ddStr = dd < 10.0 ? String.format("%.1f", dd) : String.format("%.1f", dd) + "⚠";
+        String sharpeStr = sharpe >= 1.0 ? String.format("%.2f", sharpe) : String.format("%.2f", sharpe);
+        System.out.println(String.format("%-10s %7d %9s %12s %8s %7s %4s", label, total, wrStr, pnlStr, ddStr + "%", sharpeStr, risk));
     }
 
     private void printTickerDetails(String strategy, List<TradeResult> trades) {
@@ -190,6 +193,14 @@ public class BacktestRunner {
         System.out.print("  " + strategy + ": ");
         System.out.println(total + " сделок | " + String.format("%.1f", wr) + "% (" + wins + "/" + total + ") | ср." + String.format("%,+.2f", avgPnl) + " | PnL " + String.format("%,+.2f", totalPnl));
         System.out.println("    → TP:" + tp + "  SL:" + sl + "  Expired:" + expired + "  Unknown:" + unknown);
+
+        if (total > 0) {
+            double maxDd = calcMaxDrawdown(trades);
+            double sharpe = calcSharpe(trades);
+            double pf = calcProfitFactor(trades);
+            String risk = assessRisk(maxDd * 100, sharpe);
+            System.out.println("    → MaxDD: " + String.format("%.1f", maxDd * 100) + "% | Sharpe: " + String.format("%.2f", sharpe) + " | PF: " + String.format("%.2f", pf) + " | Risk: " + risk);
+        }
     }
 
     private List<RawCandle> loadCandles(String ticker) {
@@ -456,6 +467,41 @@ public class BacktestRunner {
         if (candles.size() < period) return candles.get(candles.size() - 1).close;
         return candles.subList(candles.size() - period, candles.size()).stream()
                 .mapToDouble(c -> c.close).average().orElse(0.0);
+    }
+
+    private double calcMaxDrawdown(List<TradeResult> trades) {
+        double peak = initialBalance;
+        double maxDd = 0;
+        double equity = initialBalance;
+        for (TradeResult t : trades) {
+            equity += t.pnl;
+            if (equity > peak) peak = equity;
+            double dd = (peak - equity) / peak;
+            if (dd > maxDd) maxDd = dd;
+        }
+        return maxDd;
+    }
+
+    private double calcSharpe(List<TradeResult> trades) {
+        if (trades.size() < 2) return 0;
+        double mean = trades.stream().mapToDouble(t -> t.pnl).average().orElse(0);
+        double variance = trades.stream().mapToDouble(t -> Math.pow(t.pnl - mean, 2)).average().orElse(0);
+        double std = Math.sqrt(variance);
+        if (std == 0) return mean >= 0 ? 10.0 : -10.0;
+        return mean / std;
+    }
+
+    private double calcProfitFactor(List<TradeResult> trades) {
+        double grossProfit = trades.stream().filter(t -> t.pnl > 0).mapToDouble(t -> t.pnl).sum();
+        double grossLoss = trades.stream().filter(t -> t.pnl < 0).mapToDouble(t -> Math.abs(t.pnl)).sum();
+        if (grossLoss == 0) return Double.POSITIVE_INFINITY;
+        return grossProfit / grossLoss;
+    }
+
+    private String assessRisk(double ddPct, double sharpe) {
+        if (ddPct < 10.0) return "Low";
+        if (ddPct < 25.0) return "Med";
+        return "High";
     }
 
     private double calcAtr(List<RawCandle> candles, int period) {
