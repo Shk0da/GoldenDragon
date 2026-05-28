@@ -125,17 +125,20 @@ public class BacktestRunner {
         final double pnl;
         final double dd;
         final double startBalance;
+        final double winRate;
 
         TickerPeriodResult(List<TradeResult> trades,
                            List<EquityPoint> equityCurve,
                            double pnl,
                            double dd,
-                           double startBalance) {
+                           double startBalance,
+                           double winRate) {
             this.trades = trades;
             this.equityCurve = equityCurve;
             this.pnl = pnl;
             this.dd = dd;
             this.startBalance = startBalance;
+            this.winRate = winRate;
         }
     }
 
@@ -144,12 +147,14 @@ public class BacktestRunner {
         final double dd;
         final List<EquityPoint> equityCurve;
         final int totalTrades;
+        final double winRate;
 
-        PortfolioPeriodResult(double pnl, double dd, List<EquityPoint> equityCurve, int totalTrades) {
+        PortfolioPeriodResult(double pnl, double dd, List<EquityPoint> equityCurve, int totalTrades, double winRate) {
             this.pnl = pnl;
             this.dd = dd;
             this.equityCurve = equityCurve;
             this.totalTrades = totalTrades;
+            this.winRate = winRate;
         }
     }
 
@@ -233,14 +238,14 @@ public class BacktestRunner {
         StringBuilder header = new StringBuilder();
         header.append(String.format("%-10s", "Тикер"));
         for (String label : periodLabels) {
-            header.append(String.format(" %17s", label));
+            header.append(String.format(" %22s", label));
         }
         System.out.println(header);
 
         StringBuilder subHeader = new StringBuilder();
         subHeader.append(String.format("%-10s", ""));
         for (String ignored : periodLabels) {
-            subHeader.append(String.format(" %6s %5s %4s", "PnL", "DD%", "Trd"));
+            subHeader.append(String.format(" %6s %5s %4s %5s", "PnL", "DD%", "Trd", "WR%"));
         }
         System.out.println(subHeader);
         System.out.println("-".repeat(header.length()));
@@ -255,13 +260,14 @@ public class BacktestRunner {
                 TickerPeriodResult result = tickerData != null ? tickerData.get(ticker) : null;
 
                 if (result == null || result.trades.isEmpty()) {
-                    row.append(String.format(" %17s", "—"));
+                    row.append(String.format(" %22s", "—"));
                 } else {
                     hasAny = true;
-                    row.append(String.format(" %6s %5s %4d",
+                    row.append(String.format(" %6s %5s %4d %5.1f",
                             formatCompactPnL(result.pnl),
                             formatCompactDD(result.dd * 100.0),
-                            result.trades.size()));
+                            result.trades.size(),
+                            result.winRate * 100.0));
                 }
             }
 
@@ -278,12 +284,13 @@ public class BacktestRunner {
         for (String label : periodLabels) {
             PortfolioPeriodResult result = portfolioData.get(label);
             if (result == null) {
-                portRow.append(String.format(" %17s", "—"));
+                portRow.append(String.format(" %22s", "—"));
             } else {
-                portRow.append(String.format(" %6s %5s %4d",
+                portRow.append(String.format(" %6s %5s %4d %5.1f",
                         formatCompactPnL(result.pnl),
                         formatCompactDD(result.dd * 100.0),
-                        result.totalTrades));
+                        result.totalTrades,
+                        result.winRate * 100.0));
             }
         }
 
@@ -354,13 +361,15 @@ public class BacktestRunner {
 
             double pnl = result.finalBalance - startBalance;
             double dd = calcMaxDrawdownByEquity(result.equityCurve);
+            double winRate = calculateWinRate(result.trades);
 
             tickerResults.put(ticker, new TickerPeriodResult(
                     result.trades,
                     result.equityCurve,
                     pnl,
                     dd,
-                    startBalance
+                    startBalance,
+                    winRate
             ));
         }
 
@@ -591,7 +600,7 @@ public class BacktestRunner {
 
     private PortfolioPeriodResult buildPortfolioPeriodResult(Map<String, TickerPeriodResult> tickerResults) {
         if (tickerResults == null || tickerResults.isEmpty()) {
-            return new PortfolioPeriodResult(0.0, 0.0, Collections.emptyList(), 0);
+            return new PortfolioPeriodResult(0.0, 0.0, Collections.emptyList(), 0, 0.0);
         }
 
         double totalStartBalance = 0.0;
@@ -607,8 +616,9 @@ public class BacktestRunner {
         List<EquityPoint> portfolioEquity = mergePortfolioEquity(tickerResults);
         double dd = calcMaxDrawdownByEquity(portfolioEquity);
         double pnl = totalFinalBalance - totalStartBalance;
+        double winRate = calculatePortfolioWinRate(tickerResults);
 
-        return new PortfolioPeriodResult(pnl, dd, portfolioEquity, totalTrades);
+        return new PortfolioPeriodResult(pnl, dd, portfolioEquity, totalTrades, winRate);
     }
 
     private List<EquityPoint> mergePortfolioEquity(Map<String, TickerPeriodResult> tickerResults) {
@@ -855,6 +865,31 @@ public class BacktestRunner {
         }
 
         return maxDd;
+    }
+
+    private double calculateWinRate(List<TradeResult> trades) {
+        if (trades == null || trades.isEmpty()) return 0.0;
+        
+        long winningTrades = trades.stream().filter(trade -> trade.pnl > 0).count();
+        return (double) winningTrades / trades.size();
+    }
+
+    private double calculatePortfolioWinRate(Map<String, TickerPeriodResult> tickerResults) {
+        if (tickerResults == null || tickerResults.isEmpty()) return 0.0;
+        
+        long totalTrades = 0;
+        long winningTrades = 0;
+        
+        for (TickerPeriodResult result : tickerResults.values()) {
+            for (TradeResult trade : result.trades) {
+                totalTrades++;
+                if (trade.pnl > 0) {
+                    winningTrades++;
+                }
+            }
+        }
+        
+        return totalTrades > 0 ? (double) winningTrades / totalTrades : 0.0;
     }
 
     private String formatCompactPnL(double pnl) {
