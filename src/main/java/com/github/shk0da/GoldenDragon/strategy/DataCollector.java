@@ -263,7 +263,6 @@ public class DataCollector {
 
     public static List<TickerCandle> readCandlesFile(String name, String dir, CandleInterval period) {
         var namePeriod = period.name().replace("CANDLE_INTERVAL_", "");
-        out.println("Read '" + namePeriod + "' candles file: " + name);
         List<TickerCandle> tickers = new ArrayList<>();
         try (BufferedReader br = new BufferedReader(new FileReader(dir + "/" + name + "/candles" + namePeriod + ".txt"))) {
             boolean skipHeader = true;

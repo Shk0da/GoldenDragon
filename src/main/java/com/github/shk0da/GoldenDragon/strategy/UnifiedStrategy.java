@@ -807,8 +807,6 @@ public class UnifiedStrategy {
 
             String figi = ticker.getFigi();
             OffsetDateTime now = OffsetDateTime.now();
-            log("Processing " + name + " (" + figi + ")");
-
             String dataDir = unifiedTraderConfig.getDataDir();
             List<Candle> candles = loadOrRefreshCandles(name, figi, dataDir, now, CandleInterval.CANDLE_INTERVAL_HOUR);
 
@@ -862,13 +860,12 @@ public class UnifiedStrategy {
                     ? decide(name, candles, minuteCandles, currentPosition, balance)
                     : decide(name, candles, currentPosition, balance);
 
-            log("Decision for " + name + ": " + decision.action + " (" + decision.reason + ")");
-
             if (decision.updatedPosition != null && "HOLD".equals(decision.action)) {
                 positionStore.put(name, decision.updatedPosition);
             }
 
             if ("OPEN".equals(decision.action)) {
+                log("Decision for " + name + ": " + decision.action + " (" + decision.reason + ")");
                 if (decision.updatedPosition == null || decision.quantity <= 0) {
                     log("Invalid OPEN decision for " + name + ", skipping.");
                     return;
@@ -914,6 +911,7 @@ public class UnifiedStrategy {
             }
 
             if ("CLOSE".equals(decision.action)) {
+                log("Decision for " + name + ": " + decision.action + " (" + decision.reason + ")");
                 if (storedPosition.quantity <= 0) {
                     log("CLOSE decision but no position for " + name + ", skipping.");
                     return;
