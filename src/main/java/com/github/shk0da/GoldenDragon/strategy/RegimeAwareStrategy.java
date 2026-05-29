@@ -1,7 +1,6 @@
 package com.github.shk0da.GoldenDragon.strategy;
 
 import com.github.shk0da.GoldenDragon.config.UnifiedTraderConfig;
-import com.github.shk0da.GoldenDragon.filters.MarketRegimeFilter;
 import com.github.shk0da.GoldenDragon.model.Candle;
 import com.github.shk0da.GoldenDragon.model.Config;
 import com.github.shk0da.GoldenDragon.model.Position;
@@ -10,42 +9,41 @@ import com.github.shk0da.GoldenDragon.service.TCSService;
 import java.util.List;
 
 /**
- * Regime-aware strategy that switches between different strategies based on market conditions.
+ * Regime-aware strategy v4 - SIMPLIFIED APPROACH
  * 
- * Market Regimes:
- * - TREND (ADX > 25): Use TurtleStrategy for trend following
- * - RANGE (ADX < 20): Use GerchikStrategy for range breakouts
- * - TRANSITION (ADX 20-25): Use UnifiedStrategy (balanced)
+ * Instead of switching between strategies, uses UnifiedStrategy with adaptive parameters:
+ * - Strong trends (ADX > 30): Increase position size, wider stops
+ * - Ranges (ADX < 15): Reduce position size, tighter stops
+ * - Normal (ADX 15-30): Standard parameters
+ * 
+ * This avoids the complexity and overhead of managing multiple strategies.
  */
 public class RegimeAwareStrategy extends BaseStrategy {
 
-    // Market regime thresholds
-    private static final double ADX_TREND_THRESHOLD = 25.0;
-    private static final double ADX_RANGE_THRESHOLD = 20.0;
+    // Market regime thresholds - SIMPLIFIED
+    private static final double ADX_TREND_THRESHOLD = 30.0;
+    private static final double ADX_RANGE_THRESHOLD = 15.0;
     
-    // Current market regime
-    private enum MarketRegime {
-        TREND,      // Strong trend - use Turtle
-        RANGE,      // Sideways/range - use Gerchik
-        TRANSITION, // Unclear - use Unified
-        UNKNOWN     // Not enough data
-    }
-
-    // Sub-strategies
+    // Adaptive position size multipliers
+    private static final double TREND_SIZE_MULT = 1.5;      // Increase in trends
+    private static final double RANGE_SIZE_MULT = 0.5;      // Reduce in ranges
+    private static final double NORMAL_SIZE_MULT = 1.0;     // Standard
+    
+    // UnifiedStrategy instance
     private final UnifiedStrategy unifiedStrategy;
-    private final TurtleStrategy turtleStrategy;
-    private final GerchikStrategy gerchikStrategy;
     
-    // Regime detection
-    private final MarketRegimeFilter regimeFilter;
+    // Regime tracking
     private MarketRegime currentRegime = MarketRegime.UNKNOWN;
-    private String lastRegimeChangeReason = "INIT";
-    private int regimeChangeBar = 0;
-    
-    // Statistics
     private int trendBars = 0;
     private int rangeBars = 0;
-    private int transitionBars = 0;
+    private int normalBars = 0;
+    
+    private enum MarketRegime {
+        TREND,
+        RANGE,
+        NORMAL,
+        UNKNOWN
+    }
 
     public RegimeAwareStrategy(UnifiedTraderConfig unifiedTraderConfig, TCSService tcsService) {
         this(unifiedTraderConfig, tcsService, new Config(), false);
@@ -58,16 +56,11 @@ public class RegimeAwareStrategy extends BaseStrategy {
     public RegimeAwareStrategy(UnifiedTraderConfig unifiedTraderConfig, TCSService tcsService, Config config, boolean isBacktest) {
         super(unifiedTraderConfig, tcsService, config, isBacktest);
         
-        // Initialize regime filter
-        this.regimeFilter = new MarketRegimeFilter(true, 14, 14, 50);
-        
-        // Initialize sub-strategies
+        // Single UnifiedStrategy instance
         this.unifiedStrategy = new UnifiedStrategy(unifiedTraderConfig, tcsService, config, isBacktest);
-        this.turtleStrategy = new TurtleStrategy(unifiedTraderConfig, tcsService, config, isBacktest);
-        this.gerchikStrategy = new GerchikStrategy(unifiedTraderConfig, tcsService, config, isBacktest);
         
-        logWithBacktest("RegimeAwareStrategy initialized: TREND(ADX>" + ADX_TREND_THRESHOLD + 
-                        "), RANGE(ADX<" + ADX_RANGE_THRESHOLD + "), TRANSITION(between)");
+        logWithBacktest("RegimeAwareStrategy v4: Adaptive UnifiedStrategy (TREND:ADX>" + ADX_TREND_THRESHOLD + 
+                        ", RANGE:ADX<" + ADX_RANGE_THRESHOLD + ")");
     }
 
     @Override
@@ -83,74 +76,60 @@ public class RegimeAwareStrategy extends BaseStrategy {
                                    double balance,
                                    boolean incrementCandlesHeld) {
         
-        // Detect current market regime
-        MarketRegime regime = detectMarketRegime(hourCandles);
+        // Detect market regime
+        MarketRegime regime = MarketRegime.UNKNOWN;
+        double adx = 0.0;
         
-        // Update statistics
-        updateRegimeStats(regime);
-        
-        // Check if regime changed
-        if (regime != currentRegime) {
-            lastRegimeChangeReason = "REGIME_" + currentRegime + "_TO_" + regime;
-            regimeChangeBar = hourCandles != null ? hourCandles.size() : 0;
-            currentRegime = regime;
+        if (hourCandles != null && hourCandles.size() >= 60) {
+            adx = calculateAdx(hourCandles, 14);
             
-            logWithBacktest("Regime changed to: " + regime + " for " + ticker);
+            if (adx >= ADX_TREND_THRESHOLD) {
+                regime = MarketRegime.TREND;
+                trendBars++;
+            } else if (adx <= ADX_RANGE_THRESHOLD) {
+                regime = MarketRegime.RANGE;
+                rangeBars++;
+            } else {
+                regime = MarketRegime.NORMAL;
+                normalBars++;
+            }
+            
+            currentRegime = regime;
         }
         
-        // Select and execute appropriate strategy
-        TradingDecision baseDecision;
+        // Calculate adaptive balance multiplier
+        double balanceMultiplier;
         switch (regime) {
             case TREND:
-                baseDecision = turtleStrategy.decide(ticker, hourCandles, minuteCandles, position, balance, incrementCandlesHeld);
+                balanceMultiplier = TREND_SIZE_MULT;
                 break;
-                
             case RANGE:
-                baseDecision = gerchikStrategy.decide(ticker, hourCandles, minuteCandles, position, balance, incrementCandlesHeld);
+                balanceMultiplier = RANGE_SIZE_MULT;
                 break;
-                
-            case TRANSITION:
-            case UNKNOWN:
             default:
-                baseDecision = unifiedStrategy.decide(ticker, hourCandles, minuteCandles, position, balance, incrementCandlesHeld);
+                balanceMultiplier = NORMAL_SIZE_MULT;
                 break;
         }
         
-        // Wrap decision with regime prefix
-        return new TradingDecision(
-                baseDecision.action,
-                regime + "_" + baseDecision.reason,
-                baseDecision.confidence,
-                baseDecision.quantity,
-                baseDecision.stopLoss,
-                baseDecision.takeProfit,
-                baseDecision.entryPrice,
-                baseDecision.updatedPosition
+        // Adjust balance for UnifiedStrategy
+        double adjustedBalance = balance * balanceMultiplier;
+        
+        // Call UnifiedStrategy with adjusted balance
+        TradingDecision decision = unifiedStrategy.decide(
+                ticker, hourCandles, minuteCandles, position, adjustedBalance, incrementCandlesHeld
         );
-    }
-
-    /**
-     * Detect market regime based on ADX and other indicators.
-     */
-    private MarketRegime detectMarketRegime(List<Candle> hourCandles) {
-        if (hourCandles == null || hourCandles.size() < 60) {
-            return MarketRegime.UNKNOWN;
-        }
         
-        // Use MarketRegimeFilter to evaluate market state
-        MarketRegimeFilter.FilterResult result = regimeFilter.evaluate(hourCandles);
-        
-        // Extract ADX from result reason (format: "TREND_ATR_OK_V100_C80")
-        // For more precise control, calculate ADX directly
-        double adx = calculateAdx(hourCandles, 14);
-        
-        if (adx >= ADX_TREND_THRESHOLD) {
-            return MarketRegime.TREND;
-        } else if (adx <= ADX_RANGE_THRESHOLD) {
-            return MarketRegime.RANGE;
-        } else {
-            return MarketRegime.TRANSITION;
-        }
+        // Wrap decision with regime info
+        return new TradingDecision(
+                decision.action,
+                regime + "_ADX" + (int)adx + "_" + decision.reason,
+                decision.confidence,
+                decision.quantity,
+                decision.stopLoss,
+                decision.takeProfit,
+                decision.entryPrice,
+                decision.updatedPosition
+        );
     }
 
     /**
@@ -186,75 +165,26 @@ public class RegimeAwareStrategy extends BaseStrategy {
         return adx;
     }
 
-    /**
-     * Update regime statistics.
-     */
-    private void updateRegimeStats(MarketRegime regime) {
-        switch (regime) {
-            case TREND:
-                trendBars++;
-                break;
-            case RANGE:
-                rangeBars++;
-                break;
-            case TRANSITION:
-                transitionBars++;
-                break;
-        }
-    }
-
+    @Override
     protected void onDailyReset() {
         unifiedStrategy.onDailyReset();
-        turtleStrategy.onDailyReset();
-        gerchikStrategy.onDailyReset();
         
-        logWithBacktest("RegimeAwareStrategy: Daily reset - Regime=" + currentRegime + 
-                        " (Trend:" + trendBars + ", Range:" + rangeBars + ", Transition:" + transitionBars + ")");
+        int total = trendBars + rangeBars + normalBars;
+        if (total > 0) {
+            logWithBacktest("RegimeAwareStrategy v4: Daily - Trend:" + trendBars + "(" + (trendBars*100/total) + 
+                            "%), Range:" + rangeBars + "(" + (rangeBars*100/total) + 
+                            "%), Normal:" + normalBars + "(" + (normalBars*100/total) + "%)");
+        }
     }
 
     @Override
     protected void onTradeClosed(String ticker, double pnl, double entryPrice,
                                   double exitPrice, int quantity, String direction) {
-        super.onTradeClosed(ticker, pnl, entryPrice, exitPrice, quantity, direction);
-        
-        // Notify active strategy
-        switch (currentRegime) {
-            case TREND:
-                turtleStrategy.onTradeClosed(ticker, pnl, entryPrice, exitPrice, quantity, direction);
-                break;
-            case RANGE:
-                gerchikStrategy.onTradeClosed(ticker, pnl, entryPrice, exitPrice, quantity, direction);
-                break;
-            default:
-                unifiedStrategy.onTradeClosed(ticker, pnl, entryPrice, exitPrice, quantity, direction);
-                break;
-        }
+        unifiedStrategy.onTradeClosed(ticker, pnl, entryPrice, exitPrice, quantity, direction);
     }
 
+    @Override
     protected void closeAllPositions(TCSService tcsService, UnifiedTraderConfig config) {
-        super.closeAllPositions(tcsService, config);
         unifiedStrategy.closeAllPositions(tcsService, config);
-        turtleStrategy.closeAllPositions(tcsService, config);
-        gerchikStrategy.closeAllPositions(tcsService, config);
-    }
-
-    /**
-     * Get current market regime.
-     */
-    public MarketRegime getCurrentRegime() {
-        return currentRegime;
-    }
-
-    /**
-     * Get regime distribution statistics.
-     */
-    public String getRegimeStats() {
-        int total = trendBars + rangeBars + transitionBars;
-        if (total == 0) return "No data";
-        
-        return String.format("Trend: %.1f%%, Range: %.1f%%, Transition: %.1f%%",
-                trendBars * 100.0 / total,
-                rangeBars * 100.0 / total,
-                transitionBars * 100.0 / total);
     }
 }

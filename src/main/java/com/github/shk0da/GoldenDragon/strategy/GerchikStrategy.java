@@ -55,36 +55,36 @@ public class GerchikStrategy extends BaseStrategy {
     public GerchikStrategy(UnifiedTraderConfig unifiedTraderConfig, TCSService tcsService, Config config, boolean isBacktest) {
         super(unifiedTraderConfig, tcsService, config, isBacktest);
 
-        // Gerchik parameters - STANDARD intraday breakout
+        // Gerchik parameters - OPTIMIZED for RegimeAwareStrategy (range markets)
         this.gerchikEnabled = true;
-        this.riskPercent = 0.01; // 1% per trade
-        this.atrStopMultiplier = 2.0; // 2 ATR stop
-        this.tpRewardRatio = 2.5; // 2.5R target
+        this.riskPercent = 0.012; // 1.2% per trade (moderate for ranges)
+        this.atrStopMultiplier = 1.8; // Tighter stop for range trading
+        this.tpRewardRatio = 2.2; // Lower R:R but higher WR for ranges
         
-        // Initialize components - AGGRESSIVE
+        // Initialize components - OPTIMIZED for RegimeAwareStrategy
         this.timeFilter = new TimeOfDayFilter(
-                LocalTime.of(10, 30),  // session start (later, after initial volatility)
+                LocalTime.of(10, 0),   // session start
                 LocalTime.of(21, 0),   // session end
-                LocalTime.of(18, 0),   // no entry after (earlier)
+                LocalTime.of(18, 30),  // no entry after (earlier to avoid EOD volatility)
                 LocalTime.of(20, 45)   // EOD close
         );
         
         this.orCalculator = new OpeningRangeCalculator(
-                30,     // 30 minutes OR (standard)
+                20,     // 20 minutes OR (shorter for more signals)
                 false,  // use time
                 6       // 6 bars
         );
         
         this.breakoutDetector = new RangeBreakoutDetector(
-                0.5,    // 0.5 ATR buffer (tighter for earlier entry)
-                15,     // 15 bar lookback (shorter)
+                0.6,    // 0.6 ATR buffer (moderate)
+                15,     // 15 bar lookback (shorter for ranges)
                 true,   // use inside bar
                 true    // use narrow range
         );
         
         this.qualityFilter = new SignalQualityFilter(
-                0.40,   // min quality 40%
-                0.75    // high quality 75%
+                0.45,   // min quality 45% (moderate for more trades)
+                0.65    // high quality 65%
         );
 
         this.positionSizer = new GerchikPositionSizer(
@@ -95,20 +95,18 @@ public class GerchikStrategy extends BaseStrategy {
         );
         
         this.riskManager = new GerchikRiskManager(
-                5,      // max 5 trades per day
-                10000,  // max 10000 RUB daily loss
-                3       // max 3 consecutive losses
+                6,      // max 6 trades per day
+                12000,  // max 12000 RUB daily loss
+                4       // max 4 consecutive losses
         );
         
         this.exitManager = new GerchikExitManager(
-                1.0,    // BE after 1 ATR
-                1.5,    // Trail at 1.5 ATR
+                0.8,    // BE after 0.8 ATR (earlier)
+                1.2,    // Trail at 1.2 ATR (tighter for ranges)
                 true    // use trailing
         );
         
-        logWithBacktest("GerchikStrategy: STANDARD intraday breakout");
-
-        logWithBacktest("GerchikStrategy: risk=1%, stop=2ATR, TP=3R, OR=30min, aggressive");
+        logWithBacktest("GerchikStrategy: OPTIMIZED for RegimeAware (range trading, risk=1.2%, tight stops)");
     }
 
     @Override

@@ -50,13 +50,13 @@ public class TurtleStrategy extends BaseStrategy {
     public TurtleStrategy(UnifiedTraderConfig unifiedTraderConfig, TCSService tcsService, Config config, boolean isBacktest) {
         super(unifiedTraderConfig, tcsService, config, isBacktest);
 
-        // Turtle parameters - CLASSIC (trend-following, works best in trending markets)
+        // Turtle parameters - OPTIMIZED for RegimeAwareStrategy
         this.turtleEnabled = true;
         this.entryLookback = 20;
-        this.riskPercent = 0.01; // 1% risk
-        this.atrStopMultiplier = 2.0; // 2 ATR stop
+        this.riskPercent = 0.015; // 1.5% risk (increased for trending markets)
+        this.atrStopMultiplier = 2.5; // Wider stop for trends
         
-        // Initialize Turtle components - CLASSIC
+        // Initialize Turtle components - OPTIMIZED for RegimeAwareStrategy
         this.breakoutSignal = new TurtleBreakoutSignal(
                 20,  // default lookback
                 10,  // min lookback
@@ -64,7 +64,7 @@ public class TurtleStrategy extends BaseStrategy {
                 0.5, // breakout buffer
                 0.5, // volatility low threshold
                 2.0, // volatility high threshold
-                0.0  // NO ADX filter (trade all breakouts)
+                25.0 // ADX filter - only trade when ADX > 25
         );
 
         this.positionSizer = new TurtlePositionSizer(
@@ -92,11 +92,11 @@ public class TurtleStrategy extends BaseStrategy {
         );
         
         this.pyramidingManager = new TurtlePyramidingManager(
-                4,    // max units
-                1.0   // add unit after 1 ATR
+                3,    // max units (reduced from 4 for RegimeAware)
+                1.5   // add unit after 1.5 ATR (increased for quality)
         );
         
-        logWithBacktest("TurtleStrategy: CLASSIC trend-following (best in trending markets)");
+        logWithBacktest("TurtleStrategy: OPTIMIZED for RegimeAware (ADX>25, risk=1.5%, 3 units max)");
 
         logWithBacktest("TurtleStrategy initialized: lookback=20, risk=1%, stop=2ATR, ADX>25");
     }
