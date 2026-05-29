@@ -144,7 +144,6 @@ public abstract class BaseStrategy {
             var message = getStrategyName() + ": outside working hours, closing positions if needed.";
             log(message);
             telegramNotifyService.sendMessage(message);
-            closeAllPositions(tcsService, unifiedTraderConfig);
             return;
         }
 
