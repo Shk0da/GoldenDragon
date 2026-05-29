@@ -73,7 +73,7 @@ public abstract class BaseStrategy {
     protected static final long API_CALL_DELAY_MS = 100;
     protected static final Object API_LOCK = new Object();
 
-    protected static final LocalTime WORK_START_TIME = LocalTime.of(10, 0);
+    protected static final LocalTime WORK_START_TIME = LocalTime.of(8, 30);
     protected static final LocalTime EOD_CLOSE_TIME = LocalTime.of(21, 0);
 
     protected static long lastApiCallTime = 0;
@@ -144,6 +144,7 @@ public abstract class BaseStrategy {
             var message = getStrategyName() + ": outside working hours, closing positions if needed.";
             log(message);
             telegramNotifyService.sendMessage(message);
+            closeAllPositions(tcsService, unifiedTraderConfig);
             return;
         }
 
