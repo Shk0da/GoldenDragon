@@ -8,19 +8,98 @@ import com.github.shk0da.GoldenDragon.model.Config;
 import com.github.shk0da.GoldenDragon.model.Group;
 import com.github.shk0da.GoldenDragon.model.Position;
 import com.github.shk0da.GoldenDragon.model.TradingDecision;
+import com.github.shk0da.GoldenDragon.money.AdaptiveCapital;
+import com.github.shk0da.GoldenDragon.money.FixedRiskSizing;
+import com.github.shk0da.GoldenDragon.money.KillSwitch;
+import com.github.shk0da.GoldenDragon.money.PerformanceTracker;
+import com.github.shk0da.GoldenDragon.money.PositionSizer;
+import com.github.shk0da.GoldenDragon.money.RiskManager;
+import com.github.shk0da.GoldenDragon.money.SizingStrategy;
+import com.github.shk0da.GoldenDragon.money.StopLossManager;
+import com.github.shk0da.GoldenDragon.money.VolatilityAdjustedSizing;
 import com.github.shk0da.GoldenDragon.service.TCSService;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 
 public class UnifiedStrategy extends BaseStrategy {
 
+    // Money Management components
+    private final RiskManager riskManager;
+    private final PositionSizer positionSizer;
+    private final StopLossManager stopLossManager;
+    private final AdaptiveCapital adaptiveCapital;
+    private final KillSwitch killSwitch;
+    private final PerformanceTracker performanceTracker;
+    private final boolean mmEnabled;
+
+    // Track initial risk per position for R-based calculations
+    private final ConcurrentMap<String, Double> initialRiskPerTicker = new ConcurrentHashMap<>();
+
     public UnifiedStrategy(UnifiedTraderConfig unifiedTraderConfig, TCSService tcsService) {
-        this(unifiedTraderConfig, tcsService, new Config());
+        this(unifiedTraderConfig, tcsService, new Config(), false);
     }
 
     public UnifiedStrategy(UnifiedTraderConfig unifiedTraderConfig, TCSService tcsService, Config config) {
-        super(unifiedTraderConfig, tcsService, config);
+        this(unifiedTraderConfig, tcsService, config, false);
+    }
+
+    public UnifiedStrategy(UnifiedTraderConfig unifiedTraderConfig, TCSService tcsService, Config config, boolean isBacktest) {
+        super(unifiedTraderConfig, tcsService, config, isBacktest);
+
+        this.mmEnabled = config.mmEnabled;
+
+        if (mmEnabled) {
+            // Initialize SizingStrategy
+            SizingStrategy sizingStrategy;
+            if ("VOLATILITY".equalsIgnoreCase(config.mmSizingStrategy)) {
+                sizingStrategy = new VolatilityAdjustedSizing(
+                        config.mmRiskPercent,
+                        config.mmVolatilityBaseAtr,
+                        config.mmVolatilityMinAdjustment,
+                        config.mmVolatilityMaxAdjustment
+                );
+            } else {
+                sizingStrategy = new FixedRiskSizing(config.mmRiskPercent);
+            }
+
+            // Initialize MM components
+            this.positionSizer = new PositionSizer(sizingStrategy);
+            this.riskManager = new RiskManager(
+                    config.mmRiskPercent,
+                    config.mmMaxDailyLossPercent,
+                    config.mmMaxConsecutiveLosses
+            );
+            this.stopLossManager = new StopLossManager(
+                    config.mmAtrStopMultiplier,
+                    config.mmTrailingActivationR,
+                    config.mmTrailingMultiplier,
+                    config.mmBreakevenActivationR,
+                    config.mmBreakevenBuffer
+            );
+            this.adaptiveCapital = new AdaptiveCapital(
+                    config.mmRiskPercent,
+                    config.mmLossesToReduce,
+                    config.mmWinsToRestore,
+                    config.mmRiskReductionFactor
+            );
+            this.killSwitch = new KillSwitch(config.mmCriticalDrawdownPercent);
+            this.performanceTracker = new PerformanceTracker();
+
+            logWithBacktest("Money Management initialized: risk=" + (config.mmRiskPercent * 100) +
+                    "%, dailyLoss=" + (config.mmMaxDailyLossPercent * 100) +
+                    "%, criticalDD=" + (config.mmCriticalDrawdownPercent * 100) + "%");
+        } else {
+            this.positionSizer = null;
+            this.riskManager = null;
+            this.stopLossManager = null;
+            this.adaptiveCapital = null;
+            this.killSwitch = null;
+            this.performanceTracker = null;
+            logWithBacktest("Money Management disabled");
+        }
     }
 
     @Override
@@ -39,9 +118,25 @@ public class UnifiedStrategy extends BaseStrategy {
             return new TradingDecision("HOLD", "init");
         }
 
+        // Money Management: Check KillSwitch
+        if (mmEnabled && killSwitch != null && !killSwitch.isTradingAllowed()) {
+            return new TradingDecision("HOLD", "KILL_SWITCH_" + killSwitch.getTriggerReason());
+        }
+
         UnifiedTraderConfig.TickerParams tpCfg = unifiedTraderConfig.getTickerParams(ticker);
         if (!tpCfg.enabled) {
             return new TradingDecision("HOLD", "ticker_disabled");
+        }
+
+        // Money Management: Check per-ticker MM enabled
+        if (mmEnabled && !tpCfg.mmEnabled) {
+            return new TradingDecision("HOLD", "MM_DISABLED_TICKER");
+        }
+
+        // Money Management: Check RiskManager limits
+        if (mmEnabled && riskManager != null && !riskManager.canTrade(balance)) {
+            return new TradingDecision("HOLD", "RISK_LIMIT_" + riskManager.getConsecutiveLosses() +
+                    "_LOSS_" + (int) (riskManager.getDailyPnL() * 100) + "%");
         }
 
         Candle cur = minuteCandles.get(minuteCandles.size() - 1);
@@ -101,7 +196,24 @@ public class UnifiedStrategy extends BaseStrategy {
             double pnlAbs = "BUY".equals(dir) ? cur.close - ep : ep - cur.close;
             double atr = atrVal(hourCandles, config.atrPeriod);
 
-            if (atr > 0.0 && pnlAbs > 0) {
+            // Money Management: Use StopLossManager if enabled
+            if (mmEnabled && stopLossManager != null && atr > 0.0) {
+                Double initialRisk = initialRiskPerTicker.get(ticker);
+                if (initialRisk == null) {
+                    initialRisk = ep - (p.stopLoss != null ? p.stopLoss : ep);
+                    initialRiskPerTicker.put(ticker, initialRisk);
+                }
+
+                Double newStop = stopLossManager.updateStopLoss(p, cur, atr, initialRisk);
+                if (newStop != null && newStop > (p.stopLoss != null ? p.stopLoss : 0.0)) {
+                    p = new Position(
+                            p.direction, p.entryPrice, newStop, p.takeProfit,
+                            p.quantity, p.candlesHeld, p.cooldownRemaining
+                    );
+                    logWithBacktest("MM: Updated stop loss for " + ticker + " to " + String.format("%.4f", newStop));
+                }
+            } else if (atr > 0.0 && pnlAbs > 0) {
+                // Legacy trailing logic (fallback if MM disabled)
                 double pnlAtr = pnlAbs / atr;
                 double trMult = grp == Group.FX ? 0.7 : grp == Group.MIXED ? 0.9 : 1.0;
 
@@ -243,9 +355,9 @@ public class UnifiedStrategy extends BaseStrategy {
             }
         }
 
-        double slMult = tpCfg.slMult;
+        double slMult = tpCfg.mmEnabled ? tpCfg.mmAtrStopMultiplier : tpCfg.slMult;
         double tpMult = tpCfg.tpMult;
-        double riskP = tpCfg.riskP;
+        double riskP = tpCfg.mmEnabled && mmEnabled ? adaptiveCapital.getCurrentRiskPercent() : tpCfg.riskP;
 
         double slDist = dAtr * slMult;
         double tpDist = dAtr * tpMult;
@@ -254,28 +366,46 @@ public class UnifiedStrategy extends BaseStrategy {
             return new TradingDecision("HOLD", "dist0", 0.0, 0, null, null, null, p);
         }
 
-        double confidenceK = Math.max(0.35, regimeResult.confidence / 100.0);
-
-        double signalStrengthK = 1.0;
-        if (signal.startsWith("TB_4")) signalStrengthK = 0.75;
-        if (signal.startsWith("TB_5")) signalStrengthK = 0.90;
-        if (signal.startsWith("TB_6")) signalStrengthK = 1.00;
-        if (signal.startsWith("MX")) signalStrengthK = Math.max(signalStrengthK, 0.85);
-        if (signal.startsWith("FX")) signalStrengthK = Math.max(signalStrengthK, 0.80);
-
-        double finalRiskMultiplier = regimeResult.positionMultiplier * confidenceK * signalStrengthK;
-        double maxRisk = balance * riskP * finalRiskMultiplier;
-
-        double maxQty = Math.floor(balance / entry);
-        int qty = (int) Math.min(Math.max(1, Math.floor(maxRisk / slDist)), maxQty);
-
-        if (qty <= 0) {
-            return new TradingDecision("HOLD", "qty0", 0.0, 0, null, null, null, p);
-        }
-
         double sl = entry - slDist;
         double tp = entry + tpDist;
-        double tradeConfidence = Math.min(1.0, confidenceK * signalStrengthK);
+
+        // Money Management: Use PositionSizer if enabled
+        int qty;
+        if (mmEnabled && positionSizer != null) {
+            double riskMultiplier = adaptiveCapital.getRiskMultiplier();
+            double adjustedBalance = balance * riskMultiplier;
+            
+            qty = positionSizer.calculateSize(ticker, entry, sl, adjustedBalance, dAtr);
+            
+            if (qty <= 0) {
+                return new TradingDecision("HOLD", "MM_QTY_ZERO", 0.0, 0, null, null, null, p);
+            }
+            
+            logWithBacktest("MM: Position size for " + ticker + ": " + qty + " (risk=" + 
+                (riskP * 100) + "%, multiplier=" + riskMultiplier + ")");
+        } else {
+            // Legacy sizing (fallback if MM disabled)
+            double confidenceK = Math.max(0.35, regimeResult.confidence / 100.0);
+
+            double signalStrengthK = 1.0;
+            if (signal.startsWith("TB_4")) signalStrengthK = 0.75;
+            if (signal.startsWith("TB_5")) signalStrengthK = 0.90;
+            if (signal.startsWith("TB_6")) signalStrengthK = 1.00;
+            if (signal.startsWith("MX")) signalStrengthK = Math.max(signalStrengthK, 0.85);
+            if (signal.startsWith("FX")) signalStrengthK = Math.max(signalStrengthK, 0.80);
+
+            double finalRiskMultiplier = regimeResult.positionMultiplier * confidenceK * signalStrengthK;
+            double maxRisk = balance * riskP * finalRiskMultiplier;
+
+            double maxQty = Math.floor(balance / entry);
+            qty = (int) Math.min(Math.max(1, Math.floor(maxRisk / slDist)), maxQty);
+
+            if (qty <= 0) {
+                return new TradingDecision("HOLD", "qty0", 0.0, 0, null, null, null, p);
+            }
+        }
+
+        double tradeConfidence = mmEnabled ? adaptiveCapital.getCurrentRiskPercent() / config.mmRiskPercent : 1.0;
 
         return new TradingDecision(
                 "OPEN",
@@ -457,5 +587,78 @@ public class UnifiedStrategy extends BaseStrategy {
         if (c.close < c.open && p1.close > p1.open && upperShadow > body * 1.5) return "EVENING_STAR";
 
         return "NONE";
+    }
+
+    /**
+     * Reset daily MM limits (called at start of new trading day).
+     */
+    public void dailyReset() {
+        if (mmEnabled) {
+            if (riskManager != null) {
+                riskManager.resetDailyLimits();
+            }
+            if (performanceTracker != null) {
+                performanceTracker.resetSession();
+            }
+            if (killSwitch != null) {
+                killSwitch.reset();
+            }
+            adaptiveCapital.reset();
+            initialRiskPerTicker.clear();
+            logWithBacktest("MM: Daily reset completed");
+        }
+    }
+
+    /**
+     * Register trade result with MM components (called on position close).
+     */
+    public void registerTradeResult(String ticker, double pnl, double entryPrice,
+                                    double exitPrice, int quantity, String direction) {
+        if (mmEnabled) {
+            if (riskManager != null) {
+                riskManager.registerTrade(pnl);
+            }
+            if (performanceTracker != null) {
+                performanceTracker.registerTrade(pnl, ticker, direction, entryPrice, exitPrice);
+            }
+            if (adaptiveCapital != null) {
+                if (pnl >= 0) {
+                    adaptiveCapital.registerWin();
+                } else {
+                    adaptiveCapital.registerLoss();
+                }
+            }
+            if (killSwitch != null && performanceTracker != null) {
+                killSwitch.checkDrawdown(performanceTracker.getCurrentDrawdown());
+            }
+            initialRiskPerTicker.remove(ticker);
+            logWithBacktest("MM: Registered trade for " + ticker + ": PnL=" + String.format("%.2f", pnl) +
+                    ", consecutiveLosses=" + (riskManager != null ? riskManager.getConsecutiveLosses() : 0));
+        }
+    }
+
+    /**
+     * Get current performance statistics.
+     */
+    public String getPerformanceStats() {
+        if (!mmEnabled || performanceTracker == null) {
+            return "MM disabled";
+        }
+        PerformanceTracker.SessionStats stats = performanceTracker.getSessionStats();
+        return String.format("Trades: %d, Wins: %d, Losses: %d, WinRate: %.1f%%, Total PnL: %.2f",
+                stats.trades, stats.wins, stats.losses,
+                performanceTracker.getWinRate() * 100,
+                stats.totalPnL);
+    }
+
+    @Override
+    protected void onTradeClosed(String ticker, double pnl, double entryPrice,
+                                  double exitPrice, int quantity, String direction) {
+        registerTradeResult(ticker, pnl, entryPrice, exitPrice, quantity, direction);
+    }
+
+    @Override
+    protected void onDailyReset() {
+        dailyReset();
     }
 }

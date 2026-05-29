@@ -11,11 +11,15 @@ import java.util.List;
 public class IchimokuStrategy extends BaseStrategy {
 
     public IchimokuStrategy(UnifiedTraderConfig unifiedTraderConfig, TCSService tcsService) {
-        this(unifiedTraderConfig, tcsService, new Config());
+        this(unifiedTraderConfig, tcsService, new Config(), false);
     }
 
     public IchimokuStrategy(UnifiedTraderConfig unifiedTraderConfig, TCSService tcsService, Config config) {
-        super(unifiedTraderConfig, tcsService, config);
+        this(unifiedTraderConfig, tcsService, config, false);
+    }
+
+    public IchimokuStrategy(UnifiedTraderConfig unifiedTraderConfig, TCSService tcsService, Config config, boolean isBacktest) {
+        super(unifiedTraderConfig, tcsService, config, isBacktest);
     }
 
     @Override

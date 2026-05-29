@@ -31,8 +31,15 @@ public class UnifiedTraderConfig {
         public final boolean enabled;
         public final double allocationWeight;
 
+        // Money Management parameters (per-ticker overrides)
+        public final double mmRiskPercent;
+        public final double mmAtrStopMultiplier;
+        public final double mmTrailingMultiplier;
+        public final boolean mmEnabled;
+
         public TickerParams(String group, double slMult, double tpMult, double riskP, boolean useMinuteCandles) {
-            this(group, slMult, tpMult, riskP, useMinuteCandles, "", 20.0, 25.0, 30.0, 50.0, 4, new BadWeatherFilter.Params(), true, 1.5);
+            this(group, slMult, tpMult, riskP, useMinuteCandles, "", 20.0, 25.0, 30.0, 50.0, 4,
+                    new BadWeatherFilter.Params(), true, 1.5, 0.01, 2.0, 1.0, true);
         }
 
         public TickerParams(String group, double slMult, double tpMult, double riskP, boolean useMinuteCandles,
@@ -41,6 +48,20 @@ public class UnifiedTraderConfig {
                             double marketRegimeVolumeRatioMin, double marketRegimeConfidenceMin,
                             int marketRegimeAtrBars, BadWeatherFilter.Params badWeatherParams,
                             boolean enabled, double allocationWeight) {
+            this(group, slMult, tpMult, riskP, useMinuteCandles, allocationGroup,
+                    marketRegimeAdxRangeThreshold, marketRegimeAdxUnclearThreshold,
+                    marketRegimeVolumeRatioMin, marketRegimeConfidenceMin, marketRegimeAtrBars,
+                    badWeatherParams, enabled, allocationWeight, 0.01, 2.0, 1.0, true);
+        }
+
+        public TickerParams(String group, double slMult, double tpMult, double riskP, boolean useMinuteCandles,
+                            String allocationGroup,
+                            double marketRegimeAdxRangeThreshold, double marketRegimeAdxUnclearThreshold,
+                            double marketRegimeVolumeRatioMin, double marketRegimeConfidenceMin,
+                            int marketRegimeAtrBars, BadWeatherFilter.Params badWeatherParams,
+                            boolean enabled, double allocationWeight,
+                            double mmRiskPercent, double mmAtrStopMultiplier,
+                            double mmTrailingMultiplier, boolean mmEnabled) {
             this.group = group;
             this.slMult = slMult;
             this.tpMult = tpMult;
@@ -55,6 +76,10 @@ public class UnifiedTraderConfig {
             this.badWeatherParams = badWeatherParams;
             this.enabled = enabled;
             this.allocationWeight = allocationWeight;
+            this.mmRiskPercent = mmRiskPercent;
+            this.mmAtrStopMultiplier = mmAtrStopMultiplier;
+            this.mmTrailingMultiplier = mmTrailingMultiplier;
+            this.mmEnabled = mmEnabled;
         }
     }
 
@@ -136,9 +161,20 @@ public class UnifiedTraderConfig {
         boolean enabled = Boolean.parseBoolean(properties.getProperty(prefix + "enabled", "true"));
         double allocationWeight = Double.parseDouble(properties.getProperty(prefix + "allocationWeight", "1.0"));
 
+        // Money Management parameters (per-ticker overrides)
+        double tickerMmRiskPercent = Double.parseDouble(properties.getProperty(
+                prefix + "mmRiskPercent", String.valueOf(riskP)));
+        double tickerMmAtrStopMultiplier = Double.parseDouble(properties.getProperty(
+                prefix + "mmAtrStopMultiplier", "2.0"));
+        double tickerMmTrailingMultiplier = Double.parseDouble(properties.getProperty(
+                prefix + "mmTrailingMultiplier", "1.0"));
+        boolean tickerMmEnabled = Boolean.parseBoolean(properties.getProperty(
+                prefix + "mmEnabled", "true"));
+
         return new TickerParams(group, slMult, tpMult, riskP, useMinuteCandles, allocationGroup,
                 adxRangeThreshold, adxUnclearThreshold, volumeRatioMin, confidenceMin, atrBars,
-                badWeatherParams, enabled, allocationWeight);
+                badWeatherParams, enabled, allocationWeight,
+                tickerMmRiskPercent, tickerMmAtrStopMultiplier, tickerMmTrailingMultiplier, tickerMmEnabled);
     }
 
     private String getGroupDefault(Properties properties, String group, String field, String defaultValue) {

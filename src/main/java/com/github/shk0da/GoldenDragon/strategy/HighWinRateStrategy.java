@@ -34,11 +34,15 @@ public class HighWinRateStrategy extends BaseStrategy {
     private static final double ADX_MIN = 18.0;
 
     public HighWinRateStrategy(UnifiedTraderConfig unifiedTraderConfig, TCSService tcsService) {
-        this(unifiedTraderConfig, tcsService, new Config());
+        this(unifiedTraderConfig, tcsService, new Config(), false);
     }
 
     public HighWinRateStrategy(UnifiedTraderConfig unifiedTraderConfig, TCSService tcsService, Config config) {
-        super(unifiedTraderConfig, tcsService, config);
+        this(unifiedTraderConfig, tcsService, config, false);
+    }
+
+    public HighWinRateStrategy(UnifiedTraderConfig unifiedTraderConfig, TCSService tcsService, Config config, boolean isBacktest) {
+        super(unifiedTraderConfig, tcsService, config, isBacktest);
     }
 
     @Override

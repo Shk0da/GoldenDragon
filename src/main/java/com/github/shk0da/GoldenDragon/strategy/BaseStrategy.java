@@ -60,6 +60,7 @@ public abstract class BaseStrategy {
     protected final UnifiedTraderConfig unifiedTraderConfig;
     protected final BadWeatherFilter badWeatherFilter;
     protected final MarketRegimeFilter marketRegimeFilter;
+    protected final boolean isBacktest;
 
     protected static final ThreadLocal<SimpleDateFormat> LOG_TIME_FORMAT = ThreadLocal.withInitial(
             () -> new SimpleDateFormat("dd.MM.yyyy HH:mm:ss.SSS")
@@ -86,13 +87,18 @@ public abstract class BaseStrategy {
     protected static final int MAX_CONCURRENT_POSITIONS = 8; // Максимум 8 одновременных позиций
     
     protected BaseStrategy(UnifiedTraderConfig unifiedTraderConfig, TCSService tcsService) {
-        this(unifiedTraderConfig, tcsService, new Config());
+        this(unifiedTraderConfig, tcsService, new Config(), false);
     }
 
     protected BaseStrategy(UnifiedTraderConfig unifiedTraderConfig, TCSService tcsService, Config config) {
+        this(unifiedTraderConfig, tcsService, config, false);
+    }
+
+    protected BaseStrategy(UnifiedTraderConfig unifiedTraderConfig, TCSService tcsService, Config config, boolean isBacktest) {
         this.config = config;
         this.tcsService = tcsService;
         this.unifiedTraderConfig = unifiedTraderConfig;
+        this.isBacktest = isBacktest;
         this.badWeatherFilter = new BadWeatherFilter(
                 config.badWeatherFilterEnabled,
                 config.badWeatherLowVolumeThreshold,
@@ -139,6 +145,9 @@ public abstract class BaseStrategy {
             log("No active tickers found. " + getStrategyName() + " stopped.");
             return;
         }
+
+        // Daily reset for Money Management
+        onDailyReset();
 
         if (isEndOfDayReached() || !isTradingDay()) {
             var message = getStrategyName() + ": outside working hours, closing positions if needed.";
@@ -411,11 +420,49 @@ public abstract class BaseStrategy {
         if (closed) {
             positionStore.put(name, getCooldownPosition());
             lastSeenHourBarByTicker.remove(name);
+            
+            // Register trade result for Money Management
+            double entryPrice = storedPosition.entryPrice != null ? storedPosition.entryPrice : 0.0;
+            double exitPrice = decision.entryPrice != null ? decision.entryPrice : 0.0;
+            double pnl = calculatePnl(storedPosition, exitPrice);
+            onTradeClosed(name, pnl, entryPrice, exitPrice, storedPosition.quantity, storedPosition.direction);
+            
             telegramNotifyService.sendMessage(getStrategyName() + " CLOSED " + name +
-                    " (reason: " + decision.reason + ")");
+                    " (reason: " + decision.reason + ", PnL: " + String.format("%.2f", pnl) + ")");
         } else {
             log("Failed to close position for " + name + " (may not exist in broker account)");
         }
+    }
+
+    /**
+     * Calculate PnL for a closed position.
+     */
+    private double calculatePnl(Position position, double exitPrice) {
+        if (position.entryPrice == null || exitPrice <= 0) {
+            return 0.0;
+        }
+        if ("BUY".equals(position.direction)) {
+            return (exitPrice - position.entryPrice) * position.quantity;
+        } else {
+            return (position.entryPrice - exitPrice) * position.quantity;
+        }
+    }
+
+    /**
+     * Callback for trade closure (for Money Management integration).
+     * Override in subclasses to register trade results.
+     */
+    protected void onTradeClosed(String ticker, double pnl, double entryPrice,
+                                  double exitPrice, int quantity, String direction) {
+        // Default: no-op. Override in UnifiedStrategy for MM integration.
+    }
+
+    /**
+     * Callback for daily reset (for Money Management integration).
+     * Override in subclasses to reset daily limits.
+     */
+    protected void onDailyReset() {
+        // Default: no-op. Override in UnifiedStrategy for MM integration.
     }
 
     protected Position getCooldownPosition() {
@@ -686,6 +733,17 @@ public abstract class BaseStrategy {
     }
 
     protected static void log(String message) {
+        log(message, false);
+    }
+
+    protected void logWithBacktest(String message) {
+        log(message, isBacktest);
+    }
+
+    protected static void log(String message, boolean silent) {
+        if (silent) {
+            return;
+        }
         out.println("[" + LOG_TIME_FORMAT.get().format(new Date()) + "] " + message);
     }
 

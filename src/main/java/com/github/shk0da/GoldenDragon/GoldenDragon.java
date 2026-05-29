@@ -14,10 +14,12 @@ import com.github.shk0da.GoldenDragon.repository.TickerRepository;
 import com.github.shk0da.GoldenDragon.service.TCSService;
 import com.github.shk0da.GoldenDragon.strategy.DataCollector;
 import com.github.shk0da.GoldenDragon.strategy.DivFlow;
+import com.github.shk0da.GoldenDragon.strategy.GerchikStrategy;
 import com.github.shk0da.GoldenDragon.strategy.IndicatorTrader;
 import com.github.shk0da.GoldenDragon.strategy.LevelTrader;
 import com.github.shk0da.GoldenDragon.strategy.RSX;
 import com.github.shk0da.GoldenDragon.strategy.Rebalance;
+import com.github.shk0da.GoldenDragon.strategy.TurtleStrategy;
 import com.github.shk0da.GoldenDragon.strategy.UnifiedStrategy;
 import com.google.gson.reflect.TypeToken;
 import java.io.FileDescriptor;
@@ -124,6 +126,22 @@ public class GoldenDragon {
                 UnifiedTraderConfig unifiedTraderConfig = new UnifiedTraderConfig();
                 new UnifiedStrategy(unifiedTraderConfig, tcsService).run();
                 telegramNotifyService.sendMessage("Stop UnifiedStrategy");
+            }
+
+            // 8. TurtleStrategy
+            if ("TurtleStrategy".equals(strategy)) {
+                telegramNotifyService.sendMessage("Run TurtleStrategy");
+                UnifiedTraderConfig unifiedTraderConfig = new UnifiedTraderConfig();
+                new TurtleStrategy(unifiedTraderConfig, tcsService).run();
+                telegramNotifyService.sendMessage("Stop TurtleStrategy");
+            }
+
+            // 9. GerchikStrategy
+            if ("GerchikStrategy".equals(strategy)) {
+                telegramNotifyService.sendMessage("Run GerchikStrategy");
+                UnifiedTraderConfig unifiedTraderConfig = new UnifiedTraderConfig();
+                new GerchikStrategy(unifiedTraderConfig, tcsService).run();
+                telegramNotifyService.sendMessage("Stop GerchikStrategy");
             }
         } catch (Exception ex) {
             out.printf("Error: %s%n", ex.getMessage());

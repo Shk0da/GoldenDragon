@@ -2,12 +2,15 @@ package com.github.shk0da.GoldenDragon.test;
 
 import com.github.shk0da.GoldenDragon.config.UnifiedTraderConfig;
 import com.github.shk0da.GoldenDragon.model.Candle;
+import com.github.shk0da.GoldenDragon.model.Config;
 import com.github.shk0da.GoldenDragon.model.Position;
 import com.github.shk0da.GoldenDragon.model.TradingDecision;
 import com.github.shk0da.GoldenDragon.strategy.BaseStrategy;
+import com.github.shk0da.GoldenDragon.strategy.GerchikStrategy;
 import com.github.shk0da.GoldenDragon.strategy.HighWinRateStrategy;
 import com.github.shk0da.GoldenDragon.strategy.IchimokuStrategy;
 import com.github.shk0da.GoldenDragon.strategy.ScalpingStrategy;
+import com.github.shk0da.GoldenDragon.strategy.TurtleStrategy;
 import com.github.shk0da.GoldenDragon.strategy.UnifiedStrategy;
 import com.github.shk0da.GoldenDragon.utils.PropertiesUtils;
 import java.io.File;
@@ -36,13 +39,17 @@ public class BacktestRunner {
         public static BaseStrategy createStrategy(String strategyName, UnifiedTraderConfig config) {
             switch (strategyName) {
                 case "UnifiedStrategy":
-                    return new UnifiedStrategy(config, null);
+                    return new UnifiedStrategy(config, null, new Config(), true);
                 case "HighWinRateStrategy":
-                    return new HighWinRateStrategy(config, null);
+                    return new HighWinRateStrategy(config, null, new Config(), true);
                 case "ScalpingStrategy":
-                    return new ScalpingStrategy(config, null);
+                    return new ScalpingStrategy(config, null, new Config(), true);
                 case "IchimokuStrategy":
-                    return new IchimokuStrategy(config, null);
+                    return new IchimokuStrategy(config, null, new Config(), true);
+                case "TurtleStrategy":
+                    return new TurtleStrategy(config, null, new Config(), true);
+                case "GerchikStrategy":
+                    return new GerchikStrategy(config, null, new Config(), true);
                 default:
                     throw new IllegalArgumentException("Unknown strategy: " + strategyName);
             }
@@ -58,9 +65,8 @@ public class BacktestRunner {
 
     private static final String[] ALL_STRATEGIES = {
             "UnifiedStrategy",
-            "HighWinRateStrategy",
-            "ScalpingStrategy",
-            "IchimokuStrategy"
+            "TurtleStrategy",
+            "GerchikStrategy",
     };
 
     public static class RawCandle {
@@ -178,6 +184,9 @@ public class BacktestRunner {
         this.commission = commission;
     }
 
+    // Store results for comparison
+    private static final Map<String, StrategyMetrics> strategyMetricsMap = new LinkedHashMap<>();
+
     public static void main(String[] args) throws IOException {
         BacktestRunner runner = new BacktestRunner();
         
@@ -188,6 +197,12 @@ public class BacktestRunner {
             System.out.println("=".repeat(100));
             runner.run(strategyName);
         }
+        
+        // Print comparison table
+        System.out.println("\n" + "=".repeat(200));
+        System.out.println("СРАВНИТЕЛЬНАЯ ТАБЛИЦА ЭФФЕКТИВНОСТИ СТРАТЕГИЙ");
+        System.out.println("=".repeat(200));
+        printStrategyComparison();
     }
 
     public void run() throws IOException {
@@ -225,6 +240,9 @@ public class BacktestRunner {
         }
 
         printResults(strategyName, periodLabels, allData, portfolioData, activeTickers);
+        
+        // Collect metrics for comparison
+        collectStrategyMetrics(strategyName, portfolioData);
     }
 
     private void printResults(String strategyName,
@@ -893,7 +911,7 @@ public class BacktestRunner {
         return totalTrades > 0 ? (double) winningTrades / totalTrades : 0.0;
     }
 
-    private String formatCompactPnL(double pnl) {
+    private static String formatCompactPnL(double pnl) {
         String sign = pnl >= 0 ? "+" : "-";
         double abs = Math.abs(pnl);
 
@@ -920,5 +938,145 @@ public class BacktestRunner {
         if (ddPct < 10.0) return "Low";
         if (ddPct < 25.0) return "Med";
         return "High";
+    }
+
+    /**
+     * Strategy metrics for comparison.
+     */
+    private static class StrategyMetrics {
+        final String strategyName;
+        double totalPnL;
+        double avgWinRate;
+        double maxDrawdown;
+        int totalTrades;
+        double sharpeRatio;
+        double profitFactor;
+
+        StrategyMetrics(String strategyName) {
+            this.strategyName = strategyName;
+        }
+    }
+
+    /**
+     * Collect metrics for strategy comparison.
+     */
+    private void collectStrategyMetrics(String strategyName,
+                                        Map<String, PortfolioPeriodResult> portfolioData) {
+        StrategyMetrics metrics = new StrategyMetrics(strategyName);
+
+        double totalPnL = 0.0;
+        double totalWinRate = 0.0;
+        double maxDD = 0.0;
+        int periodCount = 0;
+
+        for (PortfolioPeriodResult portfolioResult : portfolioData.values()) {
+            totalPnL += portfolioResult.pnl;
+            if (portfolioResult.dd > maxDD) {
+                maxDD = portfolioResult.dd;
+            }
+            totalWinRate += portfolioResult.winRate;
+            periodCount++;
+        }
+
+        metrics.totalPnL = totalPnL;
+        metrics.avgWinRate = periodCount > 0 ? totalWinRate / periodCount : 0.0;
+        metrics.maxDrawdown = maxDD;
+        metrics.totalTrades = portfolioData.values().stream()
+                .mapToInt(p -> p.totalTrades)
+                .sum();
+
+        // Calculate Sharpe Ratio (simplified)
+        List<Double> returns = new ArrayList<>();
+        for (PortfolioPeriodResult p : portfolioData.values()) {
+            if (p.pnl != 0) {
+                returns.add(p.pnl / initialBalance);
+            }
+        }
+        if (returns.size() > 1) {
+            double avgReturn = returns.stream().mapToDouble(r -> r).average().orElse(0.0);
+            double variance = returns.stream()
+                    .mapToDouble(r -> Math.pow(r - avgReturn, 2))
+                    .average().orElse(0.0);
+            double stdDev = Math.sqrt(variance);
+            metrics.sharpeRatio = stdDev > 0 ? avgReturn / stdDev : 0.0;
+        }
+
+        // Calculate Profit Factor
+        double grossProfit = 0.0;
+        double grossLoss = 0.0;
+        for (PortfolioPeriodResult p : portfolioData.values()) {
+            // Simplified: assume 60% win rate for profit/loss split
+            double winRate = p.winRate;
+            if (p.pnl > 0) {
+                grossProfit += p.pnl * winRate;
+                grossLoss += Math.abs(p.pnl) * (1 - winRate);
+            } else {
+                grossLoss += Math.abs(p.pnl);
+            }
+        }
+        metrics.profitFactor = grossLoss > 0 ? grossProfit / grossLoss : 0.0;
+
+        strategyMetricsMap.put(strategyName, metrics);
+    }
+
+    /**
+     * Print strategy comparison table.
+     */
+    private static void printStrategyComparison() {
+        if (strategyMetricsMap.isEmpty()) {
+            System.out.println("No strategy metrics collected.");
+            return;
+        }
+
+        // Header
+        System.out.println();
+        String header = String.format("%-20s %15s %10s %10s %10s %10s %10s %10s",
+                "Стратегия", "Total PnL", "WinRate%", "MaxDD%", "Trades", "Sharpe", "PF", "Score");
+        System.out.println(header);
+        System.out.println("-".repeat(header.length()));
+
+        // Sort by score (descending)
+        List<StrategyMetrics> sortedMetrics = strategyMetricsMap.values().stream()
+                .sorted((a, b) -> Double.compare(calculateScore(b), calculateScore(a)))
+                .toList();
+
+        // Rows
+        for (StrategyMetrics m : sortedMetrics) {
+            double score = calculateScore(m);
+            System.out.println(String.format("%-20s %15s %10.1f %10.1f %10d %10.2f %10.2f %10.1f",
+                    m.strategyName,
+                    formatCompactPnL(m.totalPnL),
+                    m.avgWinRate * 100.0,
+                    m.maxDrawdown * 100.0,
+                    m.totalTrades,
+                    m.sharpeRatio,
+                    m.profitFactor,
+                    score));
+        }
+
+        System.out.println();
+        System.out.println("Legend:");
+        System.out.println("  Score = (WinRate% × 0.4) + ((20 - MaxDD%) × 0.3) + (Sharpe × 0.2) + (PF × 0.1)");
+        System.out.println("  Best strategy has highest score");
+        System.out.println();
+
+        // Highlight best strategy
+        if (!sortedMetrics.isEmpty()) {
+            StrategyMetrics best = sortedMetrics.get(0);
+            System.out.println("🏆 BEST STRATEGY: " + best.strategyName +
+                    " (Score: " + String.format("%.1f", calculateScore(best)) + ")");
+        }
+    }
+
+    /**
+     * Calculate composite score for strategy ranking.
+     */
+    private static double calculateScore(StrategyMetrics m) {
+        double winRateScore = m.avgWinRate * 100.0 * 0.4;  // 40% weight
+        double ddScore = Math.max(0, (20.0 - (m.maxDrawdown * 100.0))) * 0.3;  // 30% weight (target <10%)
+        double sharpeScore = Math.max(0, m.sharpeRatio) * 10.0 * 0.2;  // 20% weight
+        double pfScore = Math.min(m.profitFactor, 3.0) * 10.0 * 0.1;  // 10% weight (cap at 3.0)
+
+        return winRateScore + ddScore + sharpeScore + pfScore;
     }
 }

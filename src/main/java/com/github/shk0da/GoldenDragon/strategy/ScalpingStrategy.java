@@ -48,11 +48,15 @@ public class ScalpingStrategy extends BaseStrategy {
     private int consecutiveLosses = 0;
 
     public ScalpingStrategy(UnifiedTraderConfig unifiedTraderConfig, TCSService tcsService) {
-        this(unifiedTraderConfig, tcsService, new Config());
+        this(unifiedTraderConfig, tcsService, new Config(), false);
     }
 
     public ScalpingStrategy(UnifiedTraderConfig unifiedTraderConfig, TCSService tcsService, Config config) {
-        super(unifiedTraderConfig, tcsService, config);
+        this(unifiedTraderConfig, tcsService, config, false);
+    }
+
+    public ScalpingStrategy(UnifiedTraderConfig unifiedTraderConfig, TCSService tcsService, Config config, boolean isBacktest) {
+        super(unifiedTraderConfig, tcsService, config, isBacktest);
     }
 
     @Override
