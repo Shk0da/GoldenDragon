@@ -50,20 +50,21 @@ public class TurtleStrategy extends BaseStrategy {
     public TurtleStrategy(UnifiedTraderConfig unifiedTraderConfig, TCSService tcsService, Config config, boolean isBacktest) {
         super(unifiedTraderConfig, tcsService, config, isBacktest);
 
-        // Extract Turtle parameters from config
-        this.turtleEnabled = true; // Always enabled for this strategy
-        this.entryLookback = 20; // Default Donchian lookback
-        this.riskPercent = 0.005; // 0.5% risk per trade (reduced from 1%)
+        // Turtle parameters - CLASSIC (trend-following, works best in trending markets)
+        this.turtleEnabled = true;
+        this.entryLookback = 20;
+        this.riskPercent = 0.01; // 1% risk
         this.atrStopMultiplier = 2.0; // 2 ATR stop
-
-        // Initialize Turtle components
+        
+        // Initialize Turtle components - CLASSIC
         this.breakoutSignal = new TurtleBreakoutSignal(
                 20,  // default lookback
                 10,  // min lookback
                 55,  // max lookback
-                0.5, // breakout buffer in ATR
+                0.5, // breakout buffer
                 0.5, // volatility low threshold
-                2.0  // volatility high threshold
+                2.0, // volatility high threshold
+                0.0  // NO ADX filter (trade all breakouts)
         );
 
         this.positionSizer = new TurtlePositionSizer(
@@ -71,32 +72,33 @@ public class TurtleStrategy extends BaseStrategy {
                 atrStopMultiplier,
                 1,   // min lot size
                 1,   // lot step
-                0.15 // maxPositionSize: 15% of capital (reduced from 25%)
+                0.15 // maxPositionSize: 15% of capital
         );
-
+        
         this.exitManager = new TurtleExitManager(
                 2.0,  // trailing multiplier
                 10,   // exit lookback
                 true  // use Donchian exit
         );
-
+        
         this.riskManager = new TurtleRiskManager(
                 8,    // max positions
-                0.20  // max capital at risk (20%)
+                0.20  // max capital at risk
         );
-
+        
         this.drawdownManager = new TurtleDrawdownManager(
                 0.05, // reduce risk at 5% DD
                 0.10  // stop trading at 10% DD
         );
-
+        
         this.pyramidingManager = new TurtlePyramidingManager(
                 4,    // max units
-                1.0   // add unit after 1 ATR profit
+                1.0   // add unit after 1 ATR
         );
+        
+        logWithBacktest("TurtleStrategy: CLASSIC trend-following (best in trending markets)");
 
-        logWithBacktest("TurtleStrategy initialized: lookback=" + entryLookback +
-                ", risk=" + (riskPercent * 100) + "%, stop=" + atrStopMultiplier + "ATR");
+        logWithBacktest("TurtleStrategy initialized: lookback=20, risk=1%, stop=2ATR, ADX>25");
     }
 
     @Override

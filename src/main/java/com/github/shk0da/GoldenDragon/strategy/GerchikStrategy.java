@@ -55,59 +55,60 @@ public class GerchikStrategy extends BaseStrategy {
     public GerchikStrategy(UnifiedTraderConfig unifiedTraderConfig, TCSService tcsService, Config config, boolean isBacktest) {
         super(unifiedTraderConfig, tcsService, config, isBacktest);
 
-        // Gerchik parameters (hardcoded defaults)
+        // Gerchik parameters - STANDARD intraday breakout
         this.gerchikEnabled = true;
-        this.riskPercent = 0.005; // 0.5% per trade (reduced from 1%)
+        this.riskPercent = 0.01; // 1% per trade
         this.atrStopMultiplier = 2.0; // 2 ATR stop
-        this.tpRewardRatio = 2.0; // 2R target
-
-        // Initialize components
+        this.tpRewardRatio = 2.5; // 2.5R target
+        
+        // Initialize components - AGGRESSIVE
         this.timeFilter = new TimeOfDayFilter(
-                LocalTime.of(10, 0),   // session start
+                LocalTime.of(10, 30),  // session start (later, after initial volatility)
                 LocalTime.of(21, 0),   // session end
-                LocalTime.of(19, 0),   // no entry after
-                LocalTime.of(20, 50)   // EOD close
+                LocalTime.of(18, 0),   // no entry after (earlier)
+                LocalTime.of(20, 45)   // EOD close
         );
-
+        
         this.orCalculator = new OpeningRangeCalculator(
-                30,     // 30 minutes OR
-                false,  // use time, not bar count
-                6       // 6 bars (if using bar count)
+                30,     // 30 minutes OR (standard)
+                false,  // use time
+                6       // 6 bars
         );
-
+        
         this.breakoutDetector = new RangeBreakoutDetector(
-                0.5,    // 0.5 ATR buffer
-                20,     // 20 bar lookback
+                0.5,    // 0.5 ATR buffer (tighter for earlier entry)
+                15,     // 15 bar lookback (shorter)
                 true,   // use inside bar
                 true    // use narrow range
         );
-
+        
         this.qualityFilter = new SignalQualityFilter(
-                0.4,    // min quality 40%
-                0.8     // high quality 80%
+                0.40,   // min quality 40%
+                0.75    // high quality 75%
         );
 
         this.positionSizer = new GerchikPositionSizer(
                 riskPercent,
                 atrStopMultiplier,
                 tpRewardRatio,
-                0.15 // maxPositionSize: 15% of capital (reduced from 25%)
+                0.15 // maxPositionSize: 15% of capital
         );
-
+        
         this.riskManager = new GerchikRiskManager(
                 5,      // max 5 trades per day
                 10000,  // max 10000 RUB daily loss
                 3       // max 3 consecutive losses
         );
-
+        
         this.exitManager = new GerchikExitManager(
                 1.0,    // BE after 1 ATR
                 1.5,    // Trail at 1.5 ATR
                 true    // use trailing
         );
+        
+        logWithBacktest("GerchikStrategy: STANDARD intraday breakout");
 
-        logWithBacktest("GerchikStrategy initialized: risk=" + (riskPercent * 100) +
-                "%, stop=" + atrStopMultiplier + "ATR, TP=" + tpRewardRatio + "R");
+        logWithBacktest("GerchikStrategy: risk=1%, stop=2ATR, TP=3R, OR=30min, aggressive");
     }
 
     @Override
