@@ -9,6 +9,7 @@ import com.github.shk0da.GoldenDragon.strategy.BaseStrategy;
 import com.github.shk0da.GoldenDragon.strategy.GerchikStrategy;
 import com.github.shk0da.GoldenDragon.strategy.HighWinRateStrategy;
 import com.github.shk0da.GoldenDragon.strategy.IchimokuStrategy;
+import com.github.shk0da.GoldenDragon.strategy.RegimeAwareStrategy;
 import com.github.shk0da.GoldenDragon.strategy.ScalpingStrategy;
 import com.github.shk0da.GoldenDragon.strategy.TurtleStrategy;
 import com.github.shk0da.GoldenDragon.strategy.UnifiedStrategy;
@@ -50,6 +51,8 @@ public class BacktestRunner {
                     return new TurtleStrategy(config, null, new Config(), true);
                 case "GerchikStrategy":
                     return new GerchikStrategy(config, null, new Config(), true);
+                case "RegimeAwareStrategy":
+                    return new RegimeAwareStrategy(config, null, new Config(), true);
                 default:
                     throw new IllegalArgumentException("Unknown strategy: " + strategyName);
             }
@@ -67,6 +70,7 @@ public class BacktestRunner {
             "UnifiedStrategy",
             "TurtleStrategy",
             "GerchikStrategy",
+            "RegimeAwareStrategy",
     };
 
     public static class RawCandle {
