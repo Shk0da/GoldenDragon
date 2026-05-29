@@ -53,7 +53,7 @@ public class TurtleStrategy extends BaseStrategy {
         // Extract Turtle parameters from config
         this.turtleEnabled = true; // Always enabled for this strategy
         this.entryLookback = 20; // Default Donchian lookback
-        this.riskPercent = 0.01; // 1% risk per trade
+        this.riskPercent = 0.005; // 0.5% risk per trade (reduced from 1%)
         this.atrStopMultiplier = 2.0; // 2 ATR stop
 
         // Initialize Turtle components
@@ -70,7 +70,8 @@ public class TurtleStrategy extends BaseStrategy {
                 riskPercent,
                 atrStopMultiplier,
                 1,   // min lot size
-                1    // lot step
+                1,   // lot step
+                0.15 // maxPositionSize: 15% of capital (reduced from 25%)
         );
 
         this.exitManager = new TurtleExitManager(

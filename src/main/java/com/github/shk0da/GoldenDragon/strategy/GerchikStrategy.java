@@ -57,7 +57,7 @@ public class GerchikStrategy extends BaseStrategy {
 
         // Gerchik parameters (hardcoded defaults)
         this.gerchikEnabled = true;
-        this.riskPercent = 0.01; // 1% per trade
+        this.riskPercent = 0.005; // 0.5% per trade (reduced from 1%)
         this.atrStopMultiplier = 2.0; // 2 ATR stop
         this.tpRewardRatio = 2.0; // 2R target
 
@@ -90,7 +90,8 @@ public class GerchikStrategy extends BaseStrategy {
         this.positionSizer = new GerchikPositionSizer(
                 riskPercent,
                 atrStopMultiplier,
-                tpRewardRatio
+                tpRewardRatio,
+                0.15 // maxPositionSize: 15% of capital (reduced from 25%)
         );
 
         this.riskManager = new GerchikRiskManager(

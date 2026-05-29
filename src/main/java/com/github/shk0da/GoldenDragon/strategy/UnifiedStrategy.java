@@ -59,10 +59,14 @@ public class UnifiedStrategy extends BaseStrategy {
                         config.mmRiskPercent,
                         config.mmVolatilityBaseAtr,
                         config.mmVolatilityMinAdjustment,
-                        config.mmVolatilityMaxAdjustment
+                        config.mmVolatilityMaxAdjustment,
+                        0.25  // maxPositionSize: 25% of capital
                 );
             } else {
-                sizingStrategy = new FixedRiskSizing(config.mmRiskPercent);
+                sizingStrategy = new FixedRiskSizing(
+                        config.mmRiskPercent,
+                        0.25  // maxPositionSize: 25% of capital
+                );
             }
 
             // Initialize MM components

@@ -3,6 +3,7 @@ package com.github.shk0da.GoldenDragon.strategy.turtle;
 /**
  * Turtle position sizer.
  * Calculates position size based on ATR and risk per trade.
+ * Capped by maxPositionSize to prevent oversized positions.
  */
 public class TurtlePositionSizer {
 
@@ -10,6 +11,7 @@ public class TurtlePositionSizer {
     private final double atrStopMultiplier;
     private final int minLotSize;
     private final int lotStep;
+    private final double maxPositionSize; // Max % of balance per position
 
     /**
      * Create Turtle position sizer.
@@ -24,10 +26,29 @@ public class TurtlePositionSizer {
             double atrStopMultiplier,
             int minLotSize,
             int lotStep) {
+        this(riskPercent, atrStopMultiplier, minLotSize, lotStep, 0.25); // Default max 25%
+    }
+
+    /**
+     * Create Turtle position sizer with position size limit.
+     *
+     * @param riskPercent risk per trade as decimal (e.g., 0.01 for 1%)
+     * @param atrStopMultiplier ATR multiplier for stop distance (e.g., 2.0)
+     * @param minLotSize minimum position size (default: 1)
+     * @param lotStep position size step (default: 1)
+     * @param maxPositionSize max % of balance per position (e.g., 0.25 for 25%)
+     */
+    public TurtlePositionSizer(
+            double riskPercent,
+            double atrStopMultiplier,
+            int minLotSize,
+            int lotStep,
+            double maxPositionSize) {
         this.riskPercent = riskPercent;
         this.atrStopMultiplier = atrStopMultiplier;
         this.minLotSize = minLotSize;
         this.lotStep = lotStep;
+        this.maxPositionSize = maxPositionSize;
     }
 
     /**
@@ -52,9 +73,13 @@ public class TurtlePositionSizer {
         // Calculate position size: qty = riskAmount / stopDistance
         double qty = riskAmount / stopDistance;
 
-        // Cap by available capital: qty <= balance / entry
-        double maxQty = balance / entry;
-        qty = Math.min(qty, maxQty);
+        // Cap by max position size (% of capital)
+        double maxQtyBySize = (balance * maxPositionSize) / entry;
+        qty = Math.min(qty, maxQtyBySize);
+
+        // Cap by available capital (safety check)
+        double maxQtyByCapital = balance / entry;
+        qty = Math.min(qty, maxQtyByCapital);
 
         // Round down to lot step
         int finalQty = (int) Math.floor(qty);

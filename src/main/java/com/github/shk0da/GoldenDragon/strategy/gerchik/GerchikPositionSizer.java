@@ -3,12 +3,14 @@ package com.github.shk0da.GoldenDragon.strategy.gerchik;
 /**
  * Gerchik position sizer.
  * Calculates position size based on OR range or ATR.
+ * Capped by maxPositionSize to prevent oversized positions.
  */
 public class GerchikPositionSizer {
 
     private final double riskPercent;
     private final double atrStopMultiplier;
     private final double tpRewardRatio;
+    private final double maxPositionSize; // Max % of balance per position
 
     /**
      * Create Gerchik position sizer.
@@ -21,9 +23,26 @@ public class GerchikPositionSizer {
             double riskPercent,
             double atrStopMultiplier,
             double tpRewardRatio) {
+        this(riskPercent, atrStopMultiplier, tpRewardRatio, 0.25); // Default max 25%
+    }
+
+    /**
+     * Create Gerchik position sizer with position size limit.
+     *
+     * @param riskPercent risk per trade as decimal (e.g., 0.01)
+     * @param atrStopMultiplier ATR multiplier for stop (e.g., 2.0)
+     * @param tpRewardRatio take profit as multiple of risk (e.g., 2.0 for 2R)
+     * @param maxPositionSize max % of balance per position (e.g., 0.25 for 25%)
+     */
+    public GerchikPositionSizer(
+            double riskPercent,
+            double atrStopMultiplier,
+            double tpRewardRatio,
+            double maxPositionSize) {
         this.riskPercent = riskPercent;
         this.atrStopMultiplier = atrStopMultiplier;
         this.tpRewardRatio = tpRewardRatio;
+        this.maxPositionSize = maxPositionSize;
     }
 
     /**
@@ -50,9 +69,13 @@ public class GerchikPositionSizer {
         // Calculate position size: qty = riskAmount / stopDistance
         double qty = riskAmount / stopDistance;
 
-        // Cap by available capital
-        double maxQty = balance / entry;
-        qty = Math.min(qty, maxQty);
+        // Cap by max position size (% of capital)
+        double maxQtyBySize = (balance * maxPositionSize) / entry;
+        qty = Math.min(qty, maxQtyBySize);
+
+        // Cap by available capital (safety check)
+        double maxQtyByCapital = balance / entry;
+        qty = Math.min(qty, maxQtyByCapital);
 
         return (int) Math.floor(qty);
     }
