@@ -1,7 +1,6 @@
 package com.github.shk0da.GoldenDragon.strategy;
 
 import com.github.shk0da.GoldenDragon.config.UnifiedTraderConfig;
-import com.github.shk0da.GoldenDragon.filters.BadWeatherFilter;
 import com.github.shk0da.GoldenDragon.filters.GroupConfirmationFilter;
 import com.github.shk0da.GoldenDragon.filters.MarketRegimeFilter;
 import com.github.shk0da.GoldenDragon.model.Candle;
@@ -16,28 +15,12 @@ import java.util.List;
 
 public class UnifiedStrategy extends BaseStrategy {
 
-    private final BadWeatherFilter badWeatherFilter;
-    private final MarketRegimeFilter marketRegimeFilter;
-
     public UnifiedStrategy(UnifiedTraderConfig unifiedTraderConfig, TCSService tcsService) {
         this(unifiedTraderConfig, tcsService, new Config());
     }
 
     public UnifiedStrategy(UnifiedTraderConfig unifiedTraderConfig, TCSService tcsService, Config config) {
         super(unifiedTraderConfig, tcsService, config);
-        this.badWeatherFilter = new BadWeatherFilter(
-                config.badWeatherFilterEnabled,
-                config.badWeatherLowVolumeThreshold,
-                config.badWeatherLowAtrThreshold,
-                config.badWeatherMinRangePercent,
-                config.badWeatherHighAtrThreshold,
-                config.badWeatherMaxSpreadPercent,
-                config.badWeatherMaxWickRatio,
-                config.badWeatherPanicVolumeThreshold,
-                config.badWeatherMinAvgDailyVolume,
-                config.badWeatherAtrSpikeThreshold
-        );
-        this.marketRegimeFilter = new MarketRegimeFilter(config.marketRegimeFilterEnabled);
     }
 
     @Override
@@ -198,10 +181,8 @@ public class UnifiedStrategy extends BaseStrategy {
         );
 
         if (!regimeResult.canTrade) {
-            return new TradingDecision(
-                    "HOLD", "REGIME_" + regimeResult.reason,
-                    0.0, 0, null, null, null, p
-            );
+            return new TradingDecision("HOLD", "REGIME_" + regimeResult.reason,
+                    0.0, 0, null, null, null, p);
         }
 
         double dAtr = atrVal(hourCandles, config.atrPeriod);

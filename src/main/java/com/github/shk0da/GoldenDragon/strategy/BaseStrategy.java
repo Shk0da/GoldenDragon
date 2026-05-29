@@ -1,6 +1,8 @@
 package com.github.shk0da.GoldenDragon.strategy;
 
 import com.github.shk0da.GoldenDragon.config.UnifiedTraderConfig;
+import com.github.shk0da.GoldenDragon.filters.BadWeatherFilter;
+import com.github.shk0da.GoldenDragon.filters.MarketRegimeFilter;
 import com.github.shk0da.GoldenDragon.model.Candle;
 import com.github.shk0da.GoldenDragon.model.Config;
 import com.github.shk0da.GoldenDragon.model.Position;
@@ -56,6 +58,8 @@ public abstract class BaseStrategy {
     protected final Config config;
     protected final TCSService tcsService;
     protected final UnifiedTraderConfig unifiedTraderConfig;
+    protected final BadWeatherFilter badWeatherFilter;
+    protected final MarketRegimeFilter marketRegimeFilter;
 
     protected static final ThreadLocal<SimpleDateFormat> LOG_TIME_FORMAT = ThreadLocal.withInitial(
             () -> new SimpleDateFormat("dd.MM.yyyy HH:mm:ss.SSS")
@@ -89,6 +93,19 @@ public abstract class BaseStrategy {
         this.config = config;
         this.tcsService = tcsService;
         this.unifiedTraderConfig = unifiedTraderConfig;
+        this.badWeatherFilter = new BadWeatherFilter(
+                config.badWeatherFilterEnabled,
+                config.badWeatherLowVolumeThreshold,
+                config.badWeatherLowAtrThreshold,
+                config.badWeatherMinRangePercent,
+                config.badWeatherHighAtrThreshold,
+                config.badWeatherMaxSpreadPercent,
+                config.badWeatherMaxWickRatio,
+                config.badWeatherPanicVolumeThreshold,
+                config.badWeatherMinAvgDailyVolume,
+                config.badWeatherAtrSpikeThreshold
+        );
+        this.marketRegimeFilter = new MarketRegimeFilter(config.marketRegimeFilterEnabled);
     }
 
     public void setPeerCandles(Map<String, List<Candle>> peerCandles) {
@@ -877,5 +894,37 @@ public abstract class BaseStrategy {
         }
 
         return allocation;
+    }
+
+    /**
+     * Применяет фильтры BadWeather и MarketRegime перед открытием позиции.
+     * Возвращает TradingDecision с HOLD если фильтр не прошёл, или null если всё ок.
+     */
+    protected TradingDecision applyFilters(String ticker,
+                                           List<Candle> hourCandles,
+                                           Candle currentCandle,
+                                           Position position,
+                                           UnifiedTraderConfig.TickerParams tickerParams) {
+        if (!badWeatherFilter.canTrade(hourCandles, currentCandle.close, tickerParams.badWeatherParams)) {
+            String reason = badWeatherFilter.getBlockReason(hourCandles, currentCandle.close, tickerParams.badWeatherParams);
+            return new TradingDecision("HOLD", reason != null ? "BAD_WEATHER_" + reason : "BAD_WEATHER",
+                    0.0, 0, null, null, null, position);
+        }
+
+        MarketRegimeFilter.FilterResult regimeResult = marketRegimeFilter.evaluate(
+                hourCandles,
+                tickerParams.marketRegimeAdxRangeThreshold,
+                tickerParams.marketRegimeAdxUnclearThreshold,
+                tickerParams.marketRegimeVolumeRatioMin,
+                tickerParams.marketRegimeConfidenceMin,
+                tickerParams.marketRegimeAtrBars
+        );
+
+        if (!regimeResult.canTrade) {
+            return new TradingDecision("HOLD", "REGIME_" + regimeResult.reason,
+                    0.0, 0, null, null, null, position);
+        }
+
+        return null;
     }
 }

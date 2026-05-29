@@ -154,6 +154,11 @@ public class IchimokuStrategy extends BaseStrategy {
             return new TradingDecision("HOLD", "in_pos", 0.0, 0, null, null, null, p);
         }
 
+        TradingDecision filterResult = applyFilters(ticker, hourCandles, cur, p, tpCfg);
+        if (filterResult != null) {
+            return filterResult;
+        }
+
         if (signal == 0) {
             return new TradingDecision("HOLD", "noSig", 0.0, 0, null, null, null, p);
         }

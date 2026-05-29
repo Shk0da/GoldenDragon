@@ -1,7 +1,6 @@
 package com.github.shk0da.GoldenDragon.strategy;
 
 import com.github.shk0da.GoldenDragon.config.UnifiedTraderConfig;
-import com.github.shk0da.GoldenDragon.filters.BadWeatherFilter;
 import com.github.shk0da.GoldenDragon.filters.GroupConfirmationFilter;
 import com.github.shk0da.GoldenDragon.filters.MarketRegimeFilter;
 import com.github.shk0da.GoldenDragon.model.Candle;
@@ -18,9 +17,6 @@ import static java.lang.Math.max;
 import static java.lang.Math.min;
 
 public class HighWinRateStrategy extends BaseStrategy {
-
-    private final BadWeatherFilter badWeatherFilter;
-    private final MarketRegimeFilter marketRegimeFilter;
 
     private static final int ATR_PERIOD = 7;
     private static final int EMA_FAST = 6;
@@ -43,19 +39,6 @@ public class HighWinRateStrategy extends BaseStrategy {
 
     public HighWinRateStrategy(UnifiedTraderConfig unifiedTraderConfig, TCSService tcsService, Config config) {
         super(unifiedTraderConfig, tcsService, config);
-        this.badWeatherFilter = new BadWeatherFilter(
-                config.badWeatherFilterEnabled,
-                config.badWeatherLowVolumeThreshold,
-                config.badWeatherLowAtrThreshold,
-                config.badWeatherMinRangePercent,
-                config.badWeatherHighAtrThreshold,
-                config.badWeatherMaxSpreadPercent,
-                config.badWeatherMaxWickRatio,
-                config.badWeatherPanicVolumeThreshold,
-                config.badWeatherMinAvgDailyVolume,
-                config.badWeatherAtrSpikeThreshold
-        );
-        this.marketRegimeFilter = new MarketRegimeFilter(config.marketRegimeFilterEnabled);
     }
 
     @Override
@@ -145,7 +128,8 @@ public class HighWinRateStrategy extends BaseStrategy {
 
         if (!badWeatherFilter.canTrade(hourCandles, cur.close, tpCfg.badWeatherParams)) {
             String reason = badWeatherFilter.getBlockReason(hourCandles, cur.close, tpCfg.badWeatherParams);
-            return new TradingDecision("HOLD", reason != null ? "BAD_WEATHER_" + reason : "BAD_WEATHER");
+            return new TradingDecision("HOLD", reason != null ? "BAD_WEATHER_" + reason : "BAD_WEATHER",
+                    0.0, 0, null, null, null, p);
         }
 
         MarketRegimeFilter.FilterResult regimeResult = marketRegimeFilter.evaluate(
@@ -158,7 +142,8 @@ public class HighWinRateStrategy extends BaseStrategy {
         );
 
         if (!regimeResult.canTrade) {
-            return new TradingDecision("HOLD", "REGIME_" + regimeResult.reason);
+            return new TradingDecision("HOLD", "REGIME_" + regimeResult.reason,
+                    0.0, 0, null, null, null, p);
         }
 
         SignalResult signal = generateSignal(hourCandles);

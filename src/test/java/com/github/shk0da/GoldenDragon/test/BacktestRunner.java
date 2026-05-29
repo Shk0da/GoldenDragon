@@ -57,6 +57,9 @@ public class BacktestRunner {
     private static final LocalTime EOD_CLOSE_TIME = LocalTime.of(21, 0);
 
     private static final String[] ALL_STRATEGIES = {
+            "UnifiedStrategy",
+            "HighWinRateStrategy",
+            "ScalpingStrategy",
             "IchimokuStrategy"
     };
 
@@ -193,13 +196,10 @@ public class BacktestRunner {
 
     public void run(String strategyName) throws IOException {
         String[][] periods = {
+                {"2023-01-01", "2023-12-31", "2023"},
                 {"2024-01-01", "2024-12-31", "2024"},
                 {"2025-01-01", "2025-12-31", "2025"},
-                {"2026-01-01", "2026-02-01", "2026.01"},
-                {"2026-02-01", "2026-03-01", "2026.02"},
-                {"2026-03-01", "2026-04-01", "2026.03"},
-                {"2026-04-01", "2026-05-01", "2026.04"},
-                {"2026-05-01", "2026-06-01", "2026.05"},
+                {"2026-01-01", "2026-12-31", "2026"},
         };
 
         UnifiedTraderConfig config = new UnifiedTraderConfig();
