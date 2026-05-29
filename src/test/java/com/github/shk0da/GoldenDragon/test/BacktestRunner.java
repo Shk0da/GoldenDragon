@@ -194,12 +194,22 @@ public class BacktestRunner {
     public static void main(String[] args) throws IOException {
         BacktestRunner runner = new BacktestRunner();
         
-        // Run for all strategies
-        for (String strategyName : ALL_STRATEGIES) {
+        // Check if specific strategy is provided via args
+        if (args != null && args.length > 0) {
+            // Run for single strategy
+            String strategyName = args[0];
             System.out.println("\n" + "=".repeat(100));
             System.out.println("RUNNING BACKTEST FOR STRATEGY: " + strategyName);
             System.out.println("=".repeat(100));
             runner.run(strategyName);
+        } else {
+            // Run for all strategies
+            for (String strategyName : ALL_STRATEGIES) {
+                System.out.println("\n" + "=".repeat(100));
+                System.out.println("RUNNING BACKTEST FOR STRATEGY: " + strategyName);
+                System.out.println("=".repeat(100));
+                runner.run(strategyName);
+            }
         }
         
         // Print comparison table

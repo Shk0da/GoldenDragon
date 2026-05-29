@@ -37,6 +37,12 @@ task runBacktest(type: JavaExec) {
     main = 'com.github.shk0da.GoldenDragon.test.BacktestRunner'
     classpath = sourceSets.test.runtimeClasspath
     workingDir = rootDir
+    
+    // Support both single strategy and all strategies
+    def strategyName = project.findProperty('strategy')
+    if (strategyName) {
+        args strategyName
+    }
 }
 
 task runStrategy(type: JavaExec) {
