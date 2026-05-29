@@ -6,6 +6,7 @@ import com.github.shk0da.GoldenDragon.model.Position;
 import com.github.shk0da.GoldenDragon.model.TradingDecision;
 import com.github.shk0da.GoldenDragon.strategy.BaseStrategy;
 import com.github.shk0da.GoldenDragon.strategy.HighWinRateStrategy;
+import com.github.shk0da.GoldenDragon.strategy.IchimokuStrategy;
 import com.github.shk0da.GoldenDragon.strategy.ScalpingStrategy;
 import com.github.shk0da.GoldenDragon.strategy.UnifiedStrategy;
 import com.github.shk0da.GoldenDragon.utils.PropertiesUtils;
@@ -40,6 +41,8 @@ public class BacktestRunner {
                     return new HighWinRateStrategy(config, null);
                 case "ScalpingStrategy":
                     return new ScalpingStrategy(config, null);
+                case "IchimokuStrategy":
+                    return new IchimokuStrategy(config, null);
                 default:
                     throw new IllegalArgumentException("Unknown strategy: " + strategyName);
             }
@@ -54,7 +57,7 @@ public class BacktestRunner {
     private static final LocalTime EOD_CLOSE_TIME = LocalTime.of(21, 0);
 
     private static final String[] ALL_STRATEGIES = {
-            "UnifiedStrategy"
+            "IchimokuStrategy"
     };
 
     public static class RawCandle {
