@@ -53,6 +53,22 @@ task runStrategy(type: JavaExec) {
     args strategyName
 }
 
+task runMlTraining(type: JavaExec) {
+    main = 'com.github.shk0da.GoldenDragon.ml.MlModelTrainer'
+    classpath = sourceSets.main.runtimeClasspath
+    workingDir = rootDir
+
+    if (project.hasProperty('data')) {
+        args '--data', project.property('data')
+    }
+    if (project.hasProperty('output')) {
+        args '--output', project.property('output')
+    }
+    if (project.hasProperty('reportDir')) {
+        args '--report-dir', project.property('reportDir')
+    }
+}
+
 task runTcsTest(type: JavaExec) {
     main = 'com.github.shk0da.GoldenDragon.test.TCSServiceTest'
     classpath = sourceSets.test.runtimeClasspath

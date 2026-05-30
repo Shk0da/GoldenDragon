@@ -1,0 +1,578 @@
+package com.github.shk0da.GoldenDragon.ml;
+
+import com.github.shk0da.GoldenDragon.model.Candle;
+import com.github.shk0da.GoldenDragon.model.Position;
+import com.github.shk0da.GoldenDragon.model.TradingDecision;
+import java.io.BufferedReader;
+import java.io.File;
+import java.io.FileReader;
+import java.io.FileWriter;
+import java.io.IOException;
+import java.io.PrintWriter;
+import java.text.SimpleDateFormat;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.util.ArrayList;
+import java.util.Date;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+
+/**
+ * ML Trade Data Collector.
+ * Collects trade features and outcomes for training.
+ */
+public class TradeDataCollector {
+
+    private static final ThreadLocal<SimpleDateFormat> CANDLE_TIME_FORMAT = ThreadLocal.withInitial(
+            () -> new SimpleDateFormat("dd.MM.yyyy HH:mm:ss")
+    );
+
+    private static final String CSV_HEADER = String.join(",",
+            "timestamp", "ticker", "strategy",
+            "adx", "di_plus", "di_minus", "atr", "atr_ratio",
+            "rsi", "ema_fast", "ema_slow", "ema_ratio", "price_position",
+            "volume_ratio", "volume_trend", "entry_confidence", "risk_reward_ratio", "stop_distance",
+            "signal_strength", "signal_type_trend", "signal_type_fx", "signal_type_mixed",
+            "group_confirmed", "strong_trend", "range_regime",
+            "hour_of_day", "day_of_week", "is_morning", "is_afternoon",
+            "entry_price", "stop_loss", "take_profit", "quantity",
+            "outcome", "is_winner"
+    );
+    
+    private final List<TradeFeatures> tradeHistory = new ArrayList<>();
+    private final Map<String, TradeFeatures> openTrades = new HashMap<>();
+    private final String dataFile;
+    
+    public TradeDataCollector(String dataFile) {
+        this.dataFile = dataFile;
+        loadExistingData();
+    }
+    
+    /**
+     * Record trade entry with features.
+     */
+    public void recordTradeEntry(
+            String ticker,
+            String strategy,
+            List<Candle> candles,
+            double entryPrice,
+            double stopLoss,
+            double takeProfit,
+            double entryConfidence,
+            String breakoutType) {
+        
+        if (candles == null || candles.size() < 30) {
+            return; // Not enough data
+        }
+        
+        // Calculate features
+        double adx = calculateAdx(candles, 14);
+        double[] diValues = calculateDI(candles, 14);
+        double atr = calculateAtr(candles, 14);
+        double atrAvg = calculateAverageAtr(candles, 50);
+        double rsi = calculateRsi(candles, 14);
+        double emaFast = calculateEma(candles, 9);
+        double emaSlow = calculateEma(candles, 21);
+        double pricePosition = calculatePricePosition(candles);
+        double volumeRatio = calculateVolumeRatio(candles, 20);
+        
+        double riskRewardRatio = (takeProfit - entryPrice) / (entryPrice - stopLoss);
+        double stopDistance = Math.abs(entryPrice - stopLoss) / entryPrice * 100.0;
+        String normalizedSignal = extractSignalToken(breakoutType);
+        double signalStrength = parseSignalStrength(normalizedSignal);
+        double signalTypeTrend = normalizedSignal.startsWith("TB") ? 1.0 : 0.0;
+        double signalTypeFx = normalizedSignal.startsWith("FX") ? 1.0 : 0.0;
+        double signalTypeMixed = normalizedSignal.startsWith("MX") ? 1.0 : 0.0;
+        double groupConfirmed = breakoutType != null && breakoutType.contains("noGroupConf") ? 0.0 : 1.0;
+        double strongTrend = adx >= 30.0 ? 1.0 : 0.0;
+        double rangeRegime = adx > 0.0 && adx <= 15.0 ? 1.0 : 0.0;
+        
+        LocalDateTime now = LocalDateTime.now();
+        
+        TradeFeatures features = new TradeFeatures(
+                adx, diValues[0], diValues[1], atr, atr / atrAvg,
+                rsi, emaFast, emaSlow, emaFast / emaSlow, pricePosition,
+                volumeRatio, 0.0, // Volume trend calculated separately
+                entryConfidence, riskRewardRatio, stopDistance, breakoutType,
+                signalStrength, signalTypeTrend, signalTypeFx, signalTypeMixed,
+                groupConfirmed, strongTrend, rangeRegime,
+                now.getHour(), now.getDayOfWeek().getValue(),
+                ticker, strategy, now, entryPrice
+        );
+        
+        tradeHistory.add(features);
+        openTrades.put(buildTradeKey(ticker, strategy), features);
+        saveData();
+    }
+
+    public void recordTradeEntry(String ticker,
+                                 String strategy,
+                                 List<Candle> candles,
+                                 TradingDecision decision) {
+        recordTradeEntry(ticker, strategy, candles, decision, resolveEntryTime(candles));
+    }
+
+    public void recordTradeEntry(String ticker,
+                                 String strategy,
+                                 List<Candle> candles,
+                                 TradingDecision decision,
+                                 LocalDateTime entryTime) {
+        if (decision == null || decision.updatedPosition == null) {
+            return;
+        }
+
+        Position position = decision.updatedPosition;
+        if (position.entryPrice == null || position.stopLoss == null || position.takeProfit == null) {
+            return;
+        }
+
+        recordTradeEntry(ticker, strategy, candles, position.entryPrice, position.stopLoss, position.takeProfit,
+                decision.confidence, decision.reason, entryTime);
+    }
+
+    public void recordTradeEntry(String ticker,
+                                 String strategy,
+                                 List<Candle> candles,
+                                 double entryPrice,
+                                 double stopLoss,
+                                 double takeProfit,
+                                 double entryConfidence,
+                                 String breakoutType,
+                                 LocalDateTime entryTime) {
+
+        if (candles == null || candles.size() < 30) {
+            return;
+        }
+
+        double adx = calculateAdx(candles, 14);
+        double[] diValues = calculateDI(candles, 14);
+        double atr = calculateAtr(candles, 14);
+        double atrAvg = calculateAverageAtr(candles, 50);
+        double rsi = calculateRsi(candles, 14);
+        double emaFast = calculateEma(candles, 9);
+        double emaSlow = calculateEma(candles, 21);
+        double pricePosition = calculatePricePositionForEntry(candles, entryPrice);
+        double volumeRatio = calculateVolumeRatio(candles, 20);
+        double volumeTrend = calculateVolumeTrend(candles, 5);
+
+        double riskRewardRatio = (takeProfit - entryPrice) / Math.max(entryPrice - stopLoss, 0.0001);
+        double stopDistance = Math.abs(entryPrice - stopLoss) / entryPrice * 100.0;
+        String normalizedSignal = extractSignalToken(breakoutType);
+        double signalStrength = parseSignalStrength(normalizedSignal);
+        double signalTypeTrend = normalizedSignal.startsWith("TB") ? 1.0 : 0.0;
+        double signalTypeFx = normalizedSignal.startsWith("FX") ? 1.0 : 0.0;
+        double signalTypeMixed = normalizedSignal.startsWith("MX") ? 1.0 : 0.0;
+        double groupConfirmed = breakoutType != null && breakoutType.contains("noGroupConf") ? 0.0 : 1.0;
+        double strongTrend = adx >= 30.0 ? 1.0 : 0.0;
+        double rangeRegime = adx > 0.0 && adx <= 15.0 ? 1.0 : 0.0;
+        LocalDateTime resolvedEntryTime = entryTime != null ? entryTime : resolveEntryTime(candles);
+
+        TradeFeatures features = new TradeFeatures(
+                adx, diValues[0], diValues[1], atr, atr / Math.max(atrAvg, 0.0001),
+                rsi, emaFast, emaSlow, emaFast / Math.max(emaSlow, 0.01), pricePosition,
+                volumeRatio, volumeTrend,
+                entryConfidence, riskRewardRatio, stopDistance, breakoutType,
+                signalStrength, signalTypeTrend, signalTypeFx, signalTypeMixed,
+                groupConfirmed, strongTrend, rangeRegime,
+                resolvedEntryTime.getHour(), resolvedEntryTime.getDayOfWeek().getValue(),
+                ticker, strategy, resolvedEntryTime, entryPrice
+        );
+
+        tradeHistory.add(features);
+        openTrades.put(buildTradeKey(ticker, strategy), features);
+        saveData();
+    }
+    
+    /**
+     * Update trade with outcome.
+     */
+    public void recordTradeOutcome(String ticker, double pnlRubles, double entryPrice, double stopLoss) {
+        double risk = Math.abs(entryPrice - stopLoss);
+        double pnlR = risk > 0 ? pnlRubles / (risk * entryPrice) : 0.0;
+        
+        for (TradeFeatures trade : tradeHistory) {
+            if (trade.ticker.equals(ticker) && trade.outcome == null) {
+                trade.outcome = pnlR;
+                trade.isWinner = pnlR > 0;
+                saveData();
+                break;
+            }
+        }
+    }
+
+    public void recordTradeOutcome(String ticker,
+                                   String strategy,
+                                   double pnlRubles,
+                                   double entryPrice,
+                                   double stopLoss) {
+        double risk = Math.abs(entryPrice - stopLoss);
+        double pnlR = risk > 0 ? pnlRubles / (risk * Math.max(1.0, entryPrice)) : 0.0;
+
+        TradeFeatures trade = openTrades.remove(buildTradeKey(ticker, strategy));
+        if (trade == null) {
+            for (int i = tradeHistory.size() - 1; i >= 0; i--) {
+                TradeFeatures item = tradeHistory.get(i);
+                if (item.ticker.equals(ticker) && item.strategy.equals(strategy) && item.outcome == null) {
+                    trade = item;
+                    break;
+                }
+            }
+        }
+
+        if (trade != null) {
+            trade.outcome = pnlR;
+            trade.isWinner = pnlR > 0;
+            saveData();
+        }
+    }
+    
+    /**
+     * Get training data filtered by quality.
+     */
+    public List<TradeFeatures> getGoodTrades() {
+        List<TradeFeatures> good = new ArrayList<>();
+        for (TradeFeatures t : tradeHistory) {
+            if (t.outcome != null && t.outcome >= 1.0) {
+                good.add(t);
+            }
+        }
+        return good;
+    }
+    
+    public List<TradeFeatures> getBadTrades() {
+        List<TradeFeatures> bad = new ArrayList<>();
+        for (TradeFeatures t : tradeHistory) {
+            if (t.outcome != null && t.outcome < 0.0) {
+                bad.add(t);
+            }
+        }
+        return bad;
+    }
+    
+    /**
+     * Get statistics.
+     */
+    public Map<String, Object> getStatistics() {
+        Map<String, Object> stats = new HashMap<>();
+        stats.put("total", tradeHistory.size());
+        stats.put("withOutcome", (int) tradeHistory.stream().filter(t -> t.outcome != null).count());
+        stats.put("winners", (int) tradeHistory.stream().filter(t -> t.isWinner != null && t.isWinner).count());
+        stats.put("losers", (int) tradeHistory.stream().filter(t -> t.isWinner != null && !t.isWinner).count());
+        
+        double avgOutcome = tradeHistory.stream()
+                .filter(t -> t.outcome != null)
+                .mapToDouble(t -> t.outcome)
+                .average()
+                .orElse(0.0);
+        stats.put("avgOutcome", avgOutcome);
+        
+        return stats;
+    }
+    
+    // === Technical Analysis Helpers ===
+    
+    private double calculateAdx(List<Candle> candles, int period) {
+        if (candles.size() < period * 2) return 0.0;
+        
+        double trSum = 0, pdSum = 0, mdSum = 0;
+        for (int i = candles.size() - period; i < candles.size(); i++) {
+            Candle c = candles.get(i);
+            Candle p = candles.get(i - 1);
+            
+            double tr = Math.max(Math.max(c.high - c.low, Math.abs(c.high - p.close)), Math.abs(c.low - p.close));
+            trSum += tr;
+            
+            double up = c.high - p.high;
+            double dn = p.low - c.low;
+            if (up > dn && up > 0) pdSum += up;
+            if (dn > up && dn > 0) mdSum += dn;
+        }
+        
+        double atr = trSum / period;
+        double diPlus = atr > 0 ? (pdSum / period) / atr * 100 : 0;
+        double diMinus = atr > 0 ? (mdSum / period) / atr * 100 : 0;
+        
+        return (diPlus + diMinus) > 0 ? Math.abs(diPlus - diMinus) / (diPlus + diMinus) * 100 : 0;
+    }
+    
+    private double[] calculateDI(List<Candle> candles, int period) {
+        double trSum = 0, pdSum = 0, mdSum = 0;
+        for (int i = candles.size() - period; i < candles.size(); i++) {
+            Candle c = candles.get(i);
+            Candle p = candles.get(i - 1);
+            
+            double tr = Math.max(Math.max(c.high - c.low, Math.abs(c.high - p.close)), Math.abs(c.low - p.close));
+            trSum += tr;
+            
+            double up = c.high - p.high;
+            double dn = p.low - c.low;
+            if (up > dn && up > 0) pdSum += up;
+            if (dn > up && dn > 0) mdSum += dn;
+        }
+        
+        double atr = trSum / period;
+        double diPlus = atr > 0 ? (pdSum / period) / atr * 100 : 0;
+        double diMinus = atr > 0 ? (mdSum / period) / atr * 100 : 0;
+        
+        return new double[]{diPlus, diMinus};
+    }
+    
+    private double calculateAtr(List<Candle> candles, int period) {
+        if (candles.size() < period + 1) return 0.0;
+        double sum = 0.0;
+        for (int i = candles.size() - period; i < candles.size(); i++) {
+            Candle c = candles.get(i);
+            Candle p = candles.get(i - 1);
+            sum += Math.max(Math.max(c.high - c.low, Math.abs(c.high - p.close)), Math.abs(c.low - p.close));
+        }
+        return sum / period;
+    }
+    
+    private double calculateAverageAtr(List<Candle> candles, int period) {
+        if (candles.size() < period + 1) return 0.0;
+        double sum = 0.0;
+        for (int i = candles.size() - period; i < candles.size(); i++) {
+            sum += calculateAtr(candles.subList(0, i + 1), 14);
+        }
+        return sum / period;
+    }
+    
+    private double calculateRsi(List<Candle> candles, int period) {
+        if (candles.size() < period + 1) return 50.0;
+        
+        double gains = 0.0, losses = 0.0;
+        for (int i = candles.size() - period; i < candles.size(); i++) {
+            double change = candles.get(i).close - candles.get(i - 1).close;
+            if (change > 0) gains += change;
+            else losses -= change;
+        }
+        
+        double rs = losses == 0 ? 100 : gains / losses;
+        return 100.0 - (100.0 / (1.0 + rs));
+    }
+    
+    private double calculateEma(List<Candle> candles, int period) {
+        if (candles.size() < period) return candles.get(candles.size() - 1).close;
+        
+        double multiplier = 2.0 / (period + 1);
+        double ema = candles.get(0).close;
+        
+        for (int i = 1; i < candles.size(); i++) {
+            ema = (candles.get(i).close - ema) * multiplier + ema;
+        }
+        
+        return ema;
+    }
+    
+    private double calculatePricePosition(List<Candle> candles) {
+        if (candles.isEmpty()) return 0.5;
+        
+        double highest = candles.stream().mapToDouble(c -> c.high).max().orElse(0);
+        double lowest = candles.stream().mapToDouble(c -> c.low).min().orElse(0);
+        double current = candles.get(candles.size() - 1).close;
+        
+        return (highest - lowest) > 0 ? (current - lowest) / (highest - lowest) : 0.5;
+    }
+
+    private double calculatePricePositionForEntry(List<Candle> candles, double entryPrice) {
+        if (candles.isEmpty()) return 0.5;
+
+        double highest = candles.stream().mapToDouble(c -> c.high).max().orElse(0.0);
+        double lowest = candles.stream().mapToDouble(c -> c.low).min().orElse(0.0);
+        return (highest - lowest) > 0 ? (entryPrice - lowest) / (highest - lowest) : 0.5;
+    }
+    
+    private double calculateVolumeRatio(List<Candle> candles, int period) {
+        if (candles.size() < period + 1) return 1.0;
+        
+        long currentVolume = candles.get(candles.size() - 1).volume;
+        long avgVolume = 0;
+        for (int i = candles.size() - period; i < candles.size() - 1; i++) {
+            avgVolume += candles.get(i).volume;
+        }
+        avgVolume /= period;
+        
+        return avgVolume > 0 ? (double) currentVolume / avgVolume : 1.0;
+    }
+
+    private double calculateVolumeTrend(List<Candle> candles, int lookback) {
+        if (candles.size() <= lookback) {
+            return 0.0;
+        }
+
+        double recent = 0.0;
+        double previous = 0.0;
+        for (int i = candles.size() - lookback; i < candles.size(); i++) {
+            recent += candles.get(i).volume;
+            previous += candles.get(i - lookback).volume;
+        }
+
+        return 0.0 != previous ? (recent - previous) / previous : 0.0;
+    }
+    
+    // === Persistence ===
+    
+    private void loadExistingData() {
+        File file = new File(dataFile);
+        if (!file.exists()) return;
+        
+        try (BufferedReader reader = new BufferedReader(new FileReader(file))) {
+            String line;
+            boolean isHeader = true;
+            while ((line = reader.readLine()) != null) {
+                if (isHeader) {
+                    isHeader = false;
+                    continue;
+                }
+                if (line.trim().isEmpty()) {
+                    continue;
+                }
+
+                String[] parts = line.split(",", -1);
+                if (parts.length < 36) {
+                    continue;
+                }
+
+                LocalDateTime entryTime = LocalDateTime.parse(parts[0]);
+                TradeFeatures trade = new TradeFeatures(
+                        parseDouble(parts[3]), parseDouble(parts[4]), parseDouble(parts[5]), parseDouble(parts[6]), parseDouble(parts[7]),
+                        parseDouble(parts[8]), parseDouble(parts[9]), parseDouble(parts[10]), parseDouble(parts[11]), parseDouble(parts[12]),
+                        parseDouble(parts[13]), parseDouble(parts[14]), parseDouble(parts[15]), parseDouble(parts[16]), parseDouble(parts[17]), "IMPORTED",
+                        parseDouble(parts[18]), parseDouble(parts[19]), parseDouble(parts[20]), parseDouble(parts[21]), parseDouble(parts[22]), parseDouble(parts[23]), parseDouble(parts[24]),
+                        parseInt(parts[25]), parseInt(parts[26]),
+                        parts[1], parts[2], entryTime, parseDouble(parts[29])
+                );
+                if (!parts[33].isEmpty()) {
+                    trade.outcome = parseDouble(parts[33]);
+                }
+                if (!parts[34].isEmpty()) {
+                    trade.isWinner = Boolean.parseBoolean(parts[34]);
+                }
+                tradeHistory.add(trade);
+            }
+        } catch (IOException e) {
+            System.err.println("Error loading trade data: " + e.getMessage());
+        }
+    }
+    
+    private void saveData() {
+        File file = new File(dataFile);
+        File parent = file.getParentFile();
+        if (parent != null && !parent.exists()) {
+            parent.mkdirs();
+        }
+        try (PrintWriter writer = new PrintWriter(new FileWriter(dataFile))) {
+            writer.println(CSV_HEADER);
+            
+            for (TradeFeatures t : tradeHistory) {
+                writer.printf(Locale.US,
+                        "%s,%s,%s,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%d,%d,%d,%d,%.6f,%.6f,%.6f,%d,%s,%s%n",
+                        t.entryTime,
+                        t.ticker,
+                        t.strategy,
+                        t.adx,
+                        t.diPlus,
+                        t.diMinus,
+                        t.atr,
+                        t.atrRatio,
+                        t.rsi,
+                        t.emaFast,
+                        t.emaSlow,
+                        t.emaRatio,
+                        t.pricePosition,
+                        t.volumeRatio,
+                        t.volumeTrend,
+                        t.entryConfidence,
+                        t.riskRewardRatio,
+                        t.stopDistance,
+                        t.signalStrength,
+                        t.signalTypeTrend,
+                        t.signalTypeFx,
+                        t.signalTypeMixed,
+                        t.groupConfirmed,
+                        t.strongTrend,
+                        t.rangeRegime,
+                        t.hourOfDay,
+                        t.dayOfWeek,
+                        t.isMorning ? 1 : 0,
+                        t.isAfternoon ? 1 : 0,
+                        t.entryPrice,
+                        t.entryPrice * (1.0 - t.stopDistance / 100.0),
+                        t.entryPrice * (1.0 + (t.stopDistance / 100.0) * t.riskRewardRatio),
+                        1,
+                        t.outcome != null ? String.format(Locale.US, "%.6f", t.outcome) : "",
+                        t.isWinner != null ? t.isWinner.toString() : ""
+                );
+            }
+        } catch (IOException e) {
+            System.err.println("Error saving trade data: " + e.getMessage());
+        }
+    }
+
+    private String buildTradeKey(String ticker, String strategy) {
+        return strategy + "::" + ticker;
+    }
+
+    private double parseDouble(String value) {
+        return value == null || value.isEmpty() ? 0.0 : Double.parseDouble(value);
+    }
+
+    private int parseInt(String value) {
+        return value == null || value.isEmpty() ? 0 : Integer.parseInt(value);
+    }
+
+    private double parseSignalStrength(String breakoutType) {
+        if (breakoutType == null || breakoutType.isEmpty()) {
+            return 0.0;
+        }
+
+        String[] parts = breakoutType.split("_");
+        if (parts.length < 2) {
+            return 0.0;
+        }
+
+        try {
+            return Double.parseDouble(parts[1]);
+        } catch (NumberFormatException ex) {
+            return 0.0;
+        }
+    }
+
+    private String extractSignalToken(String breakoutType) {
+        if (breakoutType == null || breakoutType.isEmpty()) {
+            return "";
+        }
+
+        for (String part : breakoutType.split("_")) {
+            if ("TB".equals(part) || "FXB".equals(part) || "FXS".equals(part) || "MXB".equals(part) || "MXS".equals(part)) {
+                return part;
+            }
+        }
+
+        if (breakoutType.contains("TB_")) {
+            return breakoutType.substring(breakoutType.indexOf("TB_"));
+        }
+        if (breakoutType.contains("FX")) {
+            return breakoutType.substring(breakoutType.indexOf("FX"));
+        }
+        if (breakoutType.contains("MX")) {
+            return breakoutType.substring(breakoutType.indexOf("MX"));
+        }
+        return breakoutType;
+    }
+
+    private LocalDateTime resolveEntryTime(List<Candle> candles) {
+        if (candles == null || candles.isEmpty()) {
+            return LocalDateTime.now();
+        }
+
+        try {
+            Date date = CANDLE_TIME_FORMAT.get().parse(candles.get(candles.size() - 1).time);
+            return LocalDateTime.ofInstant(date.toInstant(), ZoneId.systemDefault());
+        } catch (Exception ignored) {
+            return LocalDateTime.now();
+        }
+    }
+}

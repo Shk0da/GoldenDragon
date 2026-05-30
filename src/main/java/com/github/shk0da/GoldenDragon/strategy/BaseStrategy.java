@@ -3,6 +3,7 @@ package com.github.shk0da.GoldenDragon.strategy;
 import com.github.shk0da.GoldenDragon.config.UnifiedTraderConfig;
 import com.github.shk0da.GoldenDragon.filters.BadWeatherFilter;
 import com.github.shk0da.GoldenDragon.filters.MarketRegimeFilter;
+import com.github.shk0da.GoldenDragon.ml.TradeDataCollector;
 import com.github.shk0da.GoldenDragon.model.Candle;
 import com.github.shk0da.GoldenDragon.model.Config;
 import com.github.shk0da.GoldenDragon.model.Position;
@@ -26,6 +27,7 @@ import java.time.DayOfWeek;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.OffsetDateTime;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Calendar;
 import java.util.Date;
@@ -54,6 +56,8 @@ import static java.util.concurrent.CompletableFuture.allOf;
 import static java.util.concurrent.CompletableFuture.runAsync;
 
 public abstract class BaseStrategy {
+
+    protected static final TradeDataCollector TRADE_DATA_COLLECTOR = new TradeDataCollector("ml_strategy/data_pipeline/trades.csv");
 
     protected final Config config;
     protected final TCSService tcsService;
@@ -385,6 +389,7 @@ public abstract class BaseStrategy {
 
             positionStore.put(name, decision.updatedPosition);
             lastSeenHourBarByTicker.put(name, candles.get(candles.size() - 1).time);
+            TRADE_DATA_COLLECTOR.recordTradeEntry(name, getStrategyName(), candles, decision);
 
             telegramNotifyService.sendMessage(getStrategyName() + " " + decision.updatedPosition.direction + " " + name
                     + ": qty=" + qty
@@ -425,6 +430,8 @@ public abstract class BaseStrategy {
             double entryPrice = storedPosition.entryPrice != null ? storedPosition.entryPrice : 0.0;
             double exitPrice = decision.entryPrice != null ? decision.entryPrice : 0.0;
             double pnl = calculatePnl(storedPosition, exitPrice);
+            double stopLoss = storedPosition.stopLoss != null ? storedPosition.stopLoss : entryPrice;
+            TRADE_DATA_COLLECTOR.recordTradeOutcome(name, getStrategyName(), pnl, entryPrice, stopLoss);
             onTradeClosed(name, pnl, entryPrice, exitPrice, storedPosition.quantity, storedPosition.direction);
             
             telegramNotifyService.sendMessage(getStrategyName() + " CLOSED " + name +
@@ -455,6 +462,27 @@ public abstract class BaseStrategy {
     protected void onTradeClosed(String ticker, double pnl, double entryPrice,
                                   double exitPrice, int quantity, String direction) {
         // Default: no-op. Override in UnifiedStrategy for MM integration.
+    }
+
+    public void recordBacktestTradeEntry(String ticker,
+                                         List<Candle> hourCandles,
+                                         TradingDecision decision) {
+        LocalDateTime entryTime = null;
+        if (hourCandles != null && !hourCandles.isEmpty()) {
+            try {
+                Date date = CANDLE_TIME_FORMAT.get().parse(hourCandles.get(hourCandles.size() - 1).time);
+                entryTime = LocalDateTime.ofInstant(date.toInstant(), ZoneId.systemDefault());
+            } catch (Exception ignored) {
+            }
+        }
+        TRADE_DATA_COLLECTOR.recordTradeEntry(ticker, getStrategyName(), hourCandles, decision, entryTime);
+    }
+
+    public void recordBacktestTradeOutcome(String ticker,
+                                           double pnl,
+                                           double entryPrice,
+                                           double stopLoss) {
+        TRADE_DATA_COLLECTOR.recordTradeOutcome(ticker, getStrategyName(), pnl, entryPrice, stopLoss);
     }
 
     /**

@@ -12,6 +12,7 @@ import com.github.shk0da.GoldenDragon.service.TCSService;
 import com.github.shk0da.GoldenDragon.strategy.DataCollector;
 import com.github.shk0da.GoldenDragon.strategy.GerchikStrategy;
 import com.github.shk0da.GoldenDragon.strategy.RegimeAwareStrategy;
+import com.github.shk0da.GoldenDragon.strategy.RegimeAwareStrategyMl;
 import com.github.shk0da.GoldenDragon.strategy.TurtleStrategy;
 import com.github.shk0da.GoldenDragon.strategy.UnifiedStrategy;
 import com.google.gson.reflect.TypeToken;
@@ -148,6 +149,14 @@ public class GoldenDragon {
                 UnifiedTraderConfig unifiedTraderConfig = new UnifiedTraderConfig();
                 new RegimeAwareStrategy(unifiedTraderConfig, tcsService).run();
                 telegramNotifyService.sendMessage("Stop RegimeAwareStrategy");
+            }
+
+            // 11. RegimeAwareStrategyMl
+            if ("RegimeAwareStrategyMl".equals(strategy)) {
+                telegramNotifyService.sendMessage("Run RegimeAwareStrategyMl");
+                UnifiedTraderConfig unifiedTraderConfig = new UnifiedTraderConfig();
+                new RegimeAwareStrategyMl(unifiedTraderConfig, tcsService).run();
+                telegramNotifyService.sendMessage("Stop RegimeAwareStrategyMl");
             }
         } catch (Exception ex) {
             out.printf("Error: %s%n", ex.getMessage());

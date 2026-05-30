@@ -3,6 +3,7 @@ package com.github.shk0da.GoldenDragon.strategy;
 import com.github.shk0da.GoldenDragon.config.UnifiedTraderConfig;
 import com.github.shk0da.GoldenDragon.model.Candle;
 import com.github.shk0da.GoldenDragon.model.Config;
+import com.github.shk0da.GoldenDragon.model.Group;
 import com.github.shk0da.GoldenDragon.model.Position;
 import com.github.shk0da.GoldenDragon.model.TradingDecision;
 import com.github.shk0da.GoldenDragon.service.TCSService;
@@ -21,13 +22,15 @@ import java.util.List;
 public class RegimeAwareStrategy extends BaseStrategy {
 
     // Market regime thresholds - SIMPLIFIED
-    private static final double ADX_TREND_THRESHOLD = 30.0;
-    private static final double ADX_RANGE_THRESHOLD = 15.0;
+    private static final double ADX_TREND_THRESHOLD = 28.0;
+    private static final double ADX_HOT_THRESHOLD = 38.0;
+    private static final double ADX_RANGE_THRESHOLD = 16.0;
     
     // Adaptive position size multipliers
-    private static final double TREND_SIZE_MULT = 1.5;      // Increase in trends
-    private static final double RANGE_SIZE_MULT = 0.5;      // Reduce in ranges
-    private static final double NORMAL_SIZE_MULT = 1.0;     // Standard
+    private static final double TREND_SIZE_MULT = 1.8;
+    private static final double HOT_TREND_SIZE_MULT = 2.2;
+    private static final double RANGE_SIZE_MULT = 0.55;
+    private static final double NORMAL_SIZE_MULT = 1.1;
     
     // UnifiedStrategy instance
     private final UnifiedStrategy unifiedStrategy;
@@ -96,12 +99,21 @@ public class RegimeAwareStrategy extends BaseStrategy {
             
             currentRegime = regime;
         }
+
+        if (MarketRegime.RANGE == regime) {
+            return new TradingDecision("HOLD", "RANGE_SKIP_ADX" + (int) adx);
+        }
+
+        if (MarketRegime.NORMAL == regime && adx < 20.0) {
+            return new TradingDecision("HOLD", "NORMAL_WEAK_ADX" + (int) adx);
+        }
         
         // Calculate adaptive balance multiplier
+        Group tickerGroup = Group.valueOf(unifiedTraderConfig.getTickerGroup(ticker));
         double balanceMultiplier;
         switch (regime) {
             case TREND:
-                balanceMultiplier = TREND_SIZE_MULT;
+                balanceMultiplier = adx >= ADX_HOT_THRESHOLD ? HOT_TREND_SIZE_MULT : TREND_SIZE_MULT;
                 break;
             case RANGE:
                 balanceMultiplier = RANGE_SIZE_MULT;
@@ -110,7 +122,17 @@ public class RegimeAwareStrategy extends BaseStrategy {
                 balanceMultiplier = NORMAL_SIZE_MULT;
                 break;
         }
-        
+
+        if (Group.TREND == tickerGroup) {
+            balanceMultiplier *= 1.15;
+        }
+        if (Group.FX == tickerGroup) {
+            balanceMultiplier *= 0.75;
+        }
+        if (Group.MIXED == tickerGroup && MarketRegime.RANGE == regime) {
+            balanceMultiplier *= 0.85;
+        }
+
         // Adjust balance for UnifiedStrategy
         double adjustedBalance = balance * balanceMultiplier;
         
@@ -118,6 +140,15 @@ public class RegimeAwareStrategy extends BaseStrategy {
         TradingDecision decision = unifiedStrategy.decide(
                 ticker, hourCandles, minuteCandles, position, adjustedBalance, incrementCandlesHeld
         );
+
+        if ("OPEN".equals(decision.action) && decision.reason != null) {
+            if (MarketRegime.NORMAL == regime && decision.reason.startsWith("FX")) {
+                return new TradingDecision("HOLD", "NORMAL_SKIP_FX_" + decision.reason);
+            }
+            if (adx < ADX_TREND_THRESHOLD && decision.reason.startsWith("TB_4")) {
+                return new TradingDecision("HOLD", "WEAK_TREND_SKIP_" + decision.reason);
+            }
+        }
         
         // Wrap decision with regime info
         return new TradingDecision(

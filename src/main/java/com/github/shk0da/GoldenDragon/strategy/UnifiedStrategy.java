@@ -26,6 +26,10 @@ import java.util.concurrent.ConcurrentMap;
 
 public class UnifiedStrategy extends BaseStrategy {
 
+    private static final double RANGE_ADX = 15.0;
+    private static final double STRONG_TREND_ADX = 30.0;
+    private static final double HOT_TREND_ADX = 38.0;
+
     // Money Management components
     private final RiskManager riskManager;
     private final PositionSizer positionSizer;
@@ -199,7 +203,6 @@ public class UnifiedStrategy extends BaseStrategy {
             double ep = p.entryPrice != null ? p.entryPrice : cur.close;
             double pnlAbs = "BUY".equals(dir) ? cur.close - ep : ep - cur.close;
             double atr = atrVal(hourCandles, config.atrPeriod);
-
             // Money Management: Use StopLossManager if enabled
             if (mmEnabled && stopLossManager != null && atr > 0.0) {
                 Double initialRisk = initialRiskPerTicker.get(ticker);
@@ -312,6 +315,9 @@ public class UnifiedStrategy extends BaseStrategy {
             return new TradingDecision("HOLD", "ATRspike", 0.0, 0, null, null, null, p);
         }
 
+        double adx = adxVal(hourCandles, config.adxPeriod);
+        double rsi = rsiVal(hourCandles, config.rsiPeriod);
+
         String signal;
         switch (grp) {
             case FX:
@@ -328,6 +334,9 @@ public class UnifiedStrategy extends BaseStrategy {
             return new TradingDecision("HOLD", "noSig", 0.0, 0, null, null, null, p);
         }
 
+        boolean strongTrend = adx >= STRONG_TREND_ADX;
+        boolean rangeRegime = adx > 0.0 && adx <= RANGE_ADX;
+
         boolean isBuy = signal.startsWith("TB") || signal.startsWith("FXB") || signal.startsWith("MXB");
         if (!isBuy) {
             return new TradingDecision("HOLD", "short_disabled", 0.0, 0, null, null, null, p);
@@ -343,7 +352,6 @@ public class UnifiedStrategy extends BaseStrategy {
             }
         }
 
-        double rsi = rsiVal(hourCandles, config.rsiPeriod);
         if (rsi > 72.0) {
             return new TradingDecision("HOLD", "rsi_hot", 0.0, 0, null, null, null, p);
         }
@@ -362,9 +370,28 @@ public class UnifiedStrategy extends BaseStrategy {
         double slMult = tpCfg.mmEnabled ? tpCfg.mmAtrStopMultiplier : tpCfg.slMult;
         double tpMult = tpCfg.tpMult;
         double riskP = tpCfg.mmEnabled && mmEnabled ? adaptiveCapital.getCurrentRiskPercent() : tpCfg.riskP;
+        if (strongTrend) {
+            riskP *= adx >= HOT_TREND_ADX ? 1.45 : 1.20;
+        }
+        if (rangeRegime) {
+            riskP *= 0.65;
+        }
+        if (Group.FX == grp) {
+            riskP *= 0.75;
+        }
+        riskP = Math.max(0.005, Math.min(riskP, 0.03));
 
         double slDist = dAtr * slMult;
         double tpDist = dAtr * tpMult;
+
+        if (strongTrend) {
+            slDist *= 1.10;
+            tpDist *= adx >= HOT_TREND_ADX ? 1.35 : 1.20;
+        }
+        if (rangeRegime) {
+            slDist *= 0.90;
+            tpDist *= 0.85;
+        }
 
         if (slDist <= 0.0 || tpDist <= 0.0) {
             return new TradingDecision("HOLD", "dist0", 0.0, 0, null, null, null, p);
