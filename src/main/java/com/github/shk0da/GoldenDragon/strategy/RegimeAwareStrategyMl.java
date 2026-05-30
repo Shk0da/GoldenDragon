@@ -1,8 +1,8 @@
 package com.github.shk0da.GoldenDragon.strategy;
 
 import com.github.shk0da.GoldenDragon.config.UnifiedTraderConfig;
-import com.github.shk0da.GoldenDragon.ml.MlPredictionService;
 import com.github.shk0da.GoldenDragon.ml.MlAutoTrainingService;
+import com.github.shk0da.GoldenDragon.ml.MlPredictionService;
 import com.github.shk0da.GoldenDragon.ml.TradeFeatures;
 import com.github.shk0da.GoldenDragon.model.Candle;
 import com.github.shk0da.GoldenDragon.model.Config;
@@ -14,8 +14,6 @@ import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
-
-import static java.lang.System.out;
 
 /**
  * RegimeAwareStrategy v5 with ML filtering.
@@ -51,9 +49,6 @@ public class RegimeAwareStrategyMl extends BaseStrategy {
     private int above30 = 0;
     private int above40 = 0;
     private int above50 = 0;
-    private int debugFeatureSnapshotsPrinted = 0;
-    private static final int MAX_DEBUG_FEATURE_SNAPSHOTS = 5;
-    
     private enum MarketRegime {
         TREND, RANGE, NORMAL, UNKNOWN
     }
@@ -161,8 +156,6 @@ public class RegimeAwareStrategyMl extends BaseStrategy {
         // Get ML prediction
         double winProbability = mlService.predictProbability(features);
         trackProbability(winProbability);
-        debugFeatureSnapshot(ticker, decision, features, winProbability);
-        
         // Apply ML filtering
         if (useMlFiltering && winProbability < mlService.getProbabilityThreshold()) {
             mlFilteredTrades++;
@@ -244,44 +237,6 @@ public class RegimeAwareStrategyMl extends BaseStrategy {
         if (winProbability >= 0.50) above50++;
     }
 
-    private void debugFeatureSnapshot(String ticker,
-                                      TradingDecision decision,
-                                      TradeFeatures features,
-                                      double winProbability) {
-        if (!isBacktest || debugFeatureSnapshotsPrinted >= MAX_DEBUG_FEATURE_SNAPSHOTS) {
-            return;
-        }
-
-        debugFeatureSnapshotsPrinted++;
-        out.println("ML_DEBUG ticker=" + ticker +
-                ", reason=" + decision.reason +
-                ", prob=" + String.format("%.6f", winProbability) +
-                ", adx=" + String.format("%.6f", features.adx) +
-                ", diPlus=" + String.format("%.6f", features.diPlus) +
-                ", diMinus=" + String.format("%.6f", features.diMinus) +
-                ", atr=" + String.format("%.6f", features.atr) +
-                ", atrRatio=" + String.format("%.6f", features.atrRatio) +
-                ", rsi=" + String.format("%.6f", features.rsi) +
-                ", emaFast=" + String.format("%.6f", features.emaFast) +
-                ", emaSlow=" + String.format("%.6f", features.emaSlow) +
-                ", emaRatio=" + String.format("%.6f", features.emaRatio) +
-                ", pricePosition=" + String.format("%.6f", features.pricePosition) +
-                ", volumeRatio=" + String.format("%.6f", features.volumeRatio) +
-                ", volumeTrend=" + String.format("%.6f", features.volumeTrend) +
-                ", entryConfidence=" + String.format("%.6f", features.entryConfidence) +
-                ", riskRewardRatio=" + String.format("%.6f", features.riskRewardRatio) +
-                ", stopDistance=" + String.format("%.6f", features.stopDistance) +
-                ", signalStrength=" + String.format("%.6f", features.signalStrength) +
-                ", signalTypeTrend=" + String.format("%.6f", features.signalTypeTrend) +
-                ", signalTypeFx=" + String.format("%.6f", features.signalTypeFx) +
-                ", signalTypeMixed=" + String.format("%.6f", features.signalTypeMixed) +
-                ", groupConfirmed=" + String.format("%.6f", features.groupConfirmed) +
-                ", strongTrend=" + String.format("%.6f", features.strongTrend) +
-                ", rangeRegime=" + String.format("%.6f", features.rangeRegime) +
-                ", hour=" + features.hourOfDay +
-                ", dayOfWeek=" + features.dayOfWeek);
-    }
-    
     private TradeFeatures createTradeFeatures(String ticker, List<Candle> candles, 
                                                TradingDecision decision, MarketRegime regime, double adx) {
         if (candles == null || candles.size() < 30) return null;
@@ -572,9 +527,7 @@ public class RegimeAwareStrategyMl extends BaseStrategy {
                     ", >=0.30=" + above30 +
                     ", >=0.40=" + above40 +
                     ", >=0.50=" + above50;
-            if (isBacktest) {
-                out.println(probabilitySummary);
-            } else {
+            if (!isBacktest) {
                 log(probabilitySummary);
             }
         }
