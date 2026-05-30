@@ -68,7 +68,7 @@ public class MlAutoTrainingService {
             predictionService.setProbabilityThreshold(artifacts.recommendedThreshold);
             lastObservedTrades = tradeCount;
             lastSuccessfulTraining = now;
-            System.out.println("Auto retraining finished. threshold=" + artifacts.recommendedThreshold + ", auc=" + artifacts.testMetrics.auc);
+            System.out.println("Auto retraining finished. threshold=" + artifacts.recommendedThreshold);
         } catch (IOException ex) {
             System.err.println("Auto retraining failed: " + ex.getMessage());
         } finally {
