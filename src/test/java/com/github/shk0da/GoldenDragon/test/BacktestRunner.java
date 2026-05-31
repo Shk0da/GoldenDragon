@@ -6,13 +6,8 @@ import com.github.shk0da.GoldenDragon.model.Config;
 import com.github.shk0da.GoldenDragon.model.Position;
 import com.github.shk0da.GoldenDragon.model.TradingDecision;
 import com.github.shk0da.GoldenDragon.strategy.BaseStrategy;
-import com.github.shk0da.GoldenDragon.strategy.GerchikStrategy;
-import com.github.shk0da.GoldenDragon.strategy.HighWinRateStrategy;
-import com.github.shk0da.GoldenDragon.strategy.IchimokuStrategy;
 import com.github.shk0da.GoldenDragon.strategy.RegimeAwareStrategy;
 import com.github.shk0da.GoldenDragon.strategy.RegimeAwareStrategyMl;
-import com.github.shk0da.GoldenDragon.strategy.ScalpingStrategy;
-import com.github.shk0da.GoldenDragon.strategy.TurtleStrategy;
 import com.github.shk0da.GoldenDragon.strategy.UnifiedStrategy;
 import com.github.shk0da.GoldenDragon.utils.PropertiesUtils;
 import java.io.File;
@@ -40,6 +35,175 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 
+/**
+ * Движок бэктестинга торговых стратегий на исторических данных.
+ *
+ * <p>Класс симулирует исполнение одной или нескольких стратегий
+ * ({@link UnifiedStrategy}, {@link RegimeAwareStrategy}, {@link RegimeAwareStrategyMl})
+ * на массиве тикеров и временных периодов, имитируя реальную торговлю с учётом
+ * комиссий, рабочих часов, EOD-закрытий и портфельного управления капиталом.
+ * По завершении формирует сводную статистику и сравнительный рейтинг стратегий.</p>
+ *
+ * <h2>Точка входа</h2>
+ * <ul>
+ *   <li>{@link #main(String[])} — если передан аргумент, прогоняется одна
+ *       указанная стратегия; иначе перебираются все из {@link #ALL_STRATEGIES}
+ *       и в конце печатается сравнительная таблица.</li>
+ *   <li>{@link #run(String)} — основной публичный метод запуска для конкретной
+ *       стратегии: загружает тикеры, периоды, выполняет симуляцию и печатает
+ *       результаты.</li>
+ * </ul>
+ *
+ * <h2>Режимы и конфигурация</h2>
+ * <ul>
+ *   <li>{@code backtest.mode} (system property):
+ *     <ul>
+ *       <li>{@code "fast"} — 6 коротких периодов (декабрь 2025 – май 2026).</li>
+ *       <li>иначе (по умолчанию {@code "full"}) — 4 годовых периода (2023–2026).</li>
+ *     </ul>
+ *   </li>
+ *   <li>{@code backtest.threads} — число потоков для параллельной загрузки данных
+ *       (по умолчанию {@code availableProcessors - 1}).</li>
+ *   <li>Начальный баланс: 1 000 000, комиссия: 0.05% (двусторонняя).</li>
+ *   <li>Рабочие часы симуляции: {@link #WORK_START_TIME} (10:00) –
+ *       {@link #EOD_CLOSE_TIME} (21:00), пн–пт.</li>
+ *   <li>Минимум {@link #MIN_HOURS_REQUIRED} = 60 часовых свечей до старта
+ *       принятия решений (warm-up для индикаторов).</li>
+ * </ul>
+ *
+ * <h2>Загрузка тикеров и данных</h2>
+ * <ol>
+ *   <li>{@link #loadTickers()} — собирает список тикеров из properties:
+ *       {@code datacollector.stocks} + ключи {@code unifiedTrader.ticker.<NAME>.*}.</li>
+ *   <li>{@link #filterEnabledTickers} — отсев по флагу {@code params.enabled}.</li>
+ *   <li>{@link #loadMarketDataParallel} — параллельная загрузка для всех тикеров
+ *       через {@link ExecutorService} с пулом {@link #BACKTEST_THREADS}.</li>
+ *   <li>{@link #loadCandles} / {@link #loadCandles5Min} — чтение CSV-файлов
+ *       {@code candlesHOUR.txt} / {@code candles5_MIN.txt} с фильтрацией по
+ *       диапазону дат и сортировкой по времени.</li>
+ *   <li>Для каждого тикера формируется {@link MarketData}:
+ *       часовые свечи, минутные свечи (или часовые, если
+ *       {@code useMinuteCandles == false}) и их временные метки.</li>
+ * </ol>
+ *
+ * <h2>Основной цикл симуляции ({@link #execute})</h2>
+ * <p>Все тикеры обрабатываются <b>совместно в едином портфеле</b> с общим кэшем
+ * ({@code sharedCash}). Алгоритм:</p>
+ * <ol>
+ *   <li>Создаётся отдельный экземпляр стратегии для каждого тикера через
+ *       {@link StrategyFactory}.</li>
+ *   <li>Строится <b>глобальный таймлайн</b> ({@link #buildGlobalTimeline}) —
+ *       объединение всех минутных меток времени всех тикеров (TreeSet с
+ *       хронологическим компаратором).</li>
+ *   <li>Группировка тикеров по {@code allocationGroup} для построения
+ *       peer-свечей при групповом подтверждении сигналов.</li>
+ *   <li>На каждой временной метке глобального таймлайна:
+ *     <ul>
+ *       <li>Для каждого тикера, у которого свеча совпадает с текущим временем,
+ *           вызывается логика обработки.</li>
+ *       <li>Вне рабочих часов / в выходные: позиция принудительно закрывается
+ *           один раз в день в {@link #EOD_CLOSE_TIME} с причиной {@code eod_close}.</li>
+ *       <li>В рабочие часы: продвигается часовой индекс, формируются
+ *           {@code hourHistory} и {@code minHistory}, строятся peer-свечи
+ *           ({@link #buildCurrentPeerCandles}), вызывается {@link BaseStrategy#decide}.</li>
+ *       <li>Результат решения применяется через {@link #applyPortfolioDecision}.</li>
+ *     </ul>
+ *   </li>
+ *   <li>В конце каждой временной метки фиксируется суммарная эквити-кривая
+ *       портфеля (кэш + рыночная стоимость всех открытых позиций).</li>
+ *   <li>По завершении периода: все открытые позиции закрываются с причиной
+ *       {@code period_end}.</li>
+ * </ol>
+ *
+ * <h2>Управление позициями ({@link #applyPortfolioDecision})</h2>
+ * <ul>
+ *   <li><b>OPEN</b>: только {@code BUY}; проверяется отсутствие открытой позиции
+ *       и достаточность кэша с учётом комиссии входа.
+ *       Кэш уменьшается на {@code positionValue + commission}.</li>
+ *   <li><b>CLOSE</b>: вызывается {@link #closePortfolioPosition} — расчёт PnL с
+ *       двухсторонней комиссией ({@code (entryValue + exitValue) × commission}),
+ *       запись {@link TradeResult}, регистрация результата в стратегии через
+ *       {@code recordBacktestTradeOutcome}, возврат средств в кэш.</li>
+ *   <li><b>HOLD</b>: только обновление состояния позиции (трейлинг SL, cooldown).</li>
+ * </ul>
+ *
+ * <h2>Peer-свечи и групповое подтверждение</h2>
+ * <p>{@link #buildCurrentPeerCandles} для каждого тикера с заданным
+ * {@code allocationGroup} собирает срезы часовых свечей всех peer-инструментов
+ * группы <b>до текущего момента времени</b> (через бинарный поиск
+ * {@link #upperBound} по времени), что предотвращает look-ahead bias.
+ * Карта передаётся стратегии через {@link BaseStrategy#setPeerCandles}.</p>
+ *
+ * <h2>Метрики и отчётность</h2>
+ * <ul>
+ *   <li>{@link TickerPeriodResult} — на тикер за период: PnL, max drawdown,
+ *       win rate, эквити-кривая, список сделок.</li>
+ *   <li>{@link PortfolioPeriodResult} — портфельные метрики за период.</li>
+ *   <li>{@link #calcMaxDrawdownByEquity} — максимальная просадка как
+ *       {@code (peak - equity) / peak}.</li>
+ *   <li>{@link #calculateWinRate} / {@link #calculatePortfolioWinRate} —
+ *       доля прибыльных сделок.</li>
+ *   <li>{@link #printResults} — таблица «Тикер × Период» с PnL, DD, числом сделок
+ *       и win rate; компактное форматирование ({@code K}/{@code M} для PnL,
+ *       маркеры риска {@code * / ! / пробел} для DD).</li>
+ * </ul>
+ *
+ * <h2>Сравнение стратегий</h2>
+ * <p>При запуске без аргументов прогоняются все стратегии из {@link #ALL_STRATEGIES},
+ * по каждой собираются {@link StrategyMetrics}:</p>
+ * <ul>
+ *   <li>Total PnL, средний Win Rate, Max Drawdown, общее число сделок.</li>
+ *   <li><b>Sharpe Ratio</b>: {@code avgReturn / stdDev} доходностей по периодам.</li>
+ *   <li><b>Profit Factor</b>: {@code grossProfit / grossLoss} по всем сделкам.</li>
+ *   <li><b>Composite Score</b> ({@link #calculateScore}):
+ *     <pre>
+ *     score = WinRate% × 0.4
+ *           + max(0, 20 - MaxDD%) × 0.3
+ *           + max(0, Sharpe) × 10 × 0.2
+ *           + min(PF, 3.0)    × 10 × 0.1
+ *     </pre>
+ *   </li>
+ * </ul>
+ * <p>Стратегии сортируются по score (по убыванию) и печатается «🏆 BEST STRATEGY».</p>
+ *
+ * <h2>Реалистичность симуляции</h2>
+ * <ul>
+ *   <li>Учёт двусторонней комиссии при каждой сделке.</li>
+ *   <li>Принудительное закрытие позиций в EOD и в конце периода.</li>
+ *   <li>Исключение нерабочих часов и выходных из принятия решений.</li>
+ *   <li>Warm-up индикаторов (минимум 60 часовых свечей).</li>
+ *   <li>Защита от look-ahead bias: все срезы данных формируются строго до
+ *       текущего момента симуляции через {@code subList(0, idx+1)} и
+ *       {@code upperBound}.</li>
+ *   <li>Единый кэш для всего портфеля — конкуренция тикеров за капитал.</li>
+ * </ul>
+ *
+ * <h2>Параллелизм</h2>
+ * <ul>
+ *   <li>Загрузка рыночных данных — параллельно через {@link ExecutorService}.</li>
+ *   <li>Сама симуляция — однопоточная (требуется детерминированный порядок
+ *       событий по глобальному таймлайну).</li>
+ * </ul>
+ *
+ * <h2>Хуки интеграции со стратегией</h2>
+ * <ul>
+ *   <li>{@link BaseStrategy#recordBacktestTradeEntry} — вызывается при OPEN
+ *       для записи входа в ML-pipeline.</li>
+ *   <li>{@link BaseStrategy#recordBacktestTradeOutcome} — при CLOSE для записи
+ *       результата сделки (PnL, SL, qty).</li>
+ *   <li>{@link BaseStrategy#setPeerCandles} — обновление peer-данных перед
+ *       каждым принятием решения.</li>
+ * </ul>
+ *
+ * <h2>Ограничения текущей реализации</h2>
+ * <ul>
+ *   <li>Поддерживается только long-only торговля (OPEN с {@code BUY}).</li>
+ *   <li>Срабатывание SL/TP внутри минутной свечи зависит от логики стратегии
+ *       (high/low касание проверяется в {@code decide}).</li>
+ *   <li>Проскальзывание ({@code slippage}) не моделируется — исполнение по
+ *       {@code close} или {@code entryPrice} из решения.</li>
+ * </ul>
+ */
 public class BacktestRunner {
 
     private static class StrategyFactory {
@@ -47,16 +211,6 @@ public class BacktestRunner {
             switch (strategyName) {
                 case "UnifiedStrategy":
                     return new UnifiedStrategy(config, null, new Config(), true);
-                case "HighWinRateStrategy":
-                    return new HighWinRateStrategy(config, null, new Config(), true);
-                case "ScalpingStrategy":
-                    return new ScalpingStrategy(config, null, new Config(), true);
-                case "IchimokuStrategy":
-                    return new IchimokuStrategy(config, null, new Config(), true);
-                case "TurtleStrategy":
-                    return new TurtleStrategy(config, null, new Config(), true);
-                case "GerchikStrategy":
-                    return new GerchikStrategy(config, null, new Config(), true);
                 case "RegimeAwareStrategy":
                     return new RegimeAwareStrategy(config, null, new Config(), true);
                 case "RegimeAwareStrategyMl":
@@ -81,10 +235,6 @@ public class BacktestRunner {
 
     private static final String[] ALL_STRATEGIES = {
             "UnifiedStrategy",
-            "GerchikStrategy",
-            "IchimokuStrategy",
-            "ScalpingStrategy",
-            "HighWinRateStrategy",
             "RegimeAwareStrategy",
     };
 

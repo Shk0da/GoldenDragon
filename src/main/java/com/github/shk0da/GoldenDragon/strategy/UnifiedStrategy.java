@@ -24,6 +24,103 @@ import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
+/**
+ * Унифицированная торговая стратегия, объединяющая трендовые, контртрендовые (FX)
+ * и смешанные подходы с интегрированной системой управления капиталом (Money Management).
+ *
+ * <h2>Общее описание</h2>
+ * Стратегия принимает торговые решения на основе часовых и минутных свечей,
+ * адаптируя логику входа/выхода под группу инструмента ({@link Group#TREND},
+ * {@link Group#FX}, {@link Group#MIXED}) и текущий рыночный режим.
+ * Поддерживает работу как в режиме реальной торговли, так и в режиме бэктеста.
+ *
+ * <h2>Сигнальная логика</h2>
+ * <ul>
+ *   <li><b>{@link #trendSignal(List)}</b> — трендовый сигнал по схеме голосования
+ *       (тренд по EMA, ADX, RSI, паттерн свечи). Возвращает {@code TB_*} (buy) или
+ *       {@code TS_*} (sell) при наборе 4+ голосов.</li>
+ *   <li><b>{@link #fxSignal(List, List)}</b> — контртрендовый сигнал на экстремумах RSI
+ *       (перепроданность/перекупленность) в сочетании с разворотными свечными
+ *       паттернами. Возвращает {@code FXB_*} / {@code FXS_*}.</li>
+ *   <li><b>{@link #mixedSignal(List, List)}</b> — гибридный сигнал, комбинирующий
+ *       трендовые признаки и свечные паттерны с весом. Возвращает {@code MXB_*} / {@code MXS_*}.</li>
+ *   <li><b>{@link #candlePattern(List)}</b> — распознавание свечных паттернов:
+ *       DOJI, PIN_BAR, ENGULFING, MORNING/EVENING_STAR, THREE_WHITE/BLACK.</li>
+ * </ul>
+ * Шорт-сигналы в текущей реализации отключены — открываются только BUY-позиции.
+ *
+ * <h2>Классификация рыночного режима</h2>
+ * Используются пороги ADX:
+ * <ul>
+ *   <li>{@link #RANGE_ADX} (15.0) — флэт/диапазон → риск снижается на 35%.</li>
+ *   <li>{@link #STRONG_TREND_ADX} (30.0) — сильный тренд → риск увеличивается на 20%,
+ *       SL расширяется на 10%, TP на 20%.</li>
+ *   <li>{@link #HOT_TREND_ADX} (38.0) — экстремально сильный тренд → риск +45%,
+ *       TP расширяется на 35%.</li>
+ * </ul>
+ *
+ * <h2>Фильтры входа</h2>
+ * Перед открытием позиции проверяются последовательно:
+ * <ol>
+ *   <li>{@code KillSwitch} — глобальная остановка торговли при критической просадке.</li>
+ *   <li>Активность тикера и MM-флаг ({@code tpCfg.enabled}, {@code tpCfg.mmEnabled}).</li>
+ *   <li>{@code RiskManager} — дневной лимит убытков и серия проигрышей.</li>
+ *   <li>Cooldown после закрытия позиции ({@code cooldownRemaining}).</li>
+ *   <li>{@code badWeatherFilter} — фильтр неблагоприятных рыночных условий.</li>
+ *   <li>{@link MarketRegimeFilter} — оценка режима по ADX, объёму и confidence.</li>
+ *   <li>ATR-фильтры: нулевой ATR и спайки ({@code atrSpikeThreshold}).</li>
+ *   <li>{@link GroupConfirmationFilter} — подтверждение по peer-инструментам группы.</li>
+ *   <li>RSI overheating ({@code rsi > 72.0}).</li>
+ * </ol>
+ *
+ * <h2>Управление открытой позицией</h2>
+ * <ul>
+ *   <li>Закрытие по SL / TP при касании ценой high/low текущей свечи.</li>
+ *   <li>Закрытие по таймауту ({@code maxCandlesHold} / {@code maxCandlesHoldFx} для FX).</li>
+ *   <li>Если MM включён — стоп-лосс обновляется через {@link StopLossManager}
+ *       (breakeven + трейлинг по ATR с учётом R-кратности от начального риска).</li>
+ *   <li>Иначе используется legacy-трейлинг с тремя ступенями (0.5R / 1.0R / 1.8R)
+ *       и групповым множителем (FX=0.7, MIXED=0.9, TREND=1.0).</li>
+ * </ul>
+ *
+ * <h2>Money Management</h2>
+ * Активируется флагом {@code config.mmEnabled}. Подсистемы:
+ * <ul>
+ *   <li>{@link PositionSizer} с {@link SizingStrategy}:
+ *       {@link FixedRiskSizing} или {@link VolatilityAdjustedSizing} (макс. 25% капитала).</li>
+ *   <li>{@link RiskManager} — лимиты дневного убытка и серии лоссов.</li>
+ *   <li>{@link AdaptiveCapital} — динамическая корректировка риска по результатам
+ *       (снижение после N проигрышей, восстановление после N выигрышей).</li>
+ *   <li>{@link KillSwitch} — аварийное отключение при критической просадке.</li>
+ *   <li>{@link PerformanceTracker} — учёт PnL, статистика, drawdown.</li>
+ * </ul>
+ * Начальный риск каждой позиции кэшируется в {@link #initialRiskPerTicker}
+ * для корректного расчёта R-кратностей в трейлинге.
+ *
+ * <h2>Расчёт размера позиции</h2>
+ * При включённом MM — через {@link PositionSizer} с поправкой на
+ * {@code adaptiveCapital.getRiskMultiplier()}.
+ * При выключенном MM — legacy: размер риска = {@code balance × riskP ×
+ * regimeMultiplier × confidenceK × signalStrengthK}, далее qty = risk / slDist
+ * с ограничением {@code balance / entry}. Итоговый риск ограничен диапазоном [0.5%; 3%].
+ *
+ * <h2>Жизненный цикл</h2>
+ * <ul>
+ *   <li>{@link #decide} — основной метод принятия решения на каждой свече.</li>
+ *   <li>{@link #onTradeClosed} / {@link #registerTradeResult} — учёт результата сделки
+ *       в MM-компонентах.</li>
+ *   <li>{@link #onDailyReset} / {@link #dailyReset} — сброс дневных лимитов
+ *       (RiskManager, PerformanceTracker session, KillSwitch, AdaptiveCapital).</li>
+ * </ul>
+ *
+ * <h2>Возвращаемые причины решений (reason codes)</h2>
+ * {@code init}, {@code ticker_disabled}, {@code MM_DISABLED_TICKER},
+ * {@code KILL_SWITCH_*}, {@code RISK_LIMIT_*}, {@code stop_loss}, {@code take_profit},
+ * {@code expired}, {@code CD<n>}, {@code in_pos}, {@code BAD_WEATHER_*},
+ * {@code REGIME_*}, {@code ATR0}, {@code ATRspike}, {@code noSig},
+ * {@code short_disabled}, {@code noGroupConf_*}, {@code rsi_hot},
+ * {@code dist0}, {@code qty0}, {@code MM_QTY_ZERO}.
+ */
 public class UnifiedStrategy extends BaseStrategy {
 
     private static final double RANGE_ADX = 15.0;
@@ -44,10 +141,6 @@ public class UnifiedStrategy extends BaseStrategy {
 
     public UnifiedStrategy(UnifiedTraderConfig unifiedTraderConfig, TCSService tcsService) {
         this(unifiedTraderConfig, tcsService, new Config(), false);
-    }
-
-    public UnifiedStrategy(UnifiedTraderConfig unifiedTraderConfig, TCSService tcsService, Config config) {
-        this(unifiedTraderConfig, tcsService, config, false);
     }
 
     public UnifiedStrategy(UnifiedTraderConfig unifiedTraderConfig, TCSService tcsService, Config config, boolean isBacktest) {
@@ -666,20 +759,6 @@ public class UnifiedStrategy extends BaseStrategy {
             logWithBacktest("MM: Registered trade for " + ticker + ": PnL=" + String.format("%.2f", pnl) +
                     ", consecutiveLosses=" + (riskManager != null ? riskManager.getConsecutiveLosses() : 0));
         }
-    }
-
-    /**
-     * Get current performance statistics.
-     */
-    public String getPerformanceStats() {
-        if (!mmEnabled || performanceTracker == null) {
-            return "MM disabled";
-        }
-        PerformanceTracker.SessionStats stats = performanceTracker.getSessionStats();
-        return String.format("Trades: %d, Wins: %d, Losses: %d, WinRate: %.1f%%, Total PnL: %.2f",
-                stats.trades, stats.wins, stats.losses,
-                performanceTracker.getWinRate() * 100,
-                stats.totalPnL);
     }
 
     @Override

@@ -1,8 +1,11 @@
 package com.github.shk0da.GoldenDragon;
 
 import com.github.shk0da.GoldenDragon.config.DataCollectorConfig;
+import com.github.shk0da.GoldenDragon.config.LevelTraderConfig;
 import com.github.shk0da.GoldenDragon.config.MainConfig;
 import com.github.shk0da.GoldenDragon.config.MarketConfig;
+import com.github.shk0da.GoldenDragon.config.RSXConfig;
+import com.github.shk0da.GoldenDragon.config.RebalanceConfig;
 import com.github.shk0da.GoldenDragon.config.UnifiedTraderConfig;
 import com.github.shk0da.GoldenDragon.model.Market;
 import com.github.shk0da.GoldenDragon.model.TickerInfo;
@@ -10,10 +13,12 @@ import com.github.shk0da.GoldenDragon.repository.Repository;
 import com.github.shk0da.GoldenDragon.repository.TickerRepository;
 import com.github.shk0da.GoldenDragon.service.TCSService;
 import com.github.shk0da.GoldenDragon.strategy.DataCollector;
-import com.github.shk0da.GoldenDragon.strategy.GerchikStrategy;
-import com.github.shk0da.GoldenDragon.strategy.RegimeAwareStrategy;
+import com.github.shk0da.GoldenDragon.strategy.DivFlow;
+import com.github.shk0da.GoldenDragon.strategy.IndicatorTrader;
+import com.github.shk0da.GoldenDragon.strategy.LevelTrader;
+import com.github.shk0da.GoldenDragon.strategy.RSX;
+import com.github.shk0da.GoldenDragon.strategy.Rebalance;
 import com.github.shk0da.GoldenDragon.strategy.RegimeAwareStrategyMl;
-import com.github.shk0da.GoldenDragon.strategy.TurtleStrategy;
 import com.github.shk0da.GoldenDragon.strategy.UnifiedStrategy;
 import com.google.gson.reflect.TypeToken;
 import java.io.FileDescriptor;
@@ -76,29 +81,29 @@ public class GoldenDragon {
             TCSService tcsService = new TCSService(mainConfig.withAccountId(accountId), marketConfig);
             updateTickerRepository(tcsService);
 
-            // 1. Rebalance - DISABLED (class not found)
+            // 1. Rebalance
             if ("Rebalance".equals(strategy)) {
-                // final RebalanceConfig rebalanceConfig = new RebalanceConfig();
-                // new Rebalance(marketConfig, rebalanceConfig, tcsService).run();
+                final RebalanceConfig rebalanceConfig = new RebalanceConfig();
+                new Rebalance(marketConfig, rebalanceConfig, tcsService).run();
                 System.out.println("Rebalance strategy is disabled");
             }
 
-            // 2. RSX - DISABLED (class not found)
+            // 2. RSX
             if ("RSX".equals(strategy)) {
-                // final RSXConfig rsxConfig = new RSXConfig();
-                // new RSX(mainConfig, marketConfig, rsxConfig, tcsService).run();
+                final RSXConfig rsxConfig = new RSXConfig();
+                new RSX(mainConfig, marketConfig, rsxConfig, tcsService).run();
                 System.out.println("RSX strategy is disabled");
             }
 
-            // 3. DivFlow - DISABLED (class not found)
+            // 3. DivFlow
             if ("DivFlow".equals(strategy)) {
-                // new DivFlow(mainConfig, marketConfig, tcsService).run();
+                new DivFlow(mainConfig, marketConfig, tcsService).run();
                 System.out.println("DivFlow strategy is disabled");
             }
 
-            // 4. IndicatorTrader - DISABLED (class not found)
+            // 4. IndicatorTrader
             if ("IndicatorTrader".equals(strategy)) {
-                // new IndicatorTrader(tcsService).run();
+                new IndicatorTrader(tcsService).run();
                 System.out.println("IndicatorTrader is disabled");
             }
 
@@ -110,12 +115,12 @@ public class GoldenDragon {
                 telegramNotifyService.sendMessage("End DataCollector");
             }
 
-            // 6.LevelTrader - DISABLED (class not found)
+            // 6.LevelTrader
             if ("LevelTrader".equals(strategy)) {
-                // telegramNotifyService.sendMessage("Run LevelTrader");
-                // LevelTraderConfig levelTraderConfig = new LevelTraderConfig();
-                // new LevelTrader(levelTraderConfig, tcsService).run();
-                // telegramNotifyService.sendMessage("Stop LevelTrader");
+                telegramNotifyService.sendMessage("Run LevelTrader");
+                LevelTraderConfig levelTraderConfig = new LevelTraderConfig();
+                new LevelTrader(levelTraderConfig, tcsService).run();
+                telegramNotifyService.sendMessage("Stop LevelTrader");
                 System.out.println("LevelTrader is disabled");
             }
 
@@ -127,31 +132,7 @@ public class GoldenDragon {
                 telegramNotifyService.sendMessage("Stop UnifiedStrategy");
             }
 
-            // 8. TurtleStrategy
-            if ("TurtleStrategy".equals(strategy)) {
-                telegramNotifyService.sendMessage("Run TurtleStrategy");
-                UnifiedTraderConfig unifiedTraderConfig = new UnifiedTraderConfig();
-                new TurtleStrategy(unifiedTraderConfig, tcsService).run();
-                telegramNotifyService.sendMessage("Stop TurtleStrategy");
-            }
-
-            // 9. GerchikStrategy
-            if ("GerchikStrategy".equals(strategy)) {
-                telegramNotifyService.sendMessage("Run GerchikStrategy");
-                UnifiedTraderConfig unifiedTraderConfig = new UnifiedTraderConfig();
-                new GerchikStrategy(unifiedTraderConfig, tcsService).run();
-                telegramNotifyService.sendMessage("Stop GerchikStrategy");
-            }
-
-            // 10. RegimeAwareStrategy
-            if ("RegimeAwareStrategy".equals(strategy)) {
-                telegramNotifyService.sendMessage("Run RegimeAwareStrategy (auto-switch by market regime)");
-                UnifiedTraderConfig unifiedTraderConfig = new UnifiedTraderConfig();
-                new RegimeAwareStrategy(unifiedTraderConfig, tcsService).run();
-                telegramNotifyService.sendMessage("Stop RegimeAwareStrategy");
-            }
-
-            // 11. RegimeAwareStrategyMl
+            // 8. RegimeAwareStrategyMl
             if ("RegimeAwareStrategyMl".equals(strategy)) {
                 telegramNotifyService.sendMessage("Run RegimeAwareStrategyMl");
                 UnifiedTraderConfig unifiedTraderConfig = new UnifiedTraderConfig();

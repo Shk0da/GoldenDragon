@@ -11,12 +11,12 @@ import java.util.List;
 
 /**
  * Regime-aware strategy v4 - SIMPLIFIED APPROACH
- * 
+ * <p>
  * Instead of switching between strategies, uses UnifiedStrategy with adaptive parameters:
  * - Strong trends (ADX > 30): Increase position size, wider stops
  * - Ranges (ADX < 15): Reduce position size, tighter stops
  * - Normal (ADX 15-30): Standard parameters
- * 
+ * <p>
  * This avoids the complexity and overhead of managing multiple strategies.
  */
 public class RegimeAwareStrategy extends BaseStrategy {
@@ -25,22 +25,21 @@ public class RegimeAwareStrategy extends BaseStrategy {
     private static final double ADX_TREND_THRESHOLD = 28.0;
     private static final double ADX_HOT_THRESHOLD = 38.0;
     private static final double ADX_RANGE_THRESHOLD = 16.0;
-    
+
     // Adaptive position size multipliers
     private static final double TREND_SIZE_MULT = 1.8;
     private static final double HOT_TREND_SIZE_MULT = 2.2;
     private static final double RANGE_SIZE_MULT = 0.55;
     private static final double NORMAL_SIZE_MULT = 1.1;
-    
+
     // UnifiedStrategy instance
     private final UnifiedStrategy unifiedStrategy;
-    
+
     // Regime tracking
-    private MarketRegime currentRegime = MarketRegime.UNKNOWN;
     private int trendBars = 0;
     private int rangeBars = 0;
     private int normalBars = 0;
-    
+
     private enum MarketRegime {
         TREND,
         RANGE,
@@ -48,22 +47,14 @@ public class RegimeAwareStrategy extends BaseStrategy {
         UNKNOWN
     }
 
-    public RegimeAwareStrategy(UnifiedTraderConfig unifiedTraderConfig, TCSService tcsService) {
-        this(unifiedTraderConfig, tcsService, new Config(), false);
-    }
-
-    public RegimeAwareStrategy(UnifiedTraderConfig unifiedTraderConfig, TCSService tcsService, Config config) {
-        this(unifiedTraderConfig, tcsService, config, false);
-    }
-
     public RegimeAwareStrategy(UnifiedTraderConfig unifiedTraderConfig, TCSService tcsService, Config config, boolean isBacktest) {
         super(unifiedTraderConfig, tcsService, config, isBacktest);
-        
+
         // Single UnifiedStrategy instance
         this.unifiedStrategy = new UnifiedStrategy(unifiedTraderConfig, tcsService, config, isBacktest);
-        
-        logWithBacktest("RegimeAwareStrategy v4: Adaptive UnifiedStrategy (TREND:ADX>" + ADX_TREND_THRESHOLD + 
-                        ", RANGE:ADX<" + ADX_RANGE_THRESHOLD + ")");
+
+        logWithBacktest("RegimeAwareStrategy v4: Adaptive UnifiedStrategy (TREND:ADX>" + ADX_TREND_THRESHOLD +
+                ", RANGE:ADX<" + ADX_RANGE_THRESHOLD + ")");
     }
 
     @Override
@@ -73,19 +64,19 @@ public class RegimeAwareStrategy extends BaseStrategy {
 
     @Override
     public TradingDecision decide(String ticker,
-                                   List<Candle> hourCandles,
-                                   List<Candle> minuteCandles,
-                                   Position position,
-                                   double balance,
-                                   boolean incrementCandlesHeld) {
-        
+                                  List<Candle> hourCandles,
+                                  List<Candle> minuteCandles,
+                                  Position position,
+                                  double balance,
+                                  boolean incrementCandlesHeld) {
+
         // Detect market regime
         MarketRegime regime = MarketRegime.UNKNOWN;
         double adx = 0.0;
-        
+
         if (hourCandles != null && hourCandles.size() >= 60) {
             adx = calculateAdx(hourCandles, 14);
-            
+
             if (adx >= ADX_TREND_THRESHOLD) {
                 regime = MarketRegime.TREND;
                 trendBars++;
@@ -96,8 +87,6 @@ public class RegimeAwareStrategy extends BaseStrategy {
                 regime = MarketRegime.NORMAL;
                 normalBars++;
             }
-            
-            currentRegime = regime;
         }
 
         if (MarketRegime.RANGE == regime) {
@@ -107,7 +96,7 @@ public class RegimeAwareStrategy extends BaseStrategy {
         if (MarketRegime.NORMAL == regime && adx < 20.0) {
             return new TradingDecision("HOLD", "NORMAL_WEAK_ADX" + (int) adx);
         }
-        
+
         // Calculate adaptive balance multiplier
         Group tickerGroup = Group.valueOf(unifiedTraderConfig.getTickerGroup(ticker));
         double balanceMultiplier;
@@ -135,7 +124,7 @@ public class RegimeAwareStrategy extends BaseStrategy {
 
         // Adjust balance for UnifiedStrategy
         double adjustedBalance = balance * balanceMultiplier;
-        
+
         // Call UnifiedStrategy with adjusted balance
         TradingDecision decision = unifiedStrategy.decide(
                 ticker, hourCandles, minuteCandles, position, adjustedBalance, incrementCandlesHeld
@@ -149,11 +138,11 @@ public class RegimeAwareStrategy extends BaseStrategy {
                 return new TradingDecision("HOLD", "WEAK_TREND_SKIP_" + decision.reason);
             }
         }
-        
+
         // Wrap decision with regime info
         return new TradingDecision(
                 decision.action,
-                regime + "_ADX" + (int)adx + "_" + decision.reason,
+                regime + "_ADX" + (int) adx + "_" + decision.reason,
                 decision.confidence,
                 decision.quantity,
                 decision.stopLoss,
@@ -170,47 +159,47 @@ public class RegimeAwareStrategy extends BaseStrategy {
         if (candles.size() < period * 2 + 10) {
             return 0.0;
         }
-        
+
         int start = candles.size() - period;
         double trSum = 0.0, pdSum = 0.0, mdSum = 0.0;
-        
+
         for (int i = start; i < candles.size(); i++) {
             Candle c = candles.get(i);
             Candle p = candles.get(i - 1);
-            
+
             double tr = Math.max(Math.max(c.high - c.low, Math.abs(c.high - p.close)), Math.abs(c.low - p.close));
             trSum += tr;
-            
+
             double up = c.high - p.high;
             double dn = p.low - c.low;
-            
+
             pdSum += (up > dn && up > 0) ? up : 0.0;
             mdSum += (dn > up && dn > 0) ? dn : 0.0;
         }
-        
+
         double atr = trSum / period;
         double diPlus = atr > 0 ? (pdSum / period) / atr * 100 : 0.0;
         double diMinus = atr > 0 ? (mdSum / period) / atr * 100 : 0.0;
         double adx = (diPlus + diMinus) > 0 ? Math.abs(diPlus - diMinus) / (diPlus + diMinus) * 100 : 0.0;
-        
+
         return adx;
     }
 
     @Override
     protected void onDailyReset() {
         unifiedStrategy.onDailyReset();
-        
+
         int total = trendBars + rangeBars + normalBars;
         if (total > 0) {
-            logWithBacktest("RegimeAwareStrategy v4: Daily - Trend:" + trendBars + "(" + (trendBars*100/total) + 
-                            "%), Range:" + rangeBars + "(" + (rangeBars*100/total) + 
-                            "%), Normal:" + normalBars + "(" + (normalBars*100/total) + "%)");
+            logWithBacktest("RegimeAwareStrategy v4: Daily - Trend:" + trendBars + "(" + (trendBars * 100 / total) +
+                    "%), Range:" + rangeBars + "(" + (rangeBars * 100 / total) +
+                    "%), Normal:" + normalBars + "(" + (normalBars * 100 / total) + "%)");
         }
     }
 
     @Override
     protected void onTradeClosed(String ticker, double pnl, double entryPrice,
-                                  double exitPrice, int quantity, String direction) {
+                                 double exitPrice, int quantity, String direction) {
         unifiedStrategy.onTradeClosed(ticker, pnl, entryPrice, exitPrice, quantity, direction);
     }
 
