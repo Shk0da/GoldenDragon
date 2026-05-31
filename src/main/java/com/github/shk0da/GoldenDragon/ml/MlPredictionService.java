@@ -1,7 +1,14 @@
 package com.github.shk0da.GoldenDragon.ml;
 
-import java.io.*;
-import java.util.*;
+import java.io.BufferedReader;
+import java.io.File;
+import java.io.FileReader;
+import java.io.FileWriter;
+import java.io.IOException;
+import java.io.PrintWriter;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.Map;
 
 /**
  * Simple ML prediction service using logistic regression.
@@ -97,9 +104,7 @@ public class MlPredictionService {
         }
         
         // Convert to probability using sigmoid
-        // Adjust scaling for better calibration
-        double scaledScore = score * 0.5;  // Scale down to avoid extreme probabilities
-        return 1.0 / (1.0 + Math.exp(-scaledScore));
+        return 1.0 / (1.0 + Math.exp(-score));
     }
     
     /**
@@ -138,18 +143,7 @@ public class MlPredictionService {
         return 1.5;
     }
     
-    private double[] normalizeFeatures(TradeFeatures features) {
-        double[] normalized = new double[coefficients.size()];
-        int i = 0;
-        for (String feature : coefficients.keySet()) {
-            double value = getFeatureValue(features, feature);
-            double mean = featureMeans.getOrDefault(feature, 0.0);
-            double std = featureStds.getOrDefault(feature, 1.0);
-            normalized[i++] = std > 0 ? (value - mean) / std : 0.0;
-        }
-        return normalized;
-    }
-    
+
     private double getFeatureValue(TradeFeatures features, String name) {
         switch (name) {
             case "adx": return features.adx;
@@ -167,6 +161,13 @@ public class MlPredictionService {
             case "entry_confidence": return features.entryConfidence;
             case "risk_reward_ratio": return features.riskRewardRatio;
             case "stop_distance": return features.stopDistance;
+            case "signal_strength": return features.signalStrength;
+            case "signal_type_trend": return features.signalTypeTrend;
+            case "signal_type_fx": return features.signalTypeFx;
+            case "signal_type_mixed": return features.signalTypeMixed;
+            case "group_confirmed": return features.groupConfirmed;
+            case "strong_trend": return features.strongTrend;
+            case "range_regime": return features.rangeRegime;
             case "hour_of_day": return features.hourOfDay;
             case "day_of_week": return features.dayOfWeek;
             case "is_morning": return features.isMorning ? 1.0 : 0.0;
@@ -220,7 +221,7 @@ public class MlPredictionService {
                     featureStds.put(key, value);
                 }
             }
-        } catch (IOException e) {
+        } catch (IOException | NumberFormatException e) {
             System.err.println("Error loading model: " + e.getMessage());
             initializeDefaultModel();
         }

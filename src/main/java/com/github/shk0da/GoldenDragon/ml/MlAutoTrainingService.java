@@ -81,8 +81,8 @@ public class MlAutoTrainingService {
             return 0;
         }
 
-        try {
-            return Math.max(0, Files.lines(tradesPath).count() - 1);
+        try (var lines = Files.lines(tradesPath)) {
+            return Math.max(0, lines.count() - 1);
         } catch (IOException ex) {
             return 0;
         }

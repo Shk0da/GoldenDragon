@@ -133,11 +133,11 @@ public class RegimeAwareStrategyMl extends BaseStrategy {
         super(unifiedTraderConfig, tcsService, config, isBacktest);
         
         this.unifiedStrategy = new UnifiedStrategy(unifiedTraderConfig, tcsService, config, isBacktest);
-        this.mlService = new MlPredictionService("models/trade_classifier_v1.txt");
+        this.mlService = new MlPredictionService("ml_strategy/models/trade_classifier_v2.txt");
         this.mlService.setProbabilityThreshold(resolveMlProbabilityThreshold());
         this.mlAutoTrainingService = new MlAutoTrainingService(
                 "ml_strategy/data_pipeline/trades.csv",
-                "models/trade_classifier_v1.txt",
+                "ml_strategy/models/trade_classifier_v2.txt",
                 "ml_strategy"
         );
         this.useMlFiltering = useMlFiltering;
@@ -340,7 +340,7 @@ public class RegimeAwareStrategyMl extends BaseStrategy {
         double takeProfit = decision.updatedPosition.takeProfit != null ? 
                            decision.updatedPosition.takeProfit : entryPrice * 1.06;
         
-        double riskReward = (takeProfit - entryPrice) / (entryPrice - stopLoss);
+        double riskReward = Math.abs(takeProfit - entryPrice) / Math.max(Math.abs(entryPrice - stopLoss), 0.0001);
         double stopDistance = Math.abs(entryPrice - stopLoss) / entryPrice * 100.0;
         
         return new TradeFeatures(

@@ -431,7 +431,7 @@ public abstract class BaseStrategy {
             double exitPrice = decision.entryPrice != null ? decision.entryPrice : 0.0;
             double pnl = calculatePnl(storedPosition, exitPrice);
             double stopLoss = storedPosition.stopLoss != null ? storedPosition.stopLoss : entryPrice;
-            TRADE_DATA_COLLECTOR.recordTradeOutcome(name, getStrategyName(), pnl, entryPrice, stopLoss);
+            TRADE_DATA_COLLECTOR.recordTradeOutcome(name, getStrategyName(), pnl, entryPrice, stopLoss, storedPosition.quantity);
             onTradeClosed(name, pnl, entryPrice, exitPrice, storedPosition.quantity, storedPosition.direction);
             
             telegramNotifyService.sendMessage(getStrategyName() + " CLOSED " + name +
@@ -481,8 +481,9 @@ public abstract class BaseStrategy {
     public void recordBacktestTradeOutcome(String ticker,
                                            double pnl,
                                            double entryPrice,
-                                           double stopLoss) {
-        TRADE_DATA_COLLECTOR.recordTradeOutcome(ticker, getStrategyName(), pnl, entryPrice, stopLoss);
+                                           double stopLoss,
+                                           int quantity) {
+        TRADE_DATA_COLLECTOR.recordTradeOutcome(ticker, getStrategyName(), pnl, entryPrice, stopLoss, quantity);
     }
 
     /**

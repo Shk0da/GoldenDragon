@@ -1,8 +1,6 @@
 package com.github.shk0da.GoldenDragon.ml;
 
 import java.time.LocalDateTime;
-import java.util.ArrayList;
-import java.util.List;
 
 /**
  * Trade features for ML model training.
@@ -100,44 +98,6 @@ public class TradeFeatures {
         this.strategy = strategy;
         this.entryTime = entryTime;
         this.entryPrice = entryPrice;
-    }
-    
-    /**
-     * Get feature vector for ML model.
-     */
-    public double[] getFeatureVector() {
-        return new double[] {
-            adx, diPlus, diMinus, atrRatio,
-            rsi, emaRatio, pricePosition,
-            volumeRatio, volumeTrend,
-            entryConfidence, riskRewardRatio, stopDistance,
-            hourOfDay / 24.0, dayOfWeek / 5.0,
-            isMorning ? 1.0 : 0.0, isAfternoon ? 1.0 : 0.0
-        };
-    }
-    
-    /**
-     * Get feature names for documentation.
-     */
-    public static List<String> getFeatureNames() {
-        List<String> names = new ArrayList<>();
-        names.add("ADX");
-        names.add("DI_Plus");
-        names.add("DI_Minus");
-        names.add("ATR_Ratio");
-        names.add("RSI");
-        names.add("EMA_Ratio");
-        names.add("Price_Position");
-        names.add("Volume_Ratio");
-        names.add("Volume_Trend");
-        names.add("Entry_Confidence");
-        names.add("Risk_Reward_Ratio");
-        names.add("Stop_Distance");
-        names.add("Hour_Of_Day");
-        names.add("Day_Of_Week");
-        names.add("Is_Morning");
-        names.add("Is_Afternoon");
-        return names;
     }
     
     /**

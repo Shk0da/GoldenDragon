@@ -44,6 +44,8 @@ public class TradeDataCollector {
     private final List<TradeFeatures> tradeHistory = new ArrayList<>();
     private final Map<String, TradeFeatures> openTrades = new HashMap<>();
     private final String dataFile;
+
+
     
     public TradeDataCollector(String dataFile) {
         this.dataFile = dataFile;
@@ -53,7 +55,7 @@ public class TradeDataCollector {
     /**
      * Record trade entry with features.
      */
-    public void recordTradeEntry(
+    public synchronized void recordTradeEntry(
             String ticker,
             String strategy,
             List<Candle> candles,
@@ -78,7 +80,7 @@ public class TradeDataCollector {
         double pricePosition = calculatePricePosition(candles);
         double volumeRatio = calculateVolumeRatio(candles, 20);
         
-        double riskRewardRatio = (takeProfit - entryPrice) / (entryPrice - stopLoss);
+        double riskRewardRatio = Math.abs(takeProfit - entryPrice) / Math.max(Math.abs(entryPrice - stopLoss), 0.0001);
         double stopDistance = Math.abs(entryPrice - stopLoss) / entryPrice * 100.0;
         String normalizedSignal = extractSignalToken(breakoutType);
         double signalStrength = parseSignalStrength(normalizedSignal);
@@ -107,14 +109,14 @@ public class TradeDataCollector {
         saveData();
     }
 
-    public void recordTradeEntry(String ticker,
+    public synchronized void recordTradeEntry(String ticker,
                                  String strategy,
                                  List<Candle> candles,
                                  TradingDecision decision) {
         recordTradeEntry(ticker, strategy, candles, decision, resolveEntryTime(candles));
     }
 
-    public void recordTradeEntry(String ticker,
+    public synchronized void recordTradeEntry(String ticker,
                                  String strategy,
                                  List<Candle> candles,
                                  TradingDecision decision,
@@ -132,7 +134,7 @@ public class TradeDataCollector {
                 decision.confidence, decision.reason, entryTime);
     }
 
-    public void recordTradeEntry(String ticker,
+    public synchronized void recordTradeEntry(String ticker,
                                  String strategy,
                                  List<Candle> candles,
                                  double entryPrice,
@@ -157,7 +159,7 @@ public class TradeDataCollector {
         double volumeRatio = calculateVolumeRatio(candles, 20);
         double volumeTrend = calculateVolumeTrend(candles, 5);
 
-        double riskRewardRatio = (takeProfit - entryPrice) / Math.max(entryPrice - stopLoss, 0.0001);
+        double riskRewardRatio = Math.abs(takeProfit - entryPrice) / Math.max(Math.abs(entryPrice - stopLoss), 0.0001);
         double stopDistance = Math.abs(entryPrice - stopLoss) / entryPrice * 100.0;
         String normalizedSignal = extractSignalToken(breakoutType);
         double signalStrength = parseSignalStrength(normalizedSignal);
@@ -188,9 +190,9 @@ public class TradeDataCollector {
     /**
      * Update trade with outcome.
      */
-    public void recordTradeOutcome(String ticker, double pnlRubles, double entryPrice, double stopLoss) {
+    public synchronized void recordTradeOutcome(String ticker, double pnlRubles, double entryPrice, double stopLoss, int quantity) {
         double risk = Math.abs(entryPrice - stopLoss);
-        double pnlR = risk > 0 ? pnlRubles / (risk * entryPrice) : 0.0;
+        double pnlR = risk > 0 && quantity > 0 ? pnlRubles / (risk * quantity) : 0.0;
         
         for (TradeFeatures trade : tradeHistory) {
             if (trade.ticker.equals(ticker) && trade.outcome == null) {
@@ -202,13 +204,14 @@ public class TradeDataCollector {
         }
     }
 
-    public void recordTradeOutcome(String ticker,
+    public synchronized void recordTradeOutcome(String ticker,
                                    String strategy,
                                    double pnlRubles,
                                    double entryPrice,
-                                   double stopLoss) {
+                                   double stopLoss,
+                                   int quantity) {
         double risk = Math.abs(entryPrice - stopLoss);
-        double pnlR = risk > 0 ? pnlRubles / (risk * Math.max(1.0, entryPrice)) : 0.0;
+        double pnlR = risk > 0 && quantity > 0 ? pnlRubles / (risk * Math.max(1.0, quantity)) : 0.0;
 
         TradeFeatures trade = openTrades.remove(buildTradeKey(ticker, strategy));
         if (trade == null) {
@@ -231,7 +234,7 @@ public class TradeDataCollector {
     /**
      * Get training data filtered by quality.
      */
-    public List<TradeFeatures> getGoodTrades() {
+    public synchronized List<TradeFeatures> getGoodTrades() {
         List<TradeFeatures> good = new ArrayList<>();
         for (TradeFeatures t : tradeHistory) {
             if (t.outcome != null && t.outcome >= 1.0) {
@@ -241,7 +244,7 @@ public class TradeDataCollector {
         return good;
     }
     
-    public List<TradeFeatures> getBadTrades() {
+    public synchronized List<TradeFeatures> getBadTrades() {
         List<TradeFeatures> bad = new ArrayList<>();
         for (TradeFeatures t : tradeHistory) {
             if (t.outcome != null && t.outcome < 0.0) {
@@ -254,7 +257,7 @@ public class TradeDataCollector {
     /**
      * Get statistics.
      */
-    public Map<String, Object> getStatistics() {
+    public synchronized Map<String, Object> getStatistics() {
         Map<String, Object> stats = new HashMap<>();
         stats.put("total", tradeHistory.size());
         stats.put("withOutcome", (int) tradeHistory.stream().filter(t -> t.outcome != null).count());
@@ -389,7 +392,7 @@ public class TradeDataCollector {
         
         long currentVolume = candles.get(candles.size() - 1).volume;
         long avgVolume = 0;
-        for (int i = candles.size() - period; i < candles.size() - 1; i++) {
+        for (int i = candles.size() - period - 1; i < candles.size() - 1; i++) {
             avgVolume += candles.get(i).volume;
         }
         avgVolume /= period;
@@ -435,22 +438,26 @@ public class TradeDataCollector {
                     continue;
                 }
 
-                LocalDateTime entryTime = LocalDateTime.parse(parts[0]);
-                TradeFeatures trade = new TradeFeatures(
-                        parseDouble(parts[3]), parseDouble(parts[4]), parseDouble(parts[5]), parseDouble(parts[6]), parseDouble(parts[7]),
-                        parseDouble(parts[8]), parseDouble(parts[9]), parseDouble(parts[10]), parseDouble(parts[11]), parseDouble(parts[12]),
-                        parseDouble(parts[13]), parseDouble(parts[14]), parseDouble(parts[15]), parseDouble(parts[16]), parseDouble(parts[17]), "IMPORTED",
-                        parseDouble(parts[18]), parseDouble(parts[19]), parseDouble(parts[20]), parseDouble(parts[21]), parseDouble(parts[22]), parseDouble(parts[23]), parseDouble(parts[24]),
-                        parseInt(parts[25]), parseInt(parts[26]),
-                        parts[1], parts[2], entryTime, parseDouble(parts[29])
-                );
-                if (!parts[33].isEmpty()) {
-                    trade.outcome = parseDouble(parts[33]);
+                try {
+                    LocalDateTime entryTime = LocalDateTime.parse(parts[0]);
+                    TradeFeatures trade = new TradeFeatures(
+                            parseDouble(parts[3]), parseDouble(parts[4]), parseDouble(parts[5]), parseDouble(parts[6]), parseDouble(parts[7]),
+                            parseDouble(parts[8]), parseDouble(parts[9]), parseDouble(parts[10]), parseDouble(parts[11]), parseDouble(parts[12]),
+                            parseDouble(parts[13]), parseDouble(parts[14]), parseDouble(parts[15]), parseDouble(parts[16]), parseDouble(parts[17]), "IMPORTED",
+                            parseDouble(parts[18]), parseDouble(parts[19]), parseDouble(parts[20]), parseDouble(parts[21]), parseDouble(parts[22]), parseDouble(parts[23]), parseDouble(parts[24]),
+                            parseInt(parts[25]), parseInt(parts[26]),
+                            parts[1], parts[2], entryTime, parseDouble(parts[29])
+                    );
+                    if (!parts[33].isEmpty()) {
+                        trade.outcome = parseDouble(parts[33]);
+                    }
+                    if (!parts[34].isEmpty()) {
+                        trade.isWinner = Boolean.parseBoolean(parts[34]);
+                    }
+                    tradeHistory.add(trade);
+                } catch (RuntimeException ignored) {
+                    // skip malformed row
                 }
-                if (!parts[34].isEmpty()) {
-                    trade.isWinner = Boolean.parseBoolean(parts[34]);
-                }
-                tradeHistory.add(trade);
             }
         } catch (IOException e) {
             System.err.println("Error loading trade data: " + e.getMessage());
@@ -467,6 +474,14 @@ public class TradeDataCollector {
             writer.println(CSV_HEADER);
             
             for (TradeFeatures t : tradeHistory) {
+                boolean isShort = isShortTrade(t);
+                double stopLoss = isShort
+                        ? t.entryPrice * (1.0 + t.stopDistance / 100.0)
+                        : t.entryPrice * (1.0 - t.stopDistance / 100.0);
+                double takeProfit = isShort
+                        ? t.entryPrice * (1.0 - (t.stopDistance / 100.0) * t.riskRewardRatio)
+                        : t.entryPrice * (1.0 + (t.stopDistance / 100.0) * t.riskRewardRatio);
+
                 writer.printf(Locale.US,
                         "%s,%s,%s,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%d,%d,%d,%d,%.6f,%.6f,%.6f,%d,%s,%s%n",
                         t.entryTime,
@@ -499,8 +514,8 @@ public class TradeDataCollector {
                         t.isMorning ? 1 : 0,
                         t.isAfternoon ? 1 : 0,
                         t.entryPrice,
-                        t.entryPrice * (1.0 - t.stopDistance / 100.0),
-                        t.entryPrice * (1.0 + (t.stopDistance / 100.0) * t.riskRewardRatio),
+                        stopLoss,
+                        takeProfit,
                         1,
                         t.outcome != null ? String.format(Locale.US, "%.6f", t.outcome) : "",
                         t.isWinner != null ? t.isWinner.toString() : ""
@@ -513,6 +528,14 @@ public class TradeDataCollector {
 
     private String buildTradeKey(String ticker, String strategy) {
         return strategy + "::" + ticker;
+    }
+
+    private boolean isShortTrade(TradeFeatures trade) {
+        if (trade.breakoutType == null) {
+            return false;
+        }
+        String signal = trade.breakoutType.toUpperCase(Locale.ROOT);
+        return signal.contains("FXS") || signal.contains("MXS") || signal.contains("_S_");
     }
 
     private double parseDouble(String value) {
