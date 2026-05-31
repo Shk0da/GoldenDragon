@@ -1,1 +1,0 @@
-**An application for working with the Tinkoff Investing API.**
