@@ -562,7 +562,13 @@ public class TradeDataCollector {
     private void deduplicateTradeHistory() {
         Map<String, TradeFeatures> uniqueTrades = new LinkedHashMap<>();
         for (TradeFeatures trade : tradeHistory) {
-            uniqueTrades.putIfAbsent(buildDedupKey(trade), trade);
+            String key = buildDedupKey(trade);
+            TradeFeatures existing = uniqueTrades.get(key);
+            if (existing == null) {
+                uniqueTrades.put(key, trade);
+            } else if (trade.outcome != null && (existing.outcome == null || trade.entryTime.isAfter(existing.entryTime))) {
+                uniqueTrades.put(key, trade);
+            }
         }
 
         if (uniqueTrades.size() == tradeHistory.size()) {
@@ -581,15 +587,12 @@ public class TradeDataCollector {
         double takeProfit = isShort
                 ? trade.entryPrice * (1.0 - (trade.stopDistance / 100.0) * trade.riskRewardRatio)
                 : trade.entryPrice * (1.0 + (trade.stopDistance / 100.0) * trade.riskRewardRatio);
-        String outcome = trade.outcome != null ? String.format(Locale.US, "%.6f", trade.outcome) : "";
-
-        return String.format(Locale.US, "%s|%s|%.6f|%.6f|%.6f|%s",
+        return String.format(Locale.US, "%s|%s|%.6f|%.6f|%.6f",
                 trade.entryTime,
                 trade.ticker,
                 trade.entryPrice,
                 stopLoss,
-                takeProfit,
-                outcome);
+                takeProfit);
     }
 
     private String buildTradeKey(String ticker, String strategy, LocalDateTime entryTime) {
