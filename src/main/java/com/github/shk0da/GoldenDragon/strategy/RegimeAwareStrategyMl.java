@@ -16,9 +16,81 @@ import java.util.Date;
 import java.util.List;
 
 /**
- * RegimeAwareStrategy v5 with ML filtering.
- * 
- * Uses ML model to filter low-probability trades and adjust position sizing.
+ * Regime-aware торговая стратегия (v5) с ML-фильтрацией и адаптивным сайзингом позиций.
+ *
+ * <p>Является обёрткой над {@link UnifiedStrategy}, добавляя два дополнительных слоя
+ * принятия решений: определение рыночного режима на основе ADX и фильтрацию/масштабирование
+ * сделок с помощью ML-модели классификации.</p>
+ *
+ * <h2>1. Определение рыночного режима</h2>
+ * <p>На часовых свечах рассчитывается индикатор ADX(14), по которому рынок относится
+ * к одному из режимов:</p>
+ * <ul>
+ *   <li>{@code TREND}  — ADX ≥ {@value #ADX_TREND_THRESHOLD} (сильный направленный тренд)</li>
+ *   <li>{@code RANGE}  — ADX ≤ {@value #ADX_RANGE_THRESHOLD} (боковик / флэт)</li>
+ *   <li>{@code NORMAL} — промежуточное состояние</li>
+ * </ul>
+ * <p>В зависимости от режима корректируется баланс, передаваемый в {@link UnifiedStrategy}
+ * для расчёта размера позиции:</p>
+ * <ul>
+ *   <li>{@code TREND}  → balance × 1.5 (более агрессивный сайзинг)</li>
+ *   <li>{@code RANGE}  → balance × 0.5 (более консервативный сайзинг)</li>
+ *   <li>{@code NORMAL} → без изменений</li>
+ * </ul>
+ *
+ * <h2>2. Базовое решение</h2>
+ * <p>Основная логика входа/выхода делегируется {@link UnifiedStrategy#decide}.
+ * ML-слой применяется <b>только к решениям {@code OPEN}</b>; сигналы {@code HOLD}/{@code CLOSE}
+ * пропускаются без изменений.</p>
+ *
+ * <h2>3. ML-фильтрация сделок</h2>
+ * <p>Для каждого потенциального входа формируется {@link TradeFeatures} с большим набором
+ * признаков: рыночные индикаторы (ADX, DI+/DI−, ATR/ATR-ratio, RSI, EMA9/21 и их отношение),
+ * контекст (позиция цены в диапазоне, volume ratio/trend), параметры сделки (confidence,
+ * risk/reward, дистанция стопа), режим, тип исходного сигнала (TB/FX/MX), наличие group
+ * confirmation, а также временные признаки (час, день недели).</p>
+ *
+ * <p>Модель {@code models/trade_classifier_v1.txt} возвращает вероятность выигрыша сделки.
+ * Порог фильтрации адаптируется под режим:</p>
+ * <ul>
+ *   <li>{@code TREND}  → базовый порог (по умолчанию {@value #DEFAULT_ML_MIN_PROBABILITY},
+ *       переопределяется через системное свойство {@code ml.probability.threshold})</li>
+ *   <li>{@code NORMAL} → max(базовый, 0.48)</li>
+ *   <li>{@code RANGE}  → max(базовый, 0.52)</li>
+ * </ul>
+ * <p>Сделки с вероятностью ниже порога отклоняются с действием {@code HOLD} и причиной
+ * {@code ML_FILTERED_PROB_<значение>}.</p>
+ *
+ * <h2>4. ML-сайзинг позиции</h2>
+ * <p>Если сделка прошла фильтр, итоговый объём корректируется коэффициентом от модели
+ * с дополнительными поправками по режиму и уровню уверенности:</p>
+ * <ul>
+ *   <li>{@code RANGE} → ×0.75</li>
+ *   <li>{@code TREND} и prob ≥ 0.54 → ×1.15</li>
+ *   <li>prob ≥ 0.56 → дополнительно ×1.15</li>
+ *   <li>prob ≥ 0.60 → дополнительно ×1.10</li>
+ * </ul>
+ * <p>На основе нового {@code quantity} пересобирается {@link TradingDecision} и {@link Position}.</p>
+ *
+ * <h2>5. Автодообучение модели</h2>
+ * <p>Вне режима бэктеста при каждом вызове {@link #decide} выполняется попытка переобучения
+ * модели через {@link MlAutoTrainingService#tryRetrain}, использующий накопленные сделки
+ * из {@code ml_strategy/data_pipeline/trades.csv}.</p>
+ *
+ * <h2>6. Логирование и статистика</h2>
+ * <p>В {@link #onDailyReset()} выводится распределение режимов (Trend/Range/Normal),
+ * количество отфильтрованных ML сделок и сводная статистика вероятностей: min/avg/max
+ * и распределение по уровням (≥0.10, 0.20, 0.30, 0.40, 0.50).</p>
+ *
+ * <h2>7. Обогащение причины сделки</h2>
+ * <p>К полю {@code reason} итогового решения добавляется контекст вида
+ * {@code <REGIME>_ADX<значение>[_ML<вероятность>]_<исходная_причина>}, что упрощает
+ * последующий разбор логов и пост-анализ результатов.</p>
+ *
+ * @see UnifiedStrategy
+ * @see MlPredictionService
+ * @see MlAutoTrainingService
+ * @see TradeFeatures
  */
 public class RegimeAwareStrategyMl extends BaseStrategy {
 
