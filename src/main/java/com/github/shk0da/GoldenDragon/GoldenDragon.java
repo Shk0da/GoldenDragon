@@ -125,7 +125,6 @@ public class GoldenDragon {
                 LevelTraderConfig levelTraderConfig = new LevelTraderConfig();
                 new LevelTrader(levelTraderConfig, tcsService).run();
                 telegramNotifyService.sendMessage("Stop LevelTrader");
-                System.out.println("LevelTrader is disabled");
             }
 
             // 7. UnifiedStrategy
