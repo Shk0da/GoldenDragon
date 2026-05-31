@@ -79,13 +79,18 @@ public class BacktestRunner {
     private static final LocalTime WORK_START_TIME = LocalTime.of(10, 0);
     private static final LocalTime EOD_CLOSE_TIME = LocalTime.of(21, 0);
     private static final String BACKTEST_MODE = System.getProperty("backtest.mode", "full");
-    private static final int BACKTEST_THREADS = Math.max(1, Integer.getInteger("backtest.threads",
-            Math.max(1, Runtime.getRuntime().availableProcessors() - 1)));
+    private static final int BACKTEST_THREADS = Math.max(
+            1,
+            Integer.getInteger("backtest.threads", Math.max(1, Runtime.getRuntime().availableProcessors() - 1))
+    );
 
     private static final String[] ALL_STRATEGIES = {
             "UnifiedStrategy",
+            "GerchikStrategy",
+            "IchimokuStrategy",
+            "ScalpingStrategy",
+            "HighWinRateStrategy",
             "RegimeAwareStrategy",
-            "RegimeAwareStrategyMl",
     };
 
     public static class RawCandle {

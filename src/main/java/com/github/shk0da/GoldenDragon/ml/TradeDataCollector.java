@@ -16,6 +16,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.Date;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -469,6 +470,7 @@ public class TradeDataCollector {
     }
     
     private void saveData() {
+        deduplicateTradeHistory();
         tradeHistory.sort(Comparator
                 .comparing((TradeFeatures trade) -> trade.entryTime)
                 .thenComparing(trade -> trade.strategy)
@@ -555,6 +557,39 @@ public class TradeDataCollector {
             openTrades.remove(latestKey);
         }
         return latestTrade;
+    }
+
+    private void deduplicateTradeHistory() {
+        Map<String, TradeFeatures> uniqueTrades = new LinkedHashMap<>();
+        for (TradeFeatures trade : tradeHistory) {
+            uniqueTrades.putIfAbsent(buildDedupKey(trade), trade);
+        }
+
+        if (uniqueTrades.size() == tradeHistory.size()) {
+            return;
+        }
+
+        tradeHistory.clear();
+        tradeHistory.addAll(uniqueTrades.values());
+    }
+
+    private String buildDedupKey(TradeFeatures trade) {
+        boolean isShort = isShortTrade(trade);
+        double stopLoss = isShort
+                ? trade.entryPrice * (1.0 + trade.stopDistance / 100.0)
+                : trade.entryPrice * (1.0 - trade.stopDistance / 100.0);
+        double takeProfit = isShort
+                ? trade.entryPrice * (1.0 - (trade.stopDistance / 100.0) * trade.riskRewardRatio)
+                : trade.entryPrice * (1.0 + (trade.stopDistance / 100.0) * trade.riskRewardRatio);
+        String outcome = trade.outcome != null ? String.format(Locale.US, "%.6f", trade.outcome) : "";
+
+        return String.format(Locale.US, "%s|%s|%.6f|%.6f|%.6f|%s",
+                trade.entryTime,
+                trade.ticker,
+                trade.entryPrice,
+                stopLoss,
+                takeProfit,
+                outcome);
     }
 
     private String buildTradeKey(String ticker, String strategy, LocalDateTime entryTime) {
