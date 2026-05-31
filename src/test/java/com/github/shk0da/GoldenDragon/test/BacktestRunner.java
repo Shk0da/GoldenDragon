@@ -312,6 +312,7 @@ public class BacktestRunner {
         UnifiedTraderConfig config = new UnifiedTraderConfig();
         List<String> loadedTickers = loadTickers();
         List<String> activeTickers = filterTickersForStrategy(strategyName, loadedTickers, config);
+        printActiveUniverse(strategyName, activeTickers);
 
         List<String> periodLabels = new ArrayList<>();
         Map<String, Map<String, TickerPeriodResult>> allData = new LinkedHashMap<>();
@@ -330,12 +331,41 @@ public class BacktestRunner {
 
             PortfolioPeriodResult portfolioResult = executionResult.portfolioResult;
             portfolioData.put(label, portfolioResult);
+            printDebugTrades(strategyName, label, tickerResults, portfolioResult);
         }
 
         printResults(strategyName, periodLabels, allData, portfolioData, activeTickers);
         
         // Collect metrics for comparison
         collectStrategyMetrics(strategyName, allData, portfolioData);
+    }
+
+    private void printActiveUniverse(String strategyName, List<String> activeTickers) {
+        if (!"RegimeAwareStrategyMl".equals(strategyName)) {
+            return;
+        }
+
+        System.out.println("Active trading universe: " + String.join(",", activeTickers));
+    }
+
+    private void printDebugTrades(String strategyName,
+                                  String label,
+                                  Map<String, TickerPeriodResult> tickerResults,
+                                  PortfolioPeriodResult portfolioResult) {
+        if (!"RegimeAwareStrategyMl".equals(strategyName)
+                || !"2026.04".equals(label)
+                || portfolioResult == null
+                || portfolioResult.pnl >= 0.0) {
+            return;
+        }
+
+        System.out.println("APRIL_2026_LOSING_TRADES_START");
+        for (Map.Entry<String, TickerPeriodResult> entry : tickerResults.entrySet()) {
+            for (TradeResult trade : entry.getValue().trades) {
+                System.out.println(trade.time + " | " + trade.ticker + " | pnl=" + formatCompactPnL(trade.pnl) + " | reason=" + trade.reason);
+            }
+        }
+        System.out.println("APRIL_2026_LOSING_TRADES_END");
     }
 
     private List<PeriodDefinition> getPeriods() {
