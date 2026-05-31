@@ -16,6 +16,7 @@ import com.github.shk0da.GoldenDragon.strategy.DataCollector;
 import com.github.shk0da.GoldenDragon.strategy.DivFlow;
 import com.github.shk0da.GoldenDragon.strategy.IndicatorTrader;
 import com.github.shk0da.GoldenDragon.strategy.LevelTrader;
+import com.github.shk0da.GoldenDragon.strategy.ModelGenerator;
 import com.github.shk0da.GoldenDragon.strategy.RSX;
 import com.github.shk0da.GoldenDragon.strategy.Rebalance;
 import com.github.shk0da.GoldenDragon.strategy.RegimeAwareStrategyMl;
@@ -24,9 +25,7 @@ import com.google.gson.reflect.TypeToken;
 import java.io.FileDescriptor;
 import java.io.FileOutputStream;
 import java.io.PrintStream;
-import java.util.Calendar;
 import java.util.Date;
-import java.util.GregorianCalendar;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.TimeZone;
@@ -35,7 +34,6 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
 
-import static com.github.shk0da.GoldenDragon.config.MainConfig.CALENDAR_WORK_DAYS;
 import static com.github.shk0da.GoldenDragon.repository.TickerRepository.SERIALIZE_NAME;
 import static com.github.shk0da.GoldenDragon.service.TelegramNotifyService.telegramNotifyService;
 import static com.github.shk0da.GoldenDragon.utils.SerializationUtils.getDateOfContentOnDisk;
@@ -65,19 +63,6 @@ public class GoldenDragon {
             out.println("Run: " + strategy + " " + market.name() + " [" + accountId + "]");
 
             MarketConfig marketConfig = MarketConfig.byMarket(market);
-
-            // Check Market hours
-            GregorianCalendar currentCalendar = new GregorianCalendar();
-            if (!mainConfig.isTestMode()) {
-                if (!CALENDAR_WORK_DAYS.contains(currentCalendar.get(Calendar.DAY_OF_WEEK))) {
-                    out.println("Not working day! Day of Week: " + currentCalendar.get(Calendar.DAY_OF_WEEK) + ".");
-                }
-                int currentHour = currentCalendar.get(Calendar.HOUR_OF_DAY);
-                if (currentHour < marketConfig.getStartWorkHour() || currentHour >= marketConfig.getEndWorkHour()) {
-                    out.println("Not working hours! Current Time: " + new Date() + ".");
-                }
-            }
-
             TCSService tcsService = new TCSService(mainConfig.withAccountId(accountId), marketConfig);
             updateTickerRepository(tcsService);
 
@@ -135,7 +120,14 @@ public class GoldenDragon {
                 telegramNotifyService.sendMessage("Stop UnifiedStrategy");
             }
 
-            // 8. RegimeAwareStrategyMl
+            // 9. GenerateModel
+            if ("GenerateModel".equals(strategy)) {
+                telegramNotifyService.sendMessage("Run GenerateModel");
+                new ModelGenerator().runGenerateModel(args);
+                telegramNotifyService.sendMessage("Stop GenerateModel");
+            }
+
+            // 9. RegimeAwareStrategyMl
             if ("RegimeAwareStrategyMl".equals(strategy)) {
                 telegramNotifyService.sendMessage("Run RegimeAwareStrategyMl");
                 UnifiedTraderConfig unifiedTraderConfig = new UnifiedTraderConfig();

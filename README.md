@@ -141,8 +141,12 @@ java -Dapplication.properties=./application.properties -jar build/libs/GoldenDra
 ### Backtest
 
 ```bash
+# через Gradle
 ./gradlew clean runBacktest
 ./gradlew clean runBacktest -Pstrategy=UnifiedStrategy
+
+# через JAR
+java -Dapplication.properties=./application.properties -jar build/libs/GoldenDragon-1.0.jar GenerateModel
 ```
 
 Поддерживаются: `UnifiedStrategy`, `RegimeAwareStrategy`, `RegimeAwareStrategyMl`.
@@ -150,11 +154,20 @@ java -Dapplication.properties=./application.properties -jar build/libs/GoldenDra
 ### ML-обучение
 
 ```bash
-# сборка + backtest + обучение (генерация модели)
+# Gradle: backtest + обучение (генерация модели)
 ./gradlew clean generateModel
 
-# только обучение
+# Gradle: только обучение
 ./gradlew runMlTraining --data=ml_strategy/data_pipeline/trades.csv --output=models/trade_classifier_v2.txt
+
+# JAR: backtest + обучение
+java -Dapplication.properties=./application.properties -jar build/libs/GoldenDragon-1.0.jar GenerateModel
+
+# JAR: только обучение (без backtest)
+java -Dapplication.properties=./application.properties -jar build/libs/GoldenDragon-1.0.jar GenerateModel --skip-backtest
+
+# JAR: с параметрами
+java -Dapplication.properties=./application.properties -jar build/libs/GoldenDragon-1.0.jar GenerateModel --data=ml_strategy/data_pipeline/trades.csv --output=models/trade_classifier_v2.txt --report-dir=ml_strategy
 ```
 
 ## Зависимости
