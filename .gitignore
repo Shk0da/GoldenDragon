@@ -91,4 +91,5 @@ Thumbs.db
 /td/
 /telegram_session/
 tickers.json
-/ml_strategy/data_pipeline/trades.csv
+/ml_strategy/data_pipeline/
+/ml_strategy/reports/

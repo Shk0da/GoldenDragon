@@ -50,7 +50,7 @@ import java.util.List;
  * risk/reward, дистанция стопа), режим, тип исходного сигнала (TB/FX/MX), наличие group
  * confirmation, а также временные признаки (час, день недели).</p>
  *
- * <p>Модель {@code models/trade_classifier_v1.txt} возвращает вероятность выигрыша сделки.
+ * <p>Модель {@code trade_classifier} возвращает вероятность выигрыша сделки.
  * Порог фильтрации адаптируется под режим:</p>
  * <ul>
  *   <li>{@code TREND}  → базовый порог (по умолчанию {@value #DEFAULT_ML_MIN_PROBABILITY},
