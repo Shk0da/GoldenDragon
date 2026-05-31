@@ -83,28 +83,32 @@ public class GoldenDragon {
 
             // 1. Rebalance
             if ("Rebalance".equals(strategy)) {
+                telegramNotifyService.sendMessage("Run Rebalance");
                 final RebalanceConfig rebalanceConfig = new RebalanceConfig();
                 new Rebalance(marketConfig, rebalanceConfig, tcsService).run();
-                System.out.println("Rebalance strategy is disabled");
+                telegramNotifyService.sendMessage("End Rebalance");
             }
 
             // 2. RSX
             if ("RSX".equals(strategy)) {
+                telegramNotifyService.sendMessage("Run RSX");
                 final RSXConfig rsxConfig = new RSXConfig();
                 new RSX(mainConfig, marketConfig, rsxConfig, tcsService).run();
-                System.out.println("RSX strategy is disabled");
+                telegramNotifyService.sendMessage("End RSX");
             }
 
             // 3. DivFlow
             if ("DivFlow".equals(strategy)) {
+                telegramNotifyService.sendMessage("Run DivFlow");
                 new DivFlow(mainConfig, marketConfig, tcsService).run();
-                System.out.println("DivFlow strategy is disabled");
+                telegramNotifyService.sendMessage("End DivFlow");
             }
 
             // 4. IndicatorTrader
             if ("IndicatorTrader".equals(strategy)) {
+                telegramNotifyService.sendMessage("Run IndicatorTrader");
                 new IndicatorTrader(tcsService).run();
-                System.out.println("IndicatorTrader is disabled");
+                telegramNotifyService.sendMessage("End IndicatorTrader");
             }
 
             // 5. DataCollector
