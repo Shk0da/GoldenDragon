@@ -49,7 +49,7 @@ task runStrategy(type: JavaExec) {
     main = 'com.github.shk0da.GoldenDragon.GoldenDragon'
     classpath = sourceSets.test.runtimeClasspath
     workingDir = rootDir
-    def strategyName = project.findProperty('strategy') ?: 'UnifiedStrategy'
+    def strategyName = project.findProperty('strategy') ?: 'RegimeAwareStrategy'
     args strategyName
 }
 
