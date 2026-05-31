@@ -13,6 +13,7 @@ import java.text.SimpleDateFormat;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
@@ -105,7 +106,7 @@ public class TradeDataCollector {
         );
         
         tradeHistory.add(features);
-        openTrades.put(buildTradeKey(ticker, strategy), features);
+        openTrades.put(buildTradeKey(ticker, strategy, features.entryTime), features);
         saveData();
     }
 
@@ -183,7 +184,7 @@ public class TradeDataCollector {
         );
 
         tradeHistory.add(features);
-        openTrades.put(buildTradeKey(ticker, strategy), features);
+        openTrades.put(buildTradeKey(ticker, strategy, features.entryTime), features);
         saveData();
     }
     
@@ -213,7 +214,7 @@ public class TradeDataCollector {
         double risk = Math.abs(entryPrice - stopLoss);
         double pnlR = risk > 0 && quantity > 0 ? pnlRubles / (risk * Math.max(1.0, quantity)) : 0.0;
 
-        TradeFeatures trade = openTrades.remove(buildTradeKey(ticker, strategy));
+        TradeFeatures trade = removeLatestOpenTrade(ticker, strategy);
         if (trade == null) {
             for (int i = tradeHistory.size() - 1; i >= 0; i--) {
                 TradeFeatures item = tradeHistory.get(i);
@@ -455,6 +456,9 @@ public class TradeDataCollector {
                         trade.isWinner = Boolean.parseBoolean(parts[34]);
                     }
                     tradeHistory.add(trade);
+                    if (trade.outcome == null) {
+                        openTrades.put(buildTradeKey(trade.ticker, trade.strategy, trade.entryTime), trade);
+                    }
                 } catch (RuntimeException ignored) {
                     // skip malformed row
                 }
@@ -465,6 +469,11 @@ public class TradeDataCollector {
     }
     
     private void saveData() {
+        tradeHistory.sort(Comparator
+                .comparing((TradeFeatures trade) -> trade.entryTime)
+                .thenComparing(trade -> trade.strategy)
+                .thenComparing(trade -> trade.ticker));
+
         File file = new File(dataFile);
         File parent = file.getParentFile();
         if (parent != null && !parent.exists()) {
@@ -526,8 +535,34 @@ public class TradeDataCollector {
         }
     }
 
-    private String buildTradeKey(String ticker, String strategy) {
-        return strategy + "::" + ticker;
+    private TradeFeatures removeLatestOpenTrade(String ticker, String strategy) {
+        String keyPrefix = buildTradeKeyPrefix(ticker, strategy);
+        TradeFeatures latestTrade = null;
+        String latestKey = null;
+
+        for (Map.Entry<String, TradeFeatures> entry : openTrades.entrySet()) {
+            if (!entry.getKey().startsWith(keyPrefix)) {
+                continue;
+            }
+            TradeFeatures candidate = entry.getValue();
+            if (latestTrade == null || candidate.entryTime.isAfter(latestTrade.entryTime)) {
+                latestTrade = candidate;
+                latestKey = entry.getKey();
+            }
+        }
+
+        if (latestKey != null) {
+            openTrades.remove(latestKey);
+        }
+        return latestTrade;
+    }
+
+    private String buildTradeKey(String ticker, String strategy, LocalDateTime entryTime) {
+        return buildTradeKeyPrefix(ticker, strategy) + entryTime;
+    }
+
+    private String buildTradeKeyPrefix(String ticker, String strategy) {
+        return strategy + "::" + ticker + "::";
     }
 
     private boolean isShortTrade(TradeFeatures trade) {
