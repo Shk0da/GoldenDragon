@@ -89,6 +89,17 @@ public class RegimeAwareStrategyMl extends BaseStrategy {
         }
     }
 
+    private double resolveRegimeProbabilityThreshold(MarketRegime regime) {
+        double baseThreshold = mlService.getProbabilityThreshold();
+        if (MarketRegime.RANGE == regime) {
+            return Math.max(baseThreshold, 0.52);
+        }
+        if (MarketRegime.NORMAL == regime) {
+            return Math.max(baseThreshold, 0.48);
+        }
+        return baseThreshold;
+    }
+
     @Override
     protected String getStrategyName() {
         return "RegimeAwareStrategyMl";
@@ -157,7 +168,8 @@ public class RegimeAwareStrategyMl extends BaseStrategy {
         double winProbability = mlService.predictProbability(features);
         trackProbability(winProbability);
         // Apply ML filtering
-        if (useMlFiltering && winProbability < mlService.getProbabilityThreshold()) {
+        double regimeThreshold = resolveRegimeProbabilityThreshold(regime);
+        if (useMlFiltering && winProbability < regimeThreshold) {
             mlFilteredTrades++;
             return new TradingDecision("HOLD", "ML_FILTERED_PROB_" + String.format("%.2f", winProbability));
         }
