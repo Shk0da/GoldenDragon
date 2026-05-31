@@ -104,7 +104,6 @@ public class RegimeAwareStrategyMl extends BaseStrategy {
     private final boolean useMlFiltering;
     private final boolean useMlSizing;
     
-    private MarketRegime currentRegime = MarketRegime.UNKNOWN;
     private int trendBars = 0;
     private int rangeBars = 0;
     private int normalBars = 0;
@@ -206,8 +205,6 @@ public class RegimeAwareStrategyMl extends BaseStrategy {
                 regime = MarketRegime.NORMAL;
                 normalBars++;
             }
-            
-            currentRegime = regime;
         }
         
         // Get base decision from UnifiedStrategy
