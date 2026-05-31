@@ -775,7 +775,7 @@ public class BacktestRunner {
 
         trades.add(new TradeResult(ticker, "BUY", state.entryPrice, exitPrice, pnl, reason, time));
         double stopLoss = state.position.stopLoss != null ? state.position.stopLoss : state.entryPrice;
-        strategy.recordBacktestTradeOutcome(ticker, pnl, state.entryPrice, stopLoss);
+        strategy.recordBacktestTradeOutcome(ticker, pnl, state.entryPrice, stopLoss, state.position.quantity);
         state.realizedPnl += pnl;
 
         double exitCommission = exitValue * commission;
@@ -946,7 +946,7 @@ public class BacktestRunner {
                             ticker, "BUY", entryPrice, exitPrice, pnl, decision.reason, current.time
                     ));
                     double stopLoss = pos.stopLoss != null ? pos.stopLoss : entryPrice;
-                    strategy.recordBacktestTradeOutcome(ticker, pnl, entryPrice, stopLoss);
+                    strategy.recordBacktestTradeOutcome(ticker, pnl, entryPrice, stopLoss, q);
 
                     double exitCommission = exitValue * commission;
                     cash += (exitValue - exitCommission);
@@ -979,7 +979,7 @@ public class BacktestRunner {
                     "period_end", wrappedMin.get(wrappedMin.size() - 1).time
             ));
             double stopLoss = pos.stopLoss != null ? pos.stopLoss : entryPrice;
-            strategy.recordBacktestTradeOutcome(ticker, pnl, entryPrice, stopLoss);
+            strategy.recordBacktestTradeOutcome(ticker, pnl, entryPrice, stopLoss, q);
 
             double exitCommission = exitValue * commission;
             finalBalance += (exitValue - exitCommission);
