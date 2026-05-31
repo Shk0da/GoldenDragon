@@ -42,11 +42,6 @@ import java.util.concurrent.Future;
 
 public class BacktestRunner {
 
-    private static final Set<String> ML_TRAINING_TICKERS = new LinkedHashSet<>(List.of(
-            "GAZP", "GMKN", "T", "VTBR", "CHMF", "SNGS", "AFLT", "CR",
-            "GLDRUBF", "IMOEXF", "MGNT", "PLZL", "YDEX", "LKOH", "NVTK", "ROSN", "MTSS", "GAZPF"
-    ));
-
     private static class StrategyFactory {
         public static BaseStrategy createStrategy(String strategyName, UnifiedTraderConfig config) {
             switch (strategyName) {
@@ -316,7 +311,7 @@ public class BacktestRunner {
 
         UnifiedTraderConfig config = new UnifiedTraderConfig();
         List<String> loadedTickers = loadTickers();
-        List<String> activeTickers = filterTickersForStrategy(strategyName, loadedTickers, config);
+        List<String> activeTickers = filterEnabledTickers(loadedTickers, config);
 
         List<String> periodLabels = new ArrayList<>();
         Map<String, Map<String, TickerPeriodResult>> allData = new LinkedHashMap<>();
@@ -1133,23 +1128,7 @@ public class BacktestRunner {
 
         return allocation;
     }
-
-    private List<String> filterTickersForStrategy(String strategyName,
-                                                  List<String> tickers,
-                                                  UnifiedTraderConfig config) {
-        if ("RegimeAwareStrategy".equals(strategyName)) {
-            List<String> result = new ArrayList<>();
-            for (String ticker : tickers) {
-                if (ML_TRAINING_TICKERS.contains(ticker)) {
-                    result.add(ticker);
-                }
-            }
-            return result;
-        }
-
-        return filterEnabledTickers(tickers, config);
-    }
-
+    
     private List<String> filterEnabledTickers(List<String> tickers, UnifiedTraderConfig config) {
         List<String> result = new ArrayList<>();
         for (String ticker : tickers) {
