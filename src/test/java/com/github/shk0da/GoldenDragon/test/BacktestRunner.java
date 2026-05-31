@@ -1128,7 +1128,7 @@ public class BacktestRunner {
 
         return allocation;
     }
-    
+
     private List<String> filterEnabledTickers(List<String> tickers, UnifiedTraderConfig config) {
         List<String> result = new ArrayList<>();
         for (String ticker : tickers) {
