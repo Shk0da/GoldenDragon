@@ -1,7 +1,5 @@
 # Agent Instructions
 
-Your main goal is to ensure that the UnifiedStrategy strategy has a PnL of > 10% per month, a DD of < 10% and WR > 70%.
-
 - Respond only in Russian unless specified otherwise.
 - Write code comments, commit messages, and documentation in English.
 - Follow existing code, package structure, and project patterns.
