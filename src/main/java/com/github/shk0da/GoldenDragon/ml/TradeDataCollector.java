@@ -108,7 +108,7 @@ public class TradeDataCollector {
         
         tradeHistory.add(features);
         openTrades.put(buildTradeKey(ticker, strategy, features.entryTime), features);
-        saveData();
+        appendTrade(features);
     }
 
     public synchronized void recordTradeEntry(String ticker,
@@ -186,7 +186,7 @@ public class TradeDataCollector {
 
         tradeHistory.add(features);
         openTrades.put(buildTradeKey(ticker, strategy, features.entryTime), features);
-        saveData();
+        appendTrade(features);
     }
     
     /**
@@ -485,55 +485,30 @@ public class TradeDataCollector {
             writer.println(CSV_HEADER);
             
             for (TradeFeatures t : tradeHistory) {
-                boolean isShort = isShortTrade(t);
-                double stopLoss = isShort
-                        ? t.entryPrice * (1.0 + t.stopDistance / 100.0)
-                        : t.entryPrice * (1.0 - t.stopDistance / 100.0);
-                double takeProfit = isShort
-                        ? t.entryPrice * (1.0 - (t.stopDistance / 100.0) * t.riskRewardRatio)
-                        : t.entryPrice * (1.0 + (t.stopDistance / 100.0) * t.riskRewardRatio);
-
-                writer.printf(Locale.US,
-                        "%s,%s,%s,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%d,%d,%d,%d,%.6f,%.6f,%.6f,%d,%s,%s%n",
-                        t.entryTime,
-                        t.ticker,
-                        t.strategy,
-                        t.adx,
-                        t.diPlus,
-                        t.diMinus,
-                        t.atr,
-                        t.atrRatio,
-                        t.rsi,
-                        t.emaFast,
-                        t.emaSlow,
-                        t.emaRatio,
-                        t.pricePosition,
-                        t.volumeRatio,
-                        t.volumeTrend,
-                        t.entryConfidence,
-                        t.riskRewardRatio,
-                        t.stopDistance,
-                        t.signalStrength,
-                        t.signalTypeTrend,
-                        t.signalTypeFx,
-                        t.signalTypeMixed,
-                        t.groupConfirmed,
-                        t.strongTrend,
-                        t.rangeRegime,
-                        t.hourOfDay,
-                        t.dayOfWeek,
-                        t.isMorning ? 1 : 0,
-                        t.isAfternoon ? 1 : 0,
-                        t.entryPrice,
-                        stopLoss,
-                        takeProfit,
-                        1,
-                        t.outcome != null ? String.format(Locale.US, "%.6f", t.outcome) : "",
-                        t.isWinner != null ? t.isWinner.toString() : ""
-                );
+                writer.println(formatTradeRow(t));
             }
         } catch (IOException e) {
             System.err.println("Error saving trade data: " + e.getMessage());
+        }
+    }
+
+    private void appendTrade(TradeFeatures trade) {
+        deduplicateTradeHistory();
+
+        File file = new File(dataFile);
+        File parent = file.getParentFile();
+        if (parent != null && !parent.exists()) {
+            parent.mkdirs();
+        }
+
+        boolean writeHeader = !file.exists() || 0L == file.length();
+        try (PrintWriter writer = new PrintWriter(new FileWriter(file, true))) {
+            if (writeHeader) {
+                writer.println(CSV_HEADER);
+            }
+            writer.println(formatTradeRow(trade));
+        } catch (IOException e) {
+            System.err.println("Error appending trade data: " + e.getMessage());
         }
     }
 
@@ -577,6 +552,55 @@ public class TradeDataCollector {
 
         tradeHistory.clear();
         tradeHistory.addAll(uniqueTrades.values());
+    }
+
+    private String formatTradeRow(TradeFeatures trade) {
+        boolean isShort = isShortTrade(trade);
+        double stopLoss = isShort
+                ? trade.entryPrice * (1.0 + trade.stopDistance / 100.0)
+                : trade.entryPrice * (1.0 - trade.stopDistance / 100.0);
+        double takeProfit = isShort
+                ? trade.entryPrice * (1.0 - (trade.stopDistance / 100.0) * trade.riskRewardRatio)
+                : trade.entryPrice * (1.0 + (trade.stopDistance / 100.0) * trade.riskRewardRatio);
+
+        return String.format(Locale.US,
+                "%s,%s,%s,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%d,%d,%d,%d,%.6f,%.6f,%.6f,%d,%s,%s",
+                trade.entryTime,
+                trade.ticker,
+                trade.strategy,
+                trade.adx,
+                trade.diPlus,
+                trade.diMinus,
+                trade.atr,
+                trade.atrRatio,
+                trade.rsi,
+                trade.emaFast,
+                trade.emaSlow,
+                trade.emaRatio,
+                trade.pricePosition,
+                trade.volumeRatio,
+                trade.volumeTrend,
+                trade.entryConfidence,
+                trade.riskRewardRatio,
+                trade.stopDistance,
+                trade.signalStrength,
+                trade.signalTypeTrend,
+                trade.signalTypeFx,
+                trade.signalTypeMixed,
+                trade.groupConfirmed,
+                trade.strongTrend,
+                trade.rangeRegime,
+                trade.hourOfDay,
+                trade.dayOfWeek,
+                trade.isMorning ? 1 : 0,
+                trade.isAfternoon ? 1 : 0,
+                trade.entryPrice,
+                stopLoss,
+                takeProfit,
+                1,
+                trade.outcome != null ? String.format(Locale.US, "%.6f", trade.outcome) : "",
+                trade.isWinner != null ? trade.isWinner.toString() : ""
+        );
     }
 
     private String buildDedupKey(TradeFeatures trade) {

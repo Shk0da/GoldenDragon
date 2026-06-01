@@ -851,6 +851,19 @@ public abstract class BaseStrategy {
                 if (closed) {
                     positionStore.put(tickerName, getCooldownPosition());
                     lastSeenHourBarByTicker.remove(tickerName);
+                    double exitPrice = tcsService.getAvailablePrice(new TickerInfo.Key(tickerName, ticker.getType()));
+                    double entryPrice = position.entryPrice != null ? position.entryPrice : 0.0;
+                    double pnl = calculatePnl(position, exitPrice);
+                    double stopLoss = position.stopLoss != null ? position.stopLoss : entryPrice;
+                    TRADE_DATA_COLLECTOR.recordTradeOutcome(
+                            tickerName,
+                            getStrategyName(),
+                            pnl,
+                            entryPrice,
+                            stopLoss,
+                            position.quantity
+                    );
+                    onTradeClosed(tickerName, pnl, entryPrice, exitPrice, position.quantity, position.direction);
                     anyClosed = true;
                     telegramNotifyService.sendMessage(getStrategyName() + " EOD CLOSED " + tickerName +
                             " (" + position.quantity + " shares)");
