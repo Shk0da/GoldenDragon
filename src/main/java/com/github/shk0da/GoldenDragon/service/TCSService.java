@@ -60,6 +60,8 @@ import static ru.tinkoff.piapi.contract.v1.StopOrderType.STOP_ORDER_TYPE_TAKE_PR
 
 public class TCSService {
 
+    public static final double FUTURES_MARGIN_RATE = 0.40;
+
     private final MainConfig mainConfig;
     private final MarketConfig marketConfig;
     private final InvestApi investApi;
@@ -180,19 +182,12 @@ public class TCSService {
             return false;
         }
 
-        int count = 0;
-        if (cashToSell >= tickerPrice) {
-            int lot = searchTicker(key).getLot();
-            count = (int) (cashToSell / tickerPrice);
-            while (count % lot != 0 && count > 0) {
-                count = count - 1;
-            }
-        }
+        int count = calculateTradeCount(key, cashToSell, tickerPrice);
         if (count == 0) {
             out.println("Warn: short will be skipped - " + name + " with count " + count + ". CashToSell: " + cashToSell + ", price: " + tickerPrice);
             return false;
         }
-        double cost = count * tickerPrice;
+        double cost = getRequiredCashForOrder(key, count, tickerPrice);
 
         String currentDate = dateTimeFormat.format(new Date());
         out.println("[" + currentDate + "] Sell: " + count + " " + key.getTicker() + " by " + (byMarket ? "Market" : tickerPrice + " (" + cost + " " + currency + ")"));
@@ -281,19 +276,12 @@ public class TCSService {
             return false;
         }
 
-        int count = 0;
-        if (cashToBuy >= tickerPrice) {
-            int lot = searchTicker(key).getLot();
-            count = (int) (cashToBuy / tickerPrice);
-            while (count % lot != 0 && count > 0) {
-                count = count - 1;
-            }
-        }
+        int count = calculateTradeCount(key, cashToBuy, tickerPrice);
         if (count == 0) {
             out.println("Warn: long will be skipped - " + name + " with count " + count + ". CashToBuy: " + cashToBuy + ", price: " + tickerPrice);
             return false;
         }
-        double cost = count * tickerPrice;
+        double cost = getRequiredCashForOrder(key, count, tickerPrice);
 
         String currentDate = dateTimeFormat.format(new Date());
         out.println("[" + currentDate + "] Buy: " + count + " " + key.getTicker() + " by " + (byMarket ? "Market" : tickerPrice + " (" + cost + " " + currency + ")"));
@@ -421,7 +409,39 @@ public class TCSService {
             return 0;
         }
     }
-    
+
+    public int calculateTradeCount(TickerInfo.Key key, double availableCash, double price) {
+        if (availableCash <= 0.0 || price <= 0.0) {
+            return 0;
+        }
+
+        TickerInfo tickerInfo = searchTicker(key);
+        int lot = Math.max(1, tickerInfo.getLot());
+        double orderCost = getOrderValue(tickerInfo, lot, price);
+        if (availableCash < orderCost) {
+            return 0;
+        }
+
+        int lots = (int) Math.floor(availableCash / orderCost);
+        return lots * lot;
+    }
+
+    public double getRequiredCashForOrder(TickerInfo.Key key, int count, double price) {
+        if (count <= 0 || price <= 0.0) {
+            return 0.0;
+        }
+
+        return getOrderValue(searchTicker(key), count, price);
+    }
+
+    private double getOrderValue(TickerInfo tickerInfo, int count, double price) {
+        double fullValue = count * price;
+        if (TickerType.FEATURE == tickerInfo.getType()) {
+            return fullValue * FUTURES_MARGIN_RATE;
+        }
+        return fullValue;
+    }
+
     /**
      * Создает Quotation с правильным расчетом units и nano
      * nano должен быть в диапазоне 0-999_999_999 (части единицы)

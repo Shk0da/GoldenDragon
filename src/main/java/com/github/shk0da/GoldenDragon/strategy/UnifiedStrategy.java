@@ -7,6 +7,8 @@ import com.github.shk0da.GoldenDragon.model.Candle;
 import com.github.shk0da.GoldenDragon.model.Config;
 import com.github.shk0da.GoldenDragon.model.Group;
 import com.github.shk0da.GoldenDragon.model.Position;
+import com.github.shk0da.GoldenDragon.model.TickerInfo;
+import com.github.shk0da.GoldenDragon.model.TickerType;
 import com.github.shk0da.GoldenDragon.model.TradingDecision;
 import com.github.shk0da.GoldenDragon.money.AdaptiveCapital;
 import com.github.shk0da.GoldenDragon.money.FixedRiskSizing;
@@ -17,6 +19,7 @@ import com.github.shk0da.GoldenDragon.money.RiskManager;
 import com.github.shk0da.GoldenDragon.money.SizingStrategy;
 import com.github.shk0da.GoldenDragon.money.StopLossManager;
 import com.github.shk0da.GoldenDragon.money.VolatilityAdjustedSizing;
+import com.github.shk0da.GoldenDragon.repository.TickerRepository;
 import com.github.shk0da.GoldenDragon.service.TCSService;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -126,6 +129,7 @@ public class UnifiedStrategy extends BaseStrategy {
     private static final double RANGE_ADX = 15.0;
     private static final double STRONG_TREND_ADX = 30.0;
     private static final double HOT_TREND_ADX = 38.0;
+    private static final int DEFAULT_FUTURES_LOT = 1000;
 
     // Money Management components
     private final RiskManager riskManager;
@@ -521,7 +525,7 @@ public class UnifiedStrategy extends BaseStrategy {
             double finalRiskMultiplier = regimeResult.positionMultiplier * confidenceK * signalStrengthK;
             double maxRisk = balance * riskP * finalRiskMultiplier;
 
-            double maxQty = Math.floor(balance / entry);
+            double maxQty = calculateMaxAffordableQuantity(ticker, balance, entry);
             qty = (int) Math.min(Math.max(1, Math.floor(maxRisk / slDist)), maxQty);
 
             if (qty <= 0) {
@@ -590,6 +594,50 @@ public class UnifiedStrategy extends BaseStrategy {
         if (ss >= 4 && dnTrend) return "TS_" + ss + "_" + (int) adx + "_" + (int) rsi;
 
         return null;
+    }
+
+    private double calculateMaxAffordableQuantity(String ticker, double balance, double entryPrice) {
+        if (entryPrice <= 0.0 || balance <= 0.0) {
+            return 0.0;
+        }
+
+        TickerInfo tickerInfo = resolveTickerInfo(ticker);
+        int lot = tickerInfo != null && tickerInfo.getLot() != null ? tickerInfo.getLot() : 1;
+        double orderCost = lot * entryPrice;
+        if (tickerInfo != null && TickerType.FEATURE == tickerInfo.getType()) {
+            orderCost *= TCSService.FUTURES_MARGIN_RATE;
+        }
+        if (orderCost <= 0.0) {
+            return 0.0;
+        }
+
+        return Math.floor(balance / orderCost) * lot;
+    }
+
+    private TickerInfo resolveTickerInfo(String ticker) {
+        TickerInfo.Key stockKey = new TickerInfo.Key(ticker, TickerType.STOCK);
+        if (TickerRepository.INSTANCE.containsKey(stockKey)) {
+            return TickerRepository.INSTANCE.getById(stockKey);
+        }
+
+        TickerInfo.Key futureKey = new TickerInfo.Key(ticker, TickerType.FEATURE);
+        if (TickerRepository.INSTANCE.containsKey(futureKey)) {
+            return TickerRepository.INSTANCE.getById(futureKey);
+        }
+
+        if (tcsService != null) {
+            try {
+                return tcsService.searchTicker(futureKey);
+            } catch (Exception ignored) {
+                try {
+                    return tcsService.searchTicker(stockKey);
+                } catch (Exception ignoredToo) {
+                    return null;
+                }
+            }
+        }
+
+        return new TickerInfo(null, ticker, null, null, DEFAULT_FUTURES_LOT, null, null, TickerType.FEATURE.name());
     }
 
     public String fxSignal(List<Candle> candles, List<Candle> minuteCandles) {
