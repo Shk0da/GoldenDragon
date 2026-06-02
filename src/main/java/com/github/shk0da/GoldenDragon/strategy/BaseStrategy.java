@@ -477,6 +477,7 @@ public abstract class BaseStrategy {
 
             if (decision.updatedPosition != null && "HOLD".equals(decision.action)) {
                 positionStore.put(name, decision.updatedPosition);
+                syncProtectiveOrdersIfNeeded(name, ticker, storedPosition, decision.updatedPosition);
             }
 
             if ("OPEN".equals(decision.action)) {
@@ -541,21 +542,42 @@ public abstract class BaseStrategy {
 
         try {
             throttleApiCall();
+            TCSService.OrderExecutionResult orderResult;
             if ("BUY".equals(decision.updatedPosition.direction)) {
-                tcsService.buyByMarket(name, ticker.getType(), positionValue, tpPercent, slPercent);
+                orderResult = tcsService.buyByMarketWithDetails(name, ticker.getType(), positionValue, tpPercent, slPercent);
             } else { // SELL
-                tcsService.sellByMarket(name, ticker.getType(), positionValue, tpPercent, slPercent);
+                orderResult = tcsService.sellByMarketWithDetails(name, ticker.getType(), positionValue, tpPercent, slPercent);
             }
 
-            positionStore.put(name, decision.updatedPosition);
-            lastSeenHourBarByTicker.put(name, candles.get(candles.size() - 1).time);
-            TRADE_DATA_COLLECTOR.recordTradeEntry(name, getStrategyName(), candles, decision);
+            if (!orderResult.isSuccess()) {
+                log("Failed to open " + decision.updatedPosition.direction + " for " + name + ".");
+                return;
+            }
 
-            telegramNotifyService.sendMessage(getStrategyName() + " " + decision.updatedPosition.direction + " " + name
-                    + ": qty=" + qty
-                    + ", entry=" + entryPrice
-                    + ", SL=" + String.format("%.2f", slPercent) + "%"
-                    + ", TP=" + String.format("%.2f", tpPercent) + "%");
+            Position executedPosition = mergeExecutedPosition(decision.updatedPosition, orderResult);
+
+            positionStore.put(name, executedPosition);
+            lastSeenHourBarByTicker.put(name, candles.get(candles.size() - 1).time);
+            if (executedPosition.entryPrice != null && executedPosition.stopLoss != null && executedPosition.takeProfit != null) {
+                TRADE_DATA_COLLECTOR.recordTradeEntry(
+                        name,
+                        getStrategyName(),
+                        candles,
+                        executedPosition.entryPrice,
+                        executedPosition.stopLoss,
+                        executedPosition.takeProfit,
+                        decision.confidence,
+                        decision.reason,
+                        LocalDateTime.now()
+                );
+            }
+
+            double executedEntryPrice = executedPosition.entryPrice != null ? executedPosition.entryPrice : entryPrice;
+            telegramNotifyService.sendMessage(getStrategyName() + " " + executedPosition.direction + " " + name
+                    + ": qty=" + executedPosition.quantity
+                    + ", entry=" + executedEntryPrice
+                    + ", SL=" + String.format("%.2f", abs(executedEntryPrice - executedPosition.stopLoss) / executedEntryPrice * 100) + "%"
+                    + ", TP=" + String.format("%.2f", abs(executedPosition.takeProfit - executedEntryPrice) / executedEntryPrice * 100) + "%");
         } catch (Exception ex) {
             log("Failed to open " + decision.updatedPosition.direction + " for " + name + ": " + ex.getMessage());
             telegramNotifyService.sendMessage(getStrategyName() + " FAILED " + decision.updatedPosition.direction + " " + name + ": " + ex.getMessage());
@@ -573,29 +595,59 @@ public abstract class BaseStrategy {
                 " shares, direction=" + storedPosition.direction +
                 ", reason=" + decision.reason);
 
-        boolean closed = false;
+        TCSService.OrderExecutionResult closeResult = TCSService.OrderExecutionResult.failed();
         if ("BUY".equals(storedPosition.direction)) {
             throttleApiCall();
-            closed = tcsService.closeLongByMarket(name, ticker.getType());
+            closeResult = tcsService.closeLongByMarketWithDetails(name, ticker.getType());
         } else if ("SELL".equals(storedPosition.direction)) {
             throttleApiCall();
-            closed = tcsService.closeShortByMarket(name, ticker.getType());
+            closeResult = tcsService.closeShortByMarketWithDetails(name, ticker.getType());
         }
 
-        if (closed) {
-            positionStore.put(name, getCooldownPosition());
-            lastSeenHourBarByTicker.remove(name);
-            
-            // Register trade result for Money Management
+        if (closeResult.isSuccess()) {
+            int closedQuantity = closeResult.getExecutedCount() > 0 ? closeResult.getExecutedCount() : storedPosition.quantity;
+            if (closedQuantity <= 0) {
+                log("Failed to close position for " + name + " (executed quantity is zero)");
+                return;
+            }
+
             double entryPrice = storedPosition.entryPrice != null ? storedPosition.entryPrice : 0.0;
-            double exitPrice = decision.entryPrice != null ? decision.entryPrice : 0.0;
-            double pnl = calculatePnl(storedPosition, exitPrice);
+            Double executedExitPrice = closeResult.getExecutedPrice() != null
+                    ? closeResult.getExecutedPrice()
+                    : tcsService.getLastExecutedPrice(name, ticker.getType());
+            double exitPrice = executedExitPrice != null && executedExitPrice > 0.0
+                    ? executedExitPrice
+                    : (decision.entryPrice != null ? decision.entryPrice : 0.0);
+            double pnl = calculatePnlForQuantity(storedPosition, exitPrice, closedQuantity);
             double stopLoss = storedPosition.stopLoss != null ? storedPosition.stopLoss : entryPrice;
-            TRADE_DATA_COLLECTOR.recordTradeOutcome(name, getStrategyName(), pnl, entryPrice, stopLoss, storedPosition.quantity);
-            onTradeClosed(name, pnl, entryPrice, exitPrice, storedPosition.quantity, storedPosition.direction);
-            
-            telegramNotifyService.sendMessage(getStrategyName() + " CLOSED " + name +
-                    " (reason: " + decision.reason + ", PnL: " + String.format("%.2f", pnl) + ")");
+
+            if (closedQuantity >= storedPosition.quantity) {
+                tcsService.clearProtectiveOrders(name, ticker.getType());
+                positionStore.put(name, getCooldownPosition());
+                lastSeenHourBarByTicker.remove(name);
+                telegramNotifyService.sendMessage(getStrategyName() + " CLOSED " + name +
+                        " (reason: " + decision.reason + ", PnL: " + String.format("%.2f", pnl) + ")");
+            } else {
+                int remainingQuantity = storedPosition.quantity - closedQuantity;
+                positionStore.put(name, new Position(
+                        storedPosition.direction,
+                        storedPosition.entryPrice,
+                        storedPosition.stopLoss,
+                        storedPosition.takeProfit,
+                        remainingQuantity,
+                        storedPosition.candlesHeld,
+                        storedPosition.cooldownRemaining
+                ));
+                log("Position for " + name + " partially closed: closed=" + closedQuantity + ", remaining=" + remainingQuantity);
+                telegramNotifyService.sendMessage(getStrategyName() + " PARTIAL CLOSE " + name
+                        + ": closed=" + closedQuantity
+                        + ", remaining=" + remainingQuantity
+                        + ", reason=" + decision.reason
+                        + ", PnL=" + String.format("%.2f", pnl));
+            }
+
+            TRADE_DATA_COLLECTOR.recordTradeOutcome(name, getStrategyName(), pnl, entryPrice, stopLoss, closedQuantity);
+            onTradeClosed(name, pnl, entryPrice, exitPrice, closedQuantity, storedPosition.direction);
         } else {
             log("Failed to close position for " + name + " (may not exist in broker account)");
         }
@@ -612,6 +664,62 @@ public abstract class BaseStrategy {
             return (exitPrice - position.entryPrice) * position.quantity;
         } else {
             return (position.entryPrice - exitPrice) * position.quantity;
+        }
+    }
+
+    private double calculatePnlForQuantity(Position position, double exitPrice, int quantity) {
+        if (position.entryPrice == null || exitPrice <= 0 || quantity <= 0) {
+            return 0.0;
+        }
+        if ("BUY".equals(position.direction)) {
+            return (exitPrice - position.entryPrice) * quantity;
+        }
+        return (position.entryPrice - exitPrice) * quantity;
+    }
+
+    private Position mergeExecutedPosition(Position requestedPosition, TCSService.OrderExecutionResult orderResult) {
+        Position protectivePosition = orderResult.getProtectivePosition();
+        Double executedEntryPrice = orderResult.getExecutedPrice() != null
+                ? orderResult.getExecutedPrice()
+                : requestedPosition.entryPrice;
+        Double stopLoss = protectivePosition != null && protectivePosition.stopLoss != null
+                ? protectivePosition.stopLoss
+                : requestedPosition.stopLoss;
+        Double takeProfit = protectivePosition != null && protectivePosition.takeProfit != null
+                ? protectivePosition.takeProfit
+                : requestedPosition.takeProfit;
+        int quantity = orderResult.getExecutedCount() > 0 ? orderResult.getExecutedCount() : requestedPosition.quantity;
+
+        return new Position(
+                requestedPosition.direction,
+                executedEntryPrice,
+                stopLoss,
+                takeProfit,
+                quantity,
+                requestedPosition.candlesHeld,
+                requestedPosition.cooldownRemaining
+        );
+    }
+
+    private void syncProtectiveOrdersIfNeeded(String name,
+                                              TickerInfo ticker,
+                                              Position previousPosition,
+                                              Position updatedPosition) {
+        if (ticker == null || updatedPosition == null || updatedPosition.quantity <= 0) {
+            return;
+        }
+
+        boolean stopChanged = !java.util.Objects.equals(previousPosition.stopLoss, updatedPosition.stopLoss);
+        boolean takeChanged = !java.util.Objects.equals(previousPosition.takeProfit, updatedPosition.takeProfit);
+        if (!stopChanged && !takeChanged) {
+            return;
+        }
+
+        try {
+            throttleApiCall();
+            tcsService.syncProtectiveOrders(name, ticker.getType(), updatedPosition);
+        } catch (Exception ex) {
+            log("Failed to sync protective orders for " + name + ": " + ex.getMessage());
         }
     }
 

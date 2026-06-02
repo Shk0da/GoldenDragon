@@ -13,11 +13,11 @@ import static com.github.shk0da.GoldenDragon.model.TickerInfo.Key;
 import static java.lang.System.out;
 
 /**
- * Тестовый класс для проверки работы TCSService
- * Использует токены из application.properties
- * 
- * Внимание! Тест выполняет реальные операции с инструментами.
- * Убедитесь что используете песочницу (tcs.isSandbox=true) или тестовый режим (tcs.testMode=true)
+ * Manual smoke test for TCSService.
+ * Uses credentials from application.properties.
+ *
+ * Warning: this test performs real trading operations.
+ * Make sure sandbox mode (tcs.isSandbox=true) or test mode (tcs.testMode=true) is enabled.
  */
 public class TCSServiceTest {
 
@@ -29,7 +29,7 @@ public class TCSServiceTest {
         try {
             out.println("=== Starting TCSService Test ===");
             
-            // Инициализация конфигурации
+            // Initialize config
             MainConfig mainConfig = new MainConfig();
             MarketConfig marketConfig = MarketConfig.byMarket(MOEX);
             
@@ -37,11 +37,11 @@ public class TCSServiceTest {
             out.println("Sandbox: " + mainConfig.isSandbox());
             out.println("Account ID: " + mainConfig.getTcsAccountId());
             
-            // Создание сервиса
+            // Create service
             TCSService tcsService = new TCSService(mainConfig, marketConfig);
             out.println("TCSService created successfully");
             
-            // Тест 1: Получение портфеля
+            // Test 1: Portfolio snapshot
             out.println("\n=== Test 1: Portfolio ===");
             try {
                 double totalPortfolio = tcsService.getTotalPortfolioCost();
@@ -54,7 +54,7 @@ public class TCSServiceTest {
                 e.printStackTrace();
             }
             
-            // Тест 2: Получение позиций
+            // Test 2: Current positions snapshot
             out.println("\n=== Test 2: Positions ===");
             try {
                 Map<Key, PositionInfo> positions =
@@ -68,7 +68,7 @@ public class TCSServiceTest {
                 e.printStackTrace();
             }
             
-            // Тест 3: Получение стакана цен для инструмента
+            // Test 3: Order book snapshot
             out.println("\n=== Test 3: Order Book ===");
             try {
                 var key = new Key(testTicker, tickerType);
@@ -77,7 +77,7 @@ public class TCSServiceTest {
                 out.println("Ticker: " + testTicker);
                 out.println("Bids: " + prices.get("bids").size() + ", Asks: " + prices.get("asks").size());
                 
-                // Вывод лучших цен
+                // Print best bid/ask
                 if (!prices.get("bids").isEmpty()) {
                     double bestBid = prices.get("bids").keySet().stream().max(Double::compareTo).orElse(0.0);
                     out.println("Best Bid: " + bestBid);
@@ -91,10 +91,10 @@ public class TCSServiceTest {
                 e.printStackTrace();
             }
             
-            // Тест 4: Проверка создания котировок
+            // Test 4: Quotation conversion
             out.println("\n=== Test 4: Quotation Creation ===");
             try {
-                // Проверяем что цены рассчитываются корректно
+                // Verify quotation conversion precision
                 double testPrice = 123.456789;
                 var quotation = createQuotation(testPrice);
                 double restoredPrice = toDouble(quotation.getUnits(), quotation.getNano());
@@ -113,7 +113,7 @@ public class TCSServiceTest {
                 e.printStackTrace();
             }
             
-            // Тест 5: Проверка доступности инструмента
+            // Test 5: Instrument lookup
             out.println("\n=== Test 5: Instrument Search ===");
             try {
                 var key = new Key(testTicker, tickerType);
@@ -129,18 +129,18 @@ public class TCSServiceTest {
                 e.printStackTrace();
             }
             
-            // Тест 6: Покупка по рынку
+            // Test 6: Market buy
             out.println("\n=== Test 6: Buy by Market ===");
             try {
                 boolean buyResult = tcsService.buyByMarket(testTicker, tickerType, testCashAmount, 0, 0);
                 out.println("Buy by market result: " + buyResult);
-                Thread.sleep(2000); // Ждем исполнения
+                Thread.sleep(2000); // wait for execution
             } catch (Exception e) {
                 out.println("Buy by market test failed: " + e.getMessage());
                 e.printStackTrace();
             }
             
-            // Тест 7: Проверка позиции после покупки
+            // Test 7: Position after market buy
             out.println("\n=== Test 7: Position After Buy ===");
             try {
                 Thread.sleep(1000);
@@ -157,18 +157,18 @@ public class TCSServiceTest {
                 e.printStackTrace();
             }
             
-            // Тест 8: Продажа по рынку
+            // Test 8: Market sell
             out.println("\n=== Test 8: Sell by Market ===");
             try {
                 boolean sellResult = tcsService.sellByMarket(testTicker, tickerType, testCashAmount, 0, 0);
                 out.println("Sell by market result: " + sellResult);
-                Thread.sleep(2000); // Ждем исполнения
+                Thread.sleep(2000); // wait for execution
             } catch (Exception e) {
                 out.println("Sell by market test failed: " + e.getMessage());
                 e.printStackTrace();
             }
             
-            // Тест 9: Покупка с Take Profit и Stop Loss
+            // Test 9: Market buy with TP/SL
             out.println("\n=== Test 9: Buy with TP/SL ===");
             try {
                 double takeProfit = 2.0; // 2%
@@ -181,25 +181,47 @@ public class TCSServiceTest {
                 e.printStackTrace();
             }
             
-            // Тест 10: Лимитная покупка
+            // Test 10: Limit buy
             out.println("\n=== Test 10: Limit Buy ===");
             try {
                 var key = new Key(testTicker, tickerType);
-                double currentPrice = tcsService.getAvailablePrice(key);
-                double limitPrice = currentPrice * 0.98; // На 2% ниже рынка
+                var orderBook = tcsService.getCurrentPrices(key, false);
+                double bestAsk = orderBook.get("asks").keySet().stream().min(Double::compareTo).orElse(0.0);
+                double priceStep = tcsService.searchTicker(key).getMinPriceIncrement();
+                double limitPrice = bestAsk > 0.0 ? bestAsk + priceStep : 0.0;
                 
-                out.println("Current price: " + currentPrice);
+                out.println("Best ask: " + bestAsk);
                 out.println("Limit price: " + limitPrice);
                 
-                boolean limitBuyResult = tcsService.buy(testTicker, tickerType, testCashAmount, false, 0, 0, false);
+                boolean limitBuyResult = tcsService.buyLimit(testTicker, tickerType, testCashAmount, limitPrice).isSuccess();
                 out.println("Limit buy result: " + limitBuyResult);
                 Thread.sleep(2000);
             } catch (Exception e) {
                 out.println("Limit buy test failed: " + e.getMessage());
                 e.printStackTrace();
             }
+
+            // Test 10b: Limit sell
+            out.println("\n=== Test 10b: Limit Sell ===");
+            try {
+                var key = new Key(testTicker, tickerType);
+                var orderBook = tcsService.getCurrentPrices(key, false);
+                double bestBid = orderBook.get("bids").keySet().stream().max(Double::compareTo).orElse(0.0);
+                double priceStep = tcsService.searchTicker(key).getMinPriceIncrement();
+                double limitPrice = bestBid > 0.0 ? Math.max(priceStep, bestBid - priceStep) : 0.0;
+
+                out.println("Best bid: " + bestBid);
+                out.println("Limit price: " + limitPrice);
+
+                boolean limitSellResult = tcsService.sellLimit(testTicker, tickerType, testCashAmount, limitPrice).isSuccess();
+                out.println("Limit sell result: " + limitSellResult);
+                Thread.sleep(2000);
+            } catch (Exception e) {
+                out.println("Limit sell test failed: " + e.getMessage());
+                e.printStackTrace();
+            }
             
-            // Тест 11: Закрытие позиции по рынку
+            // Test 11: Close position by market
             out.println("\n=== Test 11: Close Position by Market ===");
             try {
                 boolean closeResult = tcsService.closeByMarket(testTicker, tickerType);
@@ -210,7 +232,7 @@ public class TCSServiceTest {
                 e.printStackTrace();
             }
             
-            // Тест 12: Финальная проверка позиций
+            // Test 12: Final position check
             out.println("\n=== Test 12: Final Position Check ===");
             try {
                 Thread.sleep(1000);
@@ -226,7 +248,7 @@ public class TCSServiceTest {
                 e.printStackTrace();
             }
             
-            // Тест 13: Проверка доступных средств в конце
+            // Test 13: Final cash check
             out.println("\n=== Test 13: Final Cash Check ===");
             try {
                 double finalCash = tcsService.getAvailableCash();
@@ -245,7 +267,7 @@ public class TCSServiceTest {
         }
     }
     
-    // Копия метода из TCSService для тестирования
+    // Copy of TCSService helper for quotation testing
     private static ru.tinkoff.piapi.contract.v1.Quotation createQuotation(double price) {
         long units = (long) price;
         double fractional = price - units;

@@ -2,6 +2,7 @@ package com.github.shk0da.GoldenDragon.service;
 
 import com.github.shk0da.GoldenDragon.config.MainConfig;
 import com.github.shk0da.GoldenDragon.config.MarketConfig;
+import com.github.shk0da.GoldenDragon.model.Position;
 import com.github.shk0da.GoldenDragon.model.PositionInfo;
 import com.github.shk0da.GoldenDragon.model.TickerInfo;
 import com.github.shk0da.GoldenDragon.model.TickerType;
@@ -19,6 +20,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 import javax.annotation.Nullable;
@@ -69,6 +71,8 @@ public class TCSService {
     private final Repository<TickerInfo.Key, String> figiRepository = FigiRepository.INSTANCE;
     private final Repository<TickerInfo.Key, TickerInfo> tickerRepository = TickerRepository.INSTANCE;
     private final Repository<TickerInfo.Key, Map<String, Map<Double, Integer>>> pricesRepository = PricesRepository.INSTANCE;
+    private final Map<TickerInfo.Key, Double> lastExecutedPriceByTicker = new ConcurrentHashMap<>();
+    private final Map<TickerInfo.Key, ProtectiveOrders> protectiveOrdersByTicker = new ConcurrentHashMap<>();
 
     public TCSService(MainConfig mainConfig, MarketConfig marketConfig) {
         this.mainConfig = mainConfig;
@@ -140,6 +144,20 @@ public class TCSService {
         return false;
     }
 
+    public OrderExecutionResult closeShortByMarketWithDetails(String name, TickerType type) {
+        int count = getCountOfCurrentPositions(type, name);
+        if (count < 0) {
+            String currentDate = dateTimeFormat.format(new Date());
+            out.println("[" + currentDate + "] Buy: " + Math.abs(count) + " " + name + " by Market");
+
+            if (mainConfig.isTestMode()) {
+                return OrderExecutionResult.testSuccess(getAvailablePrice(new TickerInfo.Key(name, type)), Math.abs(count));
+            }
+            return createOrder(new TickerInfo.Key(name, type), 0.0, Math.abs(count), "Buy", 0.0, 0.0, false);
+        }
+        return OrderExecutionResult.failed();
+    }
+
     public boolean closeLongByMarket(String name, TickerType type) {
         int count = getCountOfCurrentPositions(type, name);
         if (count > 0) {
@@ -152,15 +170,66 @@ public class TCSService {
         return false;
     }
 
+    public OrderExecutionResult closeLongByMarketWithDetails(String name, TickerType type) {
+        int count = getCountOfCurrentPositions(type, name);
+        if (count > 0) {
+            String currentDate = dateTimeFormat.format(new Date());
+            out.println("[" + currentDate + "] Sell: " + count + " " + name + " by Market");
+
+            if (mainConfig.isTestMode()) {
+                return OrderExecutionResult.testSuccess(getAvailablePrice(new TickerInfo.Key(name, type)), count);
+            }
+            return createOrder(new TickerInfo.Key(name, type), 0.0, count, "Sell", 0.0, 0.0, false);
+        }
+        return OrderExecutionResult.failed();
+    }
+
     public boolean sellByMarket(String name, TickerType type, double cashToSell, double takeProfit, double stopLose) {
-        return sell(name, type, cashToSell, true, takeProfit, stopLose, false);
+        return sell(name, type, cashToSell, true, takeProfit, stopLose, false).isSuccess();
     }
 
     public boolean sellByMarket(String name, TickerType type, double cashToSell, double takeProfit, double stopLose, boolean isFullPrice) {
-        return sell(name, type, cashToSell, true, takeProfit, stopLose, isFullPrice);
+        return sell(name, type, cashToSell, true, takeProfit, stopLose, isFullPrice).isSuccess();
     }
 
-    public boolean sell(String name, TickerType type, double cashToSell, boolean byMarket, double takeProfit, double stopLose, boolean isFullPrice) {
+    public OrderExecutionResult sellLimit(String name, TickerType type, double cashToSell, double limitPrice) {
+        if (limitPrice <= 0.0) {
+            return OrderExecutionResult.failed();
+        }
+
+        var key = new TickerInfo.Key(name, type);
+        String basicCurrency = marketConfig.getCurrency();
+        String currency = searchTicker(key).getCurrency();
+        if (!basicCurrency.equals(currency)) {
+            cashToSell = convertCurrencies(currency, basicCurrency, cashToSell);
+        }
+
+        int count = calculateTradeCount(key, cashToSell, limitPrice);
+        if (count == 0) {
+            out.println("Warn: limit short will be skipped - " + name + " with count " + count
+                    + ". CashToSell: " + cashToSell + ", price: " + limitPrice);
+            return OrderExecutionResult.failed();
+        }
+
+        double cost = getRequiredCashForOrder(key, count, limitPrice);
+        String currentDate = dateTimeFormat.format(new Date());
+        out.println("[" + currentDate + "] Sell: " + count + " " + key.getTicker() + " by "
+                + limitPrice + " (" + cost + " " + currency + ")");
+        if (mainConfig.isTestMode()) {
+            return OrderExecutionResult.testSuccess(limitPrice, count);
+        }
+        return createOrder(key, limitPrice, count, "Sell", 0.0, 0.0, false);
+    }
+
+    public OrderExecutionResult sellByMarketWithDetails(String name,
+                                                        TickerType type,
+                                                        double cashToSell,
+                                                        double takeProfit,
+                                                        double stopLose) {
+        return sell(name, type, cashToSell, true, takeProfit, stopLose, false);
+    }
+
+    public OrderExecutionResult sell(String name, TickerType type, double cashToSell, boolean byMarket, double takeProfit, double stopLose, boolean isFullPrice) {
         var key = new TickerInfo.Key(name, type);
 
         String basicCurrency = marketConfig.getCurrency();
@@ -179,22 +248,22 @@ public class TCSService {
 
         if (0.0 == tickerPrice) {
             out.println("Warn: short will be skipped - " + name + " by price " + tickerPrice);
-            return false;
+            return OrderExecutionResult.failed();
         }
 
         int count = calculateTradeCount(key, cashToSell, tickerPrice);
         if (count == 0) {
             out.println("Warn: short will be skipped - " + name + " with count " + count + ". CashToSell: " + cashToSell + ", price: " + tickerPrice);
-            return false;
+            return OrderExecutionResult.failed();
         }
         double cost = getRequiredCashForOrder(key, count, tickerPrice);
 
         String currentDate = dateTimeFormat.format(new Date());
         out.println("[" + currentDate + "] Sell: " + count + " " + key.getTicker() + " by " + (byMarket ? "Market" : tickerPrice + " (" + cost + " " + currency + ")"));
         if (mainConfig.isTestMode()) {
-            return true;
+            return OrderExecutionResult.testSuccess(tickerPrice, count);
         }
-        return 1 == createOrder(key, byMarket ? 0.0 : tickerPrice, count, "Sell", takeProfit, stopLose, isFullPrice);
+        return createOrder(key, byMarket ? 0.0 : tickerPrice, count, "Sell", takeProfit, stopLose, isFullPrice);
     }
 
     public boolean sell(String name, TickerType type, double cost) {
@@ -239,22 +308,59 @@ public class TCSService {
     }
 
     public boolean buyByMarket(String name, TickerType type, double cashToBuy, double takeProfit, double stopLose) {
-        return buy(name, type, cashToBuy, true, takeProfit, stopLose, false);
+        return buy(name, type, cashToBuy, true, takeProfit, stopLose, false).isSuccess();
     }
 
     public boolean buyByMarket(String name, TickerType type, double cashToBuy, double takeProfit, double stopLose, boolean isFullPrice) {
-        return buy(name, type, cashToBuy, true, takeProfit, stopLose, isFullPrice);
+        return buy(name, type, cashToBuy, true, takeProfit, stopLose, isFullPrice).isSuccess();
+    }
+
+    public OrderExecutionResult buyByMarketWithDetails(String name,
+                                                       TickerType type,
+                                                       double cashToBuy,
+                                                       double takeProfit,
+                                                       double stopLose) {
+        return buy(name, type, cashToBuy, true, takeProfit, stopLose, false);
     }
 
     public boolean buy(String name, TickerType type, double cashToBuy) {
-        return buy(name, type, cashToBuy, false, 0.0, 0.0, false);
+        return buy(name, type, cashToBuy, false, 0.0, 0.0, false).isSuccess();
     }
 
     public boolean buy(String name, TickerType type, double cashToBuy, boolean isFullPrice) {
-        return buy(name, type, cashToBuy, false, 0.0, 0.0, isFullPrice);
+        return buy(name, type, cashToBuy, false, 0.0, 0.0, isFullPrice).isSuccess();
     }
 
-    public boolean buy(String name, TickerType type, double cashToBuy, boolean byMarket, double takeProfit, double stopLose, boolean isFullPrice) {
+    public OrderExecutionResult buyLimit(String name, TickerType type, double cashToBuy, double limitPrice) {
+        if (limitPrice <= 0.0) {
+            return OrderExecutionResult.failed();
+        }
+
+        var key = new TickerInfo.Key(name, type);
+        String basicCurrency = marketConfig.getCurrency();
+        String currency = searchTicker(key).getCurrency();
+        if (!basicCurrency.equals(currency)) {
+            cashToBuy = convertCurrencies(currency, basicCurrency, cashToBuy);
+        }
+
+        int count = calculateTradeCount(key, cashToBuy, limitPrice);
+        if (count == 0) {
+            out.println("Warn: limit long will be skipped - " + name + " with count " + count
+                    + ". CashToBuy: " + cashToBuy + ", price: " + limitPrice);
+            return OrderExecutionResult.failed();
+        }
+
+        double cost = getRequiredCashForOrder(key, count, limitPrice);
+        String currentDate = dateTimeFormat.format(new Date());
+        out.println("[" + currentDate + "] Buy: " + count + " " + key.getTicker() + " by "
+                + limitPrice + " (" + cost + " " + currency + ")");
+        if (mainConfig.isTestMode()) {
+            return OrderExecutionResult.testSuccess(limitPrice, count);
+        }
+        return createOrder(key, limitPrice, count, "Buy", 0.0, 0.0, false);
+    }
+
+    public OrderExecutionResult buy(String name, TickerType type, double cashToBuy, boolean byMarket, double takeProfit, double stopLose, boolean isFullPrice) {
         var key = new TickerInfo.Key(name, type);
 
         String basicCurrency = marketConfig.getCurrency();
@@ -273,29 +379,29 @@ public class TCSService {
 
         if (0.0 == tickerPrice) {
             out.println("Warn: purchase will be skipped - " + name + " by price " + tickerPrice);
-            return false;
+            return OrderExecutionResult.failed();
         }
 
         int count = calculateTradeCount(key, cashToBuy, tickerPrice);
         if (count == 0) {
             out.println("Warn: long will be skipped - " + name + " with count " + count + ". CashToBuy: " + cashToBuy + ", price: " + tickerPrice);
-            return false;
+            return OrderExecutionResult.failed();
         }
         double cost = getRequiredCashForOrder(key, count, tickerPrice);
 
         String currentDate = dateTimeFormat.format(new Date());
         out.println("[" + currentDate + "] Buy: " + count + " " + key.getTicker() + " by " + (byMarket ? "Market" : tickerPrice + " (" + cost + " " + currency + ")"));
         if (mainConfig.isTestMode()) {
-            return true;
+            return OrderExecutionResult.testSuccess(tickerPrice, count);
         }
-        return 1 == createOrder(key, byMarket ? 0.0 : tickerPrice, count, "Buy", takeProfit, stopLose, isFullPrice);
+        return createOrder(key, byMarket ? 0.0 : tickerPrice, count, "Buy", takeProfit, stopLose, isFullPrice);
     }
 
     public int createOrder(TickerInfo.Key key, double price, int count, String operation) {
-        return createOrder(key, price, count, operation, 0.0, 0.0, false);
+        return createOrder(key, price, count, operation, 0.0, 0.0, false).isSuccess() ? 1 : 0;
     }
 
-    public int createOrder(TickerInfo.Key key, double price, int count, String operation, double takeProfit, double stopLose, boolean isFullPrice) {
+    public OrderExecutionResult createOrder(TickerInfo.Key key, double price, int count, String operation, double takeProfit, double stopLose, boolean isFullPrice) {
         String figi = figiByName(key);
         TickerInfo tickerInfo = searchTicker(key);
         int lot = tickerInfo.getLot();
@@ -312,18 +418,24 @@ public class TCSService {
             PostOrderResponse response = investApi.getOrdersService().postOrderSync(
                     figi, quantity, orderPrice, direction, mainConfig.getTcsAccountId(), type, null
             );
+            int executedLots = Math.toIntExact(response.getLotsExecuted());
+            int executedCount = executedLots > 0 ? executedLots * lot : count;
             double executedPrice = toDouble(
                     response.getExecutedOrderPrice().getUnits(),
                     response.getExecutedOrderPrice().getNano()
             );
+            if (executedPrice <= 0.0) {
+                executedPrice = price > 0.0 ? price : getAvailablePrice(key);
+            }
+            lastExecutedPriceByTicker.put(key, executedPrice);
 
             String message = String.format(
                     "%s %d %s by %f (%f): %s [order=%s, status=%s, price=%f, commission=%f]\n",
                     operation,
-                    count,
+                    executedCount,
                     key.getTicker(),
                     price,
-                    count * price,
+                    executedCount * price,
                     response.getMessage(),
                     response.getOrderId(),
                     response.getExecutionReportStatus(),
@@ -332,32 +444,124 @@ public class TCSService {
             );
             out.println(message);
 
-            if (stopLose > 0.0 && response.getExecutionReportStatus().equals(EXECUTION_REPORT_STATUS_FILL)) {
+            Position bracketPosition = null;
+            if (response.getExecutionReportStatus().equals(EXECUTION_REPORT_STATUS_FILL)) {
+                bracketPosition = createProtectivePosition(direction, executedPrice, stopLose, takeProfit, isFullPrice, executedCount, tickerInfo);
+                placeOrLogProtectiveOrders(figi, executedLots > 0 ? executedLots : quantity, key, direction, bracketPosition);
+            }
+
+            telegramNotifyService.sendMessage(message, true);
+            return OrderExecutionResult.success(executedPrice, executedCount, bracketPosition);
+        } catch (Exception ex) {
+            String message = "Failed create order [" + key.getTicker() + "]: " + ex.getMessage();
+            out.println(message);
+            telegramNotifyService.sendMessage(message);
+            return OrderExecutionResult.failed();
+        }
+    }
+
+    public Double getLastExecutedPrice(String name, TickerType type) {
+        return lastExecutedPriceByTicker.get(new TickerInfo.Key(name, type));
+    }
+
+    public void syncProtectiveOrders(String name, TickerType type, Position position) {
+        if (mainConfig.isSandbox() || position == null || position.quantity <= 0) {
+            return;
+        }
+
+        TickerInfo.Key key = new TickerInfo.Key(name, type);
+        TickerInfo tickerInfo = searchTicker(key);
+        int lot = Math.max(1, tickerInfo.getLot());
+        int quantity = Math.max(1, position.quantity / lot);
+        String figi = figiByName(key);
+        OrderDirection direction = "BUY".equals(position.direction) ? ORDER_DIRECTION_BUY : ORDER_DIRECTION_SELL;
+
+        ProtectiveOrders currentOrders = protectiveOrdersByTicker.computeIfAbsent(key, ignored -> new ProtectiveOrders());
+        syncStopOrder(figi, key, quantity, direction, position.stopLoss, currentOrders, true);
+        syncStopOrder(figi, key, quantity, direction, position.takeProfit, currentOrders, false);
+    }
+
+    public void clearProtectiveOrders(String name, TickerType type) {
+        if (mainConfig.isSandbox()) {
+            return;
+        }
+
+        TickerInfo.Key key = new TickerInfo.Key(name, type);
+        ProtectiveOrders protectiveOrders = protectiveOrdersByTicker.remove(key);
+        if (protectiveOrders == null) {
+            return;
+        }
+
+        cancelStopOrder(key, protectiveOrders.stopLossOrderId, "StopLose");
+        cancelStopOrder(key, protectiveOrders.takeProfitOrderId, "TakeProfit");
+    }
+
+    private Position createProtectivePosition(OrderDirection direction,
+                                              double executedPrice,
+                                              double stopLose,
+                                              double takeProfit,
+                                              boolean isFullPrice,
+                                              int count,
+                                              TickerInfo tickerInfo) {
+        Double stopLossPrice = null;
+        Double takeProfitPrice = null;
+
+        if (stopLose > 0.0) {
+            double slPrice = ORDER_DIRECTION_BUY == direction
+                    ? (isFullPrice ? stopLose : executedPrice - ((executedPrice / 100) * stopLose))
+                    : (isFullPrice ? stopLose : executedPrice + ((executedPrice / 100) * stopLose));
+            stopLossPrice = normalizePrice(slPrice, tickerInfo.getMinPriceIncrement());
+        }
+
+        if (takeProfit > 0.0) {
+            double tpPrice = ORDER_DIRECTION_BUY == direction
+                    ? (isFullPrice ? takeProfit : executedPrice + ((executedPrice / 100) * takeProfit))
+                    : (isFullPrice ? takeProfit : executedPrice - ((executedPrice / 100) * takeProfit));
+            takeProfitPrice = normalizePrice(tpPrice, tickerInfo.getMinPriceIncrement());
+        }
+
+        if (stopLossPrice == null && takeProfitPrice == null) {
+            return null;
+        }
+
+        return new Position(
+                ORDER_DIRECTION_BUY == direction ? "BUY" : "SELL",
+                executedPrice,
+                stopLossPrice,
+                takeProfitPrice,
+                count,
+                0
+        );
+    }
+
+    private void placeOrLogProtectiveOrders(String figi,
+                                            int quantity,
+                                            TickerInfo.Key key,
+                                            OrderDirection direction,
+                                            Position bracketPosition) {
+        if (bracketPosition == null) {
+            return;
+        }
+
+        if (bracketPosition.stopLoss != null) {
+            out.println(key.getTicker() + " StopLose target: " + bracketPosition.stopLoss);
+            if (!mainConfig.isSandbox()) {
                 sleep(1_000);
                 try {
-                    double stopPrice = 0.0;
-                    StopOrderDirection stopOrderDirection = null;
-                    if (ORDER_DIRECTION_SELL == direction) {
-                        stopOrderDirection = STOP_ORDER_DIRECTION_BUY;
-                        double slPrice = isFullPrice ? stopLose : executedPrice + ((executedPrice / 100) * stopLose);
-                        stopPrice = normalizePrice(slPrice, tickerInfo.getMinPriceIncrement());
-                    }
-                    if (ORDER_DIRECTION_BUY == direction) {
-                        stopOrderDirection = STOP_ORDER_DIRECTION_SELL;
-                        double slPrice = isFullPrice ? stopLose : executedPrice - ((executedPrice / 100) * stopLose);
-                        stopPrice = normalizePrice(slPrice, tickerInfo.getMinPriceIncrement());
-                    }
-                    Quotation stopLosePrice = createQuotation(stopPrice);
-                    out.println(key.getTicker() + " StopLose target: " + toDouble(stopLosePrice));
-                    investApi.getStopOrdersService().postStopOrderGoodTillCancelSync(
-                            figi, 
-                            quantity, 
-                            stopLosePrice,  // trigger price - цена активации
-                            stopLosePrice,  // price - цена исполнения (для stop-loss равна trigger)
+                    StopOrderDirection stopOrderDirection = ORDER_DIRECTION_BUY == direction
+                            ? STOP_ORDER_DIRECTION_SELL
+                            : STOP_ORDER_DIRECTION_BUY;
+                    Quotation stopLosePrice = createQuotation(bracketPosition.stopLoss);
+                    String stopOrderId = investApi.getStopOrdersService().postStopOrderGoodTillCancelSync(
+                            figi,
+                            quantity,
+                            stopLosePrice,
+                            stopLosePrice,
                             stopOrderDirection,
                             mainConfig.getTcsAccountId(),
                             STOP_ORDER_TYPE_STOP_LOSS
                     );
+                    protectiveOrdersByTicker.computeIfAbsent(key, ignored -> new ProtectiveOrders()).stopLossOrderId = stopOrderId;
                 } catch (Exception ex) {
                     var error = "Failed create StopLose: " + ex.getMessage();
                     out.println(error);
@@ -365,33 +569,27 @@ public class TCSService {
                     ex.printStackTrace();
                 }
             }
+        }
 
-            if (takeProfit > 0.0 && response.getExecutionReportStatus().equals(EXECUTION_REPORT_STATUS_FILL)) {
+        if (bracketPosition.takeProfit != null) {
+            out.println(key.getTicker() + " TakeProfit target: " + bracketPosition.takeProfit);
+            if (!mainConfig.isSandbox()) {
                 sleep(1_000);
                 try {
-                    double takePrice = 0.0;
-                    StopOrderDirection stopOrderDirection = null;
-                    if (ORDER_DIRECTION_SELL == direction) {
-                        stopOrderDirection = STOP_ORDER_DIRECTION_BUY;
-                        double tpPrice = isFullPrice ? takeProfit : executedPrice - ((executedPrice / 100) * takeProfit);
-                        takePrice = normalizePrice(tpPrice, tickerInfo.getMinPriceIncrement());
-                    }
-                    if (ORDER_DIRECTION_BUY == direction) {
-                        stopOrderDirection = STOP_ORDER_DIRECTION_SELL;
-                        double tpPrice = isFullPrice ? takeProfit : executedPrice + ((executedPrice / 100) * takeProfit);
-                        takePrice = normalizePrice(tpPrice, tickerInfo.getMinPriceIncrement());
-                    }
-                    Quotation takeProfitPrice = createQuotation(takePrice);
-                    out.println(key.getTicker() + " TakeProfit target: " + toDouble(takeProfitPrice));
-                    investApi.getStopOrdersService().postStopOrderGoodTillCancelSync(
+                    StopOrderDirection stopOrderDirection = ORDER_DIRECTION_BUY == direction
+                            ? STOP_ORDER_DIRECTION_SELL
+                            : STOP_ORDER_DIRECTION_BUY;
+                    Quotation takeProfitPrice = createQuotation(bracketPosition.takeProfit);
+                    String stopOrderId = investApi.getStopOrdersService().postStopOrderGoodTillCancelSync(
                             figi,
                             quantity,
-                            takeProfitPrice,  // trigger price
-                            takeProfitPrice,  // price
+                            takeProfitPrice,
+                            takeProfitPrice,
                             stopOrderDirection,
                             mainConfig.getTcsAccountId(),
                             STOP_ORDER_TYPE_TAKE_PROFIT
                     );
+                    protectiveOrdersByTicker.computeIfAbsent(key, ignored -> new ProtectiveOrders()).takeProfitOrderId = stopOrderId;
                 } catch (Exception ex) {
                     var error = "Failed create TakeProfit: " + ex.getMessage();
                     out.println(error);
@@ -399,15 +597,123 @@ public class TCSService {
                     ex.printStackTrace();
                 }
             }
-
-            telegramNotifyService.sendMessage(message, true);
-            return 1;
-        } catch (Exception ex) {
-            String message = "Failed create order [" + key.getTicker() + "]: " + ex.getMessage();
-            out.println(message);
-            telegramNotifyService.sendMessage(message);
-            return 0;
         }
+    }
+
+    public static class OrderExecutionResult {
+
+        private final boolean success;
+        private final Double executedPrice;
+        private final int executedCount;
+        private final Position protectivePosition;
+
+        private OrderExecutionResult(boolean success, Double executedPrice, int executedCount, Position protectivePosition) {
+            this.success = success;
+            this.executedPrice = executedPrice;
+            this.executedCount = executedCount;
+            this.protectivePosition = protectivePosition;
+        }
+
+        public static OrderExecutionResult success(Double executedPrice, int executedCount, Position protectivePosition) {
+            return new OrderExecutionResult(true, executedPrice, executedCount, protectivePosition);
+        }
+
+        public static OrderExecutionResult testSuccess(Double executedPrice, int executedCount) {
+            return new OrderExecutionResult(true, executedPrice, executedCount, null);
+        }
+
+        public static OrderExecutionResult failed() {
+            return new OrderExecutionResult(false, null, 0, null);
+        }
+
+        public boolean isSuccess() {
+            return success;
+        }
+
+        public Double getExecutedPrice() {
+            return executedPrice;
+        }
+
+        public int getExecutedCount() {
+            return executedCount;
+        }
+
+        public Position getProtectivePosition() {
+            return protectivePosition;
+        }
+    }
+
+    private void syncStopOrder(String figi,
+                               TickerInfo.Key key,
+                               int quantity,
+                               OrderDirection direction,
+                               Double price,
+                               ProtectiveOrders protectiveOrders,
+                               boolean isStopLoss) {
+        String currentOrderId = isStopLoss ? protectiveOrders.stopLossOrderId : protectiveOrders.takeProfitOrderId;
+        if (price == null || price <= 0.0) {
+            cancelStopOrder(key, currentOrderId, isStopLoss ? "StopLose" : "TakeProfit");
+            if (isStopLoss) {
+                protectiveOrders.stopLossOrderId = null;
+            } else {
+                protectiveOrders.takeProfitOrderId = null;
+            }
+            return;
+        }
+
+        cancelStopOrder(key, currentOrderId, isStopLoss ? "StopLose" : "TakeProfit");
+
+        sleep(1_000);
+        try {
+            StopOrderDirection stopOrderDirection = ORDER_DIRECTION_BUY == direction
+                    ? STOP_ORDER_DIRECTION_SELL
+                    : STOP_ORDER_DIRECTION_BUY;
+            Quotation stopPrice = createQuotation(price);
+            String stopOrderId = investApi.getStopOrdersService().postStopOrderGoodTillCancelSync(
+                    figi,
+                    quantity,
+                    stopPrice,
+                    stopPrice,
+                    stopOrderDirection,
+                    mainConfig.getTcsAccountId(),
+                    isStopLoss ? STOP_ORDER_TYPE_STOP_LOSS : STOP_ORDER_TYPE_TAKE_PROFIT
+            );
+            if (isStopLoss) {
+                protectiveOrders.stopLossOrderId = stopOrderId;
+            } else {
+                protectiveOrders.takeProfitOrderId = stopOrderId;
+            }
+            out.println(key.getTicker() + " " + (isStopLoss ? "StopLose" : "TakeProfit") + " synced: " + price);
+        } catch (Exception ex) {
+            var error = "Failed sync " + (isStopLoss ? "StopLose" : "TakeProfit") + " for " + key.getTicker() + ": " + ex.getMessage();
+            out.println(error);
+            telegramNotifyService.sendMessage(error);
+            if (isStopLoss) {
+                protectiveOrders.stopLossOrderId = null;
+            } else {
+                protectiveOrders.takeProfitOrderId = null;
+            }
+        }
+    }
+
+    private void cancelStopOrder(TickerInfo.Key key, String stopOrderId, String orderTypeName) {
+        if (stopOrderId == null || stopOrderId.isBlank()) {
+            return;
+        }
+        try {
+            investApi.getStopOrdersService().cancelStopOrderSync(mainConfig.getTcsAccountId(), stopOrderId);
+            out.println(key.getTicker() + " " + orderTypeName + " cancelled: " + stopOrderId);
+        } catch (Exception ex) {
+            var error = "Failed cancel " + orderTypeName + " for " + key.getTicker() + ": " + ex.getMessage();
+            out.println(error);
+            telegramNotifyService.sendMessage(error);
+        }
+    }
+
+    private static class ProtectiveOrders {
+
+        private String stopLossOrderId;
+        private String takeProfitOrderId;
     }
 
     public int calculateTradeCount(TickerInfo.Key key, double availableCash, double price) {
@@ -442,10 +748,6 @@ public class TCSService {
         return fullValue;
     }
 
-    /**
-     * Создает Quotation с правильным расчетом units и nano
-     * nano должен быть в диапазоне 0-999_999_999 (части единицы)
-     */
     private static Quotation createQuotation(double price) {
         long units = (long) price;
         double fractional = price - units;
@@ -639,6 +941,17 @@ public class TCSService {
                                 .map(ticker -> new TickerInfo.Key(ticker.getTicker(), ticker.getType()))
                                 .ifPresent(tickerKey::set);
                     }
+                    if (null == tickerKey.get()) {
+                        TickerInfo recoveredTicker = recoverTickerInfoByFigi(it.getFigi(), it.getInstrumentType());
+                        if (recoveredTicker != null) {
+                            tickerKey.set(recoveredTicker.getKey());
+                        }
+                    }
+                    if (null == tickerKey.get()) {
+                        out.println("Warn: position skipped, ticker key not found for figi=" + it.getFigi()
+                                + ", instrumentType=" + it.getInstrumentType());
+                        return;
+                    }
                     TickerInfo tickerInfo = searchTicker(tickerKey.get());
                     if (null != tickerInfo && marketConfig.getCurrency().equals(tickerInfo.getCurrency())) {
                         var expectedYield = it.getExpectedYield().doubleValue();
@@ -666,6 +979,47 @@ public class TCSService {
                     }
                 });
         return positionInfoList;
+    }
+
+    private TickerInfo recoverTickerInfoByFigi(String figi, String instrumentType) {
+        if (figi == null || figi.isBlank()) {
+            return null;
+        }
+
+        TickerInfo tickerInfo = null;
+        if ("share".equalsIgnoreCase(instrumentType)) {
+            tickerInfo = getStockList().values().stream()
+                    .filter(ticker -> figi.equals(ticker.getFigi()))
+                    .findFirst()
+                    .orElse(null);
+        } else if ("futures".equalsIgnoreCase(instrumentType)) {
+            tickerInfo = getFuturesList().values().stream()
+                    .filter(ticker -> figi.equals(ticker.getFigi()))
+                    .findFirst()
+                    .orElse(null);
+        } else if ("bond".equalsIgnoreCase(instrumentType)) {
+            tickerInfo = getBondList().values().stream()
+                    .filter(ticker -> figi.equals(ticker.getFigi()))
+                    .findFirst()
+                    .orElse(null);
+        } else if ("etf".equalsIgnoreCase(instrumentType)) {
+            tickerInfo = getEtfList().values().stream()
+                    .filter(ticker -> figi.equals(ticker.getFigi()))
+                    .findFirst()
+                    .orElse(null);
+        } else if ("currency".equalsIgnoreCase(instrumentType)) {
+            tickerInfo = getCurrenciesList().values().stream()
+                    .filter(ticker -> figi.equals(ticker.getFigi()))
+                    .findFirst()
+                    .orElse(null);
+        }
+
+        if (tickerInfo != null) {
+            tickerRepository.insert(tickerInfo.getKey(), tickerInfo);
+            figiRepository.insert(tickerInfo.getKey(), tickerInfo.getFigi());
+            out.println("Recovered ticker by figi: " + tickerInfo);
+        }
+        return tickerInfo;
     }
 
     private String getTypeFromTickerType(TickerType tickerType) {
@@ -797,7 +1151,6 @@ public class TCSService {
     }
 
     private static Double toDouble(long units, int nano) {
-        // nano всегда положительный, units может быть отрицательным
         double fractional = nano / 1_000_000_000.0;
         return units + fractional;
     }
