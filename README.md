@@ -5,7 +5,7 @@
 ## Возможности
 
 - Многопоточный движок стратегий с пулом на каждый тикер
-- 8 торговых стратегий — от простой ребалансировки до ML-усиленных систем
+- 9 торговых стратегий — от простой ребалансировки до ML-усиленных систем
 - Money management с адаптивным сайзингом, risk manager и kill switch
 - ML-модель логистической регрессии с автодобучением и фильтрацией сигналов
 - Полноценный backtest-движок с метриками качества и composite scoring
@@ -26,6 +26,7 @@
 | `RSX` | Ребалансирование портфеля с фильтрацией по momentum, debt-to-equity и TradingView рекомендациям |
 | `Rebalance` | Простая ребалансировка по фиксированному портфелю |
 | `DivFlow` | Торговля вокруг дат закрытия дивидендного реестра (SmartLab, Dohod, Investing.com) |
+| `OrderFlowScalpingStrategy` | Live-скальпинг по стакану и тикам: OBI, iceberg, spoofing, absorption, stacked breakout |
 | `DataCollector` | Утилита сбора исторических свечей и расчёта ценовых уровней |
 
 ## Архитектура
@@ -136,7 +137,103 @@ telegram.chat.id=<chat_id>
 java -Dapplication.properties=./application.properties -jar build/libs/GoldenDragon-1.0.jar <strategy> [market] [account]
 ```
 
-Доступные стратегии: `UnifiedStrategy`, `RegimeAwareStrategyMl`, `IndicatorTrader`, `LevelTrader`, `RSX`, `DivFlow`, `Rebalance`, `DataCollector`.
+Доступные стратегии: `UnifiedStrategy`, `RegimeAwareStrategyMl`, `IndicatorTrader`, `LevelTrader`, `RSX`, `DivFlow`, `Rebalance`, `OrderFlowScalpingStrategy`, `DataCollector`.
+
+### Пример конфигурации OrderFlowScalpingStrategy
+
+Ниже безопасный стартовый профиль для демо-счёта или минимального размера позиции. Он специально консервативный:
+
+- сниженный риск на сделку
+- ограниченное число одновременных позиций
+- повышенные фильтры по ликвидности и спреду
+- приоритет MOEX liquid stocks и futures из задачи
+
+```properties
+# Live order-flow scalping instruments
+# Format: TICKER:TYPE
+orderFlowScalping.instruments=SBER:STOCK,GAZP:STOCK,LKOH:STOCK,Si:FEATURE,BR:FEATURE
+
+# Alternative split configuration
+# orderFlowScalping.stocks=SBER,GAZP,LKOH
+# orderFlowScalping.features=RTSI,SBERF,GAZPF,Si,NG,BR
+
+# Market data
+orderFlowScalping.orderBookDepth=10
+orderFlowScalping.loopSleepMs=100
+orderFlowScalping.bookHistorySeconds=600
+orderFlowScalping.volumeHistorySeconds=300
+orderFlowScalping.localWindowSeconds=30
+
+# Risk limits
+orderFlowScalping.dailyLossLimitPercent=0.025
+orderFlowScalping.maxTotalPositions=2
+orderFlowScalping.maxPositionsPerTicker=1
+orderFlowScalping.baseRiskPercent=0.0003
+orderFlowScalping.highQualityRiskPercent=0.0005
+orderFlowScalping.stackedRiskPercent=0.0007
+
+# Regime filters
+orderFlowScalping.maxSpreadTicks=2
+orderFlowScalping.lowLiquidityBookVolume=3000
+orderFlowScalping.highVolatilitySpreadMultiplier=5.0
+
+# OBI
+orderFlowScalping.imbalanceThresholdLevels=5
+orderFlowScalping.imbalanceThreshold=0.35
+orderFlowScalping.imbalanceHoldMs=300
+orderFlowScalping.imbalanceTakeTicksMin=4
+orderFlowScalping.imbalanceTakeTicksMax=6
+orderFlowScalping.trailingTicks=3
+
+# Iceberg
+orderFlowScalping.icebergReplenishMs=500
+orderFlowScalping.icebergMinReplenishments=3
+orderFlowScalping.icebergTradeToVisibleRatio=5.0
+orderFlowScalping.icebergOppositeTicks=5
+orderFlowScalping.icebergTrailingTicks=4
+
+# Spoofing / layering
+orderFlowScalping.spoofFastCancelMs=200
+orderFlowScalping.spoofLevelMultiplier=5.0
+orderFlowScalping.spoofMinDepthTicks=2
+orderFlowScalping.spoofMaxDepthTicks=10
+orderFlowScalping.spoofTakeTicks=7
+orderFlowScalping.spoofTimeoutSeconds=5
+
+# Absorption
+orderFlowScalping.absorptionFlatTicks=1
+orderFlowScalping.absorptionWindowSeconds=20
+orderFlowScalping.absorptionTrailingTicks=5
+
+# Stacked breakout
+orderFlowScalping.stackedLevels=3
+orderFlowScalping.stackedVolumeMultiplier=4.0
+orderFlowScalping.stackedPersistenceSeconds=30
+orderFlowScalping.breakoutConfirmationMs=500
+orderFlowScalping.breakoutTradeMultiplier=1.5
+
+# Global exit
+orderFlowScalping.timeoutSeconds=30
+```
+
+### Запуск OrderFlowScalpingStrategy
+
+```bash
+./gradlew runStrategy -Pstrategy=OrderFlowScalpingStrategy
+```
+
+или через JAR:
+
+```bash
+java -Dapplication.properties=./application.properties -jar build/libs/GoldenDragon-1.0.jar OrderFlowScalpingStrategy MOEX
+```
+
+Рекомендации для первого запуска:
+
+- использовать `sandbox=true` или минимальный рабочий счёт
+- начать с 1-2 самых ликвидных инструментов
+- не увеличивать `baseRiskPercent` до накопления хотя бы 200 forward-сделок
+- сначала проверить поток уведомлений и корректность stop/take заявок на одном инструменте
 
 ### Backtest
 

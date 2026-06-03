@@ -2,6 +2,10 @@ package com.github.shk0da.GoldenDragon.service;
 
 import com.github.shk0da.GoldenDragon.config.MainConfig;
 import com.github.shk0da.GoldenDragon.config.MarketConfig;
+import com.github.shk0da.GoldenDragon.model.MarketDepthLevel;
+import com.github.shk0da.GoldenDragon.model.MarketDepthSnapshot;
+import com.github.shk0da.GoldenDragon.model.MarketTickListener;
+import com.github.shk0da.GoldenDragon.model.MarketTradeTick;
 import com.github.shk0da.GoldenDragon.model.Position;
 import com.github.shk0da.GoldenDragon.model.PositionInfo;
 import com.github.shk0da.GoldenDragon.model.TickerInfo;
@@ -11,8 +15,10 @@ import com.github.shk0da.GoldenDragon.repository.PricesRepository;
 import com.github.shk0da.GoldenDragon.repository.Repository;
 import com.github.shk0da.GoldenDragon.repository.TickerRepository;
 import java.math.BigDecimal;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.OffsetDateTime;
+import java.util.ArrayList;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -21,6 +27,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 import javax.annotation.Nullable;
@@ -31,6 +38,7 @@ import ru.tinkoff.piapi.contract.v1.Etf;
 import ru.tinkoff.piapi.contract.v1.Future;
 import ru.tinkoff.piapi.contract.v1.GetOrderBookResponse;
 import ru.tinkoff.piapi.contract.v1.HistoricCandle;
+import ru.tinkoff.piapi.contract.v1.MarketDataResponse;
 import ru.tinkoff.piapi.contract.v1.Order;
 import ru.tinkoff.piapi.contract.v1.OrderDirection;
 import ru.tinkoff.piapi.contract.v1.OrderType;
@@ -42,6 +50,7 @@ import ru.tinkoff.piapi.core.InvestApi;
 import ru.tinkoff.piapi.core.models.Money;
 import ru.tinkoff.piapi.core.models.Portfolio;
 import ru.tinkoff.piapi.core.models.Positions;
+import ru.tinkoff.piapi.core.stream.MarketDataSubscriptionService;
 
 
 import static com.github.shk0da.GoldenDragon.config.MainConfig.dateTimeFormat;
@@ -73,6 +82,10 @@ public class TCSService {
     private final Repository<TickerInfo.Key, Map<String, Map<Double, Integer>>> pricesRepository = PricesRepository.INSTANCE;
     private final Map<TickerInfo.Key, Double> lastExecutedPriceByTicker = new ConcurrentHashMap<>();
     private final Map<TickerInfo.Key, ProtectiveOrders> protectiveOrdersByTicker = new ConcurrentHashMap<>();
+    private final Map<TickerInfo.Key, MarketDepthSnapshot> marketDepthByTicker = new ConcurrentHashMap<>();
+    private final Map<TickerInfo.Key, List<MarketTradeTick>> recentTradesByTicker = new ConcurrentHashMap<>();
+    private final Map<TickerInfo.Key, CopyOnWriteArrayList<MarketTickListener>> marketTickListenersByTicker = new ConcurrentHashMap<>();
+    private final Map<TickerInfo.Key, MarketDataSubscriptionService> marketDataStreamsByTicker = new ConcurrentHashMap<>();
 
     public TCSService(MainConfig mainConfig, MarketConfig marketConfig) {
         this.mainConfig = mainConfig;
@@ -95,6 +108,69 @@ public class TCSService {
 
     public GetOrderBookResponse getOrderBook(String figi, int depth /*1, 10, 20, 30, 40, 50*/) {
         return investApi.getMarketDataService().getOrderBookSync(figi, depth);
+    }
+
+    public void subscribeMarketData(TickerInfo.Key key, int depth, MarketTickListener listener) {
+        marketTickListenersByTicker.computeIfAbsent(key, ignored -> new CopyOnWriteArrayList<>()).add(listener);
+        marketDataStreamsByTicker.computeIfAbsent(key, ignored -> {
+            String streamId = "market-data-" + key.getTicker() + "-" + key.getType().name();
+            MarketDataSubscriptionService stream = investApi.getMarketDataStreamService().newStream(
+                    streamId,
+                    response -> handleMarketDataResponse(key, response),
+                    throwable -> notifyMarketDataError(key, throwable)
+            );
+            String figi = figiByName(key);
+            stream.subscribeOrderbook(List.of(figi), depth);
+            stream.subscribeTrades(List.of(figi));
+            return stream;
+        });
+    }
+
+    public void unsubscribeMarketData(TickerInfo.Key key, MarketTickListener listener) {
+        List<MarketTickListener> listeners = marketTickListenersByTicker.get(key);
+        if (listeners == null) {
+            return;
+        }
+        listeners.remove(listener);
+        if (!listeners.isEmpty()) {
+            return;
+        }
+        marketTickListenersByTicker.remove(key);
+        MarketDataSubscriptionService stream = marketDataStreamsByTicker.remove(key);
+        if (stream != null) {
+            String figi = figiByName(key);
+            stream.unsubscribeOrderbook(List.of(figi));
+            stream.unsubscribeTrades(List.of(figi));
+            stream.cancel();
+        }
+    }
+
+    public MarketDepthSnapshot getLastMarketDepth(TickerInfo.Key key) {
+        return marketDepthByTicker.get(key);
+    }
+
+    public List<MarketTradeTick> getRecentTrades(TickerInfo.Key key, Duration maxAge) {
+        List<MarketTradeTick> trades = recentTradesByTicker.get(key);
+        if (trades == null || trades.isEmpty()) {
+            return List.of();
+        }
+        Instant threshold = Instant.now().minus(maxAge);
+        return trades.stream()
+                .filter(it -> !it.getTime().isBefore(threshold))
+                .collect(Collectors.toList());
+    }
+
+    public List<MarketTradeTick> getLastTrades(TickerInfo.Key key, Instant from, Instant to) {
+        String figi = figiByName(key);
+        return investApi.getMarketDataService().getLastTradesSync(figi, from, to).stream()
+                .map(it -> new MarketTradeTick(
+                        figi,
+                        Instant.ofEpochSecond(it.getTime().getSeconds(), it.getTime().getNanos()),
+                        toDouble(it.getPrice()),
+                        it.getQuantity(),
+                        it.getDirection().name()
+                ))
+                .collect(Collectors.toList());
     }
 
     public List<HistoricCandle> getCandles(String figi, Instant start, Instant end, CandleInterval interval) {
@@ -130,6 +206,26 @@ public class TCSService {
 
     public boolean closeByMarket(String name, TickerType type) {
         return closeShortByMarket(name, type) || closeLongByMarket(name, type);
+    }
+
+    public boolean closePartiallyByMarket(String name, TickerType type, int count) {
+        if (count <= 0) {
+            return false;
+        }
+
+        int currentCount = getCountOfCurrentPositions(type, name);
+        if (currentCount > 0) {
+            int quantityToSell = Math.min(currentCount, count);
+            return quantityToSell > 0
+                    && 1 == createOrder(new TickerInfo.Key(name, type), 0.0, quantityToSell, "Sell");
+        }
+
+        if (currentCount < 0) {
+            int quantityToBuy = Math.min(Math.abs(currentCount), count);
+            return quantityToBuy > 0
+                    && 1 == createOrder(new TickerInfo.Key(name, type), 0.0, quantityToBuy, "Buy");
+        }
+        return false;
     }
 
     public boolean closeShortByMarket(String name, TickerType type) {
@@ -1095,6 +1191,10 @@ public class TCSService {
     }
 
     public Map<String, Map<Double, Integer>> getCurrentPrices(TickerInfo.Key key, boolean isPrintGlass) {
+        MarketDepthSnapshot liveSnapshot = marketDepthByTicker.get(key);
+        if (liveSnapshot != null && !liveSnapshot.getBids().isEmpty() && !liveSnapshot.getAsks().isEmpty()) {
+            return toCurrentPrices(liveSnapshot, key, isPrintGlass);
+        }
         if (!isPrintGlass && pricesRepository.containsKey(key)) {
             return pricesRepository.getById(key);
         }
@@ -1125,6 +1225,100 @@ public class TCSService {
             }
         }
         pricesRepository.insert(key, currentPrices);
+        return currentPrices;
+    }
+
+    private void handleMarketDataResponse(TickerInfo.Key key, MarketDataResponse response) {
+        if (response.hasOrderbook()) {
+            MarketDepthSnapshot snapshot = toMarketDepthSnapshot(response.getOrderbook());
+            marketDepthByTicker.put(key, snapshot);
+            pricesRepository.insert(key, toCurrentPrices(snapshot));
+            notifyOrderBookListeners(key, snapshot);
+        }
+        if (response.hasTrade()) {
+            MarketTradeTick trade = new MarketTradeTick(
+                    response.getTrade().getFigi(),
+                    Instant.ofEpochSecond(response.getTrade().getTime().getSeconds(), response.getTrade().getTime().getNanos()),
+                    toDouble(response.getTrade().getPrice()),
+                    response.getTrade().getQuantity(),
+                    response.getTrade().getDirection().name()
+            );
+            recentTradesByTicker.computeIfAbsent(key, ignored -> new CopyOnWriteArrayList<>()).add(trade);
+            trimRecentTrades(key);
+            notifyTradeListeners(key, trade);
+        }
+    }
+
+    private void notifyOrderBookListeners(TickerInfo.Key key, MarketDepthSnapshot snapshot) {
+        List<MarketTickListener> listeners = marketTickListenersByTicker.get(key);
+        if (listeners == null) {
+            return;
+        }
+        listeners.forEach(listener -> listener.onOrderBook(snapshot));
+    }
+
+    private void notifyTradeListeners(TickerInfo.Key key, MarketTradeTick trade) {
+        List<MarketTickListener> listeners = marketTickListenersByTicker.get(key);
+        if (listeners == null) {
+            return;
+        }
+        listeners.forEach(listener -> listener.onTrade(trade));
+    }
+
+    private void notifyMarketDataError(TickerInfo.Key key, Throwable throwable) {
+        List<MarketTickListener> listeners = marketTickListenersByTicker.get(key);
+        if (listeners == null) {
+            return;
+        }
+        listeners.forEach(listener -> listener.onError(throwable));
+    }
+
+    private void trimRecentTrades(TickerInfo.Key key) {
+        List<MarketTradeTick> trades = recentTradesByTicker.get(key);
+        if (trades == null) {
+            return;
+        }
+        Instant threshold = Instant.now().minus(Duration.ofMinutes(10));
+        trades.removeIf(it -> it.getTime().isBefore(threshold));
+    }
+
+    private MarketDepthSnapshot toMarketDepthSnapshot(ru.tinkoff.piapi.contract.v1.OrderBook orderBook) {
+        Instant time = orderBook.hasTime()
+                ? Instant.ofEpochSecond(orderBook.getTime().getSeconds(), orderBook.getTime().getNanos())
+                : Instant.now();
+        return new MarketDepthSnapshot(
+                orderBook.getFigi(),
+                time,
+                orderBook.getIsConsistent(),
+                orderBook.getBidsList().stream()
+                        .map(it -> new MarketDepthLevel(toDouble(it.getPrice()), (int) it.getQuantity()))
+                        .collect(Collectors.toList()),
+                orderBook.getAsksList().stream()
+                        .map(it -> new MarketDepthLevel(toDouble(it.getPrice()), (int) it.getQuantity()))
+                        .collect(Collectors.toList())
+        );
+    }
+
+    private Map<String, Map<Double, Integer>> toCurrentPrices(MarketDepthSnapshot snapshot, TickerInfo.Key key, boolean isPrintGlass) {
+        Map<String, Map<Double, Integer>> currentPrices = toCurrentPrices(snapshot);
+        if (isPrintGlass) {
+            synchronized (this) {
+                printGlassOfPrices(key.getTicker(), currentPrices);
+            }
+        }
+        pricesRepository.insert(key, currentPrices);
+        return currentPrices;
+    }
+
+    private Map<String, Map<Double, Integer>> toCurrentPrices(MarketDepthSnapshot snapshot) {
+        Map<String, Map<Double, Integer>> currentPrices = new TreeMap<>();
+        Map<Double, Integer> bidsValues = new LinkedHashMap<>(snapshot.getBids().size());
+        snapshot.getBids().forEach(it -> bidsValues.put(it.getPrice(), it.getQuantity()));
+        currentPrices.put("bids", bidsValues);
+
+        Map<Double, Integer> asksValues = new LinkedHashMap<>(snapshot.getAsks().size());
+        snapshot.getAsks().forEach(it -> asksValues.put(it.getPrice(), it.getQuantity()));
+        currentPrices.put("asks", asksValues);
         return currentPrices;
     }
 
