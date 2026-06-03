@@ -18,7 +18,6 @@ import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.OffsetDateTime;
-import java.util.ArrayList;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -58,6 +57,7 @@ import static com.github.shk0da.GoldenDragon.dictionary.CurrenciesDictionary.get
 import static com.github.shk0da.GoldenDragon.service.TelegramNotifyService.telegramNotifyService;
 import static com.github.shk0da.GoldenDragon.utils.PrintUtils.printGlassOfPrices;
 import static com.github.shk0da.GoldenDragon.utils.TimeUtils.sleep;
+import static java.lang.Math.max;
 import static java.lang.Math.round;
 import static java.lang.System.out;
 import static java.util.stream.Collectors.toCollection;
@@ -86,6 +86,8 @@ public class TCSService {
     private final Map<TickerInfo.Key, List<MarketTradeTick>> recentTradesByTicker = new ConcurrentHashMap<>();
     private final Map<TickerInfo.Key, CopyOnWriteArrayList<MarketTickListener>> marketTickListenersByTicker = new ConcurrentHashMap<>();
     private final Map<TickerInfo.Key, MarketDataSubscriptionService> marketDataStreamsByTicker = new ConcurrentHashMap<>();
+    private volatile Map<TickerInfo.Key, TickerInfo> cachedStockList;
+    private volatile Instant cachedStockListAt;
 
     public TCSService(MainConfig mainConfig, MarketConfig marketConfig) {
         this.mainConfig = mainConfig;
@@ -254,6 +256,24 @@ public class TCSService {
         return OrderExecutionResult.failed();
     }
 
+    public OrderExecutionResult closeShortByMarketWithDetails(String name, TickerType type, int count) {
+        int currentCount = getCountOfCurrentPositions(type, name);
+        if (currentCount < 0) {
+            int quantityToBuy = Math.min(Math.abs(currentCount), count);
+            if (quantityToBuy <= 0) {
+                return OrderExecutionResult.failed();
+            }
+            String currentDate = dateTimeFormat.format(new Date());
+            out.println("[" + currentDate + "] Buy: " + quantityToBuy + " " + name + " by Market");
+
+            if (mainConfig.isTestMode()) {
+                return OrderExecutionResult.testSuccess(getAvailablePrice(new TickerInfo.Key(name, type)), quantityToBuy);
+            }
+            return createOrder(new TickerInfo.Key(name, type), 0.0, quantityToBuy, "Buy", 0.0, 0.0, false);
+        }
+        return OrderExecutionResult.failed();
+    }
+
     public boolean closeLongByMarket(String name, TickerType type) {
         int count = getCountOfCurrentPositions(type, name);
         if (count > 0) {
@@ -276,6 +296,24 @@ public class TCSService {
                 return OrderExecutionResult.testSuccess(getAvailablePrice(new TickerInfo.Key(name, type)), count);
             }
             return createOrder(new TickerInfo.Key(name, type), 0.0, count, "Sell", 0.0, 0.0, false);
+        }
+        return OrderExecutionResult.failed();
+    }
+
+    public OrderExecutionResult closeLongByMarketWithDetails(String name, TickerType type, int count) {
+        int currentCount = getCountOfCurrentPositions(type, name);
+        if (currentCount > 0) {
+            int quantityToSell = Math.min(currentCount, count);
+            if (quantityToSell <= 0) {
+                return OrderExecutionResult.failed();
+            }
+            String currentDate = dateTimeFormat.format(new Date());
+            out.println("[" + currentDate + "] Sell: " + quantityToSell + " " + name + " by Market");
+
+            if (mainConfig.isTestMode()) {
+                return OrderExecutionResult.testSuccess(getAvailablePrice(new TickerInfo.Key(name, type)), quantityToSell);
+            }
+            return createOrder(new TickerInfo.Key(name, type), 0.0, quantityToSell, "Sell", 0.0, 0.0, false);
         }
         return OrderExecutionResult.failed();
     }
@@ -516,15 +554,29 @@ public class TCSService {
             );
             int executedLots = Math.toIntExact(response.getLotsExecuted());
             int executedCount = executedLots > 0 ? executedLots * lot : count;
-            double executedPrice = toDouble(
+            double rawExecutedPrice = toDouble(
                     response.getExecutedOrderPrice().getUnits(),
                     response.getExecutedOrderPrice().getNano()
             );
+            double referencePrice = price > 0.0
+                    ? price
+                    : getAvailablePrice(key, Math.max(1, executedCount), ORDER_DIRECTION_BUY == direction ? "asks" : "bids", false);
+            double executedPrice = normalizeExecutedPrice(rawExecutedPrice, executedCount, referencePrice, tickerInfo.getMinPriceIncrement());
             if (executedPrice <= 0.0) {
-                executedPrice = price > 0.0 ? price : getAvailablePrice(key);
+                executedPrice = referencePrice > 0.0 ? referencePrice : getAvailablePrice(key);
             }
             lastExecutedPriceByTicker.put(key, executedPrice);
+            out.println(String.format(
+                    "%s execution price normalized for %s: raw=%f normalized=%f reference=%f executedCount=%d",
+                    operation,
+                    key.getTicker(),
+                    rawExecutedPrice,
+                    executedPrice,
+                    referencePrice,
+                    executedCount
+            ));
 
+            double executedCommission = toDouble(response.getExecutedCommission().getUnits(), response.getExecutedCommission().getNano());
             String message = String.format(
                     "%s %d %s by %f (%f): %s [order=%s, status=%s, price=%f, commission=%f]\n",
                     operation,
@@ -536,7 +588,7 @@ public class TCSService {
                     response.getOrderId(),
                     response.getExecutionReportStatus(),
                     executedPrice,
-                    toDouble(response.getExecutedCommission().getUnits(), response.getExecutedCommission().getNano())
+                    executedCommission
             );
             out.println(message);
 
@@ -547,13 +599,52 @@ public class TCSService {
             }
 
             telegramNotifyService.sendMessage(message, true);
-            return OrderExecutionResult.success(executedPrice, executedCount, bracketPosition);
+            return OrderExecutionResult.success(executedPrice, executedCount, executedCommission, bracketPosition);
         } catch (Exception ex) {
             String message = "Failed create order [" + key.getTicker() + "]: " + ex.getMessage();
             out.println(message);
             telegramNotifyService.sendMessage(message);
             return OrderExecutionResult.failed();
         }
+    }
+
+    private double normalizeExecutedPrice(double rawExecutedPrice,
+                                          int executedCount,
+                                          double referencePrice,
+                                          double minPriceIncrement) {
+        if (rawExecutedPrice <= 0.0) {
+            return 0.0;
+        }
+        if (executedCount <= 0) {
+            return rawExecutedPrice;
+        }
+
+        double perUnitFromRaw = rawExecutedPrice;
+        double perUnitFromTotal = rawExecutedPrice / executedCount;
+        double tolerance = max(minPriceIncrement * 10, referencePrice * 0.03);
+
+        boolean rawLooksPerUnit = referencePrice > 0.0 && Math.abs(perUnitFromRaw - referencePrice) <= tolerance;
+        boolean totalLooksPerUnit = referencePrice > 0.0 && Math.abs(perUnitFromTotal - referencePrice) <= tolerance;
+
+        if (rawLooksPerUnit && !totalLooksPerUnit) {
+            return perUnitFromRaw;
+        }
+        if (!rawLooksPerUnit && totalLooksPerUnit) {
+            return perUnitFromTotal;
+        }
+        if (rawLooksPerUnit) {
+            return perUnitFromRaw;
+        }
+        if (totalLooksPerUnit) {
+            return perUnitFromTotal;
+        }
+
+        if (referencePrice > 0.0) {
+            return Math.abs(perUnitFromTotal - referencePrice) < Math.abs(perUnitFromRaw - referencePrice)
+                    ? perUnitFromTotal
+                    : perUnitFromRaw;
+        }
+        return perUnitFromTotal > 0.0 ? perUnitFromTotal : perUnitFromRaw;
     }
 
     public Double getLastExecutedPrice(String name, TickerType type) {
@@ -640,7 +731,6 @@ public class TCSService {
         }
 
         if (bracketPosition.stopLoss != null) {
-            out.println(key.getTicker() + " StopLose target: " + bracketPosition.stopLoss);
             if (!mainConfig.isSandbox()) {
                 sleep(1_000);
                 try {
@@ -668,7 +758,6 @@ public class TCSService {
         }
 
         if (bracketPosition.takeProfit != null) {
-            out.println(key.getTicker() + " TakeProfit target: " + bracketPosition.takeProfit);
             if (!mainConfig.isSandbox()) {
                 sleep(1_000);
                 try {
@@ -701,25 +790,27 @@ public class TCSService {
         private final boolean success;
         private final Double executedPrice;
         private final int executedCount;
+        private final double commission;
         private final Position protectivePosition;
 
-        private OrderExecutionResult(boolean success, Double executedPrice, int executedCount, Position protectivePosition) {
+        private OrderExecutionResult(boolean success, Double executedPrice, int executedCount, double commission, Position protectivePosition) {
             this.success = success;
             this.executedPrice = executedPrice;
             this.executedCount = executedCount;
+            this.commission = commission;
             this.protectivePosition = protectivePosition;
         }
 
-        public static OrderExecutionResult success(Double executedPrice, int executedCount, Position protectivePosition) {
-            return new OrderExecutionResult(true, executedPrice, executedCount, protectivePosition);
+        public static OrderExecutionResult success(Double executedPrice, int executedCount, double commission, Position protectivePosition) {
+            return new OrderExecutionResult(true, executedPrice, executedCount, commission, protectivePosition);
         }
 
         public static OrderExecutionResult testSuccess(Double executedPrice, int executedCount) {
-            return new OrderExecutionResult(true, executedPrice, executedCount, null);
+            return new OrderExecutionResult(true, executedPrice, executedCount, 0.0, null);
         }
 
         public static OrderExecutionResult failed() {
-            return new OrderExecutionResult(false, null, 0, null);
+            return new OrderExecutionResult(false, null, 0, 0.0, null);
         }
 
         public boolean isSuccess() {
@@ -732,6 +823,10 @@ public class TCSService {
 
         public int getExecutedCount() {
             return executedCount;
+        }
+
+        public double getCommission() {
+            return commission;
         }
 
         public Position getProtectivePosition() {
@@ -856,9 +951,14 @@ public class TCSService {
     }
 
     public Map<TickerInfo.Key, TickerInfo> getStockList() {
+        if (cachedStockList != null && cachedStockListAt != null
+                && cachedStockListAt.plus(Duration.ofMinutes(10)).isAfter(Instant.now())) {
+            return cachedStockList;
+        }
+
         out.println("Loading current stocks...");
         List<Share> stocks = investApi.getInstrumentsService().getTradableSharesSync();
-        return stocks.stream()
+        Map<TickerInfo.Key, TickerInfo> loadedStocks = stocks.stream()
                 .map(it -> new TickerInfo(
                         it.getFigi(),
                         it.getTicker(),
@@ -870,6 +970,9 @@ public class TCSService {
                         TickerType.STOCK.name()
                 ))
                 .collect(Collectors.toMap(TickerInfo::getKey, it -> it, (o, n) -> n));
+        cachedStockList = loadedStocks;
+        cachedStockListAt = Instant.now();
+        return loadedStocks;
     }
 
     public Map<TickerInfo.Key, TickerInfo> getBondList() {
@@ -997,7 +1100,6 @@ public class TCSService {
     }
 
     public int getCountOfCurrentPositions(TickerType tickerType, String tickerName) {
-        out.println("Loading current positions: " + tickerName);
         return getCurrentPositions(tickerType).values()
                 .stream()
                 .filter(it -> it.getTicker().equalsIgnoreCase(tickerName))

@@ -7,6 +7,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Properties;
 
+
 import static java.util.Arrays.stream;
 import static java.util.stream.Collectors.toList;
 
@@ -72,6 +73,12 @@ public class OrderFlowScalpingConfig {
     private final int breakoutConfirmationMs;
     private final double lowLiquidityBookVolume;
     private final double highVolatilitySpreadMultiplier;
+    private final double minNetEdgeToCommissionRatio;
+    private final int signalInvalidationMinHoldSeconds;
+    private final int obiInvalidationMinHoldSeconds;
+    private final int falseSignalReentryCooldownSeconds;
+    private final int obiAnchorRemovalConfirmSeconds;
+    private final int absorptionOppositeConfirmSeconds;
 
     public OrderFlowScalpingConfig() {
         final Properties properties;
@@ -122,6 +129,12 @@ public class OrderFlowScalpingConfig {
         breakoutConfirmationMs = Integer.parseInt(properties.getProperty("orderFlowScalping.breakoutConfirmationMs", "500"));
         lowLiquidityBookVolume = Double.parseDouble(properties.getProperty("orderFlowScalping.lowLiquidityBookVolume", "1000"));
         highVolatilitySpreadMultiplier = Double.parseDouble(properties.getProperty("orderFlowScalping.highVolatilitySpreadMultiplier", "6.0"));
+        minNetEdgeToCommissionRatio = Double.parseDouble(properties.getProperty("orderFlowScalping.minNetEdgeToCommissionRatio", "1.10"));
+        signalInvalidationMinHoldSeconds = Integer.parseInt(properties.getProperty("orderFlowScalping.signalInvalidationMinHoldSeconds", "8"));
+        obiInvalidationMinHoldSeconds = Integer.parseInt(properties.getProperty("orderFlowScalping.obiInvalidationMinHoldSeconds", "15"));
+        falseSignalReentryCooldownSeconds = Integer.parseInt(properties.getProperty("orderFlowScalping.falseSignalReentryCooldownSeconds", "20"));
+        obiAnchorRemovalConfirmSeconds = Integer.parseInt(properties.getProperty("orderFlowScalping.obiAnchorRemovalConfirmSeconds", "3"));
+        absorptionOppositeConfirmSeconds = Integer.parseInt(properties.getProperty("orderFlowScalping.absorptionOppositeConfirmSeconds", "3"));
     }
 
     private List<Instrument> parseInstruments(Properties properties) {
@@ -323,5 +336,29 @@ public class OrderFlowScalpingConfig {
 
     public double getHighVolatilitySpreadMultiplier() {
         return highVolatilitySpreadMultiplier;
+    }
+
+    public double getMinNetEdgeToCommissionRatio() {
+        return minNetEdgeToCommissionRatio;
+    }
+
+    public int getSignalInvalidationMinHoldSeconds() {
+        return signalInvalidationMinHoldSeconds;
+    }
+
+    public int getObiInvalidationMinHoldSeconds() {
+        return obiInvalidationMinHoldSeconds;
+    }
+
+    public int getFalseSignalReentryCooldownSeconds() {
+        return falseSignalReentryCooldownSeconds;
+    }
+
+    public int getObiAnchorRemovalConfirmSeconds() {
+        return obiAnchorRemovalConfirmSeconds;
+    }
+
+    public int getAbsorptionOppositeConfirmSeconds() {
+        return absorptionOppositeConfirmSeconds;
     }
 }
