@@ -1413,8 +1413,7 @@ public class TCSService {
             return 0;
         }
 
-        int lots = (int) Math.floor(availableCash / tradeUnitCost);
-        return lots * tradeUnit;
+        return (int) Math.floor(availableCash / tradeUnitCost);
     }
 
     /**

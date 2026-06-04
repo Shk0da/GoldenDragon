@@ -872,8 +872,7 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
         double availableCash = max(0.0, tradingGateway.getAvailableCash()) * BALANCE_SAFETY_FACTOR;
         double positionCash = availableCash * config.getMaxPositionBalancePercent();
         int lot = resolveLotSize(state.tickerInfo);
-        int quantityByBalance = maxAffordableQuantity(state.tickerInfo, signal.entryPrice, positionCash);
-        int quantity = quantityByBalance;
+        int quantity = maxAffordableQuantity(state.tickerInfo, signal.entryPrice, positionCash);
         if (quantity <= 0) {
             state.openAttemptBlockedUntil = now().plusSeconds(15);
             log(String.format(
