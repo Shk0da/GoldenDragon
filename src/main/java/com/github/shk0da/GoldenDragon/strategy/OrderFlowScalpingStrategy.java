@@ -856,7 +856,7 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
         double riskCash = availableCash * signal.riskPercent;
         double stopDistance = max(tickSize, abs(signal.entryPrice - signal.stopPrice));
         int quantityByRisk = max(1, (int) Math.floor(riskCash / stopDistance));
-        int quantityByBalance = maxAffordableQuantity(signal.entryPrice, availableCash);
+        int quantityByBalance = maxAffordableQuantity(state.tickerInfo, signal.entryPrice, availableCash);
         int quantity = min(quantityByRisk, quantityByBalance);
         if (quantity <= 0) {
             state.openAttemptBlockedUntil = now().plusSeconds(15);
@@ -1111,11 +1111,19 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
         return tradingGateway.sell(state.tickerInfo, cash, signal.entryPrice, signal.takePrice, signal.stopPrice, signal.useLimitEntry);
     }
 
-    private int maxAffordableQuantity(double entryPrice, double availableCash) {
-        if (entryPrice <= 0.0 || availableCash <= 0.0) {
+    private int maxAffordableQuantity(TickerInfo tickerInfo, double entryPrice, double availableCash) {
+        if (tickerInfo == null || entryPrice <= 0.0 || availableCash <= 0.0) {
             return 0;
         }
-        return max(0, (int) Math.floor(availableCash / entryPrice));
+        int lot = tickerInfo.getLot() != null && tickerInfo.getLot() > 0 ? tickerInfo.getLot() : 1;
+        double orderCost = lot * entryPrice;
+        if (TickerType.FEATURE == tickerInfo.getType()) {
+            orderCost *= TCSService.FUTURES_MARGIN_RATE;
+        }
+        if (orderCost <= 0.0) {
+            return 0;
+        }
+        return max(0, (int) Math.floor(availableCash / orderCost) * lot);
     }
 
     private LivePosition createPositionFromSignal(ScalpingState state,
