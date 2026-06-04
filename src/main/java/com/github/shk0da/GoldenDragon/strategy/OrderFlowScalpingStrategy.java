@@ -852,12 +852,38 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
         }
 
         double tickSize = max(state.tickerInfo.getMinPriceIncrement(), 0.01);
-        double riskCash = max(0.0, tradingGateway.getAvailableCash()) * signal.riskPercent;
+        double availableCash = max(0.0, tradingGateway.getAvailableCash());
+        double riskCash = availableCash * signal.riskPercent;
         double stopDistance = max(tickSize, abs(signal.entryPrice - signal.stopPrice));
-        int quantity = max(1, (int) Math.floor(riskCash / stopDistance));
+        int quantityByRisk = max(1, (int) Math.floor(riskCash / stopDistance));
+        int quantityByBalance = maxAffordableQuantity(signal.entryPrice, availableCash);
+        int quantity = min(quantityByRisk, quantityByBalance);
         if (quantity <= 0) {
-            state.openAttemptBlockedUntil = now().plusSeconds(5);
+            state.openAttemptBlockedUntil = now().plusSeconds(15);
+            log(String.format(
+                    "OrderFlowScalpingStrategy SKIP %s %s by %s: insufficient balance, blockReentryUntil=%s availableCash=%.2f entryPrice=%.4f riskCash=%.2f",
+                    signal.direction,
+                    state.tickerInfo.getTicker(),
+                    signal.reason,
+                    state.openAttemptBlockedUntil,
+                    availableCash,
+                    signal.entryPrice,
+                    riskCash
+            ));
             return;
+        }
+        if (quantity < quantityByRisk) {
+            state.openAttemptBlockedUntil = now().plusSeconds(5);
+            log(String.format(
+                    "OrderFlowScalpingStrategy LIMIT %s %s by %s: reduce qty by balance qtyRisk=%d qtyBalance=%d availableCash=%.2f entryPrice=%.4f",
+                    signal.direction,
+                    state.tickerInfo.getTicker(),
+                    signal.reason,
+                    quantityByRisk,
+                    quantityByBalance,
+                    availableCash,
+                    signal.entryPrice
+            ));
         }
 
         TCSService.OrderExecutionResult orderResult = "BUY".equals(signal.direction)
@@ -1083,6 +1109,13 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
     private TCSService.OrderExecutionResult openShort(ScalpingState state, Signal signal, int quantity) {
         double cash = signal.entryPrice * quantity;
         return tradingGateway.sell(state.tickerInfo, cash, signal.entryPrice, signal.takePrice, signal.stopPrice, signal.useLimitEntry);
+    }
+
+    private int maxAffordableQuantity(double entryPrice, double availableCash) {
+        if (entryPrice <= 0.0 || availableCash <= 0.0) {
+            return 0;
+        }
+        return max(0, (int) Math.floor(availableCash / entryPrice));
     }
 
     private LivePosition createPositionFromSignal(ScalpingState state,

@@ -1,7 +1,6 @@
 package com.github.shk0da.GoldenDragon.config;
 
 import com.github.shk0da.GoldenDragon.utils.PropertiesUtils;
-
 import java.net.http.HttpClient;
 import java.text.DateFormat;
 import java.text.SimpleDateFormat;
@@ -36,6 +35,7 @@ public class MainConfig {
 
     private final boolean isTestMode;
     private final boolean isSandbox;
+    private final boolean writeMarketDepthTicks;
 
     private String tcsAccountId;
     private final String tcsApiKey;
@@ -44,6 +44,7 @@ public class MainConfig {
         final Properties properties = PropertiesUtils.loadProperties();
         this.isTestMode = Boolean.parseBoolean(properties.getProperty("tcs.testMode", "false"));
         this.isSandbox = Boolean.parseBoolean(properties.getProperty("tcs.isSandbox", "false"));
+        this.writeMarketDepthTicks = Boolean.parseBoolean(properties.getProperty("tcs.marketData.writeTicks", "false"));
         this.tcsAccountId = properties.getProperty("tcs.accountId");
         this.tcsApiKey = properties.getProperty("tcs.apiKey");
     }
@@ -58,6 +59,10 @@ public class MainConfig {
 
     public String getTcsAccountId() {
         return tcsAccountId;
+    }
+
+    public boolean isWriteMarketDepthTicks() {
+        return writeMarketDepthTicks;
     }
 
     public MainConfig withAccountId(String accountId) {

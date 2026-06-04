@@ -88,6 +88,7 @@ public class TCSService {
     private final MainConfig mainConfig;
     private final MarketConfig marketConfig;
     private final InvestApi investApi;
+    private final boolean writeMarketDepthTicks;
 
     private final Repository<TickerInfo.Key, String> figiRepository = FigiRepository.INSTANCE;
     private final Repository<TickerInfo.Key, TickerInfo> tickerRepository = TickerRepository.INSTANCE;
@@ -108,6 +109,7 @@ public class TCSService {
         this.investApi = mainConfig.isSandbox()
                 ? InvestApi.createSandbox(mainConfig.getTcsApiKey())
                 : InvestApi.create(mainConfig.getTcsApiKey());
+        this.writeMarketDepthTicks = mainConfig.isWriteMarketDepthTicks();
 
         figiRepository.insert(new TickerInfo.Key("RUB", TickerType.CURRENCY), "RUB000UTSTOM");
         figiRepository.insert(new TickerInfo.Key("USD", TickerType.CURRENCY), "BBG0013HGFT4");
@@ -1449,6 +1451,9 @@ public class TCSService {
     }
 
     private void appendMarketDepthSnapshot(TickerInfo.Key key, MarketDepthSnapshot snapshot) {
+        if (!writeMarketDepthTicks) {
+            return;
+        }
         if (!snapshot.isConsistent()) {
             return;
         }
