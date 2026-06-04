@@ -21,6 +21,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
+import java.text.SimpleDateFormat;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.OffsetDateTime;
@@ -61,7 +62,6 @@ import ru.tinkoff.piapi.core.models.Positions;
 import ru.tinkoff.piapi.core.stream.MarketDataSubscriptionService;
 
 
-import static com.github.shk0da.GoldenDragon.config.MainConfig.dateTimeFormat;
 import static com.github.shk0da.GoldenDragon.dictionary.CurrenciesDictionary.getTickerName;
 import static com.github.shk0da.GoldenDragon.service.TelegramNotifyService.telegramNotifyService;
 import static com.github.shk0da.GoldenDragon.utils.PrintUtils.printGlassOfPrices;
@@ -87,6 +87,8 @@ public class TCSService {
     private static final int FUTURES_CONTRACT_MULTIPLIER = 1000;
     private static final String MARKET_DEPTH_TICKS_HEADER = "time,best_bid,best_ask,mid_price,bids,asks";
     private static final DateTimeFormatter MARKET_DEPTH_TICKS_TIME_FORMATTER = DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm:ss");
+    private static final ThreadLocal<SimpleDateFormat> LOG_TIME_FORMAT =
+            ThreadLocal.withInitial(() -> new SimpleDateFormat("dd.MM.yyyy HH:mm:ss"));
 
     private final MainConfig mainConfig;
     private final MarketConfig marketConfig;
@@ -238,17 +240,16 @@ public class TCSService {
         getCurrentPositions(type).values().forEach(ticker -> {
             int count = ticker.getBalance();
             String name = ticker.getTicker();
-            String currentDate = dateTimeFormat.format(new Date());
             if (count > 0) {
-                var message = "[" + currentDate + "] Sell: " + count + " " + name + " by Market";
-                out.println(message);
+                var message = "Sell: " + count + " " + name + " by Market";
+                log(message);
                 if (mainConfig.isTestMode()) return;
                 telegramNotifyService.sendMessage(message);
                 createOrder(new TickerInfo.Key(name, type), 0.0, count, "Sell");
             }
             if (count < 0) {
-                var message = "[" + currentDate + "] Buy: " + count + " " + name + " by Market";
-                out.println(message);
+                var message = "Buy: " + count + " " + name + " by Market";
+                log(message);
                 if (mainConfig.isTestMode()) return;
                 telegramNotifyService.sendMessage(message);
                 createOrder(new TickerInfo.Key(name, type), 0.0, Math.abs(count), "Buy");
@@ -284,8 +285,7 @@ public class TCSService {
     public boolean closeShortByMarket(String name, TickerType type) {
         int count = getCountOfCurrentPositions(type, name);
         if (count < 0) {
-            String currentDate = dateTimeFormat.format(new Date());
-            out.println("[" + currentDate + "] Buy: " + Math.abs(count) + " " + name + " by Market");
+            log("Buy: " + Math.abs(count) + " " + name + " by Market");
 
             if (mainConfig.isTestMode()) return true;
             return 1 == createOrder(new TickerInfo.Key(name, type), 0.0, Math.abs(count), "Buy");
@@ -296,8 +296,7 @@ public class TCSService {
     public OrderExecutionResult closeShortByMarketWithDetails(String name, TickerType type) {
         int count = getCountOfCurrentPositions(type, name);
         if (count < 0) {
-            String currentDate = dateTimeFormat.format(new Date());
-            out.println("[" + currentDate + "] Buy: " + Math.abs(count) + " " + name + " by Market");
+            log("Buy: " + Math.abs(count) + " " + name + " by Market");
 
             if (mainConfig.isTestMode()) {
                 return OrderExecutionResult.testSuccess(getAvailablePrice(new TickerInfo.Key(name, type)), Math.abs(count));
@@ -314,8 +313,7 @@ public class TCSService {
             if (quantityToBuy <= 0) {
                 return OrderExecutionResult.failed();
             }
-            String currentDate = dateTimeFormat.format(new Date());
-            out.println("[" + currentDate + "] Buy: " + quantityToBuy + " " + name + " by Market");
+            log("Buy: " + quantityToBuy + " " + name + " by Market");
 
             if (mainConfig.isTestMode()) {
                 return OrderExecutionResult.testSuccess(getAvailablePrice(new TickerInfo.Key(name, type)), quantityToBuy);
@@ -328,8 +326,7 @@ public class TCSService {
     public boolean closeLongByMarket(String name, TickerType type) {
         int count = getCountOfCurrentPositions(type, name);
         if (count > 0) {
-            String currentDate = dateTimeFormat.format(new Date());
-            out.println("[" + currentDate + "] Sell: " + count + " " + name + " by Market");
+            log("Sell: " + count + " " + name + " by Market");
 
             if (mainConfig.isTestMode()) return true;
             return 1 == createOrder(new TickerInfo.Key(name, type), 0.0, count, "Sell");
@@ -340,8 +337,7 @@ public class TCSService {
     public OrderExecutionResult closeLongByMarketWithDetails(String name, TickerType type) {
         int count = getCountOfCurrentPositions(type, name);
         if (count > 0) {
-            String currentDate = dateTimeFormat.format(new Date());
-            out.println("[" + currentDate + "] Sell: " + count + " " + name + " by Market");
+            log("Sell: " + count + " " + name + " by Market");
 
             if (mainConfig.isTestMode()) {
                 return OrderExecutionResult.testSuccess(getAvailablePrice(new TickerInfo.Key(name, type)), count);
@@ -358,8 +354,7 @@ public class TCSService {
             if (quantityToSell <= 0) {
                 return OrderExecutionResult.failed();
             }
-            String currentDate = dateTimeFormat.format(new Date());
-            out.println("[" + currentDate + "] Sell: " + quantityToSell + " " + name + " by Market");
+            log("Sell: " + quantityToSell + " " + name + " by Market");
 
             if (mainConfig.isTestMode()) {
                 return OrderExecutionResult.testSuccess(getAvailablePrice(new TickerInfo.Key(name, type)), quantityToSell);
@@ -391,14 +386,13 @@ public class TCSService {
 
         int count = calculateTradeCount(key, cashToSell, limitPrice);
         if (count == 0) {
-            out.println("Warn: limit short will be skipped - " + name + " with count " + count
+            log("Warn: limit short will be skipped - " + name + " with count " + count
                     + ". CashToSell: " + cashToSell + ", price: " + limitPrice);
             return OrderExecutionResult.failed();
         }
 
         double cost = getRequiredCashForOrder(key, count, limitPrice);
-        String currentDate = dateTimeFormat.format(new Date());
-        out.println("[" + currentDate + "] Sell: " + count + " " + key.getTicker() + " by "
+        log("Sell: " + count + " " + key.getTicker() + " by "
                 + limitPrice + " (" + cost + " " + currency + ")");
         if (mainConfig.isTestMode()) {
             return OrderExecutionResult.testSuccess(limitPrice, count);
@@ -432,21 +426,20 @@ public class TCSService {
         }
 
         if (0.0 == tickerPrice) {
-            out.println("Warn: short will be skipped - " + name + " by price " + tickerPrice);
+            log("Warn: short will be skipped - " + name + " by price " + tickerPrice);
             return OrderExecutionResult.failed();
         }
 
         int count = calculateTradeCount(key, cashToSell, tickerPrice);
         if (count == 0) {
-            out.println("Warn: short will be skipped - " + name + " with count " + count + ". CashToSell: " + cashToSell + ", price: " + tickerPrice);
+            log("Warn: short will be skipped - " + name + " with count " + count + ". CashToSell: " + cashToSell + ", price: " + tickerPrice);
             return OrderExecutionResult.failed();
         }
         double cost = getRequiredCashForOrder(key, count, tickerPrice);
         int lot = Math.max(1, searchTicker(key).getLot());
         int quantity = Math.max(1, count / lot);
 
-        String currentDate = dateTimeFormat.format(new Date());
-        out.println("[" + currentDate + "] Sell: " + count + " " + key.getTicker() + " by "
+        log("Sell: " + count + " " + key.getTicker() + " by "
                 + (byMarket
                 ? String.format("Market [price=%.4f, cost=%.2f %s, lot=%d, lots=%d, cash=%.2f]", tickerPrice, cost, currency, lot, quantity, cashToSell)
                 : tickerPrice + " (" + cost + " " + currency + ")"));
@@ -458,7 +451,7 @@ public class TCSService {
 
     public boolean sell(String name, TickerType type, double cost) {
         if (cost == 0) {
-            out.println("Warn: sale will be skipped - " + name + " with cost " + cost);
+            log("Warn: sale will be skipped - " + name + " with cost " + cost);
             return false;
         }
 
@@ -480,17 +473,16 @@ public class TCSService {
             }
         }
         if (count == 0) {
-            out.println("Warn: sale will be skipped - " + name + " with count " + count);
+            log("Warn: sale will be skipped - " + name + " with count " + count);
             return false;
         }
 
         double tickerPrice = getAvailablePrice(key, count, true);
         if (0.0 == tickerPrice) {
-            out.println("Warn: sale will be used Market Price - " + name);
+            log("Warn: sale will be used Market Price - " + name);
         }
 
-        String currentDate = dateTimeFormat.format(new Date());
-        out.println("[" + currentDate + "] Sell: " + count + " " + key.getTicker() + " by " + tickerPrice + " (" + cost + " " + currency + ")");
+        log("Sell: " + count + " " + key.getTicker() + " by " + tickerPrice + " (" + cost + " " + currency + ")");
         if (mainConfig.isTestMode()) {
             return true;
         }
@@ -535,14 +527,13 @@ public class TCSService {
 
         int count = calculateTradeCount(key, cashToBuy, limitPrice);
         if (count == 0) {
-            out.println("Warn: limit long will be skipped - " + name + " with count " + count
+            log("Warn: limit long will be skipped - " + name + " with count " + count
                     + ". CashToBuy: " + cashToBuy + ", price: " + limitPrice);
             return OrderExecutionResult.failed();
         }
 
         double cost = getRequiredCashForOrder(key, count, limitPrice);
-        String currentDate = dateTimeFormat.format(new Date());
-        out.println("[" + currentDate + "] Buy: " + count + " " + key.getTicker() + " by "
+        log("Buy: " + count + " " + key.getTicker() + " by "
                 + limitPrice + " (" + cost + " " + currency + ")");
         if (mainConfig.isTestMode()) {
             return OrderExecutionResult.testSuccess(limitPrice, count);
@@ -568,21 +559,20 @@ public class TCSService {
         }
 
         if (0.0 == tickerPrice) {
-            out.println("Warn: purchase will be skipped - " + name + " by price " + tickerPrice);
+            log("Warn: purchase will be skipped - " + name + " by price " + tickerPrice);
             return OrderExecutionResult.failed();
         }
 
         int count = calculateTradeCount(key, cashToBuy, tickerPrice);
         if (count == 0) {
-            out.println("Warn: long will be skipped - " + name + " with count " + count + ". CashToBuy: " + cashToBuy + ", price: " + tickerPrice);
+            log("Warn: long will be skipped - " + name + " with count " + count + ". CashToBuy: " + cashToBuy + ", price: " + tickerPrice);
             return OrderExecutionResult.failed();
         }
         double cost = getRequiredCashForOrder(key, count, tickerPrice);
         int lot = Math.max(1, searchTicker(key).getLot());
         int quantity = Math.max(1, count / lot);
 
-        String currentDate = dateTimeFormat.format(new Date());
-        out.println("[" + currentDate + "] Buy: " + count + " " + key.getTicker() + " by "
+        log("Buy: " + count + " " + key.getTicker() + " by "
                 + (byMarket
                 ? String.format("Market [price=%.4f, cost=%.2f %s, lot=%d, lots=%d, cash=%.2f]", tickerPrice, cost, currency, lot, quantity, cashToBuy)
                 : tickerPrice + " (" + cost + " " + currency + ")"));
@@ -625,7 +615,7 @@ public class TCSService {
         int contractMultiplier = TickerType.FEATURE == tickerInfo.getType() ? FUTURES_CONTRACT_MULTIPLIER : 1;
         double fullNotional = referencePrice > 0.0 ? count * referencePrice * contractMultiplier : 0.0;
         double estimatedCost = referencePrice > 0.0 ? getRequiredCashForOrder(key, count, referencePrice) : 0.0;
-        out.println(String.format(
+        log(String.format(
                 "Create order request [%s]: operation=%s direction=%s type=%s count=%d lot=%d quantity=%d requestedPrice=%.4f referencePrice=%.4f contractMultiplier=%d fullNotional=%.2f cashToUse=%.2f estimatedCost=%.2f takeProfit=%.4f stopLose=%.4f isFullPrice=%s",
                 key.getTicker(),
                 operation,
@@ -663,7 +653,7 @@ public class TCSService {
                 executedPrice = referencePrice > 0.0 ? referencePrice : getAvailablePrice(key);
             }
             lastExecutedPriceByTicker.put(key, executedPrice);
-            out.println(String.format(
+            log(String.format(
                     "%s execution price normalized for %s: raw=%f normalized=%f reference=%f executedCount=%d",
                     operation,
                     key.getTicker(),
@@ -687,7 +677,7 @@ public class TCSService {
                     executedPrice,
                     executedCommission
             );
-            out.println(message);
+            log(message);
 
             Position bracketPosition = null;
             if (response.getExecutionReportStatus().equals(EXECUTION_REPORT_STATUS_FILL)) {
@@ -699,7 +689,7 @@ public class TCSService {
             return OrderExecutionResult.success(executedPrice, executedCount, executedCommission, bracketPosition);
         } catch (Exception ex) {
             String message = "Failed create order [" + key.getTicker() + "]: " + ex.getMessage();
-            out.println(message);
+            log(message);
             telegramNotifyService.sendMessage(message);
             return OrderExecutionResult.failed();
         }
@@ -847,7 +837,7 @@ public class TCSService {
                     protectiveOrdersByTicker.computeIfAbsent(key, ignored -> new ProtectiveOrders()).stopLossOrderId = stopOrderId;
                 } catch (Exception ex) {
                     var error = "Failed create StopLose: " + ex.getMessage();
-                    out.println(error);
+                    log(error);
                     telegramNotifyService.sendMessage(error);
                     ex.printStackTrace();
                 }
@@ -874,7 +864,7 @@ public class TCSService {
                     protectiveOrdersByTicker.computeIfAbsent(key, ignored -> new ProtectiveOrders()).takeProfitOrderId = stopOrderId;
                 } catch (Exception ex) {
                     var error = "Failed create TakeProfit: " + ex.getMessage();
-                    out.println(error);
+                    log(error);
                     telegramNotifyService.sendMessage(error);
                     ex.printStackTrace();
                 }
@@ -971,10 +961,10 @@ public class TCSService {
             } else {
                 protectiveOrders.takeProfitOrderId = stopOrderId;
             }
-            out.println(key.getTicker() + " " + (isStopLoss ? "StopLose" : "TakeProfit") + " synced: " + price);
+            log(key.getTicker() + " " + (isStopLoss ? "StopLose" : "TakeProfit") + " synced: " + price);
         } catch (Exception ex) {
             var error = "Failed sync " + (isStopLoss ? "StopLose" : "TakeProfit") + " for " + key.getTicker() + ": " + ex.getMessage();
-            out.println(error);
+            log(error);
             telegramNotifyService.sendMessage(error);
             if (isStopLoss) {
                 protectiveOrders.stopLossOrderId = null;
@@ -990,10 +980,10 @@ public class TCSService {
         }
         try {
             investApi.getStopOrdersService().cancelStopOrderSync(mainConfig.getTcsAccountId(), stopOrderId);
-            out.println(key.getTicker() + " " + orderTypeName + " cancelled: " + stopOrderId);
+            log(key.getTicker() + " " + orderTypeName + " cancelled: " + stopOrderId);
         } catch (Exception ex) {
             var error = "Failed cancel " + orderTypeName + " for " + key.getTicker() + ": " + ex.getMessage();
-            out.println(error);
+            log(error);
             telegramNotifyService.sendMessage(error);
         }
     }
@@ -1053,7 +1043,7 @@ public class TCSService {
             return cachedStockList;
         }
 
-        out.println("Loading current stocks...");
+        log("Loading current stocks...");
         List<Share> stocks = investApi.getInstrumentsService().getTradableSharesSync();
         Map<TickerInfo.Key, TickerInfo> loadedStocks = stocks.stream()
                 .map(it -> new TickerInfo(
@@ -1073,7 +1063,7 @@ public class TCSService {
     }
 
     public Map<TickerInfo.Key, TickerInfo> getBondList() {
-        out.println("Loading current bonds...");
+        log("Loading current bonds...");
         List<Bond> bonds = investApi.getInstrumentsService().getTradableBondsSync();
         return bonds.stream()
                 .map(it -> new TickerInfo(
@@ -1090,7 +1080,7 @@ public class TCSService {
     }
 
     public Map<TickerInfo.Key, TickerInfo> getEtfList() {
-        out.println("Loading current etfs...");
+        log("Loading current etfs...");
         List<Etf> etfs = investApi.getInstrumentsService().getTradableEtfsSync();
         return etfs.stream()
                 .map(it -> new TickerInfo(
@@ -1107,7 +1097,7 @@ public class TCSService {
     }
 
     public Map<TickerInfo.Key, TickerInfo> getCurrenciesList() {
-        out.println("Loading current currencies...");
+        log("Loading current currencies...");
         List<Currency> currencies = investApi.getInstrumentsService().getTradableCurrenciesSync();
         return currencies.stream()
                 .map(it -> new TickerInfo(
@@ -1124,7 +1114,7 @@ public class TCSService {
     }
 
     public Map<TickerInfo.Key, TickerInfo> getFuturesList() {
-        out.println("Loading current features...");
+        log("Loading current features...");
         List<Future> futures = investApi.getInstrumentsService().getTradableFuturesSync();
         return futures.stream()
                 .map(it -> new TickerInfo(
@@ -1156,7 +1146,7 @@ public class TCSService {
         if (tickerRepository.containsKey(key)) {
             return tickerRepository.getById(key);
         }
-        out.println("Search ticker '" + key.getTicker() + "'...");
+        log("Search ticker '" + key.getTicker() + "'...");
         sleep(550);
 
         TickerInfo tickerInfo;
@@ -1183,7 +1173,7 @@ public class TCSService {
 
         if (null != tickerInfo) {
             tickerRepository.insert(key, tickerInfo);
-            out.println(key.getTicker() + ": " + tickerInfo);
+            log(key.getTicker() + ": " + tickerInfo);
         }
         return tickerInfo;
     }
@@ -1243,7 +1233,7 @@ public class TCSService {
                         }
                     }
                     if (null == tickerKey.get()) {
-                        out.println("Warn: position skipped, ticker key not found for figi=" + it.getFigi()
+                        log("Warn: position skipped, ticker key not found for figi=" + it.getFigi()
                                 + ", instrumentType=" + it.getInstrumentType());
                         return;
                     }
@@ -1312,7 +1302,7 @@ public class TCSService {
         if (tickerInfo != null) {
             tickerRepository.insert(tickerInfo.getKey(), tickerInfo);
             figiRepository.insert(tickerInfo.getKey(), tickerInfo.getFigi());
-            out.println("Recovered ticker by figi: " + tickerInfo);
+            log("Recovered ticker by figi: " + tickerInfo);
         }
         return tickerInfo;
     }
@@ -1399,7 +1389,7 @@ public class TCSService {
         }
         String figi = figiByName(key);
         if (isPrintGlass) {
-            out.println("Loading current price '" + key + "'...");
+            log("Loading current price '" + key + "'...");
         }
         sleep(550);
 
@@ -1528,7 +1518,7 @@ public class TCSService {
                         StandardOpenOption.APPEND
                 );
             } catch (IOException ex) {
-                out.println("Warn: failed to append market depth tick for '" + key.getTicker() + "': " + ex.getMessage());
+                log("Warn: failed to append market depth tick for '" + key.getTicker() + "': " + ex.getMessage());
             }
         }
     }
@@ -1618,5 +1608,9 @@ public class TCSService {
 
     private static Double normalizePrice(double price, double priceStep) {
         return Math.round(price / priceStep) * priceStep;
+    }
+
+    private void log(String message) {
+        out.println("[" + LOG_TIME_FORMAT.get().format(new Date()) + "] " + message);
     }
 }
