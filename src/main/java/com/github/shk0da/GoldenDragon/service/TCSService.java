@@ -68,6 +68,7 @@ import static com.github.shk0da.GoldenDragon.utils.TimeUtils.sleep;
 import static java.lang.Math.max;
 import static java.lang.Math.round;
 import static java.lang.System.out;
+import static java.util.Collections.emptyList;
 import static java.util.stream.Collectors.toCollection;
 import static ru.tinkoff.piapi.contract.v1.OrderDirection.ORDER_DIRECTION_BUY;
 import static ru.tinkoff.piapi.contract.v1.OrderDirection.ORDER_DIRECTION_SELL;
@@ -195,6 +196,7 @@ public class TCSService {
     }
 
     public List<HistoricCandle> getLastCandles(String ticker, TickerType type, int size) {
+        if (size <= 0) return emptyList();
         TickerInfo.Key key = new TickerInfo.Key(ticker, type);
         String figi = figiByName(key);
         Instant end = Instant.now();

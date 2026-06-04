@@ -82,7 +82,17 @@ public class RSX extends Rebalancing {
 
     public boolean isTrendUp() {
         List<HistoricCandle> trendCandles50 = tcsService.getLastCandles(rsxConfig.getTrendStock(), TickerType.ETF, 50);
-        List<HistoricCandle> trendCandles5 = trendCandles50.stream().skip(45).collect(toList());
+        if (trendCandles50.isEmpty()) {
+            out.println("trendUp: false (no candles)");
+            return false;
+        }
+        List<HistoricCandle> trendCandles5 = trendCandles50.stream()
+                .skip(Math.max(0, trendCandles50.size() - 5))
+                .collect(toList());
+        if (trendCandles5.isEmpty()) {
+            out.println("trendUp: false (not enough candles)");
+            return false;
+        }
         double longSMA = trendCandles50.stream().mapToDouble(c -> tcsService.convertQuotationToDouble(c.getClose())).sum() / trendCandles50.size();
         double shortSMA = trendCandles5.stream().mapToDouble(c -> tcsService.convertQuotationToDouble(c.getClose())).sum() / trendCandles5.size();
         boolean isTrendUp = shortSMA > longSMA;

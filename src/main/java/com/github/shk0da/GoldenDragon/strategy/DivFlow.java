@@ -30,6 +30,7 @@ import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
 import org.jsoup.select.Elements;
+import ru.tinkoff.piapi.contract.v1.HistoricCandle;
 
 
 import static com.github.shk0da.GoldenDragon.config.DivFlowConfig.DOHOD_DIV_CALENDAR;
@@ -571,8 +572,12 @@ public class DivFlow {
                 if (null == code || code.isBlank()) continue;
                 if (!tickerRepository.containsKey(new TickerInfo.Key(code, STOCK))) continue;
 
-                var lastCandle = tcsService.getLastCandles(code, STOCK, 1).get(0);
-                var price = valueOf(null != lastCandle ? lastCandle.getClose() : 0.0);
+                List<HistoricCandle> candles = tcsService.getLastCandles(code, STOCK, 1);
+                double price = 0.0;
+                if (!candles.isEmpty()) {
+                    price = tcsService.convertQuotationToDouble(candles.get(0).getClose());
+                }
+                var priceValue = valueOf(price);
 
                 code = code.toUpperCase();
 
@@ -586,7 +591,7 @@ public class DivFlow {
                 var realCloseByDate = dateFormat.format(nextWorkDay.getTime());
 
                 var lastDate = dateFormat.format(new Date(closeByDate.getTime() - DAYS.toMillis(2)));
-                DiviTicker ticker = new DiviTicker(name, code, lastDate, realCloseByDate, dividend, profit, price);
+                DiviTicker ticker = new DiviTicker(name, code, lastDate, realCloseByDate, dividend, profit, priceValue);
 
                 List<DiviTicker> byDate = result.getOrDefault(ticker.getCloseDate(), new ArrayList<>(4));
                 byDate.add(ticker);
