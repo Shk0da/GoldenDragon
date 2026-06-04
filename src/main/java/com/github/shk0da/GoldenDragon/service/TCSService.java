@@ -14,10 +14,17 @@ import com.github.shk0da.GoldenDragon.repository.FigiRepository;
 import com.github.shk0da.GoldenDragon.repository.PricesRepository;
 import com.github.shk0da.GoldenDragon.repository.Repository;
 import com.github.shk0da.GoldenDragon.repository.TickerRepository;
+import java.io.IOException;
 import java.math.BigDecimal;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.OffsetDateTime;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -72,6 +79,8 @@ import static ru.tinkoff.piapi.contract.v1.StopOrderType.STOP_ORDER_TYPE_TAKE_PR
 public class TCSService {
 
     public static final double FUTURES_MARGIN_RATE = 0.40;
+    private static final String MARKET_DEPTH_TICKS_HEADER = "time,best_bid,best_ask,mid_price,bids,asks";
+    private static final DateTimeFormatter MARKET_DEPTH_TICKS_TIME_FORMATTER = DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm:ss");
 
     private final MainConfig mainConfig;
     private final MarketConfig marketConfig;
@@ -86,6 +95,7 @@ public class TCSService {
     private final Map<TickerInfo.Key, List<MarketTradeTick>> recentTradesByTicker = new ConcurrentHashMap<>();
     private final Map<TickerInfo.Key, CopyOnWriteArrayList<MarketTickListener>> marketTickListenersByTicker = new ConcurrentHashMap<>();
     private final Map<TickerInfo.Key, MarketDataSubscriptionService> marketDataStreamsByTicker = new ConcurrentHashMap<>();
+    private final Map<String, Object> marketDepthFileLocks = new ConcurrentHashMap<>();
     private volatile Map<TickerInfo.Key, TickerInfo> cachedStockList;
     private volatile Instant cachedStockListAt;
 
@@ -1335,6 +1345,7 @@ public class TCSService {
             MarketDepthSnapshot snapshot = toMarketDepthSnapshot(response.getOrderbook());
             marketDepthByTicker.put(key, snapshot);
             pricesRepository.insert(key, toCurrentPrices(snapshot));
+            appendMarketDepthSnapshot(key, snapshot);
             notifyOrderBookListeners(key, snapshot);
         }
         if (response.hasTrade()) {
@@ -1397,8 +1408,68 @@ public class TCSService {
                         .collect(Collectors.toList()),
                 orderBook.getAsksList().stream()
                         .map(it -> new MarketDepthLevel(toDouble(it.getPrice()), (int) it.getQuantity()))
-                        .collect(Collectors.toList())
+                .collect(Collectors.toList())
         );
+    }
+
+    private void appendMarketDepthSnapshot(TickerInfo.Key key, MarketDepthSnapshot snapshot) {
+        if (!snapshot.isConsistent()) {
+            return;
+        }
+        Path ticksFilePath = Path.of("data", key.getTicker(), "ticks.txt");
+        Object fileLock = marketDepthFileLocks.computeIfAbsent(ticksFilePath.toString(), ignored -> new Object());
+        synchronized (fileLock) {
+            try {
+                Files.createDirectories(ticksFilePath.getParent());
+                if (!Files.exists(ticksFilePath)) {
+                    Files.write(
+                            ticksFilePath,
+                            List.of(MARKET_DEPTH_TICKS_HEADER),
+                            StandardCharsets.UTF_8,
+                            StandardOpenOption.CREATE,
+                            StandardOpenOption.APPEND
+                    );
+                }
+                Files.write(
+                        ticksFilePath,
+                        List.of(toMarketDepthCsvLine(snapshot)),
+                        StandardCharsets.UTF_8,
+                        StandardOpenOption.CREATE,
+                        StandardOpenOption.APPEND
+                );
+            } catch (IOException ex) {
+                out.println("Warn: failed to append market depth tick for '" + key.getTicker() + "': " + ex.getMessage());
+            }
+        }
+    }
+
+    private String toMarketDepthCsvLine(MarketDepthSnapshot snapshot) {
+        return String.join(",",
+                formatMarketDepthTime(snapshot.getTime()),
+                toCsvValue(snapshot.getBestBid()),
+                toCsvValue(snapshot.getBestAsk()),
+                toCsvValue(snapshot.getMidPrice()),
+                quoteCsv(formatMarketDepthLevels(snapshot.getBids())),
+                quoteCsv(formatMarketDepthLevels(snapshot.getAsks()))
+        );
+    }
+
+    private String formatMarketDepthTime(Instant time) {
+        return MARKET_DEPTH_TICKS_TIME_FORMATTER.format(time.atZone(ZoneId.systemDefault()));
+    }
+
+    private String toCsvValue(Double value) {
+        return value == null ? "" : Double.toString(value);
+    }
+
+    private String formatMarketDepthLevels(List<MarketDepthLevel> levels) {
+        return levels.stream()
+                .map(it -> Double.toString(it.getPrice()) + ":" + it.getQuantity())
+                .collect(Collectors.joining("|"));
+    }
+
+    private String quoteCsv(String value) {
+        return '"' + value.replace("\"", "\"\"") + '"';
     }
 
     private Map<String, Map<Double, Integer>> toCurrentPrices(MarketDepthSnapshot snapshot, TickerInfo.Key key, boolean isPrintGlass) {
