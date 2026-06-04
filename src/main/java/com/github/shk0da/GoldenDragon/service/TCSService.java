@@ -1613,7 +1613,7 @@ public class TCSService {
      */
     public TickerInfo searchTicker(TickerInfo.Key key) {
         if (tickerRepository.containsKey(key)) {
-            return tickerRepository.getById(key);
+            return applyTickerLotOverride(tickerRepository.getById(key));
         }
         log("Search ticker '" + key.getTicker() + "'...");
         sleep(550);
