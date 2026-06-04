@@ -8,6 +8,7 @@ import com.github.shk0da.GoldenDragon.model.MarketTradeTick;
 import com.github.shk0da.GoldenDragon.model.Position;
 import com.github.shk0da.GoldenDragon.model.PositionInfo;
 import com.github.shk0da.GoldenDragon.model.TickerInfo;
+import com.github.shk0da.GoldenDragon.model.TickerType;
 import com.github.shk0da.GoldenDragon.repository.TickerRepository;
 import com.github.shk0da.GoldenDragon.service.TCSService;
 import java.text.SimpleDateFormat;
@@ -35,17 +36,143 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
 
     private static final ThreadLocal<SimpleDateFormat> LOG_TIME_FORMAT = ThreadLocal.withInitial(() -> new SimpleDateFormat("dd.MM.yyyy HH:mm:ss"));
 
+    public interface TradingGateway {
+
+        double getAvailableCash();
+
+        TickerInfo searchTicker(TickerInfo.Key key);
+
+        void subscribeMarketData(TickerInfo.Key key, int depth, MarketTickListener listener);
+
+        void unsubscribeMarketData(TickerInfo.Key key, MarketTickListener listener);
+
+        PositionInfo getCurrentPosition(TickerType type, String ticker);
+
+        TCSService.OrderExecutionResult buy(TickerInfo tickerInfo, double cash, double entryPrice, double takePrice, double stopPrice, boolean useLimitEntry);
+
+        TCSService.OrderExecutionResult sell(TickerInfo tickerInfo, double cash, double entryPrice, double takePrice, double stopPrice, boolean useLimitEntry);
+
+        TCSService.OrderExecutionResult closeLong(TickerInfo tickerInfo);
+
+        TCSService.OrderExecutionResult closeLong(TickerInfo tickerInfo, int count);
+
+        TCSService.OrderExecutionResult closeShort(TickerInfo tickerInfo);
+
+        TCSService.OrderExecutionResult closeShort(TickerInfo tickerInfo, int count);
+
+        void syncProtectiveOrders(TickerInfo tickerInfo, Position position);
+
+        void clearProtectiveOrders(TickerInfo tickerInfo);
+    }
+
+    public static class LiveTradingGateway implements TradingGateway {
+
+        private final TCSService tcsService;
+
+        public LiveTradingGateway(TCSService tcsService) {
+            this.tcsService = tcsService;
+        }
+
+        @Override
+        public double getAvailableCash() {
+            return tcsService.getAvailableCash();
+        }
+
+        @Override
+        public TickerInfo searchTicker(TickerInfo.Key key) {
+            return tcsService.searchTicker(key);
+        }
+
+        @Override
+        public void subscribeMarketData(TickerInfo.Key key, int depth, MarketTickListener listener) {
+            tcsService.subscribeMarketData(key, depth, listener);
+        }
+
+        @Override
+        public void unsubscribeMarketData(TickerInfo.Key key, MarketTickListener listener) {
+            tcsService.unsubscribeMarketData(key, listener);
+        }
+
+        @Override
+        public PositionInfo getCurrentPosition(TickerType type, String ticker) {
+            return tcsService.getCurrentPositions(type, ticker);
+        }
+
+        @Override
+        public TCSService.OrderExecutionResult buy(TickerInfo tickerInfo, double cash, double entryPrice, double takePrice, double stopPrice, boolean useLimitEntry) {
+            if (useLimitEntry) {
+                return tcsService.buyLimit(tickerInfo.getTicker(), tickerInfo.getType(), cash, entryPrice);
+            }
+            return tcsService.buyByMarketWithDetails(
+                    tickerInfo.getTicker(),
+                    tickerInfo.getType(),
+                    cash,
+                    abs(takePrice - entryPrice) / entryPrice * 100.0,
+                    abs(entryPrice - stopPrice) / entryPrice * 100.0
+            );
+        }
+
+        @Override
+        public TCSService.OrderExecutionResult sell(TickerInfo tickerInfo, double cash, double entryPrice, double takePrice, double stopPrice, boolean useLimitEntry) {
+            if (useLimitEntry) {
+                return tcsService.sellLimit(tickerInfo.getTicker(), tickerInfo.getType(), cash, entryPrice);
+            }
+            return tcsService.sellByMarketWithDetails(
+                    tickerInfo.getTicker(),
+                    tickerInfo.getType(),
+                    cash,
+                    abs(entryPrice - takePrice) / entryPrice * 100.0,
+                    abs(stopPrice - entryPrice) / entryPrice * 100.0
+            );
+        }
+
+        @Override
+        public TCSService.OrderExecutionResult closeLong(TickerInfo tickerInfo) {
+            return tcsService.closeLongByMarketWithDetails(tickerInfo.getTicker(), tickerInfo.getType());
+        }
+
+        @Override
+        public TCSService.OrderExecutionResult closeLong(TickerInfo tickerInfo, int count) {
+            return tcsService.closeLongByMarketWithDetails(tickerInfo.getTicker(), tickerInfo.getType(), count);
+        }
+
+        @Override
+        public TCSService.OrderExecutionResult closeShort(TickerInfo tickerInfo) {
+            return tcsService.closeShortByMarketWithDetails(tickerInfo.getTicker(), tickerInfo.getType());
+        }
+
+        @Override
+        public TCSService.OrderExecutionResult closeShort(TickerInfo tickerInfo, int count) {
+            return tcsService.closeShortByMarketWithDetails(tickerInfo.getTicker(), tickerInfo.getType(), count);
+        }
+
+        @Override
+        public void syncProtectiveOrders(TickerInfo tickerInfo, Position position) {
+            tcsService.syncProtectiveOrders(tickerInfo.getTicker(), tickerInfo.getType(), position);
+        }
+
+        @Override
+        public void clearProtectiveOrders(TickerInfo tickerInfo) {
+            tcsService.clearProtectiveOrders(tickerInfo.getTicker(), tickerInfo.getType());
+        }
+    }
+
     private final OrderFlowScalpingConfig config;
-    private final TCSService tcsService;
+    private final TradingGateway tradingGateway;
     private final Map<String, ScalpingState> stateByTicker = new ConcurrentHashMap<>();
     private final double startBalance;
     private volatile boolean running = true;
     private double dailyPnl = 0.0;
+    private Instant currentTime;
 
     public OrderFlowScalpingStrategy(OrderFlowScalpingConfig config, TCSService tcsService) {
+        this(config, new LiveTradingGateway(tcsService));
+    }
+
+    public OrderFlowScalpingStrategy(OrderFlowScalpingConfig config, TradingGateway tradingGateway) {
         this.config = config;
-        this.tcsService = tcsService;
-        this.startBalance = tcsService.getAvailableCash();
+        this.tradingGateway = tradingGateway;
+        this.startBalance = tradingGateway.getAvailableCash();
     }
 
     public void run() {
@@ -85,13 +212,13 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
         String ticker = instrument.getTicker();
         TickerInfo tickerInfo = TickerRepository.INSTANCE.getById(new TickerInfo.Key(ticker, instrument.getType()));
         if (tickerInfo == null) {
-            tickerInfo = tcsService.searchTicker(new TickerInfo.Key(ticker, instrument.getType()));
+            tickerInfo = tradingGateway.searchTicker(new TickerInfo.Key(ticker, instrument.getType()));
         }
         if (tickerInfo == null) {
             return;
         }
         stateByTicker.putIfAbsent(ticker, new ScalpingState(tickerInfo));
-        tcsService.subscribeMarketData(tickerInfo.getKey(), config.getOrderBookDepth(), this);
+        tradingGateway.subscribeMarketData(tickerInfo.getKey(), config.getOrderBookDepth(), this);
     }
 
     private void unsubscribeTicker(String ticker) {
@@ -99,7 +226,7 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
         if (state == null) {
             return;
         }
-        tcsService.unsubscribeMarketData(state.tickerInfo.getKey(), this);
+        tradingGateway.unsubscribeMarketData(state.tickerInfo.getKey(), this);
     }
 
     private void processTicker(String ticker) {
@@ -108,7 +235,7 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
             return;
         }
 
-        if (state.openAttemptBlockedUntil != null && state.openAttemptBlockedUntil.isAfter(Instant.now())) {
+        if (state.openAttemptBlockedUntil != null && state.openAttemptBlockedUntil.isAfter(now())) {
             return;
         }
 
@@ -176,7 +303,7 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
         }
 
         double obi = calcObi(state.lastOrderBook, config.getImbalanceThresholdLevels());
-        Instant now = Instant.now();
+        Instant now = now();
 
         if (obi > config.getImbalanceThreshold()) {
             if (state.imbalancePositiveSince == null) {
@@ -308,7 +435,7 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
             return null;
         }
 
-        Instant now = Instant.now();
+        Instant now = now();
         if (state.lastBidSpoofRemovedAt != null
                 && Duration.between(state.lastBidSpoofRemovedAt, now).toMillis() <= 1000
                 && state.lastBidSpoofWasLarge
@@ -405,7 +532,7 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
 
         Instant since = bidSide ? state.bidStackSince : state.askStackSince;
         if (since == null) {
-            since = Instant.now();
+            since = now();
             if (bidSide) {
                 state.bidStackSince = since;
             } else {
@@ -418,11 +545,11 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
         double breakoutPrice = levels.get(config.getStackedLevels() - 1).getPrice();
         double basePrice = levels.get(0).getPrice();
         boolean collapsed = remainingLevelsVolume < segmentVolume * 0.4;
-        return new StackedLevel(basePrice, breakoutPrice, breakoutVisibleVolume, Duration.between(since, Instant.now()).toMillis(), collapsed);
+        return new StackedLevel(basePrice, breakoutPrice, breakoutVisibleVolume, Duration.between(since, now()).toMillis(), collapsed);
     }
 
     private boolean crossedBreakoutLevel(ScalpingState state, double breakoutPrice, boolean breakoutUp) {
-        Instant threshold = Instant.now().minusMillis(config.getBreakoutConfirmationMs());
+        Instant threshold = now().minusMillis(config.getBreakoutConfirmationMs());
         TimedPrice first = state.midPrices.stream().filter(it -> !it.time.isBefore(threshold)).findFirst().orElse(null);
         TimedPrice last = state.midPrices.peekLast();
         if (first == null || last == null) {
@@ -440,11 +567,11 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
         }
 
         double tickSize = max(state.tickerInfo.getMinPriceIncrement(), 0.01);
-        double riskCash = max(0.0, tcsService.getAvailableCash()) * signal.riskPercent;
+        double riskCash = max(0.0, tradingGateway.getAvailableCash()) * signal.riskPercent;
         double stopDistance = max(tickSize, abs(signal.entryPrice - signal.stopPrice));
         int quantity = max(1, (int) Math.floor(riskCash / stopDistance));
         if (quantity <= 0) {
-            state.openAttemptBlockedUntil = Instant.now().plusSeconds(5);
+            state.openAttemptBlockedUntil = now().plusSeconds(5);
             return;
         }
 
@@ -452,7 +579,7 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
                 ? openLong(state, signal, quantity)
                 : openShort(state, signal, quantity);
         if (!orderResult.isSuccess()) {
-            state.openAttemptBlockedUntil = Instant.now().plusSeconds(15);
+            state.openAttemptBlockedUntil = now().plusSeconds(15);
             log(String.format(
                     "OrderFlowScalpingStrategy SKIP %s %s by %s: order failed, blockReentryUntil=%s qty=%d riskCash=%.2f entryPrice=%.4f",
                     signal.direction,
@@ -470,7 +597,7 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
 
         LivePosition position = createPositionFromSignal(state, signal, orderResult, quantity, tickSize);
         if (!hasSufficientNetEdge(state, signal, position, orderResult)) {
-            state.openAttemptBlockedUntil = Instant.now().plusSeconds(5);
+            state.openAttemptBlockedUntil = now().plusSeconds(5);
             return;
         }
         state.openPosition = position;
@@ -599,7 +726,7 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
 
     private long getImbalanceHoldDurationMs(ScalpingState state, String direction) {
         Instant since = "BUY".equals(direction) ? state.imbalancePositiveSince : state.imbalanceNegativeSince;
-        return since == null ? 0L : Duration.between(since, Instant.now()).toMillis();
+        return since == null ? 0L : Duration.between(since, now()).toMillis();
     }
 
     private boolean hasSufficientNetEdge(ScalpingState state,
@@ -641,30 +768,12 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
 
     private TCSService.OrderExecutionResult openLong(ScalpingState state, Signal signal, int quantity) {
         double cash = signal.entryPrice * quantity;
-        if (signal.useLimitEntry) {
-            return tcsService.buyLimit(state.tickerInfo.getTicker(), state.tickerInfo.getType(), cash, signal.entryPrice);
-        }
-        return tcsService.buyByMarketWithDetails(
-                state.tickerInfo.getTicker(),
-                state.tickerInfo.getType(),
-                cash,
-                abs(signal.takePrice - signal.entryPrice) / signal.entryPrice * 100.0,
-                abs(signal.entryPrice - signal.stopPrice) / signal.entryPrice * 100.0
-        );
+        return tradingGateway.buy(state.tickerInfo, cash, signal.entryPrice, signal.takePrice, signal.stopPrice, signal.useLimitEntry);
     }
 
     private TCSService.OrderExecutionResult openShort(ScalpingState state, Signal signal, int quantity) {
         double cash = signal.entryPrice * quantity;
-        if (signal.useLimitEntry) {
-            return tcsService.sellLimit(state.tickerInfo.getTicker(), state.tickerInfo.getType(), cash, signal.entryPrice);
-        }
-        return tcsService.sellByMarketWithDetails(
-                state.tickerInfo.getTicker(),
-                state.tickerInfo.getType(),
-                cash,
-                abs(signal.entryPrice - signal.takePrice) / signal.entryPrice * 100.0,
-                abs(signal.stopPrice - signal.entryPrice) / signal.entryPrice * 100.0
-        );
+        return tradingGateway.sell(state.tickerInfo, cash, signal.entryPrice, signal.takePrice, signal.stopPrice, signal.useLimitEntry);
     }
 
     private LivePosition createPositionFromSignal(ScalpingState state,
@@ -686,7 +795,7 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
                 executedEntry,
                 executedQuantity,
                 orderResult.getCommission(),
-                Instant.now(),
+                now(),
                 protectivePosition != null && protectivePosition.stopLoss != null ? protectivePosition.stopLoss : signal.stopPrice,
                 protectivePosition != null && protectivePosition.takeProfit != null ? protectivePosition.takeProfit : signal.takePrice,
                 tickSize,
@@ -748,8 +857,8 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
                 continue;
             }
             TCSService.OrderExecutionResult exitResult = "BUY".equals(position.direction)
-                    ? tcsService.closeLongByMarketWithDetails(state.tickerInfo.getTicker(), state.tickerInfo.getType(), partialExit.quantity)
-                    : tcsService.closeShortByMarketWithDetails(state.tickerInfo.getTicker(), state.tickerInfo.getType(), partialExit.quantity);
+                    ? tradingGateway.closeLong(state.tickerInfo, partialExit.quantity)
+                    : tradingGateway.closeShort(state.tickerInfo, partialExit.quantity);
             if (!exitResult.isSuccess()) {
                 continue;
             }
@@ -840,14 +949,10 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
 
     private void syncProtectiveOrders(ScalpingState state, LivePosition position) {
         if (position.remainingQuantity <= 0) {
-            tcsService.clearProtectiveOrders(state.tickerInfo.getTicker(), state.tickerInfo.getType());
+            tradingGateway.clearProtectiveOrders(state.tickerInfo);
             return;
         }
-        tcsService.syncProtectiveOrders(
-                state.tickerInfo.getTicker(),
-                state.tickerInfo.getType(),
-                new Position(position.direction, position.entryPrice, position.stopPrice, position.takePrice, position.remainingQuantity, 0)
-        );
+        tradingGateway.syncProtectiveOrders(state.tickerInfo, new Position(position.direction, position.entryPrice, position.stopPrice, position.takePrice, position.remainingQuantity, 0));
     }
 
     private SignalInvalidationReason getSignalInvalidationReason(ScalpingState state, LivePosition position, double currentPrice) {
@@ -867,9 +972,9 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
                     : !hasPriceLevel(state.lastOrderBook.getAsks(), position.anchorPrice);
             if (anchorRemoved && !position.firstPartialDone()) {
                 if (position.anchorRemovedSince == null) {
-                    position.anchorRemovedSince = Instant.now();
+                    position.anchorRemovedSince = now();
                 }
-                if (Duration.between(position.anchorRemovedSince, Instant.now()).getSeconds() >= config.getObiAnchorRemovalConfirmSeconds()) {
+                if (Duration.between(position.anchorRemovedSince, now()).getSeconds() >= config.getObiAnchorRemovalConfirmSeconds()) {
                     return SignalInvalidationReason.OBI_ANCHOR_REMOVED;
                 }
             } else {
@@ -877,7 +982,7 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
             }
         }
         if ("SPOOF".equals(position.reason)
-                && Duration.between(position.openTime, Instant.now()).getSeconds() >= config.getSpoofTimeoutSeconds()) {
+                && Duration.between(position.openTime, now()).getSeconds() >= config.getSpoofTimeoutSeconds()) {
             double move = "BUY".equals(position.direction) ? currentPrice - position.entryPrice : position.entryPrice - currentPrice;
             if (move < position.tickSize) {
                 return SignalInvalidationReason.SPOOF_NO_FOLLOW_THROUGH;
@@ -888,16 +993,16 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
             if (activeSameSide == null || activeSameSide.replenishmentCycles < config.getIcebergMinReplenishments() - 1) {
                 return SignalInvalidationReason.ICEBERG_DISAPPEARED;
             }
-            if (position.lastOppositeCvdFlipAt != null && Duration.between(position.lastOppositeCvdFlipAt, Instant.now()).getSeconds() > 10) {
+            if (position.lastOppositeCvdFlipAt != null && Duration.between(position.lastOppositeCvdFlipAt, now()).getSeconds() > 10) {
                 return SignalInvalidationReason.ICEBERG_OPPOSITE_CVD_FLIP;
             }
         }
         if ("ABSORPTION".equals(position.reason)) {
             if (hasOppositeAbsorption(state, position.direction)) {
                 if (position.oppositeAbsorptionSince == null) {
-                    position.oppositeAbsorptionSince = Instant.now();
+                    position.oppositeAbsorptionSince = now();
                 }
-                if (Duration.between(position.oppositeAbsorptionSince, Instant.now()).getSeconds() >= config.getAbsorptionOppositeConfirmSeconds()) {
+                if (Duration.between(position.oppositeAbsorptionSince, now()).getSeconds() >= config.getAbsorptionOppositeConfirmSeconds()) {
                     return SignalInvalidationReason.ABSORPTION_OPPOSITE_SIGNAL;
                 }
             } else {
@@ -908,7 +1013,7 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
     }
 
     private boolean isSignalInvalidationAllowed(LivePosition position) {
-        long holdSeconds = Duration.between(position.openTime, Instant.now()).getSeconds();
+        long holdSeconds = Duration.between(position.openTime, now()).getSeconds();
         int minHoldSeconds = "OBI".equals(position.reason)
                 ? config.getObiInvalidationMinHoldSeconds()
                 : config.getSignalInvalidationMinHoldSeconds();
@@ -916,7 +1021,7 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
     }
 
     private boolean shouldCloseByTimeout(LivePosition position) {
-        return Duration.between(position.openTime, Instant.now()).getSeconds() > config.getTimeoutSeconds();
+        return Duration.between(position.openTime, now()).getSeconds() > config.getTimeoutSeconds();
     }
 
     private boolean hasOppositeAbsorption(ScalpingState state, String direction) {
@@ -935,12 +1040,12 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
             return;
         }
         TCSService.OrderExecutionResult exitResult = "BUY".equals(position.direction)
-                ? tcsService.closeLongByMarketWithDetails(state.tickerInfo.getTicker(), state.tickerInfo.getType())
-                : tcsService.closeShortByMarketWithDetails(state.tickerInfo.getTicker(), state.tickerInfo.getType());
+                ? tradingGateway.closeLong(state.tickerInfo)
+                : tradingGateway.closeShort(state.tickerInfo);
         if (!exitResult.isSuccess()) {
             return;
         }
-        tcsService.clearProtectiveOrders(state.tickerInfo.getTicker(), state.tickerInfo.getType());
+        tradingGateway.clearProtectiveOrders(state.tickerInfo);
         double exitExecutionPrice = exitResult.getExecutedPrice() != null && exitResult.getExecutedPrice() > 0.0
                 ? exitResult.getExecutedPrice()
                 : exitPrice;
@@ -953,7 +1058,7 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
                 : grossPnl - entryCommissionPart - exitResult.getCommission();
         dailyPnl += pnl;
         if (closeDecision.isFalseSignal()) {
-            state.openAttemptBlockedUntil = Instant.now().plusSeconds(config.getFalseSignalReentryCooldownSeconds());
+            state.openAttemptBlockedUntil = now().plusSeconds(config.getFalseSignalReentryCooldownSeconds());
         }
         log(String.format(
                 "OrderFlowScalpingStrategy CLOSE %s reason=%s details=%s exitPrice=%.4f entryPrice=%.4f qty=%d holdSeconds=%d grossMove=%.4f grossPnl=%.2f entryCommission=%.2f exitCommission=%.2f pnl=%.2f dailyPnl=%.2f reentryBlockedUntil=%s",
@@ -963,7 +1068,7 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
                 exitExecutionPrice,
                 position.entryPrice,
                 position.remainingQuantity,
-                Duration.between(position.openTime, Instant.now()).getSeconds(),
+                Duration.between(position.openTime, now()).getSeconds(),
                 exitExecutionPrice - position.entryPrice,
                 grossPnl,
                 entryCommissionPart,
@@ -989,22 +1094,22 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
     }
 
     private void cleanup(ScalpingState state) {
-        Instant tradeThreshold = Instant.now().minus(Duration.ofSeconds(config.getVolumeHistorySeconds()));
+        Instant tradeThreshold = now().minus(Duration.ofSeconds(config.getVolumeHistorySeconds()));
         while (!state.recentTrades.isEmpty() && state.recentTrades.peekFirst().getTime().isBefore(tradeThreshold)) {
             state.recentTrades.pollFirst();
         }
 
-        Instant priceThreshold = Instant.now().minusSeconds(config.getLocalWindowSeconds());
+        Instant priceThreshold = now().minusSeconds(config.getLocalWindowSeconds());
         while (!state.midPrices.isEmpty() && state.midPrices.peekFirst().time.isBefore(priceThreshold)) {
             state.midPrices.pollFirst();
         }
 
-        Instant bookThreshold = Instant.now().minusSeconds(config.getBookHistorySeconds());
+        Instant bookThreshold = now().minusSeconds(config.getBookHistorySeconds());
         while (!state.bookHistory.isEmpty() && state.bookHistory.peekFirst().time.isBefore(bookThreshold)) {
             state.bookHistory.pollFirst();
         }
 
-        state.thirtySecondTrades.removeIf(it -> it.getTime().isBefore(Instant.now().minusSeconds(30)));
+        state.thirtySecondTrades.removeIf(it -> it.getTime().isBefore(now().minusSeconds(30)));
         recalculateLongWindow(state);
     }
 
@@ -1037,7 +1142,7 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
         if (state.openPosition != null) {
             return true;
         }
-        PositionInfo currentPosition = tcsService.getCurrentPositions(state.tickerInfo.getType(), state.tickerInfo.getTicker());
+        PositionInfo currentPosition = tradingGateway.getCurrentPosition(state.tickerInfo.getType(), state.tickerInfo.getTicker());
         return currentPosition != null && currentPosition.getBalance() != 0;
     }
 
@@ -1135,6 +1240,7 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
 
     @Override
     public void onOrderBook(MarketDepthSnapshot snapshot) {
+        currentTime = snapshot.getTime();
         ScalpingState state = stateByTicker.values().stream()
                 .filter(it -> it.tickerInfo.getFigi().equals(snapshot.getFigi()))
                 .findFirst()
@@ -1148,7 +1254,7 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
 
         Double mid = snapshot.getMidPrice();
         if (mid != null) {
-            state.midPrices.addLast(new TimedPrice(Instant.now(), mid));
+            state.midPrices.addLast(new TimedPrice(snapshot.getTime(), mid));
         }
 
         if (!snapshot.getBids().isEmpty()) {
@@ -1195,7 +1301,7 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
             state.cvdShortWindow += trade.getQuantity();
         }
 
-        Instant threshold = Instant.now().minusSeconds(10);
+        Instant threshold = now().minusSeconds(10);
         while (!state.recentTrades.isEmpty() && state.recentTrades.peekFirst().getTime().isBefore(threshold)) {
             MarketTradeTick expired = state.recentTrades.pollFirst();
             if (expired.getDirection().contains("SELL")) {
@@ -1211,7 +1317,7 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
         if (state.openPosition != null) {
             if (("BUY".equals(state.openPosition.direction) && state.cvdThirtySeconds < 0)
                     || ("SELL".equals(state.openPosition.direction) && state.cvdThirtySeconds > 0)) {
-                state.openPosition.lastOppositeCvdFlipAt = Instant.now();
+                state.openPosition.lastOppositeCvdFlipAt = now();
             } else {
                 state.openPosition.lastOppositeCvdFlipAt = null;
             }
@@ -1221,6 +1327,25 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
     @Override
     public void onError(Throwable throwable) {
         log("OrderFlowScalpingStrategy stream error: " + throwable.getMessage());
+    }
+
+    public void registerTicker(TickerInfo tickerInfo) {
+        stateByTicker.putIfAbsent(tickerInfo.getTicker(), new ScalpingState(tickerInfo));
+    }
+
+    public void processBacktestTick(TickerInfo tickerInfo, MarketDepthSnapshot snapshot) {
+        currentTime = snapshot.getTime();
+        registerTicker(tickerInfo);
+        onOrderBook(snapshot);
+        processTicker(tickerInfo.getTicker());
+    }
+
+    public double getDailyPnl() {
+        return dailyPnl;
+    }
+
+    private Instant now() {
+        return currentTime != null ? currentTime : Instant.now();
     }
 
     private void detectSpoofRemoval(ScalpingState state, MarketDepthSnapshot snapshot) {
@@ -1253,7 +1378,7 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
 
             SpoofCandidate candidate = bidSide ? state.bidSpoofCandidate : state.askSpoofCandidate;
             if (candidate == null || abs(candidate.price - level.getPrice()) > tick * 0.5) {
-                candidate = new SpoofCandidate(level.getPrice(), level.getQuantity(), Instant.now());
+                candidate = new SpoofCandidate(level.getPrice(), level.getQuantity(), now());
                 if (bidSide) {
                     state.bidSpoofCandidate = candidate;
                 } else {
@@ -1263,15 +1388,15 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
 
             if (candidate.visibleVolume > 0
                     && level.getQuantity() <= candidate.visibleVolume * 0.2
-                    && Duration.between(candidate.detectedAt, Instant.now()).toMillis() <= config.getSpoofFastCancelMs()) {
+                    && Duration.between(candidate.detectedAt, now()).toMillis() <= config.getSpoofFastCancelMs()) {
                 boolean likelyExecuted = tradedNearPrice(state, candidate.price, bidSide ? "SELL" : "BUY", candidate.visibleVolume * 0.1);
                 if (bidSide) {
-                    state.lastBidSpoofRemovedAt = Instant.now();
+                    state.lastBidSpoofRemovedAt = now();
                     state.lastBidSpoofWasLarge = true;
                     state.lastBidSpoofLikelyExecuted = likelyExecuted;
                     state.bidSpoofHistory.addLast(candidate);
                 } else {
-                    state.lastAskSpoofRemovedAt = Instant.now();
+                    state.lastAskSpoofRemovedAt = now();
                     state.lastAskSpoofWasLarge = true;
                     state.lastAskSpoofLikelyExecuted = likelyExecuted;
                     state.askSpoofHistory.addLast(candidate);
@@ -1294,7 +1419,7 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
     }
 
     private void cleanupSpoofHistory(ScalpingState state) {
-        Instant threshold = Instant.now().minusSeconds(60);
+        Instant threshold = now().minusSeconds(60);
         while (!state.bidSpoofHistory.isEmpty() && state.bidSpoofHistory.peekFirst().detectedAt.isBefore(threshold)) {
             state.bidSpoofHistory.pollFirst();
         }
@@ -1304,7 +1429,7 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
     }
 
     private long aggressiveVolumeAfterBreakout(ScalpingState state, double breakoutPrice, boolean breakoutUp) {
-        Instant threshold = Instant.now().minusMillis(config.getBreakoutConfirmationMs());
+        Instant threshold = now().minusMillis(config.getBreakoutConfirmationMs());
         return state.recentTrades.stream()
                 .filter(trade -> !trade.getTime().isBefore(threshold))
                 .filter(trade -> breakoutUp ? trade.getDirection().contains("BUY") : trade.getDirection().contains("SELL"))
@@ -1314,7 +1439,7 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
     }
 
     private long shortWindowCvdAfterBreakout(ScalpingState state, double breakoutPrice, boolean breakoutUp) {
-        Instant threshold = Instant.now().minusSeconds(10);
+        Instant threshold = now().minusSeconds(10);
         long cvd = 0L;
         for (MarketTradeTick trade : state.thirtySecondTrades) {
             if (trade.getTime().isBefore(threshold)) {
@@ -1361,11 +1486,11 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
     }
 
     private void recalculateLongWindow(ScalpingState state) {
-        state.thirtySecondTrades.removeIf(it -> it.getTime().isBefore(Instant.now().minusSeconds(30)));
+        state.thirtySecondTrades.removeIf(it -> it.getTime().isBefore(now().minusSeconds(30)));
         state.cvdThirtySeconds = 0;
         long buyLastFiveSeconds = 0;
         long sellLastFiveSeconds = 0;
-        Instant fiveSecondsThreshold = Instant.now().minusSeconds(5);
+        Instant fiveSecondsThreshold = now().minusSeconds(5);
 
         for (MarketTradeTick trade : state.thirtySecondTrades) {
             if (trade.getDirection().contains("SELL")) {

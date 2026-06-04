@@ -1,0 +1,511 @@
+package com.github.shk0da.GoldenDragon.test;
+
+import com.github.shk0da.GoldenDragon.config.OrderFlowScalpingConfig;
+import com.github.shk0da.GoldenDragon.model.MarketDepthLevel;
+import com.github.shk0da.GoldenDragon.model.MarketDepthSnapshot;
+import com.github.shk0da.GoldenDragon.model.Position;
+import com.github.shk0da.GoldenDragon.model.PositionInfo;
+import com.github.shk0da.GoldenDragon.model.TickerInfo;
+import com.github.shk0da.GoldenDragon.model.TickerType;
+import com.github.shk0da.GoldenDragon.repository.TickerRepository;
+import com.github.shk0da.GoldenDragon.service.TCSService;
+import com.github.shk0da.GoldenDragon.strategy.OrderFlowScalpingStrategy;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.TreeMap;
+import java.util.stream.Stream;
+
+public class MarketTickBacktestRunner {
+
+    private static final DateTimeFormatter DATE_TIME_FMT = DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm:ss");
+    private static final String HEADER = "time,best_bid,best_ask,mid_price,bids,asks";
+    private static final double INITIAL_BALANCE = 1_000_000.0;
+    private static final double COMMISSION_RATE = 0.0005;
+
+    private final String dataDir;
+    private final double initialBalance;
+    private final double commissionRate;
+
+    public MarketTickBacktestRunner() {
+        this("data", INITIAL_BALANCE, COMMISSION_RATE);
+    }
+
+    public MarketTickBacktestRunner(String dataDir, double initialBalance, double commissionRate) {
+        this.dataDir = dataDir;
+        this.initialBalance = initialBalance;
+        this.commissionRate = commissionRate;
+    }
+
+    public static void main(String[] args) throws IOException {
+        new MarketTickBacktestRunner().run();
+    }
+
+    public void run() throws IOException {
+        OrderFlowScalpingConfig config = new OrderFlowScalpingConfig();
+        List<OrderFlowScalpingConfig.Instrument> instruments = config.getInstruments();
+        if (instruments.isEmpty()) {
+            System.out.println("MarketTickBacktestRunner: no configured instruments");
+            return;
+        }
+
+        Map<String, InstrumentTicks> ticksByTicker = loadTicks(instruments);
+        if (ticksByTicker.isEmpty()) {
+            System.out.println("MarketTickBacktestRunner: no ticks found in " + dataDir);
+            return;
+        }
+
+        SimulationGateway gateway = new SimulationGateway(initialBalance, commissionRate);
+        OrderFlowScalpingStrategy strategy = new OrderFlowScalpingStrategy(config, gateway);
+        ticksByTicker.values().forEach(it -> strategy.registerTicker(it.tickerInfo));
+
+        List<TimelineEvent> timeline = buildTimeline(ticksByTicker);
+        for (TimelineEvent event : timeline) {
+            gateway.updateSnapshot(event.instrumentTicks.tickerInfo, event.tickRow.snapshot);
+            strategy.processBacktestTick(event.instrumentTicks.tickerInfo, event.tickRow.snapshot);
+        }
+
+        gateway.closeAll(timeline.isEmpty() ? Instant.now() : timeline.get(timeline.size() - 1).tickRow.snapshot.getTime());
+        printSummary(ticksByTicker, gateway, strategy);
+    }
+
+    private void printSummary(Map<String, InstrumentTicks> ticksByTicker,
+                              SimulationGateway gateway,
+                              OrderFlowScalpingStrategy strategy) {
+        long totalTicks = ticksByTicker.values().stream().mapToLong(it -> it.ticks.size()).sum();
+        System.out.println("MarketTickBacktestRunner loaded " + totalTicks + " ticks for " + ticksByTicker.size() + " tickers");
+        for (InstrumentTicks instrumentTicks : ticksByTicker.values()) {
+            if (instrumentTicks.ticks.isEmpty()) {
+                continue;
+            }
+            TickRow first = instrumentTicks.ticks.get(0);
+            TickRow last = instrumentTicks.ticks.get(instrumentTicks.ticks.size() - 1);
+            System.out.println(instrumentTicks.tickerInfo.getTicker() + ": " + instrumentTicks.ticks.size() + " ticks from " + first.time + " to " + last.time);
+        }
+
+        double finalEquity = gateway.getEquity();
+        double pnl = finalEquity - initialBalance;
+        long trades = gateway.getClosedTrades();
+        double winRate = trades == 0 ? 0.0 : gateway.getWinningTrades() * 100.0 / trades;
+
+        System.out.println("=".repeat(120));
+        System.out.println("OrderFlowScalpingStrategy tick backtest summary");
+        System.out.println("Initial balance: " + initialBalance);
+        System.out.println("Final equity:    " + round2(finalEquity));
+        System.out.println("PnL:             " + round2(pnl));
+        System.out.println("Trades:          " + trades);
+        System.out.println("Win rate:        " + round2(winRate) + "%");
+        System.out.println("Max drawdown:    " + round2(gateway.getMaxDrawdownPercent()) + "%");
+        System.out.println("Strategy dailyPnl: " + round2(strategy.getDailyPnl()));
+        System.out.println("=".repeat(120));
+    }
+
+    private List<TimelineEvent> buildTimeline(Map<String, InstrumentTicks> ticksByTicker) {
+        List<TimelineEvent> timeline = new ArrayList<>();
+        for (InstrumentTicks instrumentTicks : ticksByTicker.values()) {
+            for (TickRow tick : instrumentTicks.ticks) {
+                timeline.add(new TimelineEvent(instrumentTicks, tick));
+            }
+        }
+        timeline.sort(Comparator.comparing(it -> it.tickRow.time));
+        return timeline;
+    }
+
+    private Map<String, InstrumentTicks> loadTicks(List<OrderFlowScalpingConfig.Instrument> instruments) throws IOException {
+        Map<String, InstrumentTicks> result = new LinkedHashMap<>();
+        for (OrderFlowScalpingConfig.Instrument instrument : instruments) {
+            Path ticksPath = Path.of(dataDir, instrument.getTicker(), "ticks.txt");
+            if (!Files.exists(ticksPath)) {
+                continue;
+            }
+
+            TickerInfo tickerInfo = resolveTickerInfo(instrument);
+            if (tickerInfo == null) {
+                System.out.println("Warn: ticker info not found for " + instrument.getTicker());
+                continue;
+            }
+
+            List<TickRow> ticks = readTicks(ticksPath, tickerInfo);
+            if (!ticks.isEmpty()) {
+                result.put(instrument.getTicker(), new InstrumentTicks(tickerInfo, ticks));
+            }
+        }
+        return result;
+    }
+
+    private TickerInfo resolveTickerInfo(OrderFlowScalpingConfig.Instrument instrument) {
+        TickerInfo.Key key = new TickerInfo.Key(instrument.getTicker(), instrument.getType());
+        TickerInfo tickerInfo = TickerRepository.INSTANCE.getById(key);
+        if (tickerInfo != null) {
+            return tickerInfo;
+        }
+        return null;
+    }
+
+    private List<TickRow> readTicks(Path ticksPath, TickerInfo tickerInfo) throws IOException {
+        List<TickRow> result = new ArrayList<>();
+        try (Stream<String> lines = Files.lines(ticksPath)) {
+            lines.filter(line -> !line.isBlank())
+                    .filter(line -> !HEADER.equals(line))
+                    .map(line -> parseTickRow(line, tickerInfo))
+                    .sorted(Comparator.comparing(it -> it.time))
+                    .forEach(result::add);
+        }
+        return result;
+    }
+
+    private TickRow parseTickRow(String line, TickerInfo tickerInfo) {
+        String[] parts = splitCsv(line);
+        if (parts.length != 6) {
+            throw new IllegalArgumentException("Invalid tick row: " + line);
+        }
+
+        LocalDateTime time = LocalDateTime.parse(parts[0], DATE_TIME_FMT);
+        List<MarketDepthLevel> bids = parseLevels(parts[4]);
+        List<MarketDepthLevel> asks = parseLevels(parts[5]);
+        return new TickRow(
+                time,
+                new MarketDepthSnapshot(
+                        tickerInfo.getFigi(),
+                        time.atZone(ZoneId.systemDefault()).toInstant(),
+                        true,
+                        bids,
+                        asks
+                )
+        );
+    }
+
+    private String[] splitCsv(String line) {
+        List<String> parts = new ArrayList<>();
+        StringBuilder current = new StringBuilder();
+        boolean inQuotes = false;
+        for (int i = 0; i < line.length(); i++) {
+            char ch = line.charAt(i);
+            if (ch == '"') {
+                inQuotes = !inQuotes;
+                continue;
+            }
+            if (ch == ',' && !inQuotes) {
+                parts.add(current.toString());
+                current.setLength(0);
+                continue;
+            }
+            current.append(ch);
+        }
+        parts.add(current.toString());
+        return parts.toArray(new String[0]);
+    }
+
+    private List<MarketDepthLevel> parseLevels(String raw) {
+        List<MarketDepthLevel> levels = new ArrayList<>();
+        if (raw == null || raw.isBlank()) {
+            return levels;
+        }
+        String[] items = raw.split("\\|");
+        for (String item : items) {
+            String[] pair = item.split(":");
+            if (pair.length != 2) {
+                continue;
+            }
+            levels.add(new MarketDepthLevel(Double.parseDouble(pair[0]), Integer.parseInt(pair[1])));
+        }
+        return levels;
+    }
+
+    private double round2(double value) {
+        return Math.round(value * 100.0) / 100.0;
+    }
+
+    private static class InstrumentTicks {
+
+        private final TickerInfo tickerInfo;
+        private final List<TickRow> ticks;
+
+        private InstrumentTicks(TickerInfo tickerInfo, List<TickRow> ticks) {
+            this.tickerInfo = tickerInfo;
+            this.ticks = ticks;
+        }
+    }
+
+    private static class TickRow {
+
+        private final LocalDateTime time;
+        private final MarketDepthSnapshot snapshot;
+
+        private TickRow(LocalDateTime time, MarketDepthSnapshot snapshot) {
+            this.time = time;
+            this.snapshot = snapshot;
+        }
+    }
+
+    private static class TimelineEvent {
+
+        private final InstrumentTicks instrumentTicks;
+        private final TickRow tickRow;
+
+        private TimelineEvent(InstrumentTicks instrumentTicks, TickRow tickRow) {
+            this.instrumentTicks = instrumentTicks;
+            this.tickRow = tickRow;
+        }
+    }
+
+    private static class SimulationGateway implements OrderFlowScalpingStrategy.TradingGateway {
+
+        private final double commissionRate;
+        private final Map<String, SimulatedPosition> positionsByTicker = new LinkedHashMap<>();
+        private final Map<String, MarketDepthSnapshot> lastSnapshotByTicker = new TreeMap<>();
+        private double cash;
+        private double peakEquity;
+        private double maxDrawdownPercent;
+        private long closedTrades;
+        private long winningTrades;
+
+        private SimulationGateway(double initialBalance, double commissionRate) {
+            this.cash = initialBalance;
+            this.peakEquity = initialBalance;
+            this.commissionRate = commissionRate;
+        }
+
+        @Override
+        public double getAvailableCash() {
+            return cash;
+        }
+
+        @Override
+        public TickerInfo searchTicker(TickerInfo.Key key) {
+            return TickerRepository.INSTANCE.getById(key);
+        }
+
+        @Override
+        public void subscribeMarketData(TickerInfo.Key key, int depth, com.github.shk0da.GoldenDragon.model.MarketTickListener listener) {
+        }
+
+        @Override
+        public void unsubscribeMarketData(TickerInfo.Key key, com.github.shk0da.GoldenDragon.model.MarketTickListener listener) {
+        }
+
+        @Override
+        public PositionInfo getCurrentPosition(TickerType type, String ticker) {
+            SimulatedPosition position = positionsByTicker.get(ticker);
+            if (position == null || position.quantity <= 0) {
+                return null;
+            }
+            int balance = "BUY".equals(position.direction) ? position.quantity : -position.quantity;
+            return new PositionInfo(
+                    position.tickerInfo.getFigi(),
+                    ticker,
+                    position.tickerInfo.getIsin(),
+                    type.name(),
+                    balance,
+                    0.0,
+                    position.quantity,
+                    position.entryPrice,
+                    position.tickerInfo.getName()
+            );
+        }
+
+        @Override
+        public TCSService.OrderExecutionResult buy(TickerInfo tickerInfo, double cashToUse, double entryPrice, double takePrice, double stopPrice, boolean useLimitEntry) {
+            MarketDepthSnapshot snapshot = lastSnapshotByTicker.get(tickerInfo.getTicker());
+            Double bestAsk = snapshot != null ? snapshot.getBestAsk() : null;
+            if (bestAsk == null || bestAsk <= 0.0) {
+                return TCSService.OrderExecutionResult.failed();
+            }
+            int quantity = Math.max(1, (int) Math.floor(cashToUse / bestAsk));
+            double executedNotional = bestAsk * quantity;
+            double commission = executedNotional * commissionRate;
+            if (cash < executedNotional + commission) {
+                return TCSService.OrderExecutionResult.failed();
+            }
+            cash -= executedNotional + commission;
+            positionsByTicker.put(tickerInfo.getTicker(), new SimulatedPosition(tickerInfo, "BUY", quantity, bestAsk));
+            return TCSService.OrderExecutionResult.success(bestAsk, quantity, commission, null);
+        }
+
+        @Override
+        public TCSService.OrderExecutionResult sell(TickerInfo tickerInfo, double cashToUse, double entryPrice, double takePrice, double stopPrice, boolean useLimitEntry) {
+            MarketDepthSnapshot snapshot = lastSnapshotByTicker.get(tickerInfo.getTicker());
+            Double bestBid = snapshot != null ? snapshot.getBestBid() : null;
+            if (bestBid == null || bestBid <= 0.0) {
+                return TCSService.OrderExecutionResult.failed();
+            }
+            int quantity = Math.max(1, (int) Math.floor(cashToUse / bestBid));
+            double executedNotional = bestBid * quantity;
+            double commission = executedNotional * commissionRate;
+            if (cash < commission) {
+                return TCSService.OrderExecutionResult.failed();
+            }
+            cash -= commission;
+            positionsByTicker.put(tickerInfo.getTicker(), new SimulatedPosition(tickerInfo, "SELL", quantity, bestBid));
+            return TCSService.OrderExecutionResult.success(bestBid, quantity, commission, null);
+        }
+
+        @Override
+        public TCSService.OrderExecutionResult closeLong(TickerInfo tickerInfo) {
+            SimulatedPosition position = positionsByTicker.get(tickerInfo.getTicker());
+            if (position == null) {
+                return TCSService.OrderExecutionResult.failed();
+            }
+            return closeLong(tickerInfo, position.quantity);
+        }
+
+        @Override
+        public TCSService.OrderExecutionResult closeLong(TickerInfo tickerInfo, int count) {
+            SimulatedPosition position = positionsByTicker.get(tickerInfo.getTicker());
+            MarketDepthSnapshot snapshot = lastSnapshotByTicker.get(tickerInfo.getTicker());
+            Double bestBid = snapshot != null ? snapshot.getBestBid() : null;
+            if (position == null || bestBid == null || count <= 0) {
+                return TCSService.OrderExecutionResult.failed();
+            }
+            int executedCount = Math.min(count, position.quantity);
+            double proceeds = bestBid * executedCount;
+            double commission = proceeds * commissionRate;
+            cash += proceeds - commission;
+            completeTrade(position, bestBid, executedCount, commission);
+            return TCSService.OrderExecutionResult.success(bestBid, executedCount, commission, null);
+        }
+
+        @Override
+        public TCSService.OrderExecutionResult closeShort(TickerInfo tickerInfo) {
+            SimulatedPosition position = positionsByTicker.get(tickerInfo.getTicker());
+            if (position == null) {
+                return TCSService.OrderExecutionResult.failed();
+            }
+            return closeShort(tickerInfo, position.quantity);
+        }
+
+        @Override
+        public TCSService.OrderExecutionResult closeShort(TickerInfo tickerInfo, int count) {
+            SimulatedPosition position = positionsByTicker.get(tickerInfo.getTicker());
+            MarketDepthSnapshot snapshot = lastSnapshotByTicker.get(tickerInfo.getTicker());
+            Double bestAsk = snapshot != null ? snapshot.getBestAsk() : null;
+            if (position == null || bestAsk == null || count <= 0) {
+                return TCSService.OrderExecutionResult.failed();
+            }
+            int executedCount = Math.min(count, position.quantity);
+            double buyback = bestAsk * executedCount;
+            double commission = buyback * commissionRate;
+            cash -= buyback + commission;
+            completeTrade(position, bestAsk, executedCount, commission);
+            return TCSService.OrderExecutionResult.success(bestAsk, executedCount, commission, null);
+        }
+
+        @Override
+        public void syncProtectiveOrders(TickerInfo tickerInfo, Position position) {
+        }
+
+        @Override
+        public void clearProtectiveOrders(TickerInfo tickerInfo) {
+        }
+
+        private void completeTrade(SimulatedPosition position, double exitPrice, int executedCount, double exitCommission) {
+            double grossPnl = "BUY".equals(position.direction)
+                    ? (exitPrice - position.entryPrice) * executedCount
+                    : (position.entryPrice - exitPrice) * executedCount;
+            double entryCommissionPart = position.allocateEntryCommission(executedCount);
+            double netPnl = grossPnl - entryCommissionPart - exitCommission;
+            closedTrades++;
+            if (netPnl > 0.0) {
+                winningTrades++;
+            }
+            position.quantity -= executedCount;
+            if (position.quantity <= 0) {
+                positionsByTicker.remove(position.tickerInfo.getTicker());
+            }
+        }
+
+        private void updateSnapshot(TickerInfo tickerInfo, MarketDepthSnapshot snapshot) {
+            lastSnapshotByTicker.put(tickerInfo.getTicker(), snapshot);
+            double equity = getEquity();
+            peakEquity = Math.max(peakEquity, equity);
+            if (peakEquity > 0.0) {
+                maxDrawdownPercent = Math.max(maxDrawdownPercent, (peakEquity - equity) / peakEquity * 100.0);
+            }
+        }
+
+        private double getEquity() {
+            double equity = cash;
+            for (SimulatedPosition position : positionsByTicker.values()) {
+                MarketDepthSnapshot snapshot = lastSnapshotByTicker.get(position.tickerInfo.getTicker());
+                if (snapshot == null) {
+                    continue;
+                }
+                if ("BUY".equals(position.direction) && snapshot.getBestBid() != null) {
+                    equity += snapshot.getBestBid() * position.quantity;
+                } else if ("SELL".equals(position.direction) && snapshot.getBestAsk() != null) {
+                    equity += (position.entryPrice - snapshot.getBestAsk()) * position.quantity;
+                }
+            }
+            return equity;
+        }
+
+        private void closeAll(Instant time) {
+            List<SimulatedPosition> positions = new ArrayList<>(positionsByTicker.values());
+            for (SimulatedPosition position : positions) {
+                if ("BUY".equals(position.direction)) {
+                    closeLong(position.tickerInfo);
+                } else {
+                    closeShort(position.tickerInfo);
+                }
+            }
+            updateSnapshotOnClose(time);
+        }
+
+        private void updateSnapshotOnClose(Instant time) {
+            double equity = getEquity();
+            peakEquity = Math.max(peakEquity, equity);
+            if (peakEquity > 0.0) {
+                maxDrawdownPercent = Math.max(maxDrawdownPercent, (peakEquity - equity) / peakEquity * 100.0);
+            }
+        }
+
+        private long getClosedTrades() {
+            return closedTrades;
+        }
+
+        private long getWinningTrades() {
+            return winningTrades;
+        }
+
+        private double getMaxDrawdownPercent() {
+            return maxDrawdownPercent;
+        }
+    }
+
+    private static class SimulatedPosition {
+
+        private final TickerInfo tickerInfo;
+        private final String direction;
+        private final double entryPrice;
+        private final double entryCommission;
+        private int quantity;
+        private double remainingEntryCommission;
+
+        private SimulatedPosition(TickerInfo tickerInfo, String direction, int quantity, double entryPrice) {
+            this.tickerInfo = tickerInfo;
+            this.direction = direction;
+            this.quantity = quantity;
+            this.entryPrice = entryPrice;
+            this.entryCommission = entryPrice * quantity * COMMISSION_RATE;
+            this.remainingEntryCommission = this.entryCommission;
+        }
+
+        private double allocateEntryCommission(int executedCount) {
+            if (quantity <= 0) {
+                return 0.0;
+            }
+            double allocated = remainingEntryCommission * executedCount / Math.max(executedCount, quantity + executedCount);
+            remainingEntryCommission = Math.max(0.0, remainingEntryCommission - allocated);
+            return allocated;
+        }
+    }
+}
