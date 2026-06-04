@@ -79,9 +79,14 @@ import static ru.tinkoff.piapi.contract.v1.StopOrderDirection.STOP_ORDER_DIRECTI
 import static ru.tinkoff.piapi.contract.v1.StopOrderType.STOP_ORDER_TYPE_STOP_LOSS;
 import static ru.tinkoff.piapi.contract.v1.StopOrderType.STOP_ORDER_TYPE_TAKE_PROFIT;
 
+/**
+ * Service for interacting with the Tinkoff Client Solution (TCS) Invest API.
+ * <p>
+ * Provides methods for retrieving market data, managing orders, tracking positions,
+ * subscribing to real-time market streams, and currency conversion.
+ */
 public class TCSService {
 
-    @Deprecated
     public static final double FUTURES_MARGIN_RATE = 0.40;
 
     private static final int FUTURES_CONTRACT_MULTIPLIER = 1000;
@@ -108,6 +113,15 @@ public class TCSService {
     private volatile Map<TickerInfo.Key, TickerInfo> cachedStockList;
     private volatile Instant cachedStockListAt;
 
+    /**
+     * Creates a new {@code TCSService} initialized with the given configurations.
+     * <p>
+     * Connects to the TCS Invest API (sandbox or production) based on
+     * {@link MainConfig#isSandbox()} and pre-loads common currency FIGI mappings.
+     *
+     * @param mainConfig  application configuration containing API credentials and account settings
+     * @param marketConfig market configuration containing base currency and other market settings
+     */
     public TCSService(MainConfig mainConfig, MarketConfig marketConfig) {
         this.mainConfig = mainConfig;
         this.marketConfig = marketConfig;
@@ -121,6 +135,11 @@ public class TCSService {
         figiRepository.insert(new TickerInfo.Key("EUR", TickerType.CURRENCY), "BBG0013HJJ31");
     }
 
+    /**
+     * Returns all tradable MOEX shares denominated in RUB.
+     *
+     * @return list of {@link Share} instruments with currency equal to "rub"
+     */
     public List<Share> getMoexShares() {
         return investApi.getInstrumentsService().getTradableSharesSync()
                 .stream()
@@ -128,10 +147,28 @@ public class TCSService {
                 .collect(Collectors.toList());
     }
 
+    /**
+     * Retrieves the current order book (glass of prices) for a given instrument.
+     *
+     * @param figi  FIGI identifier of the instrument
+     * @param depth order book depth (one of: 1, 10, 20, 30, 40, 50)
+     * @return {@link GetOrderBookResponse} containing bids and asks
+     */
     public GetOrderBookResponse getOrderBook(String figi, int depth /*1, 10, 20, 30, 40, 50*/) {
         return investApi.getMarketDataService().getOrderBookSync(figi, depth);
     }
 
+    /**
+     * Subscribes to real-time market data (order book and trades) for the given ticker.
+     * <p>
+     * If this is the first subscription for the ticker key, a new market data stream
+     * is created. The provided listener will be notified on every order book update
+     * and trade event.
+     *
+     * @param key      ticker key identifying the instrument
+     * @param depth    order book depth for the subscription
+     * @param listener callback to receive market data events
+     */
     public void subscribeMarketData(TickerInfo.Key key, int depth, MarketTickListener listener) {
         marketTickListenersByTicker.computeIfAbsent(key, ignored -> new CopyOnWriteArrayList<>()).add(listener);
         marketDataStreamsByTicker.computeIfAbsent(key, ignored -> {
@@ -148,6 +185,15 @@ public class TCSService {
         });
     }
 
+    /**
+     * Unsubscribes the given listener from real-time market data for the ticker.
+     * <p>
+     * If this was the last listener for the ticker, the underlying stream is
+     * cancelled and all resources are cleaned up.
+     *
+     * @param key      ticker key to unsubscribe from
+     * @param listener the listener to remove
+     */
     public void unsubscribeMarketData(TickerInfo.Key key, MarketTickListener listener) {
         List<MarketTickListener> listeners = marketTickListenersByTicker.get(key);
         if (listeners == null) {
@@ -167,10 +213,23 @@ public class TCSService {
         }
     }
 
+    /**
+     * Returns the most recent market depth snapshot received via the real-time stream.
+     *
+     * @param key ticker key identifying the instrument
+     * @return the latest {@link MarketDepthSnapshot}, or {@code null} if no snapshot is available
+     */
     public MarketDepthSnapshot getLastMarketDepth(TickerInfo.Key key) {
         return marketDepthByTicker.get(key);
     }
 
+    /**
+     * Returns recent trades collected from the real-time stream, filtered by maximum age.
+     *
+     * @param key    ticker key identifying the instrument
+     * @param maxAge maximum age of trades to include
+     * @return list of {@link MarketTradeTick} not older than {@code maxAge}, or empty list if none
+     */
     public List<MarketTradeTick> getRecentTrades(TickerInfo.Key key, Duration maxAge) {
         List<MarketTradeTick> trades = recentTradesByTicker.get(key);
         if (trades == null || trades.isEmpty()) {
@@ -182,6 +241,14 @@ public class TCSService {
                 .collect(Collectors.toList());
     }
 
+    /**
+     * Retrieves historical trades for the given ticker within the specified time range.
+     *
+     * @param key  ticker key identifying the instrument
+     * @param from start of the time range (inclusive)
+     * @param to   end of the time range (inclusive)
+     * @return list of {@link MarketTradeTick} within the given range
+     */
     public List<MarketTradeTick> getLastTrades(TickerInfo.Key key, Instant from, Instant to) {
         String figi = figiByName(key);
         return investApi.getMarketDataService().getLastTradesSync(figi, from, to).stream()
@@ -195,14 +262,45 @@ public class TCSService {
                 .collect(Collectors.toList());
     }
 
+    /**
+     * Retrieves historical candles for the given FIGI identifier and time range.
+     *
+     * @param figi     FIGI identifier of the instrument
+     * @param start    start of the time range (inclusive)
+     * @param end      end of the time range (inclusive)
+     * @param interval candle interval (e.g. 1 min, 1 hour, 1 day)
+     * @return list of {@link HistoricCandle} within the given range
+     */
     public List<HistoricCandle> getCandles(String figi, Instant start, Instant end, CandleInterval interval) {
         return investApi.getMarketDataService().getCandlesSync(figi, start, end, interval);
     }
 
+    /**
+     * Retrieves historical candles using {@link OffsetDateTime} parameters.
+     * <p>
+     * The offsets are converted to {@link Instant} before calling the API.
+     *
+     * @param figi     FIGI identifier of the instrument
+     * @param start    start of the time range (inclusive)
+     * @param end      end of the time range (inclusive)
+     * @param interval candle interval (e.g. 1 min, 1 hour, 1 day)
+     * @return list of {@link HistoricCandle} within the given range
+     */
     public List<HistoricCandle> getCandles(String figi, OffsetDateTime start, OffsetDateTime end, CandleInterval interval) {
         return investApi.getMarketDataService().getCandlesSync(figi, start.toInstant(), end.toInstant(), interval);
     }
 
+    /**
+     * Returns the last {@code size} hourly candles for the given ticker, sorted chronologically.
+     * <p>
+     * Requests a wider time range than needed and then trims to exactly {@code size} candles
+     * sorted from oldest to newest.
+     *
+     * @param ticker ticker symbol
+     * @param type   instrument type
+     * @param size   number of candles to return (must be positive)
+     * @return chronologically sorted list of {@link HistoricCandle}, or empty list if {@code size <= 0}
+     */
     public List<HistoricCandle> getLastCandles(String ticker, TickerType type, int size) {
         if (size <= 0) return emptyList();
         TickerInfo.Key key = new TickerInfo.Key(ticker, type);
@@ -217,6 +315,14 @@ public class TCSService {
                 .collect(Collectors.toList());
     }
 
+    /**
+     * Returns the last hourly candles converted to {@link TickerCandle} domain objects.
+     *
+     * @param ticker ticker symbol
+     * @param type   instrument type
+     * @param count  number of candles to return (must be positive)
+     * @return list of {@link TickerCandle}, or empty list if {@code count <= 0}
+     */
     public List<TickerCandle> getLastCandlesAsTickerCandles(String ticker, TickerType type, int count) {
         if (count <= 0) return emptyList();
         List<HistoricCandle> candles = getLastCandles(ticker, type, count);
@@ -236,6 +342,14 @@ public class TCSService {
                 .collect(Collectors.toList());
     }
 
+    /**
+     * Closes all positions of the given ticker type by market orders.
+     * <p>
+     * Iterates over all current positions and sends market sell orders for long positions
+     * and market buy orders for short positions. Notifies via Telegram in non-test mode.
+     *
+     * @param type instrument type of positions to close
+     */
     public void closeAllByMarket(TickerType type) {
         getCurrentPositions(type).values().forEach(ticker -> {
             int count = ticker.getBalance();
@@ -258,10 +372,27 @@ public class TCSService {
         });
     }
 
+    /**
+     * Closes the position for the given ticker by market order, regardless of direction.
+     *
+     * @param name ticker symbol
+     * @param type instrument type
+     * @return {@code true} if the position was closed successfully
+     */
     public boolean closeByMarket(String name, TickerType type) {
         return closeShortByMarket(name, type) || closeLongByMarket(name, type);
     }
 
+    /**
+     * Partially closes the position for the given ticker by market order.
+     * <p>
+     * Closes at most {@code count} units in the direction opposite to the current position.
+     *
+     * @param name  ticker symbol
+     * @param type  instrument type
+     * @param count number of units to close (must be positive)
+     * @return {@code true} if the partial close was executed successfully
+     */
     public boolean closePartiallyByMarket(String name, TickerType type, int count) {
         if (count <= 0) {
             return false;
@@ -282,6 +413,13 @@ public class TCSService {
         return false;
     }
 
+    /**
+     * Closes the entire short position for the given ticker by market order.
+     *
+     * @param name ticker symbol
+     * @param type instrument type
+     * @return {@code true} if the short position was closed successfully
+     */
     public boolean closeShortByMarket(String name, TickerType type) {
         int count = getCountOfCurrentPositions(type, name);
         if (count < 0) {
@@ -293,6 +431,13 @@ public class TCSService {
         return false;
     }
 
+    /**
+     * Closes the entire short position and returns execution details including price and count.
+     *
+     * @param name ticker symbol
+     * @param type instrument type
+     * @return {@link OrderExecutionResult} with execution details, or a failed result if no short position exists
+     */
     public OrderExecutionResult closeShortByMarketWithDetails(String name, TickerType type) {
         int count = getCountOfCurrentPositions(type, name);
         if (count < 0) {
@@ -306,6 +451,16 @@ public class TCSService {
         return OrderExecutionResult.failed();
     }
 
+    /**
+     * Partially closes the short position for the given ticker and returns execution details.
+     * <p>
+     * Closes at most {@code count} units of the short position.
+     *
+     * @param name  ticker symbol
+     * @param type  instrument type
+     * @param count maximum number of units to close
+     * @return {@link OrderExecutionResult} with execution details, or a failed result if no short position exists
+     */
     public OrderExecutionResult closeShortByMarketWithDetails(String name, TickerType type, int count) {
         int currentCount = getCountOfCurrentPositions(type, name);
         if (currentCount < 0) {
@@ -323,6 +478,13 @@ public class TCSService {
         return OrderExecutionResult.failed();
     }
 
+    /**
+     * Closes the entire long position for the given ticker by market order.
+     *
+     * @param name ticker symbol
+     * @param type instrument type
+     * @return {@code true} if the long position was closed successfully
+     */
     public boolean closeLongByMarket(String name, TickerType type) {
         int count = getCountOfCurrentPositions(type, name);
         if (count > 0) {
@@ -334,6 +496,13 @@ public class TCSService {
         return false;
     }
 
+    /**
+     * Closes the entire long position and returns execution details including price and count.
+     *
+     * @param name ticker symbol
+     * @param type instrument type
+     * @return {@link OrderExecutionResult} with execution details, or a failed result if no long position exists
+     */
     public OrderExecutionResult closeLongByMarketWithDetails(String name, TickerType type) {
         int count = getCountOfCurrentPositions(type, name);
         if (count > 0) {
@@ -347,6 +516,16 @@ public class TCSService {
         return OrderExecutionResult.failed();
     }
 
+    /**
+     * Partially closes the long position for the given ticker and returns execution details.
+     * <p>
+     * Closes at most {@code count} units of the long position.
+     *
+     * @param name  ticker symbol
+     * @param type  instrument type
+     * @param count maximum number of units to close
+     * @return {@link OrderExecutionResult} with execution details, or a failed result if no long position exists
+     */
     public OrderExecutionResult closeLongByMarketWithDetails(String name, TickerType type, int count) {
         int currentCount = getCountOfCurrentPositions(type, name);
         if (currentCount > 0) {
@@ -364,14 +543,47 @@ public class TCSService {
         return OrderExecutionResult.failed();
     }
 
+    /**
+     * Sells the given cash amount by market price with optional take-profit and stop-loss orders.
+     *
+     * @param name       ticker symbol
+     * @param type       instrument type
+     * @param cashToSell amount of cash to sell in the instrument's currency
+     * @param takeProfit take-profit distance as percentage, or 0 to skip
+     * @param stopLose   stop-loss distance as percentage, or 0 to skip
+     * @return {@code true} if the sell order was executed successfully
+     */
     public boolean sellByMarket(String name, TickerType type, double cashToSell, double takeProfit, double stopLose) {
         return sell(name, type, cashToSell, true, takeProfit, stopLose, false).isSuccess();
     }
 
+    /**
+     * Sells the given cash amount by market price with optional take-profit, stop-loss, and full-price mode.
+     *
+     * @param name        ticker symbol
+     * @param type        instrument type
+     * @param cashToSell  amount of cash to sell in the instrument's currency
+     * @param takeProfit  take-profit distance as percentage, or 0 to skip
+     * @param stopLose    stop-loss distance as percentage, or 0 to skip
+     * @param isFullPrice if {@code true}, take-profit and stop-loss are interpreted as absolute prices
+     * @return {@code true} if the sell order was executed successfully
+     */
     public boolean sellByMarket(String name, TickerType type, double cashToSell, double takeProfit, double stopLose, boolean isFullPrice) {
         return sell(name, type, cashToSell, true, takeProfit, stopLose, isFullPrice).isSuccess();
     }
 
+    /**
+     * Places a limit sell order for the given cash amount at the specified limit price.
+     * <p>
+     * The cash amount is converted from the base currency if the instrument trades
+     * in a different currency. The quantity is calculated and rounded down to a multiple of lot size.
+     *
+     * @param name       ticker symbol
+     * @param type       instrument type
+     * @param cashToSell amount of cash to sell in the instrument's currency
+     * @param limitPrice the limit price for the sell order (must be positive)
+     * @return {@link OrderExecutionResult} with execution details, or a failed result if the order could not be placed
+     */
     public OrderExecutionResult sellLimit(String name, TickerType type, double cashToSell, double limitPrice) {
         if (limitPrice <= 0.0) {
             return OrderExecutionResult.failed();
@@ -400,6 +612,16 @@ public class TCSService {
         return createOrder(key, limitPrice, count, "Sell", 0.0, 0.0, false, cashToSell);
     }
 
+    /**
+     * Sells by market price and returns execution details including price and count.
+     *
+     * @param name       ticker symbol
+     * @param type       instrument type
+     * @param cashToSell amount of cash to sell in the instrument's currency
+     * @param takeProfit take-profit distance as percentage, or 0 to skip
+     * @param stopLose   stop-loss distance as percentage, or 0 to skip
+     * @return {@link OrderExecutionResult} with execution details
+     */
     public OrderExecutionResult sellByMarketWithDetails(String name,
                                                         TickerType type,
                                                         double cashToSell,
@@ -408,6 +630,21 @@ public class TCSService {
         return sell(name, type, cashToSell, true, takeProfit, stopLose, false);
     }
 
+    /**
+     * Sells the given cash amount with the option to use market or limit price, and optional protective orders.
+     * <p>
+     * Walks through the order book to determine a realistic execution price. Converts currency
+     * if the instrument trades in a different currency than the base.
+     *
+     * @param name        ticker symbol
+     * @param type        instrument type
+     * @param cashToSell  amount of cash to sell in the instrument's currency
+     * @param byMarket    if {@code true}, submits a market order; otherwise uses the calculated price
+     * @param takeProfit  take-profit distance as percentage, or 0 to skip
+     * @param stopLose    stop-loss distance as percentage, or 0 to skip
+     * @param isFullPrice if {@code true}, take-profit and stop-loss are interpreted as absolute prices
+     * @return {@link OrderExecutionResult} with execution details
+     */
     public OrderExecutionResult sell(String name, TickerType type, double cashToSell, boolean byMarket, double takeProfit, double stopLose, boolean isFullPrice) {
         var key = new TickerInfo.Key(name, type);
 
@@ -449,6 +686,16 @@ public class TCSService {
         return createOrder(key, byMarket ? 0.0 : tickerPrice, count, "Sell", takeProfit, stopLose, isFullPrice, cashToSell);
     }
 
+    /**
+     * Sells instruments worth the specified cost, calculating quantity based on available price.
+     * <p>
+     * Rounds the count down to a multiple of the lot size. Converts currency if needed.
+     *
+     * @param name ticker symbol
+     * @param type instrument type
+     * @param cost total cost in the instrument's currency
+     * @return {@code true} if the sell order was executed successfully
+     */
     public boolean sell(String name, TickerType type, double cost) {
         if (cost == 0) {
             log("Warn: sale will be skipped - " + name + " with cost " + cost);
@@ -489,14 +736,45 @@ public class TCSService {
         return 1 == createOrder(key, tickerPrice, count, "Sell");
     }
 
+    /**
+     * Buys the given cash amount by market price with optional take-profit and stop-loss orders.
+     *
+     * @param name      ticker symbol
+     * @param type      instrument type
+     * @param cashToBuy amount of cash to spend in the instrument's currency
+     * @param takeProfit take-profit distance as percentage, or 0 to skip
+     * @param stopLose  stop-loss distance as percentage, or 0 to skip
+     * @return {@code true} if the buy order was executed successfully
+     */
     public boolean buyByMarket(String name, TickerType type, double cashToBuy, double takeProfit, double stopLose) {
         return buy(name, type, cashToBuy, true, takeProfit, stopLose, false).isSuccess();
     }
 
+    /**
+     * Buys the given cash amount by market price with optional take-profit, stop-loss, and full-price mode.
+     *
+     * @param name        ticker symbol
+     * @param type        instrument type
+     * @param cashToBuy   amount of cash to spend in the instrument's currency
+     * @param takeProfit  take-profit distance as percentage, or 0 to skip
+     * @param stopLose    stop-loss distance as percentage, or 0 to skip
+     * @param isFullPrice if {@code true}, take-profit and stop-loss are interpreted as absolute prices
+     * @return {@code true} if the buy order was executed successfully
+     */
     public boolean buyByMarket(String name, TickerType type, double cashToBuy, double takeProfit, double stopLose, boolean isFullPrice) {
         return buy(name, type, cashToBuy, true, takeProfit, stopLose, isFullPrice).isSuccess();
     }
 
+    /**
+     * Buys by market price and returns execution details including price and count.
+     *
+     * @param name      ticker symbol
+     * @param type      instrument type
+     * @param cashToBuy amount of cash to spend in the instrument's currency
+     * @param takeProfit take-profit distance as percentage, or 0 to skip
+     * @param stopLose  stop-loss distance as percentage, or 0 to skip
+     * @return {@link OrderExecutionResult} with execution details
+     */
     public OrderExecutionResult buyByMarketWithDetails(String name,
                                                        TickerType type,
                                                        double cashToBuy,
@@ -505,14 +783,43 @@ public class TCSService {
         return buy(name, type, cashToBuy, true, takeProfit, stopLose, false);
     }
 
+    /**
+     * Buys the given cash amount at the best available limit price without protective orders.
+     *
+     * @param name      ticker symbol
+     * @param type      instrument type
+     * @param cashToBuy amount of cash to spend in the instrument's currency
+     * @return {@code true} if the buy order was executed successfully
+     */
     public boolean buy(String name, TickerType type, double cashToBuy) {
         return buy(name, type, cashToBuy, false, 0.0, 0.0, false).isSuccess();
     }
 
+    /**
+     * Buys the given cash amount at the best available limit price without protective orders.
+     *
+     * @param name        ticker symbol
+     * @param type        instrument type
+     * @param cashToBuy   amount of cash to spend in the instrument's currency
+     * @param isFullPrice if {@code true}, take-profit and stop-loss are interpreted as absolute prices
+     * @return {@code true} if the buy order was executed successfully
+     */
     public boolean buy(String name, TickerType type, double cashToBuy, boolean isFullPrice) {
         return buy(name, type, cashToBuy, false, 0.0, 0.0, isFullPrice).isSuccess();
     }
 
+    /**
+     * Places a limit buy order for the given cash amount at the specified limit price.
+     * <p>
+     * The cash amount is converted from the base currency if the instrument trades
+     * in a different currency. The quantity is calculated and rounded down to a multiple of lot size.
+     *
+     * @param name      ticker symbol
+     * @param type      instrument type
+     * @param cashToBuy amount of cash to spend in the instrument's currency
+     * @param limitPrice the limit price for the buy order (must be positive)
+     * @return {@link OrderExecutionResult} with execution details, or a failed result if the order could not be placed
+     */
     public OrderExecutionResult buyLimit(String name, TickerType type, double cashToBuy, double limitPrice) {
         if (limitPrice <= 0.0) {
             return OrderExecutionResult.failed();
@@ -541,6 +848,21 @@ public class TCSService {
         return createOrder(key, limitPrice, count, "Buy", 0.0, 0.0, false, cashToBuy);
     }
 
+    /**
+     * Buys the given cash amount with the option to use market or limit price, and optional protective orders.
+     * <p>
+     * Walks through the order book to determine a realistic execution price. Converts currency
+     * if the instrument trades in a different currency than the base.
+     *
+     * @param name        ticker symbol
+     * @param type        instrument type
+     * @param cashToBuy   amount of cash to spend in the instrument's currency
+     * @param byMarket    if {@code true}, submits a market order; otherwise uses the calculated price
+     * @param takeProfit  take-profit distance as percentage, or 0 to skip
+     * @param stopLose    stop-loss distance as percentage, or 0 to skip
+     * @param isFullPrice if {@code true}, take-profit and stop-loss are interpreted as absolute prices
+     * @return {@link OrderExecutionResult} with execution details
+     */
     public OrderExecutionResult buy(String name, TickerType type, double cashToBuy, boolean byMarket, double takeProfit, double stopLose, boolean isFullPrice) {
         var key = new TickerInfo.Key(name, type);
 
@@ -582,14 +904,56 @@ public class TCSService {
         return createOrder(key, byMarket ? 0.0 : tickerPrice, count, "Buy", takeProfit, stopLose, isFullPrice, cashToBuy);
     }
 
+    /**
+     * Creates an order and returns {@code 1} on success or {@code 0} on failure.
+     * <p>
+     * Convenience method that delegates to the full {@link #createOrder} overload
+     * without protective orders or cash tracking.
+     *
+     * @param key       ticker key identifying the instrument
+     * @param price     order price, or 0 for a market order
+     * @param count     number of instruments to trade
+     * @param operation "Buy" or "Sell"
+     * @return {@code 1} if the order was filled, {@code 0} otherwise
+     */
     public int createOrder(TickerInfo.Key key, double price, int count, String operation) {
         return createOrder(key, price, count, operation, 0.0, 0.0, false).isSuccess() ? 1 : 0;
     }
 
+    /**
+     * Creates an order with optional protective (bracket) orders.
+     * <p>
+     * Convenience method that delegates to the full overload without cash tracking.
+     *
+     * @param key         ticker key identifying the instrument
+     * @param price       order price, or 0 for a market order
+     * @param count       number of instruments to trade
+     * @param operation   "Buy" or "Sell"
+     * @param takeProfit  take-profit distance as percentage, or 0 to skip
+     * @param stopLose    stop-loss distance as percentage, or 0 to skip
+     * @param isFullPrice if {@code true}, take-profit and stop-loss are interpreted as absolute prices
+     * @return {@link OrderExecutionResult} with execution details
+     */
     public OrderExecutionResult createOrder(TickerInfo.Key key, double price, int count, String operation, double takeProfit, double stopLose, boolean isFullPrice) {
         return createOrder(key, price, count, operation, takeProfit, stopLose, isFullPrice, 0.0);
     }
 
+    /**
+     * Creates an order with the full set of parameters including cash tracking and protective orders.
+     * <p>
+     * Submits the order to the TCS API, normalizes the execution price, places take-profit
+     * and stop-loss bracket orders if specified, and notifies via Telegram.
+     *
+     * @param key         ticker key identifying the instrument
+     * @param price       order price, or 0 for a market order
+     * @param count       number of instruments to trade
+     * @param operation   "Buy" or "Sell"
+     * @param takeProfit  take-profit distance as percentage, or 0 to skip
+     * @param stopLose    stop-loss distance as percentage, or 0 to skip
+     * @param isFullPrice if {@code true}, take-profit and stop-loss are interpreted as absolute prices
+     * @param cashToUse   intended cash amount for the order (used for logging)
+     * @return {@link OrderExecutionResult} with execution price, count, commission, and protective position
+     */
     public OrderExecutionResult createOrder(TickerInfo.Key key,
                                             double price,
                                             int count,
@@ -601,7 +965,8 @@ public class TCSService {
         String figi = figiByName(key);
         TickerInfo tickerInfo = searchTicker(key);
         int lot = tickerInfo.getLot();
-        int quantity = (count / lot);
+        int contractUnits = getContractUnits(tickerInfo);
+        int quantity = (count / lot / contractUnits);
         OrderDirection direction = "Buy".equals(operation) ? ORDER_DIRECTION_BUY : ORDER_DIRECTION_SELL;
         OrderType type = OrderType.ORDER_TYPE_MARKET;
         Quotation orderPrice = Quotation.newBuilder().build();
@@ -640,7 +1005,7 @@ public class TCSService {
                     figi, quantity, orderPrice, direction, mainConfig.getTcsAccountId(), type, null
             );
             int executedLots = Math.toIntExact(response.getLotsExecuted());
-            int executedCount = executedLots > 0 ? executedLots * lot : count;
+            int executedCount = executedLots > 0 ? executedLots * lot * contractUnits : count;
             double rawExecutedPrice = toDouble(
                     response.getExecutedOrderPrice().getUnits(),
                     response.getExecutedOrderPrice().getNano()
@@ -734,10 +1099,27 @@ public class TCSService {
         return perUnitFromTotal > 0.0 ? perUnitFromTotal : perUnitFromRaw;
     }
 
+    /**
+     * Returns the last executed price for the given ticker from cached order results.
+     *
+     * @param name ticker symbol
+     * @param type instrument type
+     * @return the last executed price, or {@code null} if no order has been executed for this ticker
+     */
     public Double getLastExecutedPrice(String name, TickerType type) {
         return lastExecutedPriceByTicker.get(new TickerInfo.Key(name, type));
     }
 
+    /**
+     * Synchronizes protective stop-loss and take-profit orders for the given position.
+     * <p>
+     * Cancels existing stop orders and places new ones based on the position's
+     * stop-loss and take-profit prices. No-op in sandbox mode.
+     *
+     * @param name     ticker symbol
+     * @param type     instrument type
+     * @param position position with protective order parameters
+     */
     public void syncProtectiveOrders(String name, TickerType type, Position position) {
         if (mainConfig.isSandbox() || position == null || position.quantity <= 0) {
             return;
@@ -755,6 +1137,14 @@ public class TCSService {
         syncStopOrder(figi, key, quantity, direction, position.takeProfit, currentOrders, false);
     }
 
+    /**
+     * Cancels all protective (stop-loss and take-profit) orders for the given ticker.
+     * <p>
+     * No-op in sandbox mode.
+     *
+     * @param name ticker symbol
+     * @param type instrument type
+     */
     public void clearProtectiveOrders(String name, TickerType type) {
         if (mainConfig.isSandbox()) {
             return;
@@ -872,6 +1262,10 @@ public class TCSService {
         }
     }
 
+    /**
+     * Represents the result of an order execution with details on price, count, commission,
+     * and the protective position that was created as part of a bracket order.
+     */
     public static class OrderExecutionResult {
 
         private final boolean success;
@@ -994,6 +1388,17 @@ public class TCSService {
         private String takeProfitOrderId;
     }
 
+    /**
+     * Calculates the maximum number of instruments that can be traded with the given cash at the given price.
+     * <p>
+     * Rounds down to a multiple of the lot size. For futures, the cost calculation
+     * includes the contract multiplier.
+     *
+     * @param key          ticker key identifying the instrument
+     * @param availableCash amount of cash available for trading
+     * @param price        price per instrument
+     * @return number of instruments to trade (always a multiple of lot size), or 0 if insufficient funds
+     */
     public int calculateTradeCount(TickerInfo.Key key, double availableCash, double price) {
         if (availableCash <= 0.0 || price <= 0.0) {
             return 0;
@@ -1001,15 +1406,26 @@ public class TCSService {
 
         TickerInfo tickerInfo = searchTicker(key);
         int lot = Math.max(1, tickerInfo.getLot());
-        double orderCost = getOrderValue(tickerInfo, lot, price);
+        int tradeUnit = lot * getContractUnits(tickerInfo);
+        double orderCost = getOrderValue(tickerInfo, tradeUnit, price);
         if (availableCash < orderCost) {
             return 0;
         }
 
         int lots = (int) Math.floor(availableCash / orderCost);
-        return lots * lot;
+        return lots * tradeUnit;
     }
 
+    /**
+     * Calculates the total cash required to trade the given count of instruments at the given price.
+     * <p>
+     * For futures, the cost includes the contract unit multiplier.
+     *
+     * @param key   ticker key identifying the instrument
+     * @param count number of instruments
+     * @param price price per instrument
+     * @return total cash required for the order
+     */
     public double getRequiredCashForOrder(TickerInfo.Key key, int count, double price) {
         if (count <= 0 || price <= 0.0) {
             return 0.0;
@@ -1021,9 +1437,13 @@ public class TCSService {
     private double getOrderValue(TickerInfo tickerInfo, int count, double price) {
         double fullValue = count * price;
         if (TickerType.FEATURE == tickerInfo.getType()) {
-            return fullValue * FUTURES_CONTRACT_MULTIPLIER;
+            return fullValue;
         }
         return fullValue;
+    }
+
+    private int getContractUnits(TickerInfo tickerInfo) {
+        return TickerType.FEATURE == tickerInfo.getType() ? FUTURES_CONTRACT_MULTIPLIER : 1;
     }
 
     private static Quotation createQuotation(double price) {
@@ -1037,6 +1457,11 @@ public class TCSService {
                 .build();
     }
 
+    /**
+     * Returns the list of all tradable shares on MOEX, cached for 10 minutes.
+     *
+     * @return map of ticker key to {@link TickerInfo} for all tradable shares
+     */
     public Map<TickerInfo.Key, TickerInfo> getStockList() {
         if (cachedStockList != null && cachedStockListAt != null
                 && cachedStockListAt.plus(Duration.ofMinutes(10)).isAfter(Instant.now())) {
@@ -1062,6 +1487,11 @@ public class TCSService {
         return loadedStocks;
     }
 
+    /**
+     * Returns the list of all tradable bonds.
+     *
+     * @return map of ticker key to {@link TickerInfo} for all tradable bonds
+     */
     public Map<TickerInfo.Key, TickerInfo> getBondList() {
         log("Loading current bonds...");
         List<Bond> bonds = investApi.getInstrumentsService().getTradableBondsSync();
@@ -1079,6 +1509,11 @@ public class TCSService {
                 .collect(Collectors.toMap(TickerInfo::getKey, it -> it, (o, n) -> n));
     }
 
+    /**
+     * Returns the list of all tradable ETFs.
+     *
+     * @return map of ticker key to {@link TickerInfo} for all tradable ETFs
+     */
     public Map<TickerInfo.Key, TickerInfo> getEtfList() {
         log("Loading current etfs...");
         List<Etf> etfs = investApi.getInstrumentsService().getTradableEtfsSync();
@@ -1096,6 +1531,11 @@ public class TCSService {
                 .collect(Collectors.toMap(TickerInfo::getKey, it -> it, (o, n) -> n));
     }
 
+    /**
+     * Returns the list of all tradable currencies.
+     *
+     * @return map of ticker key to {@link TickerInfo} for all tradable currencies
+     */
     public Map<TickerInfo.Key, TickerInfo> getCurrenciesList() {
         log("Loading current currencies...");
         List<Currency> currencies = investApi.getInstrumentsService().getTradableCurrenciesSync();
@@ -1113,6 +1553,11 @@ public class TCSService {
                 .collect(Collectors.toMap(TickerInfo::getKey, it -> it, (o, n) -> n));
     }
 
+    /**
+     * Returns the list of all tradable futures.
+     *
+     * @return map of ticker key to {@link TickerInfo} for all tradable futures
+     */
     public Map<TickerInfo.Key, TickerInfo> getFuturesList() {
         log("Loading current features...");
         List<Future> futures = investApi.getInstrumentsService().getTradableFuturesSync();
@@ -1130,6 +1575,11 @@ public class TCSService {
                 .collect(Collectors.toMap(TickerInfo::getKey, it -> it, (o, n) -> n));
     }
 
+    /**
+     * Returns the available cash balance in the base currency configured in {@link MarketConfig}.
+     *
+     * @return available cash amount
+     */
     public Double getAvailableCash() {
         sleep(550);
         Positions positions = investApi.getOperationsService().getPositionsSync(mainConfig.getTcsAccountId());
@@ -1142,6 +1592,14 @@ public class TCSService {
                 .doubleValue();
     }
 
+    /**
+     * Searches for a ticker by its key, using the cache or fetching from the appropriate instrument list.
+     * <p>
+     * Results are cached in {@link TickerRepository} for subsequent lookups.
+     *
+     * @param key ticker key (symbol + type) to search for
+     * @return {@link TickerInfo} if found, or throws {@link RuntimeException} if the ticker type is unknown
+     */
     public TickerInfo searchTicker(TickerInfo.Key key) {
         if (tickerRepository.containsKey(key)) {
             return tickerRepository.getById(key);
@@ -1178,6 +1636,11 @@ public class TCSService {
         return tickerInfo;
     }
 
+    /**
+     * Returns the total portfolio value in the base currency.
+     *
+     * @return total portfolio cost
+     */
     public double getTotalPortfolioCost() {
         return investApi.getOperationsService()
                 .getPortfolioSync(mainConfig.getTcsAccountId())
@@ -1186,6 +1649,15 @@ public class TCSService {
                 .doubleValue();
     }
 
+    /**
+     * Returns the current balance (quantity) of the position for the given ticker.
+     * <p>
+     * A positive value indicates a long position, negative indicates a short position.
+     *
+     * @param tickerType instrument type to filter positions
+     * @param tickerName ticker symbol
+     * @return position balance, or 0 if no position is found
+     */
     public int getCountOfCurrentPositions(TickerType tickerType, String tickerName) {
         return getCurrentPositions(tickerType).values()
                 .stream()
@@ -1195,6 +1667,13 @@ public class TCSService {
                 .orElse(0);
     }
 
+    /**
+     * Returns the position info for the given ticker name, filtered by instrument type.
+     *
+     * @param tickerType instrument type to filter positions
+     * @param tickerName ticker symbol
+     * @return {@link PositionInfo} if a matching position is found, or {@code null} otherwise
+     */
     public PositionInfo getCurrentPositions(TickerType tickerType, String tickerName) {
         return getCurrentPositions(tickerType).values()
                 .stream()
@@ -1203,6 +1682,16 @@ public class TCSService {
                 .orElse(null);
     }
 
+    /**
+     * Returns all current positions, optionally filtered by instrument type.
+     * <p>
+     * Maps portfolio positions to {@link PositionInfo} using ticker lookups.
+     * Positions in currencies other than the base currency are excluded.
+     * Attempts to recover ticker info for positions with unknown FIGI mappings.
+     *
+     * @param tickerType instrument type to filter by, or {@code null} for all positions
+     * @return map of ticker key to {@link PositionInfo} for all matching positions
+     */
     public Map<TickerInfo.Key, PositionInfo> getCurrentPositions(@Nullable TickerType tickerType) {
         sleep(550);
         Map<TickerInfo.Key, PositionInfo> positionInfoList = new HashMap<>();
@@ -1313,6 +1802,15 @@ public class TCSService {
         return "";
     }
 
+    /**
+     * Returns the FIGI identifier for the given ticker key.
+     * <p>
+     * Uses the cached FIGI repository first; if not found, searches for the ticker
+     * and caches the result.
+     *
+     * @param key ticker key (symbol + type) to look up
+     * @return FIGI identifier string
+     */
     public String figiByName(TickerInfo.Key key) {
         if (figiRepository.containsKey(key)) {
             return figiRepository.getById(key);
@@ -1323,6 +1821,14 @@ public class TCSService {
         return figi;
     }
 
+    /**
+     * Returns the price of the instrument converted to the base currency.
+     *
+     * @param key           ticker key identifying the instrument
+     * @param qty           quantity of instruments
+     * @param basicCurrency target currency to convert to
+     * @return price in the target currency
+     */
     public double getPriceInCurrentCurrency(TickerInfo.Key key, int qty, String basicCurrency) {
         double price = getAvailablePrice(key, qty, false);
         String currency = searchTicker(key).getCurrency();
@@ -1332,26 +1838,80 @@ public class TCSService {
         return price;
     }
 
+    /**
+     * Returns the best available price for a single instrument by ticker name.
+     *
+     * @param name ticker symbol
+     * @param type instrument type
+     * @return best available price from the bids side of the glass
+     */
     public double getAvailablePrice(String name, TickerType type) {
         return getAvailablePrice(new TickerInfo.Key(name, type));
     }
 
+    /**
+     * Returns the best available price for a single instrument without printing the glass.
+     *
+     * @param key ticker key identifying the instrument
+     * @return best available price from the bids side of the glass
+     */
     public double getAvailablePrice(TickerInfo.Key key) {
         return getAvailablePrice(key, 1, false);
     }
 
+    /**
+     * Returns the best available price for a given quantity from the specified side of the glass.
+     * <p>
+     * Walks through the order book levels until the requested quantity is covered.
+     *
+     * @param name        ticker symbol
+     * @param type        instrument type
+     * @param count       number of instruments to cover
+     * @param glassType   "bids" or "asks" side of the glass
+     * @return best available price for the given quantity
+     */
     public double getAvailablePrice(String name, TickerType type, int count, String glassType) {
         return getAvailablePrice(new TickerInfo.Key(name, type), count, glassType, true);
     }
 
+    /**
+     * Returns the best available price for a given quantity from the specified side of the glass.
+     *
+     * @param name         ticker symbol
+     * @param type         instrument type
+     * @param count        number of instruments to cover
+     * @param glassType    "bids" or "asks" side of the glass
+     * @param isPrintGlass if {@code true}, prints the glass of prices to the console
+     * @return best available price for the given quantity
+     */
     public double getAvailablePrice(String name, TickerType type, int count, String glassType, boolean isPrintGlass) {
         return getAvailablePrice(new TickerInfo.Key(name, type), count, glassType, isPrintGlass);
     }
 
+    /**
+     * Returns the best available price for a given quantity from the bids side of the glass.
+     *
+     * @param key          ticker key identifying the instrument
+     * @param count        number of instruments to cover
+     * @param isPrintGlass if {@code true}, prints the glass of prices to the console
+     * @return best available price from the bids side for the given quantity
+     */
     public double getAvailablePrice(TickerInfo.Key key, int count, boolean isPrintGlass) {
         return getAvailablePrice(key, count, "bids", isPrintGlass);
     }
 
+    /**
+     * Returns the best available price for a given quantity from the specified side of the glass.
+     * <p>
+     * Walks through the order book levels until the requested quantity is covered.
+     * For "asks" the price is sorted ascending, for "bids" descending.
+     *
+     * @param key          ticker key identifying the instrument
+     * @param count        number of instruments to cover
+     * @param type         "bids" or "asks" side of the glass
+     * @param isPrintGlass if {@code true}, prints the glass of prices to the console
+     * @return best available price for the given quantity, or 0.0 if the glass is empty
+     */
     public double getAvailablePrice(TickerInfo.Key key, int count, String type, boolean isPrintGlass) {
         int value = count;
         double tickerPrice = 0.0;
@@ -1375,10 +1935,30 @@ public class TCSService {
         return tickerPrice;
     }
 
+    /**
+     * Returns the current prices (bids and asks) for the given ticker, optionally printing the glass.
+     * <p>
+     * Uses the real-time snapshot if available, otherwise falls back to the cached repository,
+     * and as a last resort fetches the order book from the API.
+     *
+     * @param key          ticker key identifying the instrument
+     * @param isPrintGlass if {@code true}, prints the glass of prices to the console
+     * @return a map with "bids" and "asks" keys, each containing a price-to-quantity mapping
+     */
     public Map<String, Map<Double, Integer>> getCurrentPrices(TickerInfo.Key key) {
         return getCurrentPrices(key, true);
     }
 
+    /**
+     * Returns the current prices (bids and asks) for the given ticker, optionally printing the glass.
+     * <p>
+     * Uses the real-time snapshot if available, otherwise falls back to the cached repository,
+     * and as a last resort fetches the order book from the API.
+     *
+     * @param key          ticker key identifying the instrument
+     * @param isPrintGlass if {@code true}, prints the glass of prices to the console
+     * @return a map with "bids" and "asks" keys, each containing a price-to-quantity mapping
+     */
     public Map<String, Map<Double, Integer>> getCurrentPrices(TickerInfo.Key key, boolean isPrintGlass) {
         MarketDepthSnapshot liveSnapshot = marketDepthByTicker.get(key);
         if (liveSnapshot != null && !liveSnapshot.getBids().isEmpty() && !liveSnapshot.getAsks().isEmpty()) {
@@ -1575,6 +2155,16 @@ public class TCSService {
         return currentPrices;
     }
 
+    /**
+     * Converts a price from one currency to another using the current exchange rate.
+     * <p>
+     * Returns the price unchanged if both currencies are the same.
+     *
+     * @param currency      source currency code
+     * @param basicCurrency target currency code
+     * @param price         price in the source currency
+     * @return price converted to the target currency
+     */
     public double convertCurrencies(String currency, String basicCurrency, double price) {
         if (basicCurrency.equals(currency)) {
             return price;
@@ -1597,6 +2187,12 @@ public class TCSService {
         return toDouble(quotation.getUnits(), quotation.getNano());
     }
 
+    /**
+     * Converts a {@link Quotation} to a {@code double} value.
+     *
+     * @param quotation the quotation to convert
+     * @return double representation of the quotation
+     */
     public double convertQuotationToDouble(Quotation quotation) {
         return toDouble(quotation);
     }
