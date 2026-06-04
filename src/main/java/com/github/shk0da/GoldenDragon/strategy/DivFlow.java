@@ -2,7 +2,6 @@ package com.github.shk0da.GoldenDragon.strategy;
 
 import com.github.shk0da.GoldenDragon.config.MainConfig;
 import com.github.shk0da.GoldenDragon.config.MarketConfig;
-import com.github.shk0da.GoldenDragon.config.RSXConfig;
 import com.github.shk0da.GoldenDragon.model.DiviTicker;
 import com.github.shk0da.GoldenDragon.model.PositionInfo;
 import com.github.shk0da.GoldenDragon.model.TickerInfo;
@@ -11,14 +10,8 @@ import com.github.shk0da.GoldenDragon.repository.Repository;
 import com.github.shk0da.GoldenDragon.repository.TickerRepository;
 import com.github.shk0da.GoldenDragon.service.TCSService;
 import com.github.shk0da.GoldenDragon.service.TradingViewService;
-import com.github.shk0da.GoldenDragon.service.YahooService;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
-import org.jsoup.Jsoup;
-import org.jsoup.nodes.Document;
-import org.jsoup.nodes.Element;
-import org.jsoup.select.Elements;
-
 import java.net.URI;
 import java.net.URLEncoder;
 import java.net.http.HttpRequest;
@@ -33,6 +26,11 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
+import org.jsoup.Jsoup;
+import org.jsoup.nodes.Document;
+import org.jsoup.nodes.Element;
+import org.jsoup.select.Elements;
+
 
 import static com.github.shk0da.GoldenDragon.config.DivFlowConfig.DOHOD_DIV_CALENDAR;
 import static com.github.shk0da.GoldenDragon.config.DivFlowConfig.INVESTING_DIV_CALENDAR;
@@ -43,7 +41,6 @@ import static com.github.shk0da.GoldenDragon.config.MainConfig.USER_AGENT;
 import static com.github.shk0da.GoldenDragon.config.MainConfig.dateFormat;
 import static com.github.shk0da.GoldenDragon.config.MainConfig.dateFormatUs;
 import static com.github.shk0da.GoldenDragon.config.MainConfig.httpClient;
-import static com.github.shk0da.GoldenDragon.model.Market.DE;
 import static com.github.shk0da.GoldenDragon.model.Market.MOEX;
 import static com.github.shk0da.GoldenDragon.model.TickerType.STOCK;
 import static com.github.shk0da.GoldenDragon.utils.PredicateUtils.distinctByKey;
@@ -73,7 +70,6 @@ public class DivFlow {
 
     private final TCSService tcsService;
 
-    private final YahooService yahooService = YahooService.INSTANCE;
     private final TradingViewService tradingViewService = TradingViewService.INSTANCE;
     private final Repository<TickerInfo.Key, TickerInfo> tickerRepository = TickerRepository.INSTANCE;
 
@@ -487,12 +483,6 @@ public class DivFlow {
                 for (int page = 0; page < 10; page++) {
                     List<Map.Entry<String, String>> parameters = new ArrayList<>(9);
                     switch (marketConfig.getMarket()) {
-                        case US:
-                            parameters.add(entry("country[]", "5"));
-                            break;
-                        case DE:
-                            parameters.add(entry("country[]", "17"));
-                            break;
                         case MOEX:
                         default:
                             parameters.add(entry("country[]", "56"));
@@ -563,7 +553,7 @@ public class DivFlow {
             currentCalendar.add(Calendar.DATE, 1);
         }
 
-        out.println("Loading prices from Yahoo...");
+        out.println("Loading prices from TCS...");
         Map<String, List<DiviTicker>> result = new LinkedHashMap<>();
         for (Element item : dividends) {
             try {
@@ -581,13 +571,10 @@ public class DivFlow {
                 if (null == code || code.isBlank()) continue;
                 if (!tickerRepository.containsKey(new TickerInfo.Key(code, STOCK))) continue;
 
-                var lastCandle = yahooService.getLastCandle(code);
+                var lastCandle = tcsService.getLastCandles(code, STOCK, 1).get(0);
                 var price = valueOf(null != lastCandle ? lastCandle.getClose() : 0.0);
 
                 code = code.toUpperCase();
-                if (DE == marketConfig.getMarket()) {
-                    code = code + "@DE";
-                }
 
                 var name = item.select("td:eq(1) > span").text();
 
@@ -618,18 +605,6 @@ public class DivFlow {
         List<TickerScan> scan = tradingViewService.scanMarket(marketConfig.getMarket(), names);
         if (scan.isEmpty()) {
             return List.of();
-        }
-        if (MOEX != marketConfig.getMarket()) {
-            try {
-                RSXConfig rsxConfig = new RSXConfig();
-                RSX rsx = new RSX(mainConfig, marketConfig, rsxConfig, tcsService);
-                if (rsx.isTrendUp()) {
-                    return rsx.topSymbols(scan, marketConfig.getMarket());
-                }
-                return List.of();
-            } catch (Exception ex) {
-                out.println("Failed use RSX to filter symbols: " + ex.getMessage());
-            }
         }
         return scan.stream().map(TickerScan::getName).collect(Collectors.toUnmodifiableList());
     }

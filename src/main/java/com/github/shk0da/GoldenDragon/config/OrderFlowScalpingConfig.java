@@ -148,7 +148,7 @@ public class OrderFlowScalpingConfig {
         }
 
         List<Instrument> result = new ArrayList<>();
-        String stocks = properties.getProperty("orderFlowScalping.stocks", properties.getProperty("datacollector.stocks", ""));
+        String stocks = properties.getProperty("orderFlowScalping.stocks", properties.getProperty("datacollector.instruments", ""));
         if (!stocks.trim().isEmpty()) {
             stream(stocks.split(","))
                     .map(String::trim)

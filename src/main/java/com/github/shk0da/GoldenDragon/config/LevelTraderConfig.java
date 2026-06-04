@@ -38,8 +38,8 @@ public class LevelTraderConfig {
 
         dataDir = properties.getProperty("datacollector.dataDir", "data");
         stocks = stream(properties.getProperty(
-                "levelTrader.stocks",
-                properties.getProperty("datacollector.stocks")
+                "levelTrader.instruments",
+                properties.getProperty("datacollector.instruments")
         ).split(",")).collect(toList());
 
         slEnabled = Boolean.valueOf(properties.getProperty("levelTrader.sl.enabled", "true"));

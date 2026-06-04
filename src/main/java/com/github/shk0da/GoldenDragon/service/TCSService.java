@@ -25,6 +25,7 @@ import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
+import java.util.Comparator;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -191,6 +192,19 @@ public class TCSService {
 
     public List<HistoricCandle> getCandles(String figi, OffsetDateTime start, OffsetDateTime end, CandleInterval interval) {
         return investApi.getMarketDataService().getCandlesSync(figi, start.toInstant(), end.toInstant(), interval);
+    }
+
+    public List<HistoricCandle> getLastCandles(String ticker, TickerType type, int size) {
+        TickerInfo.Key key = new TickerInfo.Key(ticker, type);
+        String figi = figiByName(key);
+        Instant end = Instant.now();
+        Instant start = end.minusSeconds(size * 3600L);
+        List<HistoricCandle> candles = getCandles(figi, start, end, CandleInterval.CANDLE_INTERVAL_HOUR);
+        return candles.stream()
+                .sorted((c1, c2) -> Long.compare(c2.getTime().getSeconds(), c1.getTime().getSeconds()))
+                .limit(size)
+                .sorted(Comparator.comparingLong(c -> c.getTime().getSeconds()))
+                .collect(Collectors.toList());
     }
 
     public void closeAllByMarket(TickerType type) {
@@ -1515,6 +1529,10 @@ public class TCSService {
 
     private static Double toDouble(Quotation quotation) {
         return toDouble(quotation.getUnits(), quotation.getNano());
+    }
+
+    public double convertQuotationToDouble(Quotation quotation) {
+        return toDouble(quotation);
     }
 
     private static Double toDouble(long units, int nano) {

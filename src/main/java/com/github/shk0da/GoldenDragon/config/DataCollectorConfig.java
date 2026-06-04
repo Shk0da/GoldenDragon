@@ -12,13 +12,13 @@ import static java.util.stream.Collectors.toList;
 public class DataCollectorConfig {
 
     private final String dataDir;
-    private final List<String> stocks;
+    private final List<String> instruments;
     private final Boolean replace;
 
     public DataCollectorConfig() throws IOException {
         final Properties properties = PropertiesUtils.loadProperties();
         dataDir = properties.getProperty("datacollector.dataDir", "data");
-        stocks = stream(properties.getProperty("datacollector.stocks").split(",")).collect(toList());
+        instruments = stream(properties.getProperty("datacollector.instruments").split(",")).collect(toList());
         replace = Boolean.valueOf(properties.getProperty("datacollector.replace", "true"));
     }
 
@@ -26,8 +26,8 @@ public class DataCollectorConfig {
         return dataDir;
     }
 
-    public List<String> getStocks() {
-        return stocks;
+    public List<String> getInstruments() {
+        return instruments;
     }
 
     public Boolean isReplace() {
@@ -38,7 +38,7 @@ public class DataCollectorConfig {
     public String toString() {
         return "DataCollectorConfig{" +
                 "dataDir='" + dataDir + '\'' +
-                ", stocks=" + stocks +
+                ", instruments=" + instruments +
                 ", replace=" + replace +
                 '}';
     }

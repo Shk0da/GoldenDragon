@@ -94,8 +94,8 @@ public class UnifiedTraderConfig {
         this.properties = properties;
         dataDir = properties.getProperty("datacollector.dataDir", "data");
         stocks = stream(properties.getProperty(
-                "levelTrader.stocks",
-                properties.getProperty("datacollector.stocks")
+                "levelTrader.instruments",
+                properties.getProperty("datacollector.instruments")
         ).split(",")).collect(toList());
         averagePositionCost = Double.valueOf(properties.getProperty("unifiedTrader.averagePositionCost", "10000"));
         this.tickerParams = loadTickerParams(properties);

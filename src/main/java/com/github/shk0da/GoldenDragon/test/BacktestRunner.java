@@ -78,7 +78,7 @@ import java.util.concurrent.Future;
  * <h2>Загрузка тикеров и данных</h2>
  * <ol>
  *   <li>{@link #loadTickers()} — собирает список тикеров из properties:
- *       {@code datacollector.stocks} + ключи {@code unifiedTrader.ticker.<NAME>.*}.</li>
+ *       {@code datacollector.instruments} + ключи {@code unifiedTrader.ticker.<NAME>.*}.</li>
  *   <li>{@link #filterEnabledTickers} — отсев по флагу {@code params.enabled}.</li>
  *   <li>{@link #loadMarketDataParallel} — параллельная загрузка для всех тикеров
  *       через {@link ExecutorService} с пулом {@link #BACKTEST_THREADS}.</li>
@@ -1345,7 +1345,7 @@ public class BacktestRunner {
         Properties props = PropertiesUtils.loadProperties();
         Set<String> tickers = new LinkedHashSet<>();
 
-        for (String s : props.getProperty("datacollector.stocks", "").split(",")) {
+        for (String s : props.getProperty("datacollector.instruments", "").split(",")) {
             String t = s.trim();
             if (!t.isEmpty()) tickers.add(t);
         }

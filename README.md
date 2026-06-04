@@ -1,6 +1,6 @@
 # GoldenDragon
 
-Алгоритмическая торговая система для биржи Тинькофф Инвестиции с поддержкой MOEX, US и DE рынков. Реализована на Java 11 и использует Tinkoff Invest API (gRPC) для исполнения ордеров, сбора рыночных данных и управления портфелем.
+Алгоритмическая торговая система для биржи Тинькофф Инвестиции с поддержкой рынка MOEX. Реализована на Java 11 и использует Tinkoff Invest API (gRPC) для исполнения ордеров, сбора рыночных данных и управления портфелем.
 
 ## Возможности
 
@@ -57,8 +57,6 @@ src/main/java/com/github/shk0da/GoldenDragon/
 ├── repository/               # кеширование FIGI и цен
 ├── service/                  # внешние сервисы
 │   ├── TCSService            # Tinkoff Invest API (ордера, стакан, свечи, портфель)
-│   ├── YahooService          # Yahoo Finance (история, fundamentals)
-│   ├── MOEXService           # MOEX ISS (исторические CSV-данные)
 │   ├── TradingViewService    # TradingView Scanner (скрининг)
 │   └── TelegramNotifyService # уведомления через Telegram Bot API
 ├── strategy/                 # торговые стратегии
@@ -156,6 +154,7 @@ orderFlowScalping.instruments=SBER:STOCK,GAZP:STOCK,LKOH:STOCK,Si:FEATURE,BR:FEA
 # Alternative split configuration
 # orderFlowScalping.stocks=SBER,GAZP,LKOH
 # orderFlowScalping.features=RTSI,SBERF,GAZPF,Si,NG,BR
+# orderFlowScalping.instruments=SBER:STOCK,GAZP:STOCK,LKOH:STOCK,Si:FEATURE,BR:FEATURE
 
 # Market data
 orderFlowScalping.orderBookDepth=10
@@ -295,7 +294,5 @@ application.properties # конфигурация (не коммитится)
 ## Рынки и инструменты
 
 - **MOEX** — акции, облигации, ETF, валюты, фьючерсы
-- **US** — акции, ETF
-- **DE** — акции, ETF
 
-Рабочие часы: пн-пт, расписание определяется конфигурацией рынка (MOEX 10:00-18:00, US 16:00-19:00, DE 11:00-22:00 MSK).
+Рабочие часы: пн-пт, расписание определяется конфигурацией рынка (MOEX 10:00-18:00 MSK).

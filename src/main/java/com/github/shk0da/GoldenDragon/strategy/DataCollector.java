@@ -64,7 +64,7 @@ public class DataCollector {
 
     public void run() throws Exception {
         var dataDir = config.getDataDir();
-        var tickers = config.getStocks();
+        var tickers = config.getInstruments();
         var isReplace = config.isReplace();
         createDirectories(Paths.get(dataDir));
         for (String name : tickers) {

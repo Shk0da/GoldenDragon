@@ -6,7 +6,6 @@ import java.util.Objects;
 public class TickerScan {
 
     private final String name;
-    private final String market;
     private final String description;
     private final Long totalDebt;
     private final Double debtToEquity;
@@ -15,9 +14,8 @@ public class TickerScan {
     private final Double recommend1M;
     private final Date dateTime;
 
-    public TickerScan(String name, String market, String description, Long totalDebt, Double debtToEquity, String type, String subtype, Double recommend1M, Date dateTime) {
+    public TickerScan(String name, String description, Long totalDebt, Double debtToEquity, String type, String subtype, Double recommend1M, Date dateTime) {
         this.name = name;
-        this.market = market;
         this.description = description;
         this.totalDebt = totalDebt;
         this.debtToEquity = debtToEquity;
@@ -29,10 +27,6 @@ public class TickerScan {
 
     public String getName() {
         return name;
-    }
-
-    public String getMarket() {
-        return market;
     }
 
     public String getDescription() {
@@ -69,20 +63,18 @@ public class TickerScan {
         if (o == null || getClass() != o.getClass()) return false;
         TickerScan that = (TickerScan) o;
         return Objects.equals(name, that.name) &&
-                Objects.equals(market, that.market) &&
                 Objects.equals(type, that.type);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(name, market, type);
+        return Objects.hash(name, type);
     }
 
     @Override
     public String toString() {
         return "TickerScan{" +
                 "name='" + name + '\'' +
-                ", market='" + market + '\'' +
                 ", description='" + description + '\'' +
                 ", totalDebt=" + totalDebt +
                 ", debtToEquity=" + debtToEquity +
