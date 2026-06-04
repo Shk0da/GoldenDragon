@@ -36,6 +36,7 @@ public class MainConfig {
     private final boolean isTestMode;
     private final boolean isSandbox;
     private final boolean writeMarketDepthTicks;
+    private final java.util.Map<String, Integer> tickerLotOverrides;
 
     private String tcsAccountId;
     private final String tcsApiKey;
@@ -47,6 +48,19 @@ public class MainConfig {
         this.writeMarketDepthTicks = Boolean.parseBoolean(properties.getProperty("tcs.marketData.writeTicks", "false"));
         this.tcsAccountId = properties.getProperty("tcs.accountId");
         this.tcsApiKey = properties.getProperty("tcs.apiKey");
+        this.tickerLotOverrides = loadTickerLotOverrides(properties);
+    }
+
+    private java.util.Map<String, Integer> loadTickerLotOverrides(Properties properties) {
+        java.util.Map<String, Integer> overrides = new java.util.HashMap<>();
+        for (String key : properties.stringPropertyNames()) {
+            if (key.startsWith("market.moex.") && key.endsWith(".lot")) {
+                String ticker = key.substring("market.moex.".length(), key.length() - ".lot".length());
+                int lot = Integer.parseInt(properties.getProperty(key));
+                overrides.put(ticker, lot);
+            }
+        }
+        return overrides;
     }
 
     public boolean isTestMode() {
@@ -63,6 +77,10 @@ public class MainConfig {
 
     public boolean isWriteMarketDepthTicks() {
         return writeMarketDepthTicks;
+    }
+
+    public java.util.Map<String, Integer> getTickerLotOverrides() {
+        return tickerLotOverrides;
     }
 
     public MainConfig withAccountId(String accountId) {

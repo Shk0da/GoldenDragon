@@ -97,7 +97,6 @@ public class TCSService {
     private final MarketConfig marketConfig;
     private final InvestApi investApi;
     private final boolean writeMarketDepthTicks;
-    private final Map<String, Integer> tickerLotOverrides;
 
     private final Repository<TickerInfo.Key, String> figiRepository = FigiRepository.INSTANCE;
     private final Repository<TickerInfo.Key, TickerInfo> tickerRepository = TickerRepository.INSTANCE;
@@ -128,35 +127,10 @@ public class TCSService {
                 ? InvestApi.createSandbox(mainConfig.getTcsApiKey())
                 : InvestApi.create(mainConfig.getTcsApiKey());
         this.writeMarketDepthTicks = mainConfig.isWriteMarketDepthTicks();
-        this.tickerLotOverrides = loadTickerLotOverrides();
 
         figiRepository.insert(new TickerInfo.Key("RUB", TickerType.CURRENCY), "RUB000UTSTOM");
         figiRepository.insert(new TickerInfo.Key("USD", TickerType.CURRENCY), "BBG0013HGFT4");
         figiRepository.insert(new TickerInfo.Key("EUR", TickerType.CURRENCY), "BBG0013HJJ31");
-    }
-
-    /**
-     * Loads ticker lot overrides from properties in format:
-     * market.moex.&lt;TICKER&gt;.lot=&lt;value&gt;
-     */
-    private Map<String, Integer> loadTickerLotOverrides() {
-        Map<String, Integer> overrides = new HashMap<>();
-        try {
-            java.util.Properties props = new java.util.Properties();
-            try (java.io.InputStream is = Files.newInputStream(Path.of("application.properties"))) {
-                props.load(is);
-            }
-            for (String key : props.stringPropertyNames()) {
-                if (key.startsWith("market.moex.") && key.endsWith(".lot")) {
-                    String ticker = key.substring("market.moex.".length(), key.length() - ".lot".length());
-                    int lot = Integer.parseInt(props.getProperty(key));
-                    overrides.put(ticker, lot);
-                }
-            }
-        } catch (Exception e) {
-            log("Failed to load ticker lot overrides: " + e.getMessage());
-        }
-        return overrides;
     }
 
     /**
@@ -1613,7 +1587,7 @@ public class TCSService {
      * Applies ticker lot override from config if present.
      */
     private TickerInfo applyTickerLotOverride(TickerInfo tickerInfo) {
-        Integer overrideLot = tickerLotOverrides.get(tickerInfo.getTicker());
+        Integer overrideLot = mainConfig.getTickerLotOverrides().get(tickerInfo.getTicker());
         if (overrideLot != null) {
             return new TickerInfo(
                     tickerInfo.getFigi(),
