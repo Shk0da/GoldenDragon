@@ -403,7 +403,7 @@ public class TCSService {
         if (mainConfig.isTestMode()) {
             return OrderExecutionResult.testSuccess(limitPrice, count);
         }
-        return createOrder(key, limitPrice, count, "Sell", 0.0, 0.0, false);
+        return createOrder(key, limitPrice, count, "Sell", 0.0, 0.0, false, cashToSell);
     }
 
     public OrderExecutionResult sellByMarketWithDetails(String name,
@@ -453,7 +453,7 @@ public class TCSService {
         if (mainConfig.isTestMode()) {
             return OrderExecutionResult.testSuccess(tickerPrice, count);
         }
-        return createOrder(key, byMarket ? 0.0 : tickerPrice, count, "Sell", takeProfit, stopLose, isFullPrice);
+        return createOrder(key, byMarket ? 0.0 : tickerPrice, count, "Sell", takeProfit, stopLose, isFullPrice, cashToSell);
     }
 
     public boolean sell(String name, TickerType type, double cost) {
@@ -547,7 +547,7 @@ public class TCSService {
         if (mainConfig.isTestMode()) {
             return OrderExecutionResult.testSuccess(limitPrice, count);
         }
-        return createOrder(key, limitPrice, count, "Buy", 0.0, 0.0, false);
+        return createOrder(key, limitPrice, count, "Buy", 0.0, 0.0, false, cashToBuy);
     }
 
     public OrderExecutionResult buy(String name, TickerType type, double cashToBuy, boolean byMarket, double takeProfit, double stopLose, boolean isFullPrice) {
@@ -589,7 +589,7 @@ public class TCSService {
         if (mainConfig.isTestMode()) {
             return OrderExecutionResult.testSuccess(tickerPrice, count);
         }
-        return createOrder(key, byMarket ? 0.0 : tickerPrice, count, "Buy", takeProfit, stopLose, isFullPrice);
+        return createOrder(key, byMarket ? 0.0 : tickerPrice, count, "Buy", takeProfit, stopLose, isFullPrice, cashToBuy);
     }
 
     public int createOrder(TickerInfo.Key key, double price, int count, String operation) {
@@ -597,6 +597,17 @@ public class TCSService {
     }
 
     public OrderExecutionResult createOrder(TickerInfo.Key key, double price, int count, String operation, double takeProfit, double stopLose, boolean isFullPrice) {
+        return createOrder(key, price, count, operation, takeProfit, stopLose, isFullPrice, 0.0);
+    }
+
+    public OrderExecutionResult createOrder(TickerInfo.Key key,
+                                            double price,
+                                            int count,
+                                            String operation,
+                                            double takeProfit,
+                                            double stopLose,
+                                            boolean isFullPrice,
+                                            double cashToUse) {
         String figi = figiByName(key);
         TickerInfo tickerInfo = searchTicker(key);
         int lot = tickerInfo.getLot();
@@ -611,9 +622,11 @@ public class TCSService {
         double referencePrice = price > 0.0
                 ? price
                 : getAvailablePrice(key, Math.max(1, count), ORDER_DIRECTION_BUY == direction ? "asks" : "bids", false);
+        int contractMultiplier = TickerType.FEATURE == tickerInfo.getType() ? FUTURES_CONTRACT_MULTIPLIER : 1;
+        double fullNotional = referencePrice > 0.0 ? count * referencePrice * contractMultiplier : 0.0;
         double estimatedCost = referencePrice > 0.0 ? getRequiredCashForOrder(key, count, referencePrice) : 0.0;
         out.println(String.format(
-                "Create order request [%s]: operation=%s direction=%s type=%s count=%d lot=%d quantity=%d requestedPrice=%.4f referencePrice=%.4f estimatedCost=%.2f takeProfit=%.4f stopLose=%.4f isFullPrice=%s",
+                "Create order request [%s]: operation=%s direction=%s type=%s count=%d lot=%d quantity=%d requestedPrice=%.4f referencePrice=%.4f contractMultiplier=%d fullNotional=%.2f cashToUse=%.2f estimatedCost=%.2f takeProfit=%.4f stopLose=%.4f isFullPrice=%s",
                 key.getTicker(),
                 operation,
                 direction,
@@ -623,6 +636,9 @@ public class TCSService {
                 quantity,
                 price,
                 referencePrice,
+                contractMultiplier,
+                fullNotional,
+                cashToUse,
                 estimatedCost,
                 takeProfit,
                 stopLose,

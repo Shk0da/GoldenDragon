@@ -39,6 +39,7 @@ import static java.lang.System.out;
 public class OrderFlowScalpingStrategy implements MarketTickListener {
 
     private static final double BALANCE_SAFETY_FACTOR = 0.95;
+    private static final int FUTURES_CONTRACT_MULTIPLIER = 1000;
     private static final ThreadLocal<SimpleDateFormat> LOG_TIME_FORMAT =
             ThreadLocal.withInitial(() -> new SimpleDateFormat("dd.MM.yyyy HH:mm:ss"));
 
@@ -1097,13 +1098,24 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
     }
 
     private TCSService.OrderExecutionResult openLong(ScalpingState state, Signal signal, int quantity) {
-        double cash = signal.entryPrice * quantity;
+        double cash = estimateOrderNotional(state.tickerInfo, signal.entryPrice, quantity);
         return tradingGateway.buy(state.tickerInfo, cash, signal.entryPrice, signal.takePrice, signal.stopPrice, signal.useLimitEntry);
     }
 
     private TCSService.OrderExecutionResult openShort(ScalpingState state, Signal signal, int quantity) {
-        double cash = signal.entryPrice * quantity;
+        double cash = estimateOrderNotional(state.tickerInfo, signal.entryPrice, quantity);
         return tradingGateway.sell(state.tickerInfo, cash, signal.entryPrice, signal.takePrice, signal.stopPrice, signal.useLimitEntry);
+    }
+
+    private double estimateOrderNotional(TickerInfo tickerInfo, double entryPrice, int quantity) {
+        if (tickerInfo == null || entryPrice <= 0.0 || quantity <= 0) {
+            return 0.0;
+        }
+        double notional = entryPrice * quantity;
+        if (TickerType.FEATURE == tickerInfo.getType()) {
+            notional *= FUTURES_CONTRACT_MULTIPLIER;
+        }
+        return notional;
     }
 
     private int maxAffordableQuantity(TickerInfo tickerInfo, double entryPrice, double availableCash) {
