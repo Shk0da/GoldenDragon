@@ -270,12 +270,16 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
                     config.getLevelsLookbackCandles()
             );
             if (candles == null || candles.isEmpty()) {
-                state.levelsLastUpdate = now();
+                synchronized (state) {
+                    state.levelsLastUpdate = now();
+                }
                 return;
             }
             List<Level> levels = levelUtils.identifyKeyLevels(candles);
-            state.keyLevels = levels != null ? levels : Collections.emptyList();
-            state.levelsLastUpdate = now();
+            synchronized (state) {
+                state.keyLevels = levels != null ? levels : Collections.emptyList();
+                state.levelsLastUpdate = now();
+            }
             log(String.format(
                     "OrderFlowScalpingStrategy LEVELS REFRESHED %s: count=%d",
                     state.tickerInfo.getTicker(),
@@ -284,7 +288,9 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
         } catch (Exception ex) {
             log("OrderFlowScalpingStrategy: failed to refresh levels for "
                     + state.tickerInfo.getTicker() + ": " + ex.getMessage());
-            state.levelsLastUpdate = now();
+            synchronized (state) {
+                state.levelsLastUpdate = now();
+            }
         }
     }
 
@@ -315,25 +321,27 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
             return;
         }
 
-        if (state.openAttemptBlockedUntil != null && state.openAttemptBlockedUntil.isAfter(now())) {
-            return;
-        }
+        synchronized (state) {
+            if (state.openAttemptBlockedUntil != null && state.openAttemptBlockedUntil.isAfter(now())) {
+                return;
+            }
 
-        cleanup(state);
-        updateMarketRegime(state);
+            cleanup(state);
+            updateMarketRegime(state);
 
-        if (hasOpenPosition(state)) {
-            manageOpenPosition(state);
-            return;
-        }
+            if (hasOpenPosition(state)) {
+                manageOpenPosition(state);
+                return;
+            }
 
-        if (!isRegimeTradable(state)) {
-            return;
-        }
+            if (!isRegimeTradable(state)) {
+                return;
+            }
 
-        Signal signal = detectSignal(state);
-        if (signal != null) {
-            openSignalPosition(state, signal);
+            Signal signal = detectSignal(state);
+            if (signal != null) {
+                openSignalPosition(state, signal);
+            }
         }
     }
 
@@ -1474,7 +1482,10 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
             state.bookHistory.pollFirst();
         }
 
-        state.thirtySecondTrades.removeIf(it -> it.getTime().isBefore(now().minusSeconds(30)));
+        Instant thirtySecondThreshold = now().minusSeconds(30);
+        while (!state.thirtySecondTrades.isEmpty() && state.thirtySecondTrades.peekFirst().getTime().isBefore(thirtySecondThreshold)) {
+            state.thirtySecondTrades.pollFirst();
+        }
         recalculateLongWindow(state);
     }
 
@@ -1614,36 +1625,38 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
             return;
         }
 
-        state.lastOrderBook = snapshot;
-        state.bookHistory.addLast(new TimedBook(snapshot.getTime(), snapshot));
+        synchronized (state) {
+            state.lastOrderBook = snapshot;
+            state.bookHistory.addLast(new TimedBook(snapshot.getTime(), snapshot));
 
-        Double mid = snapshot.getMidPrice();
-        if (mid != null) {
-            state.midPrices.addLast(new TimedPrice(snapshot.getTime(), mid));
-        }
-
-        if (!snapshot.getBids().isEmpty()) {
-            int bidQty = snapshot.getBids().get(0).getQuantity();
-            state.bidVolumeHistory.addLast(bidQty);
-            while (state.bidVolumeHistory.size() > config.getBookHistorySeconds()) {
-                state.bidVolumeHistory.pollFirst();
+            Double mid = snapshot.getMidPrice();
+            if (mid != null) {
+                state.midPrices.addLast(new TimedPrice(snapshot.getTime(), mid));
             }
-            state.lastVisibleBidAtSignal = bidQty;
-        }
 
-        if (!snapshot.getAsks().isEmpty()) {
-            int askQty = snapshot.getAsks().get(0).getQuantity();
-            state.askVolumeHistory.addLast(askQty);
-            while (state.askVolumeHistory.size() > config.getBookHistorySeconds()) {
-                state.askVolumeHistory.pollFirst();
+            if (!snapshot.getBids().isEmpty()) {
+                int bidQty = snapshot.getBids().get(0).getQuantity();
+                state.bidVolumeHistory.addLast(bidQty);
+                while (state.bidVolumeHistory.size() > config.getBookHistorySeconds()) {
+                    state.bidVolumeHistory.pollFirst();
+                }
+                state.lastVisibleBidAtSignal = bidQty;
             }
-            state.lastVisibleAskAtSignal = askQty;
-        }
 
-        detectSpoofRemoval(state, snapshot);
-        updateSegmentMedians(state, snapshot);
-        updatePriceDrift(state);
-        cleanupSpoofHistory(state);
+            if (!snapshot.getAsks().isEmpty()) {
+                int askQty = snapshot.getAsks().get(0).getQuantity();
+                state.askVolumeHistory.addLast(askQty);
+                while (state.askVolumeHistory.size() > config.getBookHistorySeconds()) {
+                    state.askVolumeHistory.pollFirst();
+                }
+                state.lastVisibleAskAtSignal = askQty;
+            }
+
+            detectSpoofRemoval(state, snapshot);
+            updateSegmentMedians(state, snapshot);
+            updatePriceDrift(state);
+            cleanupSpoofHistory(state);
+        }
     }
 
     @Override
@@ -1656,35 +1669,37 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
             return;
         }
 
-        state.recentTrades.addLast(trade);
-        state.thirtySecondTrades.add(trade);
-        if (trade.getDirection().contains("SELL")) {
-            state.sellAggressionVolume += trade.getQuantity();
-            state.cvdShortWindow -= trade.getQuantity();
-        } else if (trade.getDirection().contains("BUY")) {
-            state.buyAggressionVolume += trade.getQuantity();
-            state.cvdShortWindow += trade.getQuantity();
-        }
-
-        Instant threshold = now().minusSeconds(10);
-        while (!state.recentTrades.isEmpty() && state.recentTrades.peekFirst().getTime().isBefore(threshold)) {
-            MarketTradeTick expired = state.recentTrades.pollFirst();
-            if (expired.getDirection().contains("SELL")) {
-                state.sellAggressionVolume -= expired.getQuantity();
-                state.cvdShortWindow += expired.getQuantity();
-            } else if (expired.getDirection().contains("BUY")) {
-                state.buyAggressionVolume -= expired.getQuantity();
-                state.cvdShortWindow -= expired.getQuantity();
+        synchronized (state) {
+            state.recentTrades.addLast(trade);
+            state.thirtySecondTrades.addLast(trade);
+            if (trade.getDirection().contains("SELL")) {
+                state.sellAggressionVolume += trade.getQuantity();
+                state.cvdShortWindow -= trade.getQuantity();
+            } else if (trade.getDirection().contains("BUY")) {
+                state.buyAggressionVolume += trade.getQuantity();
+                state.cvdShortWindow += trade.getQuantity();
             }
-        }
 
-        recalculateLongWindow(state);
-        if (state.openPosition != null) {
-            if (("BUY".equals(state.openPosition.direction) && state.cvdThirtySeconds < 0)
-                    || ("SELL".equals(state.openPosition.direction) && state.cvdThirtySeconds > 0)) {
-                state.openPosition.lastOppositeCvdFlipAt = now();
-            } else {
-                state.openPosition.lastOppositeCvdFlipAt = null;
+            Instant threshold = now().minusSeconds(10);
+            while (!state.recentTrades.isEmpty() && state.recentTrades.peekFirst().getTime().isBefore(threshold)) {
+                MarketTradeTick expired = state.recentTrades.pollFirst();
+                if (expired.getDirection().contains("SELL")) {
+                    state.sellAggressionVolume -= expired.getQuantity();
+                    state.cvdShortWindow += expired.getQuantity();
+                } else if (expired.getDirection().contains("BUY")) {
+                    state.buyAggressionVolume -= expired.getQuantity();
+                    state.cvdShortWindow -= expired.getQuantity();
+                }
+            }
+
+            recalculateLongWindow(state);
+            if (state.openPosition != null) {
+                if (("BUY".equals(state.openPosition.direction) && state.cvdThirtySeconds < 0)
+                        || ("SELL".equals(state.openPosition.direction) && state.cvdThirtySeconds > 0)) {
+                    state.openPosition.lastOppositeCvdFlipAt = now();
+                } else {
+                    state.openPosition.lastOppositeCvdFlipAt = null;
+                }
             }
         }
     }
@@ -1715,8 +1730,10 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
     public void setKeyLevelsForTicker(String ticker, List<Level> levels) {
         ScalpingState state = stateByTicker.get(ticker);
         if (state != null) {
-            state.keyLevels = levels != null ? levels : Collections.emptyList();
-            state.levelsLastUpdate = now();
+            synchronized (state) {
+                state.keyLevels = levels != null ? levels : Collections.emptyList();
+                state.levelsLastUpdate = now();
+            }
         }
     }
 
@@ -1862,7 +1879,10 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
     }
 
     private void recalculateLongWindow(ScalpingState state) {
-        state.thirtySecondTrades.removeIf(it -> it.getTime().isBefore(now().minusSeconds(30)));
+        Instant thirtySecondThreshold = now().minusSeconds(30);
+        while (!state.thirtySecondTrades.isEmpty() && state.thirtySecondTrades.peekFirst().getTime().isBefore(thirtySecondThreshold)) {
+            state.thirtySecondTrades.pollFirst();
+        }
         state.cvdThirtySeconds = 0;
         long buyLastFiveSeconds = 0;
         long sellLastFiveSeconds = 0;
@@ -1963,11 +1983,13 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
 
     private void forceCloseAllPositions() {
         stateByTicker.values().forEach(state -> {
-            if (state.openPosition == null) {
-                return;
+            synchronized (state) {
+                if (state.openPosition == null) {
+                    return;
+                }
+                double exitPrice = getEntryPrice(state, state.openPosition.direction);
+                closeOpenPosition(state, exitPrice, new CloseDecision("shutdown", "graceful_shutdown", false));
             }
-            double exitPrice = getEntryPrice(state, state.openPosition.direction);
-            closeOpenPosition(state, exitPrice, new CloseDecision("shutdown", "graceful_shutdown", false));
         });
     }
 
