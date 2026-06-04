@@ -81,7 +81,10 @@ import static ru.tinkoff.piapi.contract.v1.StopOrderType.STOP_ORDER_TYPE_TAKE_PR
 
 public class TCSService {
 
+    @Deprecated
     public static final double FUTURES_MARGIN_RATE = 0.40;
+
+    private static final int FUTURES_CONTRACT_MULTIPLIER = 1000;
     private static final String MARKET_DEPTH_TICKS_HEADER = "time,best_bid,best_ask,mid_price,bids,asks";
     private static final DateTimeFormatter MARKET_DEPTH_TICKS_TIME_FORMATTER = DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm:ss");
 
@@ -1012,7 +1015,7 @@ public class TCSService {
     private double getOrderValue(TickerInfo tickerInfo, int count, double price) {
         double fullValue = count * price;
         if (TickerType.FEATURE == tickerInfo.getType()) {
-            return fullValue * FUTURES_MARGIN_RATE;
+            return fullValue * FUTURES_CONTRACT_MULTIPLIER;
         }
         return fullValue;
     }
