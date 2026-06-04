@@ -1437,7 +1437,7 @@ public class TCSService {
     private double getOrderValue(TickerInfo tickerInfo, int count, double price) {
         double fullValue = count * price;
         if (TickerType.FEATURE == tickerInfo.getType()) {
-            return fullValue;
+            return fullValue * FUTURES_CONTRACT_MULTIPLIER;
         }
         return fullValue;
     }
