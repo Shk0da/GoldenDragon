@@ -8,6 +8,7 @@ import com.github.shk0da.GoldenDragon.model.MarketTickListener;
 import com.github.shk0da.GoldenDragon.model.MarketTradeTick;
 import com.github.shk0da.GoldenDragon.model.Position;
 import com.github.shk0da.GoldenDragon.model.PositionInfo;
+import com.github.shk0da.GoldenDragon.model.TickerCandle;
 import com.github.shk0da.GoldenDragon.model.TickerInfo;
 import com.github.shk0da.GoldenDragon.model.TickerType;
 import com.github.shk0da.GoldenDragon.repository.FigiRepository;
@@ -206,6 +207,25 @@ public class TCSService {
                 .sorted((c1, c2) -> Long.compare(c2.getTime().getSeconds(), c1.getTime().getSeconds()))
                 .limit(size)
                 .sorted(Comparator.comparingLong(c -> c.getTime().getSeconds()))
+                .collect(Collectors.toList());
+    }
+
+    public List<TickerCandle> getLastCandlesAsTickerCandles(String ticker, TickerType type, int count) {
+        if (count <= 0) return emptyList();
+        List<HistoricCandle> candles = getLastCandles(ticker, type, count);
+        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+        return candles.stream()
+                .map(c -> new TickerCandle(
+                        ticker,
+                        formatter.format(Instant.ofEpochSecond(c.getTime().getSeconds(), c.getTime().getNanos())
+                                .atZone(ZoneId.systemDefault())),
+                        toDouble(c.getOpen()),
+                        toDouble(c.getHigh()),
+                        toDouble(c.getLow()),
+                        toDouble(c.getClose()),
+                        toDouble(c.getClose()),
+                        (int) c.getVolume()
+                ))
                 .collect(Collectors.toList());
     }
 

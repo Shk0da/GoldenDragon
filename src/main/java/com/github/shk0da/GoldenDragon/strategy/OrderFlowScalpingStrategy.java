@@ -7,15 +7,19 @@ import com.github.shk0da.GoldenDragon.model.MarketTickListener;
 import com.github.shk0da.GoldenDragon.model.MarketTradeTick;
 import com.github.shk0da.GoldenDragon.model.Position;
 import com.github.shk0da.GoldenDragon.model.PositionInfo;
+import com.github.shk0da.GoldenDragon.model.TickerCandle;
 import com.github.shk0da.GoldenDragon.model.TickerInfo;
 import com.github.shk0da.GoldenDragon.model.TickerType;
 import com.github.shk0da.GoldenDragon.repository.TickerRepository;
 import com.github.shk0da.GoldenDragon.service.TCSService;
+import com.github.shk0da.GoldenDragon.utils.LevelUtils;
+import com.github.shk0da.GoldenDragon.utils.LevelUtils.Level;
 import java.text.SimpleDateFormat;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.Date;
 import java.util.Deque;
@@ -34,7 +38,8 @@ import static java.lang.System.out;
 
 public class OrderFlowScalpingStrategy implements MarketTickListener {
 
-    private static final ThreadLocal<SimpleDateFormat> LOG_TIME_FORMAT = ThreadLocal.withInitial(() -> new SimpleDateFormat("dd.MM.yyyy HH:mm:ss"));
+    private static final ThreadLocal<SimpleDateFormat> LOG_TIME_FORMAT =
+            ThreadLocal.withInitial(() -> new SimpleDateFormat("dd.MM.yyyy HH:mm:ss"));
 
     public interface TradingGateway {
 
@@ -48,9 +53,11 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
 
         PositionInfo getCurrentPosition(TickerType type, String ticker);
 
-        TCSService.OrderExecutionResult buy(TickerInfo tickerInfo, double cash, double entryPrice, double takePrice, double stopPrice, boolean useLimitEntry);
+        TCSService.OrderExecutionResult buy(TickerInfo tickerInfo, double cash, double entryPrice,
+                                            double takePrice, double stopPrice, boolean useLimitEntry);
 
-        TCSService.OrderExecutionResult sell(TickerInfo tickerInfo, double cash, double entryPrice, double takePrice, double stopPrice, boolean useLimitEntry);
+        TCSService.OrderExecutionResult sell(TickerInfo tickerInfo, double cash, double entryPrice,
+                                             double takePrice, double stopPrice, boolean useLimitEntry);
 
         TCSService.OrderExecutionResult closeLong(TickerInfo tickerInfo);
 
@@ -63,6 +70,8 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
         void syncProtectiveOrders(TickerInfo tickerInfo, Position position);
 
         void clearProtectiveOrders(TickerInfo tickerInfo);
+
+        List<TickerCandle> getCandles(TickerInfo.Key key, int count);
     }
 
     public static class LiveTradingGateway implements TradingGateway {
@@ -99,7 +108,8 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
         }
 
         @Override
-        public TCSService.OrderExecutionResult buy(TickerInfo tickerInfo, double cash, double entryPrice, double takePrice, double stopPrice, boolean useLimitEntry) {
+        public TCSService.OrderExecutionResult buy(TickerInfo tickerInfo, double cash, double entryPrice,
+                                                   double takePrice, double stopPrice, boolean useLimitEntry) {
             if (useLimitEntry) {
                 return tcsService.buyLimit(tickerInfo.getTicker(), tickerInfo.getType(), cash, entryPrice);
             }
@@ -113,7 +123,8 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
         }
 
         @Override
-        public TCSService.OrderExecutionResult sell(TickerInfo tickerInfo, double cash, double entryPrice, double takePrice, double stopPrice, boolean useLimitEntry) {
+        public TCSService.OrderExecutionResult sell(TickerInfo tickerInfo, double cash, double entryPrice,
+                                                    double takePrice, double stopPrice, boolean useLimitEntry) {
             if (useLimitEntry) {
                 return tcsService.sellLimit(tickerInfo.getTicker(), tickerInfo.getType(), cash, entryPrice);
             }
@@ -155,10 +166,16 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
         public void clearProtectiveOrders(TickerInfo tickerInfo) {
             tcsService.clearProtectiveOrders(tickerInfo.getTicker(), tickerInfo.getType());
         }
+
+        @Override
+        public List<TickerCandle> getCandles(TickerInfo.Key key, int count) {
+            return tcsService.getLastCandlesAsTickerCandles(key.getTicker(), key.getType(), count);
+        }
     }
 
     private final OrderFlowScalpingConfig config;
     private final TradingGateway tradingGateway;
+    private final LevelUtils levelUtils;
     private final Map<String, ScalpingState> stateByTicker = new ConcurrentHashMap<>();
     private final double startBalance;
     private volatile boolean running = true;
@@ -173,6 +190,14 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
         this.config = config;
         this.tradingGateway = tradingGateway;
         this.startBalance = tradingGateway.getAvailableCash();
+        this.levelUtils = config.isLevelsEnabled()
+                ? new LevelUtils(
+                config.getLevelZonePercent(),
+                config.getLevelMinTouches(),
+                config.getLevelMinStrengthPercentile(),
+                config.getLevelConsolidationWindow(),
+                config.getLevelConsolidationThreshold())
+                : null;
     }
 
     public void run() {
@@ -187,6 +212,10 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
         telegramNotifyService.sendMessage("Run OrderFlowScalpingStrategy");
         instruments.forEach(this::subscribeTicker);
 
+        if (config.isLevelsEnabled()) {
+            stateByTicker.values().forEach(this::refreshKeyLevels);
+        }
+
         while (running) {
             if (isDailyLossLimitReached()) {
                 log("OrderFlowScalpingStrategy: daily loss limit reached");
@@ -194,6 +223,9 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
                 break;
             }
             instruments.forEach(instrument -> processTicker(instrument.getTicker()));
+            if (config.isLevelsEnabled()) {
+                refreshLevelsIfNeeded();
+            }
             sleep(config.getLoopSleepMs());
         }
 
@@ -206,6 +238,45 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
         running = false;
         forceCloseAllPositions();
         new ArrayList<>(stateByTicker.keySet()).forEach(this::unsubscribeTicker);
+    }
+
+    private void refreshLevelsIfNeeded() {
+        Instant now = now();
+        long refreshIntervalSeconds = config.getLevelsRefreshMinutes() * 60L;
+        for (ScalpingState state : stateByTicker.values()) {
+            if (state.levelsLastUpdate == null
+                    || Duration.between(state.levelsLastUpdate, now).getSeconds() >= refreshIntervalSeconds) {
+                refreshKeyLevels(state);
+            }
+        }
+    }
+
+    private void refreshKeyLevels(ScalpingState state) {
+        if (levelUtils == null) {
+            return;
+        }
+        try {
+            List<TickerCandle> candles = tradingGateway.getCandles(
+                    state.tickerInfo.getKey(),
+                    config.getLevelsLookbackCandles()
+            );
+            if (candles == null || candles.isEmpty()) {
+                state.levelsLastUpdate = now();
+                return;
+            }
+            List<Level> levels = levelUtils.identifyKeyLevels(candles);
+            state.keyLevels = levels != null ? levels : Collections.emptyList();
+            state.levelsLastUpdate = now();
+            log(String.format(
+                    "OrderFlowScalpingStrategy LEVELS REFRESHED %s: count=%d",
+                    state.tickerInfo.getTicker(),
+                    state.keyLevels.size()
+            ));
+        } catch (Exception ex) {
+            log("OrderFlowScalpingStrategy: failed to refresh levels for "
+                    + state.tickerInfo.getTicker() + ": " + ex.getMessage());
+            state.levelsLastUpdate = now();
+        }
     }
 
     private void subscribeTicker(OrderFlowScalpingConfig.Instrument instrument) {
@@ -288,13 +359,221 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
         addSignal(signals, detectSpoofingSignal(state));
         addSignal(signals, detectAbsorptionSignal(state));
         addSignal(signals, detectStackedBreakoutSignal(state));
-        return signals.stream().max(Comparator.comparingDouble(it -> it.confidence)).orElse(null);
+        addSignal(signals, detectLevelReboundSignal(state));
+
+        // Применяем буст confidence и фильтр уровней
+        List<Signal> processed = new ArrayList<>();
+        for (Signal signal : signals) {
+            Signal adjusted = applyLevelLogic(state, signal);
+            if (adjusted != null) {
+                processed.add(adjusted);
+            }
+        }
+        return processed.stream().max(Comparator.comparingDouble(it -> it.confidence)).orElse(null);
     }
 
     private void addSignal(List<Signal> signals, Signal signal) {
         if (signal != null) {
             signals.add(signal);
         }
+    }
+
+    /**
+     * Применяет к сигналу логику уровней:
+     * - буст confidence для отбойных сигналов у уровней
+     * - корректировка стопов за уровень
+     * - корректировка тейков до следующего уровня
+     * - отсечение сигналов вдали от уровней (если включён strict-фильтр)
+     */
+    private Signal applyLevelLogic(ScalpingState state, Signal signal) {
+        if (!config.isLevelsEnabled() || state.keyLevels == null || state.keyLevels.isEmpty()) {
+            return signal;
+        }
+
+        double tick = max(state.tickerInfo.getMinPriceIncrement(), 0.01);
+        boolean isBreakoutSignal = "STACKED_BREAKOUT".equals(signal.reason);
+
+        Level nearestSameSide = findNearestProtectiveLevel(state, signal);
+        Level nextOpposite = findNextOppositeLevel(state, signal);
+
+        // Strict-фильтр: отбойные сигналы только у уровней
+        if (config.isLevelStrictFilter() && !isBreakoutSignal && !"LEVEL_REBOUND".equals(signal.reason)) {
+            if (nearestSameSide == null || distanceTicks(signal.entryPrice, nearestSameSide.getPrice(), tick)
+                    > config.getLevelProximityTicks()) {
+                return null;
+            }
+        }
+
+        // Буст confidence, если защитный уровень рядом
+        double confidence = signal.confidence;
+        if (nearestSameSide != null
+                && distanceTicks(signal.entryPrice, nearestSameSide.getPrice(), tick)
+                <= config.getLevelProximityTicks()
+                && !isBreakoutSignal) {
+            confidence = min(0.99, confidence + config.getLevelConfidenceBoost());
+        }
+
+        // Стоп за уровень
+        double stopPrice = signal.stopPrice;
+        if (config.isLevelBasedStops() && nearestSameSide != null && !isBreakoutSignal) {
+            stopPrice = adjustStopBehindLevel(signal.direction, signal.stopPrice, nearestSameSide.getPrice(), tick);
+        }
+
+        // Тейк до следующего противоположного уровня
+        double takePrice = signal.takePrice;
+        if (config.isLevelBasedTakes() && nextOpposite != null) {
+            double levelTake = adjustTakeBeforeLevel(signal.direction, nextOpposite.getPrice(), tick);
+            // Берём более консервативный тейк (ближе к цене входа)
+            if ("BUY".equals(signal.direction)) {
+                takePrice = min(takePrice, levelTake);
+                if (takePrice <= signal.entryPrice) {
+                    takePrice = signal.takePrice; // если уровень уже пройден — оставляем оригинальный
+                }
+            } else {
+                takePrice = max(takePrice, levelTake);
+                if (takePrice >= signal.entryPrice) {
+                    takePrice = signal.takePrice;
+                }
+            }
+        }
+
+        return new Signal(
+                signal.direction,
+                signal.reason,
+                confidence,
+                signal.entryPrice,
+                stopPrice,
+                takePrice,
+                signal.riskPercent,
+                signal.useLimitEntry,
+                signal.anchorPrice
+        );
+    }
+
+    private double distanceTicks(double price1, double price2, double tick) {
+        return abs(price1 - price2) / max(tick, 0.0000001);
+    }
+
+    /**
+     * Возвращает ближайший защитный уровень со стороны стопа.
+     * Для BUY ищем поддержку ниже или на уровне entry.
+     * Для SELL ищем сопротивление выше или на уровне entry.
+     */
+    private Level findNearestProtectiveLevel(ScalpingState state, Signal signal) {
+        if (state.keyLevels == null) return null;
+        boolean isBuy = "BUY".equals(signal.direction);
+        Level best = null;
+        double bestDistance = Double.MAX_VALUE;
+        for (Level level : state.keyLevels) {
+            if (isBuy && level.isSupport() && level.getPrice() <= signal.entryPrice) {
+                double dist = signal.entryPrice - level.getPrice();
+                if (dist < bestDistance) {
+                    bestDistance = dist;
+                    best = level;
+                }
+            } else if (!isBuy && !level.isSupport() && level.getPrice() >= signal.entryPrice) {
+                double dist = level.getPrice() - signal.entryPrice;
+                if (dist < bestDistance) {
+                    bestDistance = dist;
+                    best = level;
+                }
+            }
+        }
+        return best;
+    }
+
+    /**
+     * Возвращает ближайший противоположный уровень в направлении движения.
+     */
+    private Level findNextOppositeLevel(ScalpingState state, Signal signal) {
+        if (state.keyLevels == null) return null;
+        boolean isBuy = "BUY".equals(signal.direction);
+        Level best = null;
+        double bestDistance = Double.MAX_VALUE;
+        for (Level level : state.keyLevels) {
+            if (isBuy && !level.isSupport() && level.getPrice() > signal.entryPrice) {
+                double dist = level.getPrice() - signal.entryPrice;
+                if (dist < bestDistance) {
+                    bestDistance = dist;
+                    best = level;
+                }
+            } else if (!isBuy && level.isSupport() && level.getPrice() < signal.entryPrice) {
+                double dist = signal.entryPrice - level.getPrice();
+                if (dist < bestDistance) {
+                    bestDistance = dist;
+                    best = level;
+                }
+            }
+        }
+        return best;
+    }
+
+    private double adjustStopBehindLevel(String direction, double currentStop, double levelPrice, double tick) {
+        if ("BUY".equals(direction)) {
+            double levelStop = levelPrice - tick * 3;
+            // Стоп не должен быть выше текущего, но и не слишком далеко
+            return min(currentStop, levelStop);
+        } else {
+            double levelStop = levelPrice + tick * 3;
+            return max(currentStop, levelStop);
+        }
+    }
+
+    private double adjustTakeBeforeLevel(String direction, double levelPrice, double tick) {
+        if ("BUY".equals(direction)) {
+            return levelPrice - tick * 2;
+        }
+        return levelPrice + tick * 2;
+    }
+
+    /**
+     * Новый сигнал: отбой от ключевого уровня с подтверждением order flow.
+     * Цена близко к поддержке/сопротивлению + соответствующее CVD и абсорбция.
+     */
+    private Signal detectLevelReboundSignal(ScalpingState state) {
+        if (!config.isLevelsEnabled() || state.keyLevels == null || state.keyLevels.isEmpty()
+                || state.marketRegime == MarketRegime.LOW_LIQUIDITY
+                || state.marketRegime == MarketRegime.HIGH_VOLATILITY) {
+            return null;
+        }
+
+        double tick = max(state.tickerInfo.getMinPriceIncrement(), 0.01);
+        Double mid = state.lastOrderBook.getMidPrice();
+        if (mid == null) return null;
+
+        double maxDistance = tick * config.getLevelProximityTicks();
+
+        for (Level level : state.keyLevels) {
+            double distance = abs(mid - level.getPrice());
+            if (distance > maxDistance) continue;
+
+            // Отбой от поддержки → BUY
+            if (level.isSupport()
+                    && state.cvdShortWindow > 0
+                    && state.sellAggressionSlowdown
+                    && hasAbsorptionBidLevel(state)) {
+                double entryPrice = getEntryPrice(state, "BUY");
+                double stopPrice = level.getPrice() - tick * 3;
+                if (entryPrice > stopPrice) {
+                    return Signal.levelRebound("BUY", entryPrice, stopPrice,
+                            config.getHighQualityRiskPercent(), level.getPrice());
+                }
+            }
+
+            // Отбой от сопротивления → SELL
+            if (!level.isSupport()
+                    && state.cvdShortWindow < 0
+                    && state.buyAggressionSlowdown
+                    && hasAbsorptionAskLevel(state)) {
+                double entryPrice = getEntryPrice(state, "SELL");
+                double stopPrice = level.getPrice() + tick * 3;
+                if (entryPrice < stopPrice) {
+                    return Signal.levelRebound("SELL", entryPrice, stopPrice,
+                            config.getHighQualityRiskPercent(), level.getPrice());
+                }
+            }
+        }
+        return null;
     }
 
     private Signal detectImbalanceSignal(ScalpingState state) {
@@ -441,14 +720,18 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
                 && state.lastBidSpoofWasLarge
                 && !state.lastBidSpoofLikelyExecuted
                 && hasSpoofHistory(state.bidSpoofHistory, now)) {
-            return Signal.spoof("SELL", getEntryPrice(state, "SELL"), getEntryPrice(state, "SELL") + state.tickerInfo.getMinPriceIncrement() * 3, config.getBaseRiskPercent());
+            return Signal.spoof("SELL", getEntryPrice(state, "SELL"),
+                    getEntryPrice(state, "SELL") + state.tickerInfo.getMinPriceIncrement() * 3,
+                    config.getBaseRiskPercent());
         }
         if (state.lastAskSpoofRemovedAt != null
                 && Duration.between(state.lastAskSpoofRemovedAt, now).toMillis() <= 1000
                 && state.lastAskSpoofWasLarge
                 && !state.lastAskSpoofLikelyExecuted
                 && hasSpoofHistory(state.askSpoofHistory, now)) {
-            return Signal.spoof("BUY", getEntryPrice(state, "BUY"), getEntryPrice(state, "BUY") - state.tickerInfo.getMinPriceIncrement() * 3, config.getBaseRiskPercent());
+            return Signal.spoof("BUY", getEntryPrice(state, "BUY"),
+                    getEntryPrice(state, "BUY") - state.tickerInfo.getMinPriceIncrement() * 3,
+                    config.getBaseRiskPercent());
         }
         return null;
     }
@@ -545,7 +828,8 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
         double breakoutPrice = levels.get(config.getStackedLevels() - 1).getPrice();
         double basePrice = levels.get(0).getPrice();
         boolean collapsed = remainingLevelsVolume < segmentVolume * 0.4;
-        return new StackedLevel(basePrice, breakoutPrice, breakoutVisibleVolume, Duration.between(since, now()).toMillis(), collapsed);
+        return new StackedLevel(basePrice, breakoutPrice, breakoutVisibleVolume,
+                Duration.between(since, now()).toMillis(), collapsed);
     }
 
     private boolean crossedBreakoutLevel(ScalpingState state, double breakoutPrice, boolean breakoutUp) {
@@ -562,7 +846,8 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
     }
 
     private void openSignalPosition(ScalpingState state, Signal signal) {
-        if (countOpenPositions() >= config.getMaxTotalPositions() || countOpenPositions(state.tickerInfo) >= config.getMaxPositionsPerTicker()) {
+        if (countOpenPositions() >= config.getMaxTotalPositions()
+                || countOpenPositions(state.tickerInfo) >= config.getMaxPositionsPerTicker()) {
             return;
         }
 
@@ -620,8 +905,21 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
         double expectedGrossTakePnl = expectedGrossTakePnl(position);
         double expectedRoundTripCommission = expectedRoundTripCommission(orderResult);
         double expectedNetTakePnl = expectedGrossTakePnl - expectedRoundTripCommission;
+
+        Level nearestLevel = findNearestProtectiveLevel(state, signal);
+        Level nextOpposite = findNextOppositeLevel(state, signal);
+        String levelInfo = String.format(
+                " nearestLevel=%s nextOppositeLevel=%s",
+                nearestLevel != null ? String.format("%.4f(%s,touches=%d,strength=%.0f)",
+                        nearestLevel.getPrice(), nearestLevel.isSupport() ? "S" : "R",
+                        nearestLevel.getTouches(), nearestLevel.getStrength()) : "none",
+                nextOpposite != null ? String.format("%.4f(%s,touches=%d)",
+                        nextOpposite.getPrice(), nextOpposite.isSupport() ? "S" : "R",
+                        nextOpposite.getTouches()) : "none"
+        );
+
         String base = String.format(
-                "OrderFlowScalpingStrategy OPEN %s %s by %s: entryPrice=%.4f stopPrice=%.4f takePrice=%.4f qty=%d executedNotional=%.2f riskCash=%.2f stopTicks=%.2f regime=%s signalEntry=%.4f executedEntry=%.4f expectedGrossTakePnl=%.2f expectedNetTakePnl=%.2f expectedRoundTripCommission=%.2f",
+                "OrderFlowScalpingStrategy OPEN %s %s by %s: entryPrice=%.4f stopPrice=%.4f takePrice=%.4f qty=%d executedNotional=%.2f riskCash=%.2f stopTicks=%.2f regime=%s signalEntry=%.4f executedEntry=%.4f expectedGrossTakePnl=%.2f expectedNetTakePnl=%.2f expectedRoundTripCommission=%.2f%s",
                 signal.direction,
                 state.tickerInfo.getTicker(),
                 signal.reason,
@@ -637,8 +935,19 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
                 orderResult.getExecutedPrice() != null && orderResult.getExecutedPrice() > 0.0 ? orderResult.getExecutedPrice() : entryPricePerUnit,
                 expectedGrossTakePnl,
                 expectedNetTakePnl,
-                expectedRoundTripCommission
+                expectedRoundTripCommission,
+                levelInfo
         );
+
+        if ("LEVEL_REBOUND".equals(signal.reason)) {
+            return base + String.format(
+                    "; reasonDetails: anchorLevel=%.4f cvdShort=%d slowdownBuy=%s slowdownSell=%s",
+                    signal.anchorPrice != null ? signal.anchorPrice : 0.0,
+                    state.cvdShortWindow,
+                    state.buyAggressionSlowdown,
+                    state.sellAggressionSlowdown
+            );
+        }
 
         if ("OBI".equals(signal.reason)) {
             double obi = calcObi(state.lastOrderBook, config.getImbalanceThresholdLevels());
@@ -920,7 +1229,7 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
             return;
         }
 
-        if ("ABSORPTION".equals(position.reason)) {
+        if ("ABSORPTION".equals(position.reason) || "LEVEL_REBOUND".equals(position.reason)) {
             if (position.firstPartialDone()) {
                 position.stopPrice = position.entryPrice;
             }
@@ -952,7 +1261,9 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
             tradingGateway.clearProtectiveOrders(state.tickerInfo);
             return;
         }
-        tradingGateway.syncProtectiveOrders(state.tickerInfo, new Position(position.direction, position.entryPrice, position.stopPrice, position.takePrice, position.remainingQuantity, 0));
+        tradingGateway.syncProtectiveOrders(state.tickerInfo,
+                new Position(position.direction, position.entryPrice, position.stopPrice,
+                        position.takePrice, position.remainingQuantity, 0));
     }
 
     private SignalInvalidationReason getSignalInvalidationReason(ScalpingState state, LivePosition position, double currentPrice) {
@@ -1009,6 +1320,16 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
                 position.oppositeAbsorptionSince = null;
             }
         }
+        // Инвалидация LEVEL_REBOUND: цена пробила анкер-уровень
+        if ("LEVEL_REBOUND".equals(position.reason) && position.anchorPrice != null) {
+            double tick = position.tickSize;
+            boolean broken = "BUY".equals(position.direction)
+                    ? currentPrice < position.anchorPrice - tick * 2
+                    : currentPrice > position.anchorPrice + tick * 2;
+            if (broken && !position.firstPartialDone()) {
+                return SignalInvalidationReason.LEVEL_BROKEN;
+            }
+        }
         return null;
     }
 
@@ -1053,9 +1374,7 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
         double grossPnl = "BUY".equals(position.direction)
                 ? (exitExecutionPrice - position.entryPrice) * position.remainingQuantity
                 : (position.entryPrice - exitExecutionPrice) * position.remainingQuantity;
-        double pnl = "BUY".equals(position.direction)
-                ? grossPnl - entryCommissionPart - exitResult.getCommission()
-                : grossPnl - entryCommissionPart - exitResult.getCommission();
+        double pnl = grossPnl - entryCommissionPart - exitResult.getCommission();
         dailyPnl += pnl;
         if (closeDecision.isFalseSignal()) {
             state.openAttemptBlockedUntil = now().plusSeconds(config.getFalseSignalReentryCooldownSeconds());
@@ -1078,7 +1397,9 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
                 state.openAttemptBlockedUntil
         ));
         state.openPosition = null;
-        telegramNotifyService.sendMessage("OrderFlowScalpingStrategy CLOSE " + state.tickerInfo.getTicker() + " reason=" + closeDecision.reason + " details=" + closeDecision.details + " pnl=" + String.format("%.2f", pnl));
+        telegramNotifyService.sendMessage("OrderFlowScalpingStrategy CLOSE " + state.tickerInfo.getTicker()
+                + " reason=" + closeDecision.reason + " details=" + closeDecision.details
+                + " pnl=" + String.format("%.2f", pnl));
     }
 
     private void log(String message) {
@@ -1344,6 +1665,17 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
         return dailyPnl;
     }
 
+    /**
+     * Позволяет внешнему коду (например, бэктесту) подать уровни вручную.
+     */
+    public void setKeyLevelsForTicker(String ticker, List<Level> levels) {
+        ScalpingState state = stateByTicker.get(ticker);
+        if (state != null) {
+            state.keyLevels = levels != null ? levels : Collections.emptyList();
+            state.levelsLastUpdate = now();
+        }
+    }
+
     private Instant now() {
         return currentTime != null ? currentTime : Instant.now();
     }
@@ -1522,7 +1854,8 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
             int q1 = max(1, quantity / 3);
             int q2 = max(1, quantity / 3);
             int q3 = max(0, quantity - q1 - q2);
-            plan.add(new PartialExit(q1, targetPrice(signal.direction, entryPrice, tickSize * 5), adjustedPrice(signal.direction, signal.anchorPrice, tickSize, 1)));
+            plan.add(new PartialExit(q1, targetPrice(signal.direction, entryPrice, tickSize * 5),
+                    adjustedPrice(signal.direction, signal.anchorPrice, tickSize, 1)));
             plan.add(new PartialExit(q2, targetPrice(signal.direction, entryPrice, tickSize * 10), null));
             if (q3 > 0) {
                 plan.add(new PartialExit(q3, targetPrice(signal.direction, entryPrice, tickSize * 15), null));
@@ -1542,10 +1875,23 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
             return plan;
         }
 
+        if ("LEVEL_REBOUND".equals(signal.reason)) {
+            int q1 = max(1, (int) Math.floor(quantity * 0.5));
+            int q2 = max(0, quantity - q1);
+            // Первая часть — короткая цель, перевод стопа в безубыток
+            plan.add(new PartialExit(q1, targetPrice(signal.direction, entryPrice, tickSize * 5), entryPrice));
+            if (q2 > 0) {
+                // Вторая часть — целимся в следующий уровень (или дальняя цель)
+                plan.add(new PartialExit(q2, targetPrice(signal.direction, entryPrice, tickSize * 12), null));
+            }
+            return plan;
+        }
+
         if ("OBI".equals(signal.reason)) {
             int q1 = max(1, quantity / 2);
             int q2 = max(0, quantity - q1);
-            plan.add(new PartialExit(q1, targetPrice(signal.direction, entryPrice, tickSize * 4), adjustedPrice(signal.direction, entryPrice, tickSize, 2)));
+            plan.add(new PartialExit(q1, targetPrice(signal.direction, entryPrice, tickSize * 4),
+                    adjustedPrice(signal.direction, entryPrice, tickSize, 2)));
             if (q2 > 0) {
                 plan.add(new PartialExit(q2, targetPrice(signal.direction, entryPrice, tickSize * config.getImbalanceTakeTicksMax()), null));
             }
@@ -1559,7 +1905,8 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
 
         int q1 = max(1, quantity / 2);
         int q2 = max(0, quantity - q1);
-        plan.add(new PartialExit(q1, targetPrice(signal.direction, entryPrice, tickSize * 5), adjustedPrice(signal.direction, entryPrice, tickSize, 1)));
+        plan.add(new PartialExit(q1, targetPrice(signal.direction, entryPrice, tickSize * 5),
+                adjustedPrice(signal.direction, entryPrice, tickSize, 1)));
         if (q2 > 0) {
             plan.add(new PartialExit(q2, targetPrice(signal.direction, entryPrice, tickSize * 10), null));
         }
@@ -1643,6 +1990,10 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
         private Instant bidStackSince;
         private Instant askStackSince;
         private Instant openAttemptBlockedUntil;
+
+        // Ключевые уровни (поддержки/сопротивления)
+        private volatile List<Level> keyLevels = Collections.emptyList();
+        private volatile Instant levelsLastUpdate;
 
         private ScalpingState(TickerInfo tickerInfo) {
             this.tickerInfo = tickerInfo;
@@ -1754,6 +2105,7 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
         ICEBERG_DISAPPEARED,
         ICEBERG_OPPOSITE_CVD_FLIP,
         ABSORPTION_OPPOSITE_SIGNAL,
+        LEVEL_BROKEN,
     }
 
     private static class PartialExit {
@@ -1823,8 +2175,19 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
         }
 
         private static Signal breakout(String direction, double entryPrice, double stopPrice, double riskPercent) {
-            double takePrice = "BUY".equals(direction) ? entryPrice + abs(entryPrice - stopPrice) * 3.0 : entryPrice - abs(entryPrice - stopPrice) * 3.0;
+            double takePrice = "BUY".equals(direction)
+                    ? entryPrice + abs(entryPrice - stopPrice) * 3.0
+                    : entryPrice - abs(entryPrice - stopPrice) * 3.0;
             return new Signal(direction, "STACKED_BREAKOUT", 0.88, entryPrice, stopPrice, takePrice, riskPercent, false, null);
+        }
+
+        private static Signal levelRebound(String direction, double entryPrice, double stopPrice,
+                                           double riskPercent, double anchorLevelPrice) {
+            // Тейк на 4x риска — отбои от ключевых уровней обычно дают хорошее движение
+            double takePrice = "BUY".equals(direction)
+                    ? entryPrice + abs(entryPrice - stopPrice) * 4.0
+                    : entryPrice - abs(entryPrice - stopPrice) * 4.0;
+            return new Signal(direction, "LEVEL_REBOUND", 0.90, entryPrice, stopPrice, takePrice, riskPercent, true, anchorLevelPrice);
         }
     }
 

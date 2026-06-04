@@ -1,14 +1,20 @@
 package com.github.shk0da.GoldenDragon.test;
 
+import com.github.shk0da.GoldenDragon.config.DataCollectorConfig;
+import com.github.shk0da.GoldenDragon.config.MainConfig;
+import com.github.shk0da.GoldenDragon.config.MarketConfig;
 import com.github.shk0da.GoldenDragon.config.OrderFlowScalpingConfig;
+import com.github.shk0da.GoldenDragon.model.Market;
 import com.github.shk0da.GoldenDragon.model.MarketDepthLevel;
 import com.github.shk0da.GoldenDragon.model.MarketDepthSnapshot;
 import com.github.shk0da.GoldenDragon.model.Position;
 import com.github.shk0da.GoldenDragon.model.PositionInfo;
+import com.github.shk0da.GoldenDragon.model.TickerCandle;
 import com.github.shk0da.GoldenDragon.model.TickerInfo;
 import com.github.shk0da.GoldenDragon.model.TickerType;
 import com.github.shk0da.GoldenDragon.repository.TickerRepository;
 import com.github.shk0da.GoldenDragon.service.TCSService;
+import com.github.shk0da.GoldenDragon.strategy.DataCollector;
 import com.github.shk0da.GoldenDragon.strategy.OrderFlowScalpingStrategy;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -18,17 +24,21 @@ import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
 import java.util.stream.Stream;
+import ru.tinkoff.piapi.contract.v1.CandleInterval;
 
 public class MarketTickBacktestRunner {
 
     private static final DateTimeFormatter DATE_TIME_FMT = DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm:ss");
     private static final String HEADER = "time,best_bid,best_ask,mid_price,bids,asks";
+    private static final String CANDLES_HEADER = "Datetime,Open,High,Low,Close,Volume";
     private static final double INITIAL_BALANCE = 1_000_000.0;
     private static final double COMMISSION_RATE = 0.0005;
 
@@ -46,11 +56,11 @@ public class MarketTickBacktestRunner {
         this.commissionRate = commissionRate;
     }
 
-    public static void main(String[] args) throws IOException {
+    public static void main(String[] args) throws Exception {
         new MarketTickBacktestRunner().run();
     }
 
-    public void run() throws IOException {
+    public void run() throws Exception {
         OrderFlowScalpingConfig config = new OrderFlowScalpingConfig();
         List<OrderFlowScalpingConfig.Instrument> instruments = config.getInstruments();
         if (instruments.isEmpty()) {
@@ -64,7 +74,11 @@ public class MarketTickBacktestRunner {
             return;
         }
 
-        SimulationGateway gateway = new SimulationGateway(initialBalance, commissionRate);
+        DataCollector dataCollector = new DataCollector(
+                new DataCollectorConfig(),
+                new TCSService(new MainConfig(), MarketConfig.byMarket(Market.MOEX))
+        );
+        SimulationGateway gateway = new SimulationGateway(dataDir, initialBalance, commissionRate, dataCollector);
         OrderFlowScalpingStrategy strategy = new OrderFlowScalpingStrategy(config, gateway);
         ticksByTicker.values().forEach(it -> strategy.registerTicker(it.tickerInfo));
 
@@ -260,19 +274,24 @@ public class MarketTickBacktestRunner {
 
     private static class SimulationGateway implements OrderFlowScalpingStrategy.TradingGateway {
 
+        private final String dataDir;
         private final double commissionRate;
+        private final DataCollector dataCollector;
         private final Map<String, SimulatedPosition> positionsByTicker = new LinkedHashMap<>();
         private final Map<String, MarketDepthSnapshot> lastSnapshotByTicker = new TreeMap<>();
+        private final Map<String, List<TickerCandle>> hourCandlesByTicker = new HashMap<>();
         private double cash;
         private double peakEquity;
         private double maxDrawdownPercent;
         private long closedTrades;
         private long winningTrades;
 
-        private SimulationGateway(double initialBalance, double commissionRate) {
+        private SimulationGateway(String dataDir, double initialBalance, double commissionRate, DataCollector dataCollector) {
+            this.dataDir = dataDir;
             this.cash = initialBalance;
             this.peakEquity = initialBalance;
             this.commissionRate = commissionRate;
+            this.dataCollector = dataCollector;
         }
 
         @Override
@@ -311,6 +330,110 @@ public class MarketTickBacktestRunner {
                     position.entryPrice,
                     position.tickerInfo.getName()
             );
+        }
+
+        @Override
+        public List<TickerCandle> getCandles(TickerInfo.Key key, int count) {
+            if (count <= 0) {
+                return Collections.emptyList();
+            }
+            MarketDepthSnapshot snapshot = lastSnapshotByTicker.get(key.getTicker());
+            if (snapshot == null) {
+                return Collections.emptyList();
+            }
+            List<TickerCandle> candles = ensureHourCandlesLoaded(key.getTicker(), count, snapshot);
+            if (candles.isEmpty()) {
+                return Collections.emptyList();
+            }
+
+            LocalDateTime snapshotTime = LocalDateTime.ofInstant(snapshot.getTime(), ZoneId.systemDefault());
+            List<TickerCandle> availableCandles = new ArrayList<>();
+            for (TickerCandle candle : candles) {
+                LocalDateTime candleTime = LocalDateTime.parse(candle.getDate(), DATE_TIME_FMT);
+                if (candleTime.isAfter(snapshotTime)) {
+                    break;
+                }
+                availableCandles.add(candle);
+            }
+            if (availableCandles.isEmpty()) {
+                return Collections.emptyList();
+            }
+
+            int fromIndex = Math.max(0, availableCandles.size() - count);
+            return new ArrayList<>(availableCandles.subList(fromIndex, availableCandles.size()));
+        }
+
+        private List<TickerCandle> ensureHourCandlesLoaded(String ticker, int count, MarketDepthSnapshot snapshot) {
+            List<TickerCandle> candles = hourCandlesByTicker.computeIfAbsent(ticker, this::loadHourCandles);
+            int availableCount = countAvailableCandles(candles, snapshot.getTime());
+            if (availableCount >= count) {
+                return candles;
+            }
+
+            try {
+                dataCollector.updateCandlesFile(ticker, dataDir, CandleInterval.CANDLE_INTERVAL_HOUR, false);
+                List<TickerCandle> reloadedCandles = loadHourCandles(ticker);
+                hourCandlesByTicker.put(ticker, reloadedCandles);
+                return reloadedCandles;
+            } catch (Exception ex) {
+                System.out.println("Warn: failed update candles for " + ticker + ": " + ex.getMessage());
+                return candles;
+            }
+        }
+
+        private int countAvailableCandles(List<TickerCandle> candles, Instant snapshotTime) {
+            LocalDateTime time = LocalDateTime.ofInstant(snapshotTime, ZoneId.systemDefault());
+            int count = 0;
+            for (TickerCandle candle : candles) {
+                LocalDateTime candleTime = LocalDateTime.parse(candle.getDate(), DATE_TIME_FMT);
+                if (candleTime.isAfter(time)) {
+                    break;
+                }
+                count++;
+            }
+            return count;
+        }
+
+        private List<TickerCandle> loadHourCandles(String ticker) {
+            Path candlesPath = Path.of(dataDir, ticker, "candlesHOUR.txt");
+            if (!Files.exists(candlesPath)) {
+                return Collections.emptyList();
+            }
+
+            List<TickerCandle> result = new ArrayList<>();
+            try (Stream<String> lines = Files.lines(candlesPath)) {
+                lines.filter(line -> !line.isBlank())
+                        .filter(line -> !CANDLES_HEADER.equals(line))
+                        .map(this::parseCandleRow)
+                        .filter(java.util.Objects::nonNull)
+                        .sorted(Comparator.comparing(candle -> LocalDateTime.parse(candle.getDate(), DATE_TIME_FMT)))
+                        .forEach(result::add);
+            } catch (IOException ex) {
+                System.out.println("Warn: failed read candles for " + ticker + ": " + ex.getMessage());
+                return Collections.emptyList();
+            }
+            return result;
+        }
+
+        private TickerCandle parseCandleRow(String line) {
+            String[] parts = line.split(",");
+            if (parts.length < 6) {
+                return null;
+            }
+            try {
+                return new TickerCandle(
+                        "",
+                        parts[0],
+                        Double.parseDouble(parts[1]),
+                        Double.parseDouble(parts[2]),
+                        Double.parseDouble(parts[3]),
+                        Double.parseDouble(parts[4]),
+                        Double.parseDouble(parts[4]),
+                        Integer.parseInt(parts[5])
+                );
+            } catch (Exception ex) {
+                return null;
+            }
         }
 
         @Override

@@ -79,6 +79,19 @@ public class OrderFlowScalpingConfig {
     private final int falseSignalReentryCooldownSeconds;
     private final int obiAnchorRemovalConfirmSeconds;
     private final int absorptionOppositeConfirmSeconds;
+    private final boolean levelsEnabled;
+    private final int levelsRefreshMinutes;
+    private final int levelsLookbackCandles;
+    private final double levelZonePercent;
+    private final int levelMinTouches;
+    private final double levelMinStrengthPercentile;
+    private final int levelConsolidationWindow;
+    private final double levelConsolidationThreshold;
+    private final int levelProximityTicks;
+    private final double levelConfidenceBoost;
+    private final boolean levelStrictFilter;
+    private final boolean levelBasedStops;
+    private final boolean levelBasedTakes;
 
     public OrderFlowScalpingConfig() {
         final Properties properties;
@@ -135,6 +148,19 @@ public class OrderFlowScalpingConfig {
         falseSignalReentryCooldownSeconds = Integer.parseInt(properties.getProperty("orderFlowScalping.falseSignalReentryCooldownSeconds", "20"));
         obiAnchorRemovalConfirmSeconds = Integer.parseInt(properties.getProperty("orderFlowScalping.obiAnchorRemovalConfirmSeconds", "3"));
         absorptionOppositeConfirmSeconds = Integer.parseInt(properties.getProperty("orderFlowScalping.absorptionOppositeConfirmSeconds", "3"));
+        levelsEnabled = Boolean.parseBoolean(properties.getProperty("orderFlowScalping.levelsEnabled", "true"));
+        levelsRefreshMinutes = Integer.parseInt(properties.getProperty("orderFlowScalping.levelsRefreshMinutes", "15"));
+        levelsLookbackCandles = Integer.parseInt(properties.getProperty("orderFlowScalping.levelsLookbackCandles", "200"));
+        levelZonePercent = Double.parseDouble(properties.getProperty("orderFlowScalping.levelZonePercent", "0.003"));
+        levelMinTouches = Integer.parseInt(properties.getProperty("orderFlowScalping.levelMinTouches", "2"));
+        levelMinStrengthPercentile = Double.parseDouble(properties.getProperty("orderFlowScalping.levelMinStrengthPercentile", "0.3"));
+        levelConsolidationWindow = Integer.parseInt(properties.getProperty("orderFlowScalping.levelConsolidationWindow", "5"));
+        levelConsolidationThreshold = Double.parseDouble(properties.getProperty("orderFlowScalping.levelConsolidationThreshold", "0.003"));
+        levelProximityTicks = Integer.parseInt(properties.getProperty("orderFlowScalping.levelProximityTicks", "8"));
+        levelConfidenceBoost = Double.parseDouble(properties.getProperty("orderFlowScalping.levelConfidenceBoost", "0.10"));
+        levelStrictFilter = Boolean.parseBoolean(properties.getProperty("orderFlowScalping.levelStrictFilter", "false"));
+        levelBasedStops = Boolean.parseBoolean(properties.getProperty("orderFlowScalping.levelBasedStops", "true"));
+        levelBasedTakes = Boolean.parseBoolean(properties.getProperty("orderFlowScalping.levelBasedTakes", "true"));
     }
 
     private List<Instrument> parseInstruments(Properties properties) {
@@ -361,4 +387,18 @@ public class OrderFlowScalpingConfig {
     public int getAbsorptionOppositeConfirmSeconds() {
         return absorptionOppositeConfirmSeconds;
     }
+
+    public boolean isLevelsEnabled() { return levelsEnabled; }
+    public int getLevelsRefreshMinutes() { return levelsRefreshMinutes; }
+    public int getLevelsLookbackCandles() { return levelsLookbackCandles; }
+    public double getLevelZonePercent() { return levelZonePercent; }
+    public int getLevelMinTouches() { return levelMinTouches; }
+    public double getLevelMinStrengthPercentile() { return levelMinStrengthPercentile; }
+    public int getLevelConsolidationWindow() { return levelConsolidationWindow; }
+    public double getLevelConsolidationThreshold() { return levelConsolidationThreshold; }
+    public int getLevelProximityTicks() { return levelProximityTicks; }
+    public double getLevelConfidenceBoost() { return levelConfidenceBoost; }
+    public boolean isLevelStrictFilter() { return levelStrictFilter; }
+    public boolean isLevelBasedStops() { return levelBasedStops; }
+    public boolean isLevelBasedTakes() { return levelBasedTakes; }
 }

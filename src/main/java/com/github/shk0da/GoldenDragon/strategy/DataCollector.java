@@ -70,8 +70,8 @@ public class DataCollector {
         for (String name : tickers) {
             try {
                 createDirectories(Paths.get(dataDir + "/" + name));
-                createCandlesFile(name, dataDir, CandleInterval.CANDLE_INTERVAL_5_MIN, isReplace);
-                createCandlesFile(name, dataDir, CandleInterval.CANDLE_INTERVAL_HOUR, isReplace);
+                updateCandlesFile(name, dataDir, CandleInterval.CANDLE_INTERVAL_5_MIN, isReplace);
+                updateCandlesFile(name, dataDir, CandleInterval.CANDLE_INTERVAL_HOUR, isReplace);
                 var levels = calculatePriceLevels(name, dataDir, CandleInterval.CANDLE_INTERVAL_HOUR);
                 createTickerJson(name, dataDir, levels);
             } catch (Exception ex) {
@@ -80,7 +80,7 @@ public class DataCollector {
         }
     }
 
-    private void createCandlesFile(String name, String dir, CandleInterval period, boolean isReplace) {
+    public void updateCandlesFile(String name, String dir, CandleInterval period, boolean isReplace) {
         var namePeriod = period.name().replace("CANDLE_INTERVAL_", "");
         var file = dir + "/" + name + "/candles" + namePeriod + ".txt";
         if (!isReplace && isTodayFile(file)) {
