@@ -39,7 +39,6 @@ import static java.lang.System.out;
 public class OrderFlowScalpingStrategy implements MarketTickListener {
 
     private static final double BALANCE_SAFETY_FACTOR = 0.95;
-    private static final int FUTURES_CONTRACT_MULTIPLIER = 1000;
     private static final ThreadLocal<SimpleDateFormat> LOG_TIME_FORMAT =
             ThreadLocal.withInitial(() -> new SimpleDateFormat("dd.MM.yyyy HH:mm:ss"));
 

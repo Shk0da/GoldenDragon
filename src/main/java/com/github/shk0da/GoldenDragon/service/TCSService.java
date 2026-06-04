@@ -88,8 +88,6 @@ import static ru.tinkoff.piapi.contract.v1.StopOrderType.STOP_ORDER_TYPE_TAKE_PR
 public class TCSService {
 
     public static final double FUTURES_MARGIN_RATE = 0.40;
-
-    private static final int FUTURES_CONTRACT_MULTIPLIER = 1000;
     private static final String MARKET_DEPTH_TICKS_HEADER = "time,best_bid,best_ask,mid_price,bids,asks";
     private static final DateTimeFormatter MARKET_DEPTH_TICKS_TIME_FORMATTER = DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm:ss");
     private static final ThreadLocal<SimpleDateFormat> LOG_TIME_FORMAT =
@@ -99,6 +97,7 @@ public class TCSService {
     private final MarketConfig marketConfig;
     private final InvestApi investApi;
     private final boolean writeMarketDepthTicks;
+    private final Map<String, Integer> tickerLotOverrides;
 
     private final Repository<TickerInfo.Key, String> figiRepository = FigiRepository.INSTANCE;
     private final Repository<TickerInfo.Key, TickerInfo> tickerRepository = TickerRepository.INSTANCE;
@@ -129,10 +128,35 @@ public class TCSService {
                 ? InvestApi.createSandbox(mainConfig.getTcsApiKey())
                 : InvestApi.create(mainConfig.getTcsApiKey());
         this.writeMarketDepthTicks = mainConfig.isWriteMarketDepthTicks();
+        this.tickerLotOverrides = loadTickerLotOverrides();
 
         figiRepository.insert(new TickerInfo.Key("RUB", TickerType.CURRENCY), "RUB000UTSTOM");
         figiRepository.insert(new TickerInfo.Key("USD", TickerType.CURRENCY), "BBG0013HGFT4");
         figiRepository.insert(new TickerInfo.Key("EUR", TickerType.CURRENCY), "BBG0013HJJ31");
+    }
+
+    /**
+     * Loads ticker lot overrides from properties in format:
+     * market.moex.&lt;TICKER&gt;.lot=&lt;value&gt;
+     */
+    private Map<String, Integer> loadTickerLotOverrides() {
+        Map<String, Integer> overrides = new HashMap<>();
+        try {
+            java.util.Properties props = new java.util.Properties();
+            try (java.io.InputStream is = Files.newInputStream(Path.of("application.properties"))) {
+                props.load(is);
+            }
+            for (String key : props.stringPropertyNames()) {
+                if (key.startsWith("market.moex.") && key.endsWith(".lot")) {
+                    String ticker = key.substring("market.moex.".length(), key.length() - ".lot".length());
+                    int lot = Integer.parseInt(props.getProperty(key));
+                    overrides.put(ticker, lot);
+                }
+            }
+        } catch (Exception e) {
+            log("Failed to load ticker lot overrides: " + e.getMessage());
+        }
+        return overrides;
     }
 
     /**
@@ -977,11 +1001,10 @@ public class TCSService {
         double referencePrice = price > 0.0
                 ? price
                 : getAvailablePrice(key, Math.max(1, count), ORDER_DIRECTION_BUY == direction ? "asks" : "bids", false);
-        int contractMultiplier = TickerType.FEATURE == tickerInfo.getType() ? FUTURES_CONTRACT_MULTIPLIER : 1;
-        double fullNotional = referencePrice > 0.0 ? count * referencePrice * contractMultiplier : 0.0;
+        double fullNotional = referencePrice > 0.0 ? count * referencePrice : 0.0;
         double estimatedCost = referencePrice > 0.0 ? getRequiredCashForOrder(key, count, referencePrice) : 0.0;
         log(String.format(
-                "Create order request [%s]: operation=%s direction=%s type=%s count=%d lot=%d quantity=%d requestedPrice=%.4f referencePrice=%.4f contractMultiplier=%d fullNotional=%.2f cashToUse=%.2f estimatedCost=%.2f takeProfit=%.4f stopLose=%.4f isFullPrice=%s",
+                "Create order request [%s]: operation=%s direction=%s type=%s count=%d lot=%d quantity=%d requestedPrice=%.4f referencePrice=%.4f fullNotional=%.2f cashToUse=%.2f estimatedCost=%.2f takeProfit=%.4f stopLose=%.4f isFullPrice=%s",
                 key.getTicker(),
                 operation,
                 direction,
@@ -991,7 +1014,6 @@ public class TCSService {
                 quantity,
                 price,
                 referencePrice,
-                contractMultiplier,
                 fullNotional,
                 cashToUse,
                 estimatedCost,
@@ -1447,7 +1469,7 @@ public class TCSService {
     }
 
     private int getContractUnits(TickerInfo tickerInfo) {
-        return TickerType.FEATURE == tickerInfo.getType() ? FUTURES_CONTRACT_MULTIPLIER : 1;
+        return 1;
     }
 
     private static Quotation createQuotation(double price) {
@@ -1597,6 +1619,26 @@ public class TCSService {
     }
 
     /**
+     * Applies ticker lot override from config if present.
+     */
+    private TickerInfo applyTickerLotOverride(TickerInfo tickerInfo) {
+        Integer overrideLot = tickerLotOverrides.get(tickerInfo.getTicker());
+        if (overrideLot != null) {
+            return new TickerInfo(
+                    tickerInfo.getFigi(),
+                    tickerInfo.getTicker(),
+                    tickerInfo.getIsin(),
+                    tickerInfo.getMinPriceIncrement(),
+                    overrideLot,
+                    tickerInfo.getCurrency(),
+                    tickerInfo.getName(),
+                    tickerInfo.getType().name()
+            );
+        }
+        return tickerInfo;
+    }
+
+    /**
      * Searches for a ticker by its key, using the cache or fetching from the appropriate instrument list.
      * <p>
      * Results are cached in {@link TickerRepository} for subsequent lookups.
@@ -1634,6 +1676,7 @@ public class TCSService {
         }
 
         if (null != tickerInfo) {
+            tickerInfo = applyTickerLotOverride(tickerInfo);
             tickerRepository.insert(key, tickerInfo);
             log(key.getTicker() + ": " + tickerInfo);
         }
