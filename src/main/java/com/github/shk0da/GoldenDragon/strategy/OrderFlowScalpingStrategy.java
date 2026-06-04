@@ -209,6 +209,9 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
                 : null;
     }
 
+    /**
+     * Starts the strategy loop, subscribes market data, and manages positions until stopped.
+     */
     public void run() {
         Runtime.getRuntime().addShutdownHook(new Thread(this::stopGracefully));
 
@@ -243,12 +246,18 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
         telegramNotifyService.sendMessage("Stop OrderFlowScalpingStrategy");
     }
 
+    /**
+     * Stops the strategy, closes open positions, and unsubscribes from market data.
+     */
     public void stopGracefully() {
         running = false;
         forceCloseAllPositions();
         new ArrayList<>(stateByTicker.keySet()).forEach(this::unsubscribeTicker);
     }
 
+    /**
+     * Refreshes key levels for all tracked tickers when the configured interval has elapsed.
+     */
     private void refreshLevelsIfNeeded() {
         Instant now = now();
         long refreshIntervalSeconds = config.getLevelsRefreshMinutes() * 60L;
@@ -260,6 +269,9 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
         }
     }
 
+    /**
+     * Recalculates key levels for the ticker using recent candles.
+     */
     private void refreshKeyLevels(ScalpingState state) {
         if (levelUtils == null) {
             return;
@@ -294,6 +306,9 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
         }
     }
 
+    /**
+     * Resolves ticker metadata, initializes state, and subscribes to market data.
+     */
     private void subscribeTicker(OrderFlowScalpingConfig.Instrument instrument) {
         String ticker = instrument.getTicker();
         TickerInfo tickerInfo = TickerRepository.INSTANCE.getById(new TickerInfo.Key(ticker, instrument.getType()));
@@ -307,6 +322,9 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
         tradingGateway.subscribeMarketData(tickerInfo.getKey(), config.getOrderBookDepth(), this);
     }
 
+    /**
+     * Unsubscribes the strategy from market data for the specified ticker.
+     */
     private void unsubscribeTicker(String ticker) {
         ScalpingState state = stateByTicker.get(ticker);
         if (state == null) {
@@ -315,6 +333,9 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
         tradingGateway.unsubscribeMarketData(state.tickerInfo.getKey(), this);
     }
 
+    /**
+     * Processes one ticker state, manages an open position, or searches for a new entry.
+     */
     private void processTicker(String ticker) {
         ScalpingState state = stateByTicker.get(ticker);
         if (state == null || state.lastOrderBook == null) {
@@ -345,6 +366,9 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
         }
     }
 
+    /**
+     * Updates the current market regime from spread, top-of-book liquidity, and short-term drift.
+     */
     private void updateMarketRegime(ScalpingState state) {
         Double bestBid = state.lastOrderBook.getBestBid();
         Double bestAsk = state.lastOrderBook.getBestAsk();
@@ -369,6 +393,9 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
         }
     }
 
+    /**
+     * Collects all candidate signals, applies level filters, and returns the strongest one.
+     */
     private Signal detectSignal(ScalpingState state) {
         List<Signal> signals = new ArrayList<>();
         addSignal(signals, detectImbalanceSignal(state));
@@ -389,6 +416,9 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
         return processed.stream().max(Comparator.comparingDouble(it -> it.confidence)).orElse(null);
     }
 
+    /**
+     * Adds a signal to the list when it is present.
+     */
     private void addSignal(List<Signal> signals, Signal signal) {
         if (signal != null) {
             signals.add(signal);
@@ -479,6 +509,9 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
         );
     }
 
+    /**
+     * Calculates the distance between two prices in ticks.
+     */
     private double distanceTicks(double price1, double price2, double tick) {
         return abs(price1 - price2) / max(tick, 0.0000001);
     }
@@ -537,6 +570,9 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
         return best;
     }
 
+    /**
+     * Moves the stop behind the nearest protective level without increasing risk.
+     */
     private double adjustStopBehindLevel(String direction, double currentStop,
                                          double levelPrice, double tick) {
         if ("BUY".equals(direction)) {
@@ -551,6 +587,9 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
         }
     }
 
+    /**
+     * Places take profit slightly before the target level.
+     */
     private double adjustTakeBeforeLevel(String direction, double levelPrice, double tick) {
         if ("BUY".equals(direction)) {
             return levelPrice - tick * 2;
@@ -608,6 +647,9 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
         return null;
     }
 
+    /**
+     * Detects an order book imbalance signal after the imbalance persists for the configured time.
+     */
     private Signal detectImbalanceSignal(ScalpingState state) {
         if (state.marketRegime == MarketRegime.LOW_LIQUIDITY || state.marketRegime == MarketRegime.HIGH_VOLATILITY) {
             return null;
@@ -663,6 +705,9 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
         return null;
     }
 
+    /**
+     * Detects a signal from repeated replenishment of visible liquidity at the best level.
+     */
     private Signal detectIcebergSignal(ScalpingState state) {
         if (state.lastOrderBook == null || state.recentTrades.isEmpty() || state.marketRegime == MarketRegime.LOW_LIQUIDITY) {
             return null;
@@ -695,6 +740,9 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
         return null;
     }
 
+    /**
+     * Builds an iceberg candidate for one side of the book from visible size and aggressive trades.
+     */
     private IcebergCandidate detectIcebergCandidate(ScalpingState state, boolean bidSide) {
         List<MarketDepthLevel> levels = bidSide ? state.lastOrderBook.getBids() : state.lastOrderBook.getAsks();
         if (levels.isEmpty()) {
@@ -724,6 +772,9 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
         return new IcebergCandidate(price, visibleVolume, aggressiveVolume, replenishments);
     }
 
+    /**
+     * Counts how many times visible volume dropped and then recovered on the same price level.
+     */
     private int countReplenishmentCycles(Deque<TimedVolume> history, int currentVisible) {
         if (history == null || history.size() < 3) return 0;
         int cycles = 0;
@@ -747,6 +798,9 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
         return cycles;
     }
 
+    /**
+     * Checks whether an opposite iceberg nearby weakens the current iceberg signal.
+     */
     private boolean hasOppositeIcebergNearby(IcebergCandidate current, IcebergCandidate opposite, double tickSize) {
         if (current == null || opposite == null) {
             return false;
@@ -755,6 +809,9 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
                 && opposite.visibleVolume > current.visibleVolume;
     }
 
+    /**
+     * Detects a spoofing signal after a large displayed level is removed without likely execution.
+     */
     private Signal detectSpoofingSignal(ScalpingState state) {
         if (state.marketRegime == MarketRegime.LOW_LIQUIDITY) {
             return null;
@@ -782,6 +839,9 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
         return null;
     }
 
+    /**
+     * Detects absorption when aggressive trades are absorbed and price does not continue.
+     */
     private Signal detectAbsorptionSignal(ScalpingState state) {
         if (state.marketRegime == MarketRegime.LOW_LIQUIDITY || state.marketRegime == MarketRegime.HIGH_VOLATILITY) {
             return null;
@@ -812,6 +872,9 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
         return null;
     }
 
+    /**
+     * Detects a breakout signal from a persistent stacked book structure with trade confirmation.
+     */
     private Signal detectStackedBreakoutSignal(ScalpingState state) {
         if (state.lastOrderBook == null || state.marketRegime == MarketRegime.LOW_LIQUIDITY) {
             return null;
@@ -848,6 +911,9 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
         return null;
     }
 
+    /**
+     * Detects a stacked liquidity segment on one side of the order book.
+     */
     private StackedLevel detectStack(ScalpingState state, boolean bidSide) {
         List<MarketDepthLevel> levels = bidSide ? state.lastOrderBook.getBids() : state.lastOrderBook.getAsks();
         if (levels.size() < config.getStackedLevels()) {
@@ -878,6 +944,9 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
                 Duration.between(since, now()).toMillis(), collapsed);
     }
 
+    /**
+     * Verifies that the mid price crossed the breakout level during the confirmation window.
+     */
     private boolean crossedBreakoutLevel(ScalpingState state, double breakoutPrice, boolean breakoutUp) {
         Instant threshold = now().minusMillis(config.getBreakoutConfirmationMs());
         TimedPrice first = state.midPrices.stream().filter(it -> !it.time.isBefore(threshold)).findFirst().orElse(null);
@@ -891,6 +960,9 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
         return first.price > breakoutPrice && last.price <= breakoutPrice;
     }
 
+    /**
+     * Opens a position for the selected signal after balance, limits, and edge checks.
+     */
     private void openSignalPosition(ScalpingState state, Signal signal) {
         if (countOpenPositions() >= config.getMaxTotalPositions()
                 || countOpenPositions(state.tickerInfo) >= config.getMaxPositionsPerTicker()) {
@@ -950,6 +1022,9 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
         telegramNotifyService.sendMessage(explanation);
     }
 
+    /**
+     * Builds a detailed log message that explains why the position was opened.
+     */
     private String buildEntryExplanation(ScalpingState state,
                                          Signal signal,
                                          LivePosition position,
@@ -1091,11 +1166,17 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
         return base;
     }
 
+    /**
+     * Returns how long the current imbalance has been active for the given direction.
+     */
     private long getImbalanceHoldDurationMs(ScalpingState state, String direction) {
         Instant since = "BUY".equals(direction) ? state.imbalancePositiveSince : state.imbalanceNegativeSince;
         return since == null ? 0L : Duration.between(since, now()).toMillis();
     }
 
+    /**
+     * Checks that the expected net profit at take exceeds the minimum commission-adjusted edge.
+     */
     private boolean hasSufficientNetEdge(ScalpingState state,
                                          Signal signal,
                                          LivePosition position,
@@ -1123,26 +1204,41 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
         return false;
     }
 
+    /**
+     * Calculates expected gross profit at the current take-profit level.
+     */
     private double expectedGrossTakePnl(LivePosition position) {
         return "BUY".equals(position.direction)
                 ? (position.takePrice - position.entryPrice) * position.remainingQuantity
                 : (position.entryPrice - position.takePrice) * position.remainingQuantity;
     }
 
+    /**
+     * Estimates round-trip commission from the opening commission.
+     */
     private double expectedRoundTripCommission(TCSService.OrderExecutionResult orderResult) {
         return max(0.0, orderResult.getCommission()) * 2;
     }
 
+    /**
+     * Sends an order to open a long position.
+     */
     private TCSService.OrderExecutionResult openLong(ScalpingState state, Signal signal, int quantity) {
         double cash = estimateOrderNotional(state.tickerInfo, signal.entryPrice, quantity);
         return tradingGateway.buy(state.tickerInfo, cash, signal.entryPrice, signal.takePrice, signal.stopPrice, signal.useLimitEntry);
     }
 
+    /**
+     * Sends an order to open a short position.
+     */
     private TCSService.OrderExecutionResult openShort(ScalpingState state, Signal signal, int quantity) {
         double cash = estimateOrderNotional(state.tickerInfo, signal.entryPrice, quantity);
         return tradingGateway.sell(state.tickerInfo, cash, signal.entryPrice, signal.takePrice, signal.stopPrice, signal.useLimitEntry);
     }
 
+    /**
+     * Estimates the cash amount to pass into the trading gateway for an entry order.
+     */
     private double estimateOrderNotional(TickerInfo tickerInfo, double entryPrice, int quantity) {
         if (tickerInfo == null || entryPrice <= 0.0 || quantity <= 0) {
             return 0.0;
@@ -1152,6 +1248,9 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
         return entryPrice * quantity;
     }
 
+    /**
+     * Calculates the maximum position size affordable with the available cash.
+     */
     private int maxAffordableQuantity(TickerInfo tickerInfo, double entryPrice, double availableCash) {
         if (tickerInfo == null || entryPrice <= 0.0 || availableCash <= 0.0) {
             return 0;
@@ -1159,10 +1258,16 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
         return tradingGateway.calculateTradeCount(tickerInfo.getKey(), availableCash, entryPrice);
     }
 
+    /**
+     * Returns the instrument lot size or one when the value is unavailable.
+     */
     private int resolveLotSize(TickerInfo tickerInfo) {
         return tickerInfo.getLot() != null && tickerInfo.getLot() > 0 ? tickerInfo.getLot() : 1;
     }
 
+    /**
+     * Creates an internal live position from the signal and actual order execution details.
+     */
     private LivePosition createPositionFromSignal(ScalpingState state,
                                                   Signal signal,
                                                   TCSService.OrderExecutionResult orderResult,
@@ -1191,6 +1296,9 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
         );
     }
 
+    /**
+     * Manages an open position: partial exits, stop updates, order sync, and final close decision.
+     */
     private void manageOpenPosition(ScalpingState state) {
         LivePosition position = state.openPosition;
         if (position == null || state.lastOrderBook == null) {
@@ -1217,6 +1325,9 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
         }
     }
 
+    /**
+     * Evaluates whether the open position should be closed and why.
+     */
     private CloseDecision evaluateCloseDecision(ScalpingState state, LivePosition position, double currentPrice) {
         if (shouldCloseByStop(position, currentPrice)) {
             return CloseDecision.stop();
@@ -1234,6 +1345,9 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
         return null;
     }
 
+    /**
+     * Executes configured partial exits when their target prices are reached.
+     */
     private void executePartialExits(ScalpingState state, LivePosition position, double currentPrice) {
         for (PartialExit partialExit : position.partialExits) {
             if (partialExit.executed || partialExit.quantity <= 0) {
@@ -1282,6 +1396,9 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
         }
     }
 
+    /**
+     * Updates the stop according to the signal scenario and current trade progress.
+     */
     private void updateStopByScenario(ScalpingState state, LivePosition position, double currentPrice) {
         double move = "BUY".equals(position.direction) ? currentPrice - position.entryPrice : position.entryPrice - currentPrice;
         double tick = position.tickSize;
@@ -1323,10 +1440,16 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
         }
     }
 
+    /**
+     * Shifts a base price by the specified number of ticks in trade direction.
+     */
     private double adjustedPrice(String direction, double base, double tick, int ticks) {
         return "BUY".equals(direction) ? base + tick * ticks : base - tick * ticks;
     }
 
+    /**
+     * Calculates a one-directional trailing stop that never widens risk.
+     */
     private double trailingStop(String direction, double currentPrice, double offset, double currentStop) {
         if ("BUY".equals(direction)) {
             return max(currentStop, currentPrice - offset);
@@ -1334,6 +1457,9 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
         return min(currentStop, currentPrice + offset);
     }
 
+    /**
+     * Synchronizes external protective orders with the current internal position state.
+     */
     private void syncProtectiveOrders(ScalpingState state, LivePosition position) {
         if (position.remainingQuantity <= 0) {
             tradingGateway.clearProtectiveOrders(state.tickerInfo);
@@ -1344,6 +1470,9 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
                         position.takePrice, position.remainingQuantity, 0));
     }
 
+    /**
+     * Detects whether the original entry premise is no longer valid.
+     */
     private SignalInvalidationReason getSignalInvalidationReason(ScalpingState state, LivePosition position, double currentPrice) {
         if (!isSignalInvalidationAllowed(position)) {
             return null;
@@ -1411,6 +1540,9 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
         return null;
     }
 
+    /**
+     * Applies a minimum holding time before signal invalidation can close the trade.
+     */
     private boolean isSignalInvalidationAllowed(LivePosition position) {
         long holdSeconds = Duration.between(position.openTime, now()).getSeconds();
         int minHoldSeconds = "OBI".equals(position.reason)
@@ -1419,20 +1551,32 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
         return holdSeconds >= minHoldSeconds;
     }
 
+    /**
+     * Checks whether the position exceeded the maximum allowed holding time.
+     */
     private boolean shouldCloseByTimeout(LivePosition position) {
         return Duration.between(position.openTime, now()).getSeconds() > config.getTimeoutSeconds();
     }
 
+    /**
+     * Checks whether an opposite absorption pattern appeared against the current position.
+     */
     private boolean hasOppositeAbsorption(ScalpingState state, String direction) {
         return "BUY".equals(direction)
                 ? state.buyAggressionVolume > 0 && state.buyAggressionSlowdown && hasAbsorptionAskLevel(state)
                 : state.sellAggressionVolume > 0 && state.sellAggressionSlowdown && hasAbsorptionBidLevel(state);
     }
 
+    /**
+     * Checks whether the order book currently contains the specified price level.
+     */
     private boolean hasPriceLevel(List<MarketDepthLevel> levels, double price) {
         return levels.stream().anyMatch(level -> abs(level.getPrice() - price) <= 1e-9);
     }
 
+    /**
+     * Closes the open position, updates PnL, and records the close reason.
+     */
     private void closeOpenPosition(ScalpingState state, double exitPrice, CloseDecision closeDecision) {
         LivePosition position = state.openPosition;
         if (position == null) {
@@ -1492,6 +1636,9 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
         return "BUY".equals(position.direction) ? currentPrice >= position.takePrice : currentPrice <= position.takePrice;
     }
 
+    /**
+     * Removes expired trades, prices, and order book snapshots from rolling windows.
+     */
     private void cleanup(ScalpingState state) {
         Instant tradeThreshold = now().minus(Duration.ofSeconds(config.getVolumeHistorySeconds()));
         while (!state.recentTrades.isEmpty() && state.recentTrades.peekFirst().getTime().isBefore(tradeThreshold)) {
@@ -1515,6 +1662,9 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
         recalculateLongWindow(state);
     }
 
+    /**
+     * Checks whether spread and liquidity allow opening a new trade.
+     */
     private boolean isRegimeTradable(ScalpingState state) {
         if (state.lastOrderBook == null) {
             return false;
@@ -1535,11 +1685,17 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
         return spreadTicks <= config.getMaxSpreadTicks();
     }
 
+    /**
+     * Sums visible bid and ask volume for the top specified number of levels.
+     */
     private long topBookVolume(MarketDepthSnapshot snapshot, int levels) {
         return snapshot.getBids().stream().limit(levels).mapToLong(MarketDepthLevel::getQuantity).sum()
                 + snapshot.getAsks().stream().limit(levels).mapToLong(MarketDepthLevel::getQuantity).sum();
     }
 
+    /**
+     * Checks whether the strategy or broker currently reports an open position for the ticker.
+     */
     private boolean hasOpenPosition(ScalpingState state) {
         if (state.openPosition != null) {
             return true;
@@ -1548,10 +1704,16 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
         return currentPosition != null && currentPosition.getBalance() != 0;
     }
 
+    /**
+     * Counts currently tracked open positions across all tickers.
+     */
     private int countOpenPositions() {
         return (int) stateByTicker.values().stream().filter(it -> it.openPosition != null).count();
     }
 
+    /**
+     * Counts currently tracked open positions for the specified ticker.
+     */
     private int countOpenPositions(TickerInfo tickerInfo) {
         return (int) stateByTicker.values().stream()
                 .filter(it -> Objects.equals(it.tickerInfo.getTicker(), tickerInfo.getTicker()))
@@ -1559,10 +1721,16 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
                 .count();
     }
 
+    /**
+     * Checks whether daily realized PnL breached the configured loss limit.
+     */
     private boolean isDailyLossLimitReached() {
         return startBalance > 0.0 && dailyPnl <= -startBalance * config.getDailyLossLimitPercent();
     }
 
+    /**
+     * Calculates order book imbalance for the top specified number of levels.
+     */
     private double calcObi(MarketDepthSnapshot snapshot, int levels) {
         long bidVolume = snapshot.getBids().stream().limit(levels).mapToLong(MarketDepthLevel::getQuantity).sum();
         long askVolume = snapshot.getAsks().stream().limit(levels).mapToLong(MarketDepthLevel::getQuantity).sum();
@@ -1572,6 +1740,9 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
         return (double) (bidVolume - askVolume) / (bidVolume + askVolume);
     }
 
+    /**
+     * Checks whether the current price is at a local high within the rolling window.
+     */
     private boolean isLocalHigh(ScalpingState state, double price) {
         if (state.midPrices.size() < 2) {
             return false;
@@ -1586,6 +1757,9 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
         return price >= maxExcludingLast;
     }
 
+    /**
+     * Checks whether the current price is at a local low within the rolling window.
+     */
     private boolean isLocalLow(ScalpingState state, double price) {
         if (state.midPrices.size() < 2) {
             return false;
@@ -1598,6 +1772,9 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
         return price <= minExcludingLast;
     }
 
+    /**
+     * Checks whether the best bid size is abnormally large relative to recent history.
+     */
     private boolean hasLargeBestBid(ScalpingState state) {
         if (state.lastOrderBook.getBids().isEmpty()) {
             return false;
@@ -1607,6 +1784,9 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
         return avg > 0.0 && bestBid >= avg * 3.0;
     }
 
+    /**
+     * Checks whether the best bid looks like an absorption level.
+     */
     private boolean hasAbsorptionBidLevel(ScalpingState state) {
         if (state.lastOrderBook.getBids().isEmpty()) {
             return false;
@@ -1615,6 +1795,9 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
         return median > 0.0 && state.lastOrderBook.getBids().get(0).getQuantity() >= median * 3.0;
     }
 
+    /**
+     * Checks whether the best ask looks like an absorption level.
+     */
     private boolean hasAbsorptionAskLevel(ScalpingState state) {
         if (state.lastOrderBook.getAsks().isEmpty()) {
             return false;
@@ -1623,6 +1806,9 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
         return median > 0.0 && state.lastOrderBook.getAsks().get(0).getQuantity() >= median * 3.0;
     }
 
+    /**
+     * Checks whether the best ask size is abnormally large relative to recent history.
+     */
     private boolean hasLargeBestAsk(ScalpingState state) {
         if (state.lastOrderBook.getAsks().isEmpty()) {
             return false;
@@ -1632,10 +1818,16 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
         return avg > 0.0 && bestAsk >= avg * 3.0;
     }
 
+    /**
+     * Returns the arithmetic mean of integer values from the deque.
+     */
     private double averageInt(Deque<Integer> values) {
         return values.stream().mapToInt(Integer::intValue).average().orElse(0.0);
     }
 
+    /**
+     * Returns the median of integer values from the deque.
+     */
     private double medianInt(Deque<Integer> values) {
         if (values.isEmpty()) {
             return 0.0;
@@ -1649,6 +1841,9 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
         return sorted.get(middle);
     }
 
+    /**
+     * Returns the expected entry price from the current best quote for the direction.
+     */
     private double getEntryPrice(ScalpingState state, String direction) {
         Double bestAsk = state.lastOrderBook.getBestAsk();
         Double bestBid = state.lastOrderBook.getBestBid();
@@ -1658,6 +1853,9 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
         return bestBid != null ? bestBid : 0.0;
     }
 
+    /**
+     * Returns the expected exit price from the opposite side of the spread.
+     */
     private double getExitPrice(ScalpingState state, String direction) {
         Double bestAsk = state.lastOrderBook.getBestAsk();
         Double bestBid = state.lastOrderBook.getBestBid();
@@ -1766,10 +1964,16 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
         log("OrderFlowScalpingStrategy stream error: " + throwable.getMessage());
     }
 
+    /**
+     * Registers a ticker state without subscribing to live market data.
+     */
     public void registerTicker(TickerInfo tickerInfo) {
         stateByTicker.putIfAbsent(tickerInfo.getTicker(), new ScalpingState(tickerInfo));
     }
 
+    /**
+     * Processes one backtest order book snapshot through the same trading logic.
+     */
     public void processBacktestTick(TickerInfo tickerInfo, MarketDepthSnapshot snapshot) {
         currentTime = snapshot.getTime();
         registerTicker(tickerInfo);
@@ -1777,6 +1981,9 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
         processTicker(tickerInfo.getTicker());
     }
 
+    /**
+     * Returns the realized daily profit and loss accumulated by the strategy.
+     */
     public double getDailyPnl() {
         return dailyPnl;
     }
@@ -1794,6 +2001,9 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
         }
     }
 
+    /**
+     * Tracks short-lived visible volume history for top order book levels.
+     */
     private void trackLevelHistory(ScalpingState state,
                                    List<MarketDepthLevel> levels,
                                    Map<Double, Deque<TimedVolume>> history) {
@@ -1814,15 +2024,24 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
                 e.getValue().isEmpty() || e.getValue().peekLast().time.isBefore(threshold));
     }
 
+    /**
+     * Returns the current strategy time, preferring backtest time when available.
+     */
     private Instant now() {
         return currentTime != null ? currentTime : Instant.now();
     }
 
+    /**
+     * Scans both sides of the book for rapid removal of suspicious large levels.
+     */
     private void detectSpoofRemoval(ScalpingState state, MarketDepthSnapshot snapshot) {
         detectSpoofRemovalOnSide(state, snapshot.getBids(), true);
         detectSpoofRemovalOnSide(state, snapshot.getAsks(), false);
     }
 
+    /**
+     * Detects spoof removal on one side of the order book and stores the event in state.
+     */
     private void detectSpoofRemovalOnSide(ScalpingState state, List<MarketDepthLevel> levels, boolean bidSide) {
         if (levels.isEmpty()) {
             return;
@@ -1875,6 +2094,9 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
         }
     }
 
+    /**
+     * Checks whether enough aggressive volume traded near a price to treat a removed level as executed.
+     */
     private boolean tradedNearPrice(ScalpingState state, double price, String direction, double thresholdVolume) {
         long volume = state.recentTrades.stream()
                 .filter(trade -> trade.getDirection().contains(direction))
@@ -1884,6 +2106,9 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
         return volume >= thresholdVolume;
     }
 
+    /**
+     * Checks whether recent spoof events are frequent enough to trust the current spoof pattern.
+     */
     private boolean hasSpoofHistory(Deque<SpoofCandidate> history, Instant now) {
         // Нужно минимум 2 спуфа за окно, потому что текущий уже в истории
         long count = history.stream()
@@ -1892,6 +2117,9 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
         return count >= 2;
     }
 
+    /**
+     * Removes outdated spoof events from history.
+     */
     private void cleanupSpoofHistory(ScalpingState state) {
         Instant threshold = now().minusSeconds(60);
         while (!state.bidSpoofHistory.isEmpty() && state.bidSpoofHistory.peekFirst().detectedAt.isBefore(threshold)) {
@@ -1902,6 +2130,9 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
         }
     }
 
+    /**
+     * Sums aggressive breakout-side volume after the breakout level was crossed.
+     */
     private long aggressiveVolumeAfterBreakout(ScalpingState state, double breakoutPrice, boolean breakoutUp) {
         Instant threshold = now().minusMillis(config.getBreakoutConfirmationMs());
         return state.recentTrades.stream()
@@ -1912,6 +2143,9 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
                 .sum();
     }
 
+    /**
+     * Calculates short-window CVD after the breakout level for confirmation.
+     */
     private long shortWindowCvdAfterBreakout(ScalpingState state, double breakoutPrice, boolean breakoutUp) {
         Instant threshold = now().minusSeconds(10);
         long cvd = 0L;
@@ -1934,6 +2168,9 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
         return cvd;
     }
 
+    /**
+     * Updates rolling medians for stacked liquidity detection on both sides of the book.
+     */
     private void updateSegmentMedians(ScalpingState state, MarketDepthSnapshot snapshot) {
         long bidSegment = snapshot.getBids().stream().limit(config.getStackedLevels()).mapToLong(MarketDepthLevel::getQuantity).sum();
         long askSegment = snapshot.getAsks().stream().limit(config.getStackedLevels()).mapToLong(MarketDepthLevel::getQuantity).sum();
@@ -1949,6 +2186,9 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
         state.askSegmentMedian = median(state.askSegments);
     }
 
+    /**
+     * Recalculates short-window price drift from the oldest and newest mid prices.
+     */
     private void updatePriceDrift(ScalpingState state) {
         if (state.midPrices.size() < 2) {
             state.priceDriftShortWindow = 0.0;
@@ -1959,6 +2199,9 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
         state.priceDriftShortWindow = last.price - first.price;
     }
 
+    /**
+     * Rebuilds longer rolling metrics such as thirty-second CVD and aggression slowdown flags.
+     */
     private void recalculateLongWindow(ScalpingState state) {
         Instant thirtySecondThreshold = now().minusSeconds(30);
         while (!state.thirtySecondTrades.isEmpty() && state.thirtySecondTrades.peekFirst().getTime().isBefore(thirtySecondThreshold)) {
@@ -1996,6 +2239,9 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
                 && sellLastFiveSeconds * 100L <= sellPrev * 30L;
     }
 
+    /**
+     * Builds a partial exit plan based on the signal type and executed quantity.
+     */
     private List<PartialExit> buildPartialPlan(Signal signal, double entryPrice, double tickSize, int quantity) {
         List<PartialExit> plan = new ArrayList<>();
         if (quantity <= 1) {
@@ -2065,10 +2311,16 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
         return plan;
     }
 
+    /**
+     * Calculates a target price by moving from entry in trade direction by the given delta.
+     */
     private double targetPrice(String direction, double entryPrice, double delta) {
         return "BUY".equals(direction) ? entryPrice + delta : entryPrice - delta;
     }
 
+    /**
+     * Closes all internally tracked open positions during shutdown.
+     */
     private void forceCloseAllPositions() {
         stateByTicker.values().forEach(state -> {
             synchronized (state) {
@@ -2081,6 +2333,9 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
         });
     }
 
+    /**
+     * Returns the median of long values from the deque.
+     */
     private double median(Deque<Long> values) {
         if (values.isEmpty()) {
             return 0.0;
