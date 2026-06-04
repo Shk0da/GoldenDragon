@@ -1406,13 +1406,14 @@ public class TCSService {
 
         TickerInfo tickerInfo = searchTicker(key);
         int lot = Math.max(1, tickerInfo.getLot());
-        int tradeUnit = lot * getContractUnits(tickerInfo);
-        double orderCost = getOrderValue(tickerInfo, tradeUnit, price);
-        if (availableCash < orderCost) {
+        int contractUnits = getContractUnits(tickerInfo);
+        int tradeUnit = lot * contractUnits;
+        double tradeUnitCost = price * tradeUnit;
+        if (availableCash < tradeUnitCost) {
             return 0;
         }
 
-        int lots = (int) Math.floor(availableCash / orderCost);
+        int lots = (int) Math.floor(availableCash / tradeUnitCost);
         return lots * tradeUnit;
     }
 
