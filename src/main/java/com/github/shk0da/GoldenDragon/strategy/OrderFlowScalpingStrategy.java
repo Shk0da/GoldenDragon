@@ -214,6 +214,8 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
     public void run() {
         Runtime.getRuntime().addShutdownHook(new Thread(this::stopGracefully));
 
+        log("Available Cash: " + tradingGateway.getAvailableCash());
+
         List<OrderFlowScalpingConfig.Instrument> instruments = config.getInstruments();
         if (instruments.isEmpty()) {
             log("OrderFlowScalpingStrategy: no configured tickers");
