@@ -39,8 +39,6 @@ import static java.lang.System.out;
 public class OrderFlowScalpingStrategy implements MarketTickListener {
 
     private static final double BALANCE_SAFETY_FACTOR = 0.95;
-    private static final double ESTIMATED_COMMISSION_RATE = 0.0005;
-    private static final int FUTURES_LOT_SIZE = 1000;
     private static final ThreadLocal<SimpleDateFormat> LOG_TIME_FORMAT =
             ThreadLocal.withInitial(() -> new SimpleDateFormat("dd.MM.yyyy HH:mm:ss"));
 
@@ -75,6 +73,8 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
         void clearProtectiveOrders(TickerInfo tickerInfo);
 
         List<TickerCandle> getCandles(TickerInfo.Key key, int count);
+
+        int calculateTradeCount(TickerInfo.Key key, double cash, double price);
     }
 
     public static class LiveTradingGateway implements TradingGateway {
@@ -173,6 +173,11 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
         @Override
         public List<TickerCandle> getCandles(TickerInfo.Key key, int count) {
             return tcsService.getLastCandlesAsTickerCandles(key.getTicker(), key.getType(), count);
+        }
+
+        @Override
+        public int calculateTradeCount(TickerInfo.Key key, double cash, double price) {
+            return tcsService.calculateTradeCount(key, cash, price);
         }
     }
 
@@ -857,16 +862,13 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
         double tickSize = max(state.tickerInfo.getMinPriceIncrement(), 0.01);
         double availableCash = max(0.0, tradingGateway.getAvailableCash()) * BALANCE_SAFETY_FACTOR;
         double positionCash = availableCash * config.getMaxPositionBalancePercent();
-        double riskCash = availableCash * signal.riskPercent;
-        double stopDistance = max(tickSize, abs(signal.entryPrice - signal.stopPrice));
-        int quantityByRisk = max(1, (int) Math.floor(riskCash / stopDistance));
-        int quantityByRiskCash = maxAffordableRiskQuantity(state.tickerInfo, signal.entryPrice, riskCash);
+        int lot = resolveLotSize(state.tickerInfo);
         int quantityByBalance = maxAffordableQuantity(state.tickerInfo, signal.entryPrice, positionCash);
-        int quantity = min(quantityByRisk, min(quantityByRiskCash, quantityByBalance));
+        int quantity = quantityByBalance;
         if (quantity <= 0) {
             state.openAttemptBlockedUntil = now().plusSeconds(15);
             log(String.format(
-                    "OrderFlowScalpingStrategy SKIP %s %s by %s: insufficient balance, blockReentryUntil=%s availableCash=%.2f positionCash=%.2f entryPrice=%.4f riskCash=%.2f",
+                    "OrderFlowScalpingStrategy SKIP %s %s by %s: insufficient balance, blockReentryUntil=%s availableCash=%.2f positionCash=%.2f entryPrice=%.4f lot=%d",
                     signal.direction,
                     state.tickerInfo.getTicker(),
                     signal.reason,
@@ -874,25 +876,9 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
                     availableCash,
                     positionCash,
                     signal.entryPrice,
-                    riskCash
+                    lot
             ));
             return;
-        }
-        if (quantity < quantityByRisk) {
-            state.openAttemptBlockedUntil = now().plusSeconds(5);
-            log(String.format(
-                    "OrderFlowScalpingStrategy LIMIT %s %s by %s: reduce qty by limits qtyRisk=%d qtyRiskCash=%d qtyBalance=%d availableCash=%.2f positionCash=%.2f riskCash=%.2f entryPrice=%.4f",
-                    signal.direction,
-                    state.tickerInfo.getTicker(),
-                    signal.reason,
-                    quantityByRisk,
-                    quantityByRiskCash,
-                    quantityByBalance,
-                    availableCash,
-                    positionCash,
-                    riskCash,
-                    signal.entryPrice
-            ));
         }
 
         TCSService.OrderExecutionResult orderResult = "BUY".equals(signal.direction)
@@ -901,13 +887,13 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
         if (!orderResult.isSuccess()) {
             state.openAttemptBlockedUntil = now().plusSeconds(15);
             log(String.format(
-                    "OrderFlowScalpingStrategy SKIP %s %s by %s: order failed, blockReentryUntil=%s qty=%d riskCash=%.2f entryPrice=%.4f",
+                    "OrderFlowScalpingStrategy SKIP %s %s by %s: order failed, blockReentryUntil=%s qty=%d positionCash=%.2f entryPrice=%.4f",
                     signal.direction,
                     state.tickerInfo.getTicker(),
                     signal.reason,
                     state.openAttemptBlockedUntil,
                     quantity,
-                    riskCash,
+                    positionCash,
                     signal.entryPrice
             ));
             return;
@@ -922,7 +908,7 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
         }
         state.openPosition = position;
         syncProtectiveOrders(state, position);
-        String explanation = buildEntryExplanation(state, signal, position, orderResult, riskCash, stopDistance);
+        String explanation = buildEntryExplanation(state, signal, position, orderResult, positionCash, abs(signal.entryPrice - signal.stopPrice));
         log(explanation);
         telegramNotifyService.sendMessage(explanation);
     }
@@ -931,7 +917,7 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
                                          Signal signal,
                                          LivePosition position,
                                          TCSService.OrderExecutionResult orderResult,
-                                         double riskCash,
+                                         double positionCash,
                                          double stopDistance) {
         double entryPricePerUnit = position.entryPrice;
         double stopPricePerUnit = position.stopPrice;
@@ -954,7 +940,7 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
         );
 
         String base = String.format(
-                "OrderFlowScalpingStrategy OPEN %s %s by %s: entryPrice=%.4f stopPrice=%.4f takePrice=%.4f qty=%d executedNotional=%.2f riskCash=%.2f stopTicks=%.2f regime=%s signalEntry=%.4f executedEntry=%.4f expectedGrossTakePnl=%.2f expectedNetTakePnl=%.2f expectedRoundTripCommission=%.2f%s",
+                "OrderFlowScalpingStrategy OPEN %s %s by %s: entryPrice=%.4f stopPrice=%.4f takePrice=%.4f qty=%d executedNotional=%.2f positionCash=%.2f stopTicks=%.2f regime=%s signalEntry=%.4f executedEntry=%.4f expectedGrossTakePnl=%.2f expectedNetTakePnl=%.2f expectedRoundTripCommission=%.2f%s",
                 signal.direction,
                 state.tickerInfo.getTicker(),
                 signal.reason,
@@ -963,7 +949,7 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
                 takePricePerUnit,
                 position.remainingQuantity,
                 executedNotional,
-                riskCash,
+                positionCash,
                 abs(entryPricePerUnit - stopPricePerUnit) / max(position.tickSize, 0.01),
                 state.marketRegime.name(),
                 signal.entryPrice,
@@ -1124,39 +1110,11 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
         if (tickerInfo == null || entryPrice <= 0.0 || availableCash <= 0.0) {
             return 0;
         }
-        int lot = resolveLotSize(tickerInfo);
-        double orderCost = estimateOrderCost(tickerInfo, entryPrice, lot);
-        if (orderCost <= 0.0) {
-            return 0;
-        }
-        return max(0, (int) Math.floor(availableCash / orderCost) * lot);
-    }
-
-    private int maxAffordableRiskQuantity(TickerInfo tickerInfo, double entryPrice, double riskCash) {
-        if (tickerInfo == null || entryPrice <= 0.0 || riskCash <= 0.0) {
-            return 0;
-        }
-        int lot = resolveLotSize(tickerInfo);
-        double orderCost = estimateOrderCost(tickerInfo, entryPrice, lot);
-        if (orderCost <= 0.0) {
-            return 0;
-        }
-        return max(0, (int) Math.floor(riskCash / orderCost) * lot);
+        return tradingGateway.calculateTradeCount(tickerInfo.getKey(), availableCash, entryPrice);
     }
 
     private int resolveLotSize(TickerInfo tickerInfo) {
-        if (TickerType.FEATURE == tickerInfo.getType()) {
-            return FUTURES_LOT_SIZE;
-        }
         return tickerInfo.getLot() != null && tickerInfo.getLot() > 0 ? tickerInfo.getLot() : 1;
-    }
-
-    private double estimateOrderCost(TickerInfo tickerInfo, double entryPrice, int lot) {
-        double orderCost = lot * entryPrice;
-        if (TickerType.FEATURE == tickerInfo.getType()) {
-            orderCost *= TCSService.FUTURES_MARGIN_RATE;
-        }
-        return orderCost * (1.0 + ESTIMATED_COMMISSION_RATE);
     }
 
     private LivePosition createPositionFromSignal(ScalpingState state,

@@ -605,6 +605,26 @@ public class TCSService {
             type = OrderType.ORDER_TYPE_LIMIT;
             orderPrice = createQuotation(price);
         }
+        double referencePrice = price > 0.0
+                ? price
+                : getAvailablePrice(key, Math.max(1, count), ORDER_DIRECTION_BUY == direction ? "asks" : "bids", false);
+        double estimatedCost = referencePrice > 0.0 ? getRequiredCashForOrder(key, count, referencePrice) : 0.0;
+        out.println(String.format(
+                "Create order request [%s]: operation=%s direction=%s type=%s count=%d lot=%d quantity=%d requestedPrice=%.4f referencePrice=%.4f estimatedCost=%.2f takeProfit=%.4f stopLose=%.4f isFullPrice=%s",
+                key.getTicker(),
+                operation,
+                direction,
+                type,
+                count,
+                lot,
+                quantity,
+                price,
+                referencePrice,
+                estimatedCost,
+                takeProfit,
+                stopLose,
+                isFullPrice
+        ));
 
         try {
             PostOrderResponse response = investApi.getOrdersService().postOrderSync(
@@ -616,7 +636,7 @@ public class TCSService {
                     response.getExecutedOrderPrice().getUnits(),
                     response.getExecutedOrderPrice().getNano()
             );
-            double referencePrice = price > 0.0
+            referencePrice = price > 0.0
                     ? price
                     : getAvailablePrice(key, Math.max(1, executedCount), ORDER_DIRECTION_BUY == direction ? "asks" : "bids", false);
             double executedPrice = normalizeExecutedPrice(rawExecutedPrice, executedCount, referencePrice, tickerInfo.getMinPriceIncrement());

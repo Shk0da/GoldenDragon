@@ -363,6 +363,21 @@ public class MarketTickBacktestRunner {
             return new ArrayList<>(availableCandles.subList(fromIndex, availableCandles.size()));
         }
 
+        @Override
+        public int calculateTradeCount(TickerInfo.Key key, double cashToUse, double price) {
+            if (cashToUse <= 0.0 || price <= 0.0) {
+                return 0;
+            }
+            TickerInfo tickerInfo = TickerRepository.INSTANCE.getById(key);
+            int lot = tickerInfo != null && tickerInfo.getLot() != null && tickerInfo.getLot() > 0 ? tickerInfo.getLot() : 1;
+            double orderCost = lot * price * (1.0 + commissionRate);
+            if (cashToUse < orderCost) {
+                return 0;
+            }
+            int lots = (int) Math.floor(cashToUse / orderCost);
+            return lots * lot;
+        }
+
         private List<TickerCandle> ensureHourCandlesLoaded(String ticker, int count, MarketDepthSnapshot snapshot) {
             List<TickerCandle> candles = hourCandlesByTicker.computeIfAbsent(ticker, this::loadHourCandles);
             int availableCount = countAvailableCandles(candles, snapshot.getTime());
