@@ -1428,13 +1428,8 @@ public class TCSService {
 
         TickerInfo tickerInfo = searchTicker(key);
         int lot = Math.max(1, tickerInfo.getLot());
-        int contractUnits = getContractUnits(tickerInfo);
-        int tradeUnit = lot * contractUnits;
-        double fullTradeUnitCost = price * tradeUnit;
-        // Для фьючерсов используем ГО (40% от полной стоимости)
-        double tradeUnitCost = TickerType.FEATURE == tickerInfo.getType()
-                ? fullTradeUnitCost * FUTURES_MARGIN_RATE
-                : fullTradeUnitCost;
+        int tradeUnit = lot;
+        double tradeUnitCost = price * tradeUnit;
         if (availableCash < tradeUnitCost) {
             return 0;
         }
@@ -1461,11 +1456,7 @@ public class TCSService {
     }
 
     private double getOrderValue(TickerInfo tickerInfo, int count, double price) {
-        double fullValue = count * price;
-        if (TickerType.FEATURE == tickerInfo.getType()) {
-            return fullValue * FUTURES_MARGIN_RATE;
-        }
-        return fullValue;
+        return count * price;
     }
 
     private int getContractUnits(TickerInfo tickerInfo) {
