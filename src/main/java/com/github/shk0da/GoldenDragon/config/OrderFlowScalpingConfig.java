@@ -35,6 +35,7 @@ public class OrderFlowScalpingConfig {
     private final List<Instrument> instruments;
     private final int orderBookDepth;
     private final double dailyLossLimitPercent;
+    private final double maxPositionBalancePercent;
     private final int maxTotalPositions;
     private final int maxPositionsPerTicker;
     private final int loopSleepMs;
@@ -104,6 +105,7 @@ public class OrderFlowScalpingConfig {
         instruments = parseInstruments(properties);
         orderBookDepth = Integer.parseInt(properties.getProperty("orderFlowScalping.orderBookDepth", "10"));
         dailyLossLimitPercent = Double.parseDouble(properties.getProperty("orderFlowScalping.dailyLossLimitPercent", "0.03"));
+        maxPositionBalancePercent = Double.parseDouble(properties.getProperty("orderFlowScalping.maxPositionBalancePercent", "0.30"));
         maxTotalPositions = Integer.parseInt(properties.getProperty("orderFlowScalping.maxTotalPositions", "5"));
         maxPositionsPerTicker = Integer.parseInt(properties.getProperty("orderFlowScalping.maxPositionsPerTicker", "2"));
         loopSleepMs = Integer.parseInt(properties.getProperty("orderFlowScalping.loopSleepMs", "100"));
@@ -214,6 +216,10 @@ public class OrderFlowScalpingConfig {
 
     public int getMaxTotalPositions() {
         return maxTotalPositions;
+    }
+
+    public double getMaxPositionBalancePercent() {
+        return maxPositionBalancePercent;
     }
 
     public int getMaxPositionsPerTicker() {

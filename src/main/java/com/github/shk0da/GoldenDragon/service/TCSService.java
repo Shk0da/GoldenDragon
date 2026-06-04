@@ -439,9 +439,14 @@ public class TCSService {
             return OrderExecutionResult.failed();
         }
         double cost = getRequiredCashForOrder(key, count, tickerPrice);
+        int lot = Math.max(1, searchTicker(key).getLot());
+        int quantity = Math.max(1, count / lot);
 
         String currentDate = dateTimeFormat.format(new Date());
-        out.println("[" + currentDate + "] Sell: " + count + " " + key.getTicker() + " by " + (byMarket ? "Market" : tickerPrice + " (" + cost + " " + currency + ")"));
+        out.println("[" + currentDate + "] Sell: " + count + " " + key.getTicker() + " by "
+                + (byMarket
+                ? String.format("Market [price=%.4f, cost=%.2f %s, lot=%d, lots=%d, cash=%.2f]", tickerPrice, cost, currency, lot, quantity, cashToSell)
+                : tickerPrice + " (" + cost + " " + currency + ")"));
         if (mainConfig.isTestMode()) {
             return OrderExecutionResult.testSuccess(tickerPrice, count);
         }
@@ -570,9 +575,14 @@ public class TCSService {
             return OrderExecutionResult.failed();
         }
         double cost = getRequiredCashForOrder(key, count, tickerPrice);
+        int lot = Math.max(1, searchTicker(key).getLot());
+        int quantity = Math.max(1, count / lot);
 
         String currentDate = dateTimeFormat.format(new Date());
-        out.println("[" + currentDate + "] Buy: " + count + " " + key.getTicker() + " by " + (byMarket ? "Market" : tickerPrice + " (" + cost + " " + currency + ")"));
+        out.println("[" + currentDate + "] Buy: " + count + " " + key.getTicker() + " by "
+                + (byMarket
+                ? String.format("Market [price=%.4f, cost=%.2f %s, lot=%d, lots=%d, cash=%.2f]", tickerPrice, cost, currency, lot, quantity, cashToBuy)
+                : tickerPrice + " (" + cost + " " + currency + ")"));
         if (mainConfig.isTestMode()) {
             return OrderExecutionResult.testSuccess(tickerPrice, count);
         }
