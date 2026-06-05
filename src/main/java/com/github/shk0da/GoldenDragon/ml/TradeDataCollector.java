@@ -200,7 +200,7 @@ public class TradeDataCollector {
             if (trade.ticker.equals(ticker) && trade.outcome == null) {
                 trade.outcome = pnlR;
                 trade.isWinner = pnlR > 0;
-                appendUpdatedTrade(trade);
+                // При обновлении outcome всегда сортируем и перезаписываем
                 saveData();
                 break;
             }
@@ -230,7 +230,7 @@ public class TradeDataCollector {
         if (trade != null) {
             trade.outcome = pnlR;
             trade.isWinner = pnlR > 0;
-            appendUpdatedTrade(trade);
+            // При обновлении outcome всегда сортируем и перезаписываем
             saveData();
         }
     }
@@ -471,38 +471,77 @@ public class TradeDataCollector {
         }
     }
     
+    /**
+     * Проверяет, отсортированы ли записи по времени.
+     */
+    private boolean isSortedByTime() {
+        if (tradeHistory.size() <= 1) {
+            return true;
+        }
+        TradeFeatures previous = tradeHistory.get(0);
+        for (int i = 1; i < tradeHistory.size(); i++) {
+            TradeFeatures current = tradeHistory.get(i);
+            if (current.entryTime.isBefore(previous.entryTime)) {
+                return false;
+            }
+            previous = current;
+        }
+        return true;
+    }
+
     private void saveData() {
-        // Не перезаписываем файл, данные уже сохранены через appendTrade()
-        // Просто обновляем in-memory коллекцию
         deduplicateTradeHistory();
         tradeHistory.sort(Comparator
                 .comparing((TradeFeatures trade) -> trade.entryTime)
                 .thenComparing(trade -> trade.strategy)
                 .thenComparing(trade -> trade.ticker));
-    }
 
-    /**
-     * Appends updated trade with outcome to file.
-     * Called when trade outcome is known.
-     */
-    private void appendUpdatedTrade(TradeFeatures trade) {
         File file = new File(dataFile);
         File parent = file.getParentFile();
         if (parent != null && !parent.exists()) {
             parent.mkdirs();
         }
-
-        // Always append mode for outcome updates
-        try (PrintWriter writer = new PrintWriter(new FileWriter(file, true))) {
-            writer.println(formatTradeRow(trade));
+        // Перезаписываем файл с сортированными записями для поддержания порядка
+        try (PrintWriter writer = new PrintWriter(new FileWriter(file, false))) {
+            writer.println(CSV_HEADER);
+            
+            for (TradeFeatures t : tradeHistory) {
+                writer.println(formatTradeRow(t));
+            }
         } catch (IOException e) {
-            System.err.println("Error appending updated trade data: " + e.getMessage());
+            System.err.println("Error saving trade data: " + e.getMessage());
         }
     }
 
     private void appendTrade(TradeFeatures trade) {
         deduplicateTradeHistory();
+        
+        // Проверяем, нужно ли сортировать и перезаписывать
+        if (isSortedByTime() && !hasOpenTradesWithoutOutcome()) {
+            // Записи отсортированы, просто добавляем новую в конец
+            appendTradeRow(trade);
+        } else {
+            // Требуется сортировка и полная перезапись
+            saveData();
+        }
+    }
 
+    /**
+     * Проверяет, есть ли в истории сделки без outcome.
+     */
+    private boolean hasOpenTradesWithoutOutcome() {
+        for (TradeFeatures trade : tradeHistory) {
+            if (trade.outcome == null) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Добавляет одну строку сделки в конец файла.
+     */
+    private void appendTradeRow(TradeFeatures trade) {
         File file = new File(dataFile);
         File parent = file.getParentFile();
         if (parent != null && !parent.exists()) {
@@ -547,11 +586,14 @@ public class TradeDataCollector {
         for (TradeFeatures trade : tradeHistory) {
             String key = buildDedupKey(trade);
             TradeFeatures existing = uniqueTrades.get(key);
+            // Приоритет: сделка с outcome > сделка без outcome
             if (existing == null) {
                 uniqueTrades.put(key, trade);
-            } else if (trade.outcome != null && (existing.outcome == null || trade.entryTime.isAfter(existing.entryTime))) {
+            } else if (trade.outcome != null && existing.outcome == null) {
+                // Заменяем сделку без outcome на сделку с outcome
                 uniqueTrades.put(key, trade);
             }
+            // Если обе сделки с outcome или обе без - оставляем первую (старую)
         }
 
         if (uniqueTrades.size() == tradeHistory.size()) {
