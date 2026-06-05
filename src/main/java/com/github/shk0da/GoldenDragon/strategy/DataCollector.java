@@ -4,11 +4,13 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.shk0da.GoldenDragon.config.DataCollectorConfig;
 import com.github.shk0da.GoldenDragon.model.TickerCandle;
 import com.github.shk0da.GoldenDragon.model.TickerInfo;
+import com.github.shk0da.GoldenDragon.model.TickerType;
 import com.github.shk0da.GoldenDragon.repository.Repository;
 import com.github.shk0da.GoldenDragon.repository.TickerRepository;
 import com.github.shk0da.GoldenDragon.service.TCSService;
 import com.github.shk0da.GoldenDragon.utils.LevelUtils;
 import com.github.shk0da.GoldenDragon.utils.LevelUtils.Level;
+import com.github.shk0da.GoldenDragon.utils.TickerTypeResolver;
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileReader;
@@ -39,8 +41,6 @@ import ru.tinkoff.piapi.contract.v1.CandleInterval;
 import ru.tinkoff.piapi.contract.v1.HistoricCandle;
 
 
-import static com.github.shk0da.GoldenDragon.model.TickerType.FEATURE;
-import static com.github.shk0da.GoldenDragon.model.TickerType.STOCK;
 import static com.github.shk0da.GoldenDragon.utils.IndicatorsUtil.toDouble;
 import static com.github.shk0da.GoldenDragon.utils.TimeUtils.sleep;
 import static java.lang.System.out;
@@ -146,12 +146,23 @@ public class DataCollector {
         try {
             final Instant currentTime = now().toInstant();
             final Instant startTime = lastCandleTime.toInstant();
-            String ticker = tickerRepository.getAll().values().stream()
-                    .filter(it -> it.getType().equals(STOCK) || it.getType().equals(FEATURE))
-                    .filter(it -> it.getName().equalsIgnoreCase(name) || it.getTicker().equalsIgnoreCase(name))
-                    .map(TickerInfo::getFigi)
-                    .findFirst()
-                    .orElseThrow();
+            
+            TickerType type = TickerTypeResolver.resolve(name);
+            TickerInfo.Key key = new TickerInfo.Key(name, type);
+            TickerInfo tickerInfo = tickerRepository.getById(key);
+            
+            if (tickerInfo == null) {
+                tickerInfo = tickerRepository.getAll().values().stream()
+                        .filter(it -> it.getName().equalsIgnoreCase(name) || it.getTicker().equalsIgnoreCase(name))
+                        .findFirst()
+                        .orElse(null);
+            }
+            
+            if (tickerInfo == null) {
+                throw new RuntimeException("Ticker not found: " + name);
+            }
+            
+            String ticker = tickerInfo.getFigi();
             var start = getStartWithShift(period, startTime);
             while (start.isBefore(currentTime)) {
                 var end = start.plus(1, ChronoUnit.DAYS);
@@ -237,13 +248,26 @@ public class DataCollector {
         }
 
         try (FileWriter writer = new FileWriter(dir + "/" + name + "/ticker.json")) {
-            TickerInfo ticker = tickerRepository.getAll().values().stream()
-                    .filter(it -> it.getType().equals(STOCK) || it.getType().equals(FEATURE))
-                    .filter(it -> it.getName().equalsIgnoreCase(name) || it.getTicker().equalsIgnoreCase(name))
-                    .findFirst()
-                    .orElseThrow();
+            TickerType type = TickerTypeResolver.resolve(name);
+            TickerInfo.Key key = new TickerInfo.Key(name, type);
+            TickerInfo tickerInfo = tickerRepository.getById(key);
+            
+            final TickerInfo resolvedTicker;
+            if (tickerInfo == null) {
+                resolvedTicker = tickerRepository.getAll().values().stream()
+                        .filter(it -> it.getName().equalsIgnoreCase(name) || it.getTicker().equalsIgnoreCase(name))
+                        .findFirst()
+                        .orElse(null);
+            } else {
+                resolvedTicker = tickerInfo;
+            }
+            
+            if (resolvedTicker == null) {
+                throw new RuntimeException("Ticker not found: " + name);
+            }
+            
             Map<String, Object> json = new HashMap<>() {{
-                put("ticker", ticker);
+                put("ticker", resolvedTicker);
                 put("levels", levels);
             }};
             objectMapper.writerWithDefaultPrettyPrinter().writeValue(writer, json);

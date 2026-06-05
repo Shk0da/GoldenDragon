@@ -4,12 +4,15 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.shk0da.GoldenDragon.config.LevelTraderConfig;
 import com.github.shk0da.GoldenDragon.model.TickerCandle;
 import com.github.shk0da.GoldenDragon.model.TickerInfo;
+import com.github.shk0da.GoldenDragon.model.TickerInfo.Key;
 import com.github.shk0da.GoldenDragon.model.TickerJson;
+import com.github.shk0da.GoldenDragon.model.TickerType;
 import com.github.shk0da.GoldenDragon.repository.Repository;
 import com.github.shk0da.GoldenDragon.repository.TickerRepository;
 import com.github.shk0da.GoldenDragon.service.TCSService;
 import com.github.shk0da.GoldenDragon.utils.GerchikUtils;
 import com.github.shk0da.GoldenDragon.utils.IndicatorsUtil;
+import com.github.shk0da.GoldenDragon.utils.TickerTypeResolver;
 import java.io.File;
 import java.io.IOException;
 import java.sql.Timestamp;
@@ -36,8 +39,6 @@ import ru.tinkoff.piapi.contract.v1.CandleInterval;
 import ru.tinkoff.piapi.contract.v1.HistoricCandle;
 
 
-import static com.github.shk0da.GoldenDragon.model.TickerType.FEATURE;
-import static com.github.shk0da.GoldenDragon.model.TickerType.STOCK;
 import static com.github.shk0da.GoldenDragon.service.TelegramNotifyService.telegramNotifyService;
 import static com.github.shk0da.GoldenDragon.utils.IndicatorsUtil.INDICATORS_SHIFT;
 import static com.github.shk0da.GoldenDragon.utils.IndicatorsUtil.calculateATR;
@@ -167,8 +168,8 @@ public class LevelTrader {
             log(buyMessage);
 
             shutdownExecutor(executor);
-            tcsService.closeAllByMarket(STOCK);
-            tcsService.closeAllByMarket(FEATURE);
+            tcsService.closeAllByMarket(TickerType.STOCK);
+            tcsService.closeAllByMarket(TickerType.FEATURE);
 
             var profit = tcsService.getTotalPortfolioCost() - initPortfolioCost;
             var profitInPercents = (tcsService.getTotalPortfolioCost() - initPortfolioCost) / initPortfolioCost * 100;
@@ -406,12 +407,23 @@ public class LevelTrader {
         List<TickerCandle> candles = new ArrayList<>();
         try {
             var currentTime = now();
-            var ticker = tickerRepository.getAll().values().stream()
-                    .filter(it -> it.getType().equals(STOCK) || it.getType().equals(FEATURE))
-                    .filter(it -> it.getName().equalsIgnoreCase(name) || it.getTicker().equalsIgnoreCase(name))
-                    .map(TickerInfo::getFigi)
-                    .findFirst()
-                    .orElseThrow();
+            
+            TickerType type = TickerTypeResolver.resolve(name);
+            Key key = new Key(name, type);
+            TickerInfo tickerInfo = tickerRepository.getById(key);
+            
+            if (tickerInfo == null) {
+                tickerInfo = tickerRepository.getAll().values().stream()
+                        .filter(it -> it.getName().equalsIgnoreCase(name) || it.getTicker().equalsIgnoreCase(name))
+                        .findFirst()
+                        .orElse(null);
+            }
+            
+            if (tickerInfo == null) {
+                throw new RuntimeException("Ticker not found: " + name);
+            }
+            
+            var ticker = tickerInfo.getFigi();
             var periodCandles = tcsService.getCandles(
                     ticker,
                     currentTime.minusMinutes(size * 5L),
