@@ -576,6 +576,25 @@ public class MarketTickBacktestRunner {
         }
 
         @Override
+        public TCSService.OrderExecutionResult sellByQuantity(TickerInfo tickerInfo, int quantity, double entryPrice, double takePrice, double stopPrice, boolean useLimitEntry) {
+            MarketDepthSnapshot snapshot = lastSnapshotByTicker.get(tickerInfo.getTicker());
+            Double bestBid = snapshot != null ? snapshot.getBestBid() : null;
+            if (bestBid == null || bestBid <= 0.0 || quantity <= 0) {
+                return TCSService.OrderExecutionResult.failed();
+            }
+            
+            double executedNotional = bestBid * quantity;
+            double commission = executedNotional * commissionRate;
+            if (cash < commission) {
+                return TCSService.OrderExecutionResult.failed();
+            }
+            // For short sell: receive proceeds, pay commission
+            cash += executedNotional - commission;
+            positionsByTicker.put(tickerInfo.getTicker(), new SimulatedPosition(tickerInfo, "SELL", quantity, bestBid, commission));
+            return TCSService.OrderExecutionResult.success(bestBid, quantity, commission, null);
+        }
+
+        @Override
         public TCSService.OrderExecutionResult closeLong(TickerInfo tickerInfo) {
             SimulatedPosition position = positionsByTicker.get(tickerInfo.getTicker());
             if (position == null) {

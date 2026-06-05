@@ -794,16 +794,40 @@ public class TCSService {
     }
 
     /**
-     * Buys the given cash amount at the best available limit price without protective orders.
+     * Places a limit sell order for the specified quantity.
+     * For short positions, calculates margin requirement (20% of notional).
      *
-     * @param name        ticker symbol
-     * @param type        instrument type
-     * @param cashToBuy   amount of cash to spend in the instrument's currency
-     * @param isFullPrice if {@code true}, take-profit and stop-loss are interpreted as absolute prices
-     * @return {@code true} if the buy order was executed successfully
+     * @param name       ticker symbol
+     * @param type       instrument type
+     * @param quantity   number of instruments to sell
+     * @param limitPrice the limit price for the sell order (must be positive)
+     * @return {@link OrderExecutionResult} with execution details, or a failed result if the order could not be placed
      */
-    public boolean buy(String name, TickerType type, double cashToBuy, boolean isFullPrice) {
-        return buy(name, type, cashToBuy, false, 0.0, 0.0, isFullPrice).isSuccess();
+    public OrderExecutionResult sellLimitByQuantity(String name, TickerType type, int quantity, double limitPrice) {
+        if (limitPrice <= 0.0 || quantity <= 0) {
+            return OrderExecutionResult.failed();
+        }
+
+        var key = new TickerInfo.Key(name, type);
+        TickerInfo tickerInfo = searchTicker(key);
+        String basicCurrency = marketConfig.getCurrency();
+        String currency = tickerInfo.getCurrency();
+        
+        // Calculate full notional and margin requirement (20% for short)
+        double fullNotional = getRequiredCashForOrder(key, quantity, limitPrice);
+        double marginRequirement = fullNotional * 0.20;
+        
+        if (!basicCurrency.equals(currency)) {
+            marginRequirement = convertCurrencies(currency, basicCurrency, marginRequirement);
+        }
+
+        log("Sell (by quantity): " + quantity + " " + key.getTicker() + " by "
+                + limitPrice + " (fullNotional=" + fullNotional + ", margin=" + marginRequirement + " " + basicCurrency + ")");
+        if (mainConfig.isTestMode()) {
+            return OrderExecutionResult.testSuccess(limitPrice, quantity);
+        }
+        // Pass margin requirement for short position
+        return createOrder(key, limitPrice, quantity, "Sell", 0.0, 0.0, false, marginRequirement);
     }
 
     /**

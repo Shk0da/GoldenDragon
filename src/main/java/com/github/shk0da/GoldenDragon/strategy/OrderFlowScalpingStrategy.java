@@ -60,6 +60,9 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
         TCSService.OrderExecutionResult sell(TickerInfo tickerInfo, double cash, double entryPrice,
                                              double takePrice, double stopPrice, boolean useLimitEntry);
 
+        TCSService.OrderExecutionResult sellByQuantity(TickerInfo tickerInfo, int quantity, double entryPrice,
+                                                       double takePrice, double stopPrice, boolean useLimitEntry);
+
         TCSService.OrderExecutionResult closeLong(TickerInfo tickerInfo);
 
         TCSService.OrderExecutionResult closeLong(TickerInfo tickerInfo, int count);
@@ -135,6 +138,21 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
                     tickerInfo.getTicker(),
                     tickerInfo.getType(),
                     cash,
+                    abs(entryPrice - takePrice) / entryPrice * 100.0,
+                    abs(stopPrice - entryPrice) / entryPrice * 100.0
+            );
+        }
+
+        @Override
+        public TCSService.OrderExecutionResult sellByQuantity(TickerInfo tickerInfo, int quantity, double entryPrice,
+                                                              double takePrice, double stopPrice, boolean useLimitEntry) {
+            if (useLimitEntry) {
+                return tcsService.sellLimitByQuantity(tickerInfo.getTicker(), tickerInfo.getType(), quantity, entryPrice);
+            }
+            return tcsService.sellByMarketWithDetails(
+                    tickerInfo.getTicker(),
+                    tickerInfo.getType(),
+                    entryPrice * quantity * 0.20, // margin requirement for short
                     abs(entryPrice - takePrice) / entryPrice * 100.0,
                     abs(stopPrice - entryPrice) / entryPrice * 100.0
             );
@@ -1268,10 +1286,10 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
 
     /**
      * Sends an order to open a short position.
+     * For short positions, uses quantity-based order with margin requirement.
      */
     private TCSService.OrderExecutionResult openShort(ScalpingState state, Signal signal, int quantity) {
-        double cash = estimateOrderNotional(state.tickerInfo, signal.entryPrice, quantity);
-        return tradingGateway.sell(state.tickerInfo, cash, signal.entryPrice, signal.takePrice, signal.stopPrice, signal.useLimitEntry);
+        return tradingGateway.sellByQuantity(state.tickerInfo, quantity, signal.entryPrice, signal.takePrice, signal.stopPrice, signal.useLimitEntry);
     }
 
     /**
