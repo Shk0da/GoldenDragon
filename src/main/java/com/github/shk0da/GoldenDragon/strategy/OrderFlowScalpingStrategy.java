@@ -57,6 +57,9 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
         TCSService.OrderExecutionResult buy(TickerInfo tickerInfo, double cash, double entryPrice,
                                             double takePrice, double stopPrice, boolean useLimitEntry);
 
+        TCSService.OrderExecutionResult buyByQuantity(TickerInfo tickerInfo, int quantity, double entryPrice,
+                                                       double takePrice, double stopPrice, boolean useLimitEntry);
+
         TCSService.OrderExecutionResult sell(TickerInfo tickerInfo, double cash, double entryPrice,
                                              double takePrice, double stopPrice, boolean useLimitEntry);
 
@@ -115,7 +118,7 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
 
         @Override
         public TCSService.OrderExecutionResult buy(TickerInfo tickerInfo, double cash, double entryPrice,
-                                                   double takePrice, double stopPrice, boolean useLimitEntry) {
+                                                    double takePrice, double stopPrice, boolean useLimitEntry) {
             if (useLimitEntry) {
                 return tcsService.buyLimit(tickerInfo.getTicker(), tickerInfo.getType(), cash, entryPrice);
             }
@@ -123,6 +126,21 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
                     tickerInfo.getTicker(),
                     tickerInfo.getType(),
                     cash,
+                    abs(takePrice - entryPrice) / entryPrice * 100.0,
+                    abs(entryPrice - stopPrice) / entryPrice * 100.0
+            );
+        }
+
+        @Override
+        public TCSService.OrderExecutionResult buyByQuantity(TickerInfo tickerInfo, int quantity, double entryPrice,
+                                                               double takePrice, double stopPrice, boolean useLimitEntry) {
+            if (useLimitEntry) {
+                return tcsService.buyLimitByQuantity(tickerInfo.getTicker(), tickerInfo.getType(), quantity, entryPrice);
+            }
+            return tcsService.buyByMarketWithDetails(
+                    tickerInfo.getTicker(),
+                    tickerInfo.getType(),
+                    entryPrice * quantity * 0.20,
                     abs(takePrice - entryPrice) / entryPrice * 100.0,
                     abs(entryPrice - stopPrice) / entryPrice * 100.0
             );
@@ -1278,10 +1296,10 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
 
     /**
      * Sends an order to open a long position.
+     * For futures, uses quantity-based order with margin requirement.
      */
     private TCSService.OrderExecutionResult openLong(ScalpingState state, Signal signal, int quantity) {
-        double cash = estimateOrderNotional(state.tickerInfo, signal.entryPrice, quantity);
-        return tradingGateway.buy(state.tickerInfo, cash, signal.entryPrice, signal.takePrice, signal.stopPrice, signal.useLimitEntry);
+        return tradingGateway.buyByQuantity(state.tickerInfo, quantity, signal.entryPrice, signal.takePrice, signal.stopPrice, signal.useLimitEntry);
     }
 
     /**
@@ -1290,18 +1308,6 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
      */
     private TCSService.OrderExecutionResult openShort(ScalpingState state, Signal signal, int quantity) {
         return tradingGateway.sellByQuantity(state.tickerInfo, quantity, signal.entryPrice, signal.takePrice, signal.stopPrice, signal.useLimitEntry);
-    }
-
-    /**
-     * Estimates the cash amount to pass into the trading gateway for an entry order.
-     */
-    private double estimateOrderNotional(TickerInfo tickerInfo, double entryPrice, int quantity) {
-        if (tickerInfo == null || entryPrice <= 0.0 || quantity <= 0) {
-            return 0.0;
-        }
-        // calculateTradeCount уже учитывает контрактный множитель,
-        // notional здесь — это просто cash, передаваемый в buy/sell как лимит.
-        return entryPrice * quantity;
     }
 
     /**

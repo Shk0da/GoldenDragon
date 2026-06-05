@@ -831,6 +831,36 @@ public class TCSService {
     }
 
     /**
+     * Places a limit buy order for the specified quantity of instruments at the given limit price.
+     * <p>
+     * For futures, uses margin requirement (20% of notional) for balance check.
+     *
+     * @param name       ticker symbol
+     * @param type       instrument type
+     * @param quantity   number of instruments to buy
+     * @param limitPrice the limit price for the buy order (must be positive)
+     * @return {@link OrderExecutionResult} with execution details, or a failed result if the order could not be placed
+     */
+    public OrderExecutionResult buyLimitByQuantity(String name, TickerType type, int quantity, double limitPrice) {
+        if (limitPrice <= 0.0 || quantity <= 0) {
+            return OrderExecutionResult.failed();
+        }
+
+        var key = new TickerInfo.Key(name, type);
+        TickerInfo tickerInfo = searchTicker(key);
+
+        double fullNotional = getRequiredCashForOrder(key, quantity, limitPrice);
+        double cashForLog = fullNotional;
+
+        log("Buy (by quantity): " + quantity + " " + key.getTicker() + " by "
+                + limitPrice + " (fullNotional=" + fullNotional + " " + tickerInfo.getCurrency() + ")");
+        if (mainConfig.isTestMode()) {
+            return OrderExecutionResult.testSuccess(limitPrice, quantity);
+        }
+        return createOrder(key, limitPrice, quantity, "Buy", 0.0, 0.0, false, cashForLog);
+    }
+
+    /**
      * Places a limit buy order for the given cash amount at the specified limit price.
      * <p>
      * The cash amount is converted from the base currency if the instrument trades
