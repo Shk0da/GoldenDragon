@@ -505,8 +505,9 @@ public class MarketTickBacktestRunner {
             if (cash < commission) {
                 return TCSService.OrderExecutionResult.failed();
             }
-            cash -= commission;
-            positionsByTicker.put(tickerInfo.getTicker(), new SimulatedPosition(tickerInfo, "SELL", quantity, bestBid));
+            // For short sell: receive cash from sale, pay commission
+            cash += executedNotional - commission;
+            positionsByTicker.put(tickerInfo.getTicker(), new SimulatedPosition(tickerInfo, "SELL", quantity, bestBid, commission));
             return TCSService.OrderExecutionResult.success(bestBid, quantity, commission, null);
         }
 
@@ -601,9 +602,12 @@ public class MarketTickBacktestRunner {
                     continue;
                 }
                 if ("BUY".equals(position.direction) && snapshot.getBestBid() != null) {
+                    // Long position: add market value of holdings
                     equity += snapshot.getBestBid() * position.quantity;
                 } else if ("SELL".equals(position.direction) && snapshot.getBestAsk() != null) {
-                    equity += (position.entryPrice - snapshot.getBestAsk()) * position.quantity;
+                    // Short position: subtract buyback cost (liability)
+                    // Cash already includes proceeds from sale, so subtract current buyback cost
+                    equity -= snapshot.getBestAsk() * position.quantity;
                 }
             }
             return equity;
@@ -652,12 +656,16 @@ public class MarketTickBacktestRunner {
         private double remainingEntryCommission;
 
         private SimulatedPosition(TickerInfo tickerInfo, String direction, int quantity, double entryPrice) {
+            this(tickerInfo, direction, quantity, entryPrice, entryPrice * quantity * COMMISSION_RATE);
+        }
+
+        private SimulatedPosition(TickerInfo tickerInfo, String direction, int quantity, double entryPrice, double commission) {
             this.tickerInfo = tickerInfo;
             this.direction = direction;
             this.quantity = quantity;
             this.entryPrice = entryPrice;
-            this.entryCommission = entryPrice * quantity * COMMISSION_RATE;
-            this.remainingEntryCommission = this.entryCommission;
+            this.entryCommission = commission;
+            this.remainingEntryCommission = commission;
         }
 
         private double allocateEntryCommission(int executedCount) {
