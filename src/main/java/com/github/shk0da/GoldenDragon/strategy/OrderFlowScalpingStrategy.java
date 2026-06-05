@@ -1059,6 +1059,14 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
             return;
         }
 
+        double estimatedCommission = signal.entryPrice * quantity * 2 * 0.0005;
+        double estimatedGrossPnl = abs(signal.takePrice - signal.entryPrice) * quantity;
+        double estimatedNetPnl = estimatedGrossPnl - estimatedCommission;
+        double minRequiredNetPnl = estimatedCommission * config.getMinNetEdgeToCommissionRatio();
+        if (estimatedNetPnl < minRequiredNetPnl) {
+            return;
+        }
+
         TCSService.OrderExecutionResult orderResult = "BUY".equals(signal.direction)
                 ? openLong(state, signal, quantity)
                 : openShort(state, signal, quantity);
@@ -1080,10 +1088,6 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
         state.openAttemptBlockedUntil = null;
 
         LivePosition position = createPositionFromSignal(state, signal, orderResult, quantity, tickSize);
-        if (!hasSufficientNetEdge(state, signal, position, orderResult)) {
-            state.openAttemptBlockedUntil = now().plusSeconds(5);
-            return;
-        }
         state.openPosition = position;
         syncProtectiveOrders(state, position);
         String explanation = buildEntryExplanation(state, signal, position, orderResult, positionCash, abs(signal.entryPrice - signal.stopPrice));
@@ -1241,36 +1245,6 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
     private long getImbalanceHoldDurationMs(ScalpingState state, String direction) {
         Instant since = "BUY".equals(direction) ? state.imbalancePositiveSince : state.imbalanceNegativeSince;
         return since == null ? 0L : Duration.between(since, now()).toMillis();
-    }
-
-    /**
-     * Checks that the expected net profit at take exceeds the minimum commission-adjusted edge.
-     */
-    private boolean hasSufficientNetEdge(ScalpingState state,
-                                         Signal signal,
-                                         LivePosition position,
-                                         TCSService.OrderExecutionResult orderResult) {
-        double expectedGrossTakePnl = expectedGrossTakePnl(position);
-        double expectedRoundTripCommission = expectedRoundTripCommission(orderResult);
-        double requiredNetPnl = expectedRoundTripCommission * config.getMinNetEdgeToCommissionRatio();
-        double expectedNetTakePnl = expectedGrossTakePnl - expectedRoundTripCommission;
-        if (expectedNetTakePnl >= requiredNetPnl) {
-            return true;
-        }
-        log(String.format(
-                "OrderFlowScalpingStrategy SKIP %s %s by %s: insufficient net edge signalEntry=%.4f executedEntry=%.4f qty=%d expectedGrossTakePnl=%.2f expectedNetTakePnl=%.2f expectedRoundTripCommission=%.2f requiredNetPnl=%.2f",
-                signal.direction,
-                state.tickerInfo.getTicker(),
-                signal.reason,
-                signal.entryPrice,
-                position.entryPrice,
-                position.remainingQuantity,
-                expectedGrossTakePnl,
-                expectedNetTakePnl,
-                expectedRoundTripCommission,
-                requiredNetPnl
-        ));
-        return false;
     }
 
     /**
