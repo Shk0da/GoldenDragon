@@ -2,6 +2,7 @@ package com.github.shk0da.GoldenDragon.config;
 
 import com.github.shk0da.GoldenDragon.model.TickerType;
 import com.github.shk0da.GoldenDragon.utils.PropertiesUtils;
+import com.github.shk0da.GoldenDragon.utils.TickerTypeResolver;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
@@ -212,36 +213,11 @@ public class OrderFlowScalpingConfig {
     }
 
     /**
-     * Resolves TickerType by ticker name using the same logic as datacollector.instruments.
+     * Resolves TickerType by ticker name using TickerTypeResolver utility.
      * Searches through ticker repository to find the instrument type.
-     * Defaults to FEATURE if type cannot be determined.
      */
     private TickerType resolveTickerType(String ticker) {
-        try {
-            com.github.shk0da.GoldenDragon.repository.Repository<com.github.shk0da.GoldenDragon.model.TickerInfo.Key, com.github.shk0da.GoldenDragon.model.TickerInfo> tickerRepository =
-                    com.github.shk0da.GoldenDragon.repository.TickerRepository.INSTANCE;
-
-            com.github.shk0da.GoldenDragon.model.TickerInfo tickerInfo = tickerRepository.getAll().values().stream()
-                    .filter(it -> (it.getType() == TickerType.STOCK || it.getType() == TickerType.FEATURE))
-                    .filter(it -> it.getName().equalsIgnoreCase(ticker) || it.getTicker().equalsIgnoreCase(ticker))
-                    .findFirst()
-                    .orElse(null);
-
-            if (tickerInfo != null) {
-                return tickerInfo.getType();
-            }
-
-            if (ticker.endsWith("F")) {
-                return TickerType.FEATURE;
-            }
-
-            return TickerType.STOCK;
-        } catch (Exception e) {
-            if (ticker.endsWith("F")) {
-                return TickerType.FEATURE;
-            }
-            return TickerType.STOCK;
-        }
+        return TickerTypeResolver.resolve(ticker, TickerType.FEATURE);
     }
 
     public List<Instrument> getInstruments() {
