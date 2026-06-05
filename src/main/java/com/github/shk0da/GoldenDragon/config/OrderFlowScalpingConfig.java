@@ -30,6 +30,14 @@ public class OrderFlowScalpingConfig {
         public TickerType getType() {
             return type;
         }
+
+        @Override
+        public String toString() {
+            return "Instrument{" +
+                    "ticker='" + ticker + '\'' +
+                    ", type=" + type +
+                    '}';
+        }
     }
 
     private final List<Instrument> instruments;
@@ -181,7 +189,7 @@ public class OrderFlowScalpingConfig {
             stream(stocks.split(","))
                     .map(String::trim)
                     .filter(it -> !it.isEmpty())
-                    .forEach(it -> result.add(new Instrument(it, TickerType.STOCK)));
+                    .forEach(it -> result.add(new Instrument(it, resolveTickerType(it))));
         }
 
         String futures = properties.getProperty("orderFlowScalping.features", "RTSI,SBERF,GAZPF,Si,NG,BR");
@@ -189,7 +197,7 @@ public class OrderFlowScalpingConfig {
             stream(futures.split(","))
                     .map(String::trim)
                     .filter(it -> !it.isEmpty())
-                    .forEach(it -> result.add(new Instrument(it, TickerType.FEATURE)));
+                    .forEach(it -> result.add(new Instrument(it, resolveTickerType(it))));
         }
         return result;
     }
@@ -199,7 +207,41 @@ public class OrderFlowScalpingConfig {
         if (parts.length == 2) {
             return new Instrument(parts[0].trim(), TickerType.byName(parts[1].trim()));
         }
-        return new Instrument(value.trim(), TickerType.STOCK);
+        String ticker = value.trim();
+        return new Instrument(ticker, resolveTickerType(ticker));
+    }
+
+    /**
+     * Resolves TickerType by ticker name using the same logic as datacollector.instruments.
+     * Searches through ticker repository to find the instrument type.
+     * Defaults to FEATURE if type cannot be determined.
+     */
+    private TickerType resolveTickerType(String ticker) {
+        try {
+            com.github.shk0da.GoldenDragon.repository.Repository<com.github.shk0da.GoldenDragon.model.TickerInfo.Key, com.github.shk0da.GoldenDragon.model.TickerInfo> tickerRepository =
+                    com.github.shk0da.GoldenDragon.repository.TickerRepository.INSTANCE;
+
+            com.github.shk0da.GoldenDragon.model.TickerInfo tickerInfo = tickerRepository.getAll().values().stream()
+                    .filter(it -> (it.getType() == TickerType.STOCK || it.getType() == TickerType.FEATURE))
+                    .filter(it -> it.getName().equalsIgnoreCase(ticker) || it.getTicker().equalsIgnoreCase(ticker))
+                    .findFirst()
+                    .orElse(null);
+
+            if (tickerInfo != null) {
+                return tickerInfo.getType();
+            }
+
+            if (ticker.endsWith("F")) {
+                return TickerType.FEATURE;
+            }
+
+            return TickerType.STOCK;
+        } catch (Exception e) {
+            if (ticker.endsWith("F")) {
+                return TickerType.FEATURE;
+            }
+            return TickerType.STOCK;
+        }
     }
 
     public List<Instrument> getInstruments() {

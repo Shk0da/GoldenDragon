@@ -148,13 +148,13 @@ java -Dapplication.properties=./application.properties -jar build/libs/GoldenDra
 
 ```properties
 # Live order-flow scalping instruments
-# Format: TICKER:TYPE
-orderFlowScalping.instruments=SBER:STOCK,GAZP:STOCK,LKOH:STOCK,Si:FEATURE,BR:FEATURE
+# Format: TICKER (type resolved automatically, same as datacollector.instruments)
+orderFlowScalping.instruments=SBER,GAZP,LKOH,Si,BR
 
 # Alternative split configuration
 # orderFlowScalping.stocks=SBER,GAZP,LKOH
 # orderFlowScalping.features=RTSI,SBERF,GAZPF,Si,NG,BR
-# orderFlowScalping.instruments=SBER:STOCK,GAZP:STOCK,LKOH:STOCK,Si:FEATURE,BR:FEATURE
+# orderFlowScalping.instruments=SBER,GAZP,LKOH,Si,BR
 
 # Market data
 orderFlowScalping.orderBookDepth=10
