@@ -773,10 +773,15 @@ public class MarketTickBacktestRunner {
         }
 
         private double allocateEntryCommission(int executedCount) {
-            if (quantity <= 0) {
+            if (executedCount <= 0 || remainingEntryCommission <= 0.0 || quantity <= 0) {
                 return 0.0;
             }
-            double allocated = remainingEntryCommission * executedCount / Math.max(executedCount, quantity + executedCount);
+            if (executedCount >= quantity) {
+                double allocated = remainingEntryCommission;
+                remainingEntryCommission = 0.0;
+                return allocated;
+            }
+            double allocated = remainingEntryCommission * executedCount / quantity;
             remainingEntryCommission = Math.max(0.0, remainingEntryCommission - allocated);
             return allocated;
         }
