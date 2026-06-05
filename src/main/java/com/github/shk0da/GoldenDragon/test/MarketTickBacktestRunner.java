@@ -34,6 +34,8 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
+import java.util.concurrent.ForkJoinPool;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import ru.tinkoff.piapi.contract.v1.CandleInterval;
 
@@ -46,10 +48,12 @@ public class MarketTickBacktestRunner {
     private static final String CANDLES_HEADER = "Datetime,Open,High,Low,Close,Volume";
     private static final double INITIAL_BALANCE = 1_000_000.0;
     private static final double COMMISSION_RATE = 0.0005;
+    private static final int PARALLELISM = Runtime.getRuntime().availableProcessors();
 
     private final String dataDir;
     private final double initialBalance;
     private final double commissionRate;
+    private final ForkJoinPool forkJoinPool;
 
     public MarketTickBacktestRunner() {
         this("data", INITIAL_BALANCE, COMMISSION_RATE);
@@ -59,6 +63,7 @@ public class MarketTickBacktestRunner {
         this.dataDir = dataDir;
         this.initialBalance = initialBalance;
         this.commissionRate = commissionRate;
+        this.forkJoinPool = new ForkJoinPool(PARALLELISM);
     }
 
     public static void main(String[] args) throws Exception {
@@ -66,6 +71,8 @@ public class MarketTickBacktestRunner {
     }
 
     public void run() throws Exception {
+        long startTime = System.currentTimeMillis();
+        
         OrderFlowScalpingConfig config = new OrderFlowScalpingConfig();
         List<OrderFlowScalpingConfig.Instrument> instruments = config.getInstruments();
         if (instruments.isEmpty()) {
@@ -73,7 +80,12 @@ public class MarketTickBacktestRunner {
             return;
         }
 
+        System.out.println("MarketTickBacktestRunner: starting with parallelism=" + PARALLELISM);
+        long loadStart = System.currentTimeMillis();
         Map<String, InstrumentTicks> ticksByTicker = loadTicks(instruments);
+        long loadTime = System.currentTimeMillis() - loadStart;
+        System.out.println("MarketTickBacktestRunner: loaded ticks in " + loadTime + "ms");
+        
         if (ticksByTicker.isEmpty()) {
             System.out.println("MarketTickBacktestRunner: no ticks found in " + dataDir);
             return;
@@ -87,21 +99,33 @@ public class MarketTickBacktestRunner {
         OrderFlowScalpingStrategy strategy = new OrderFlowScalpingStrategy(config, gateway);
         ticksByTicker.values().forEach(it -> strategy.registerTicker(it.tickerInfo));
 
+        long timelineStart = System.currentTimeMillis();
         List<TimelineEvent> timeline = buildTimeline(ticksByTicker);
+        long timelineTime = System.currentTimeMillis() - timelineStart;
+        System.out.println("MarketTickBacktestRunner: built timeline with " + timeline.size() + " events in " + timelineTime + "ms");
+        
+        long processStart = System.currentTimeMillis();
         for (TimelineEvent event : timeline) {
             gateway.updateSnapshot(event.instrumentTicks.tickerInfo, event.tickRow.snapshot);
             strategy.processBacktestTick(event.instrumentTicks.tickerInfo, event.tickRow.snapshot);
         }
+        long processTime = System.currentTimeMillis() - processStart;
+        System.out.println("MarketTickBacktestRunner: processed " + timeline.size() + " ticks in " + processTime + "ms");
 
         gateway.closeAll(timeline.isEmpty() ? Instant.now() : timeline.get(timeline.size() - 1).tickRow.snapshot.getTime());
         printSummary(ticksByTicker, gateway, strategy);
+        
+        long totalTime = System.currentTimeMillis() - startTime;
+        System.out.println("MarketTickBacktestRunner: total time " + totalTime + "ms");
+        
+        forkJoinPool.shutdown();
     }
 
     private void printSummary(Map<String, InstrumentTicks> ticksByTicker,
                               SimulationGateway gateway,
                               OrderFlowScalpingStrategy strategy) {
-        long totalTicks = ticksByTicker.values().stream().mapToLong(it -> it.ticks.size()).sum();
-        System.out.println("MarketTickBacktestRunner loaded " + totalTicks + " ticks for " + ticksByTicker.size() + " tickers");
+        long totalTicks = ticksByTicker.values().parallelStream().mapToLong(it -> it.ticks.size()).sum();
+        System.out.println("MarketTickBacktestRunner loaded " + totalTicks + " ticks for " + ticksByTicker.size() + " tickers [parallelism=" + PARALLELISM + "]");
         for (InstrumentTicks instrumentTicks : ticksByTicker.values()) {
             if (instrumentTicks.ticks.isEmpty()) {
                 continue;
@@ -129,35 +153,55 @@ public class MarketTickBacktestRunner {
     }
 
     private List<TimelineEvent> buildTimeline(Map<String, InstrumentTicks> ticksByTicker) {
-        List<TimelineEvent> timeline = new ArrayList<>();
-        for (InstrumentTicks instrumentTicks : ticksByTicker.values()) {
-            for (TickRow tick : instrumentTicks.ticks) {
-                timeline.add(new TimelineEvent(instrumentTicks, tick));
-            }
-        }
-        timeline.sort(Comparator.comparing(it -> it.tickRow.time));
-        return timeline;
+        // Parallel stream for building and sorting timeline
+        return ticksByTicker.values().parallelStream()
+                .flatMap(instrumentTicks -> 
+                        instrumentTicks.ticks.stream()
+                                .map(tick -> new TimelineEvent(instrumentTicks, tick))
+                )
+                .parallel()
+                .sorted(Comparator.comparing(event -> event.tickRow.time))
+                .collect(Collectors.toList());
     }
 
-    private Map<String, InstrumentTicks> loadTicks(List<OrderFlowScalpingConfig.Instrument> instruments) throws IOException {
-        Map<String, InstrumentTicks> result = new LinkedHashMap<>();
-        for (OrderFlowScalpingConfig.Instrument instrument : instruments) {
-            Path ticksPath = Path.of(dataDir, instrument.getTicker(), "ticks.txt");
-            if (!Files.exists(ticksPath)) {
-                continue;
-            }
+    private Map<String, InstrumentTicks> loadTicks(List<OrderFlowScalpingConfig.Instrument> instruments) throws IOException, InterruptedException, java.util.concurrent.ExecutionException {
+        // Parallel load ticks for each instrument
+        List<OrderFlowScalpingConfig.Instrument> validInstruments = instruments.stream()
+                .filter(instrument -> Files.exists(Path.of(dataDir, instrument.getTicker(), "ticks.txt")))
+                .collect(Collectors.toList());
 
-            TickerInfo tickerInfo = resolveTickerInfo(instrument);
-            if (tickerInfo == null) {
-                System.out.println("Warn: ticker info not found for " + instrument);
-                continue;
-            }
-
-            List<TickRow> ticks = readTicks(ticksPath, tickerInfo);
-            if (!ticks.isEmpty()) {
-                result.put(instrument.getTicker(), new InstrumentTicks(tickerInfo, ticks));
-            }
+        if (validInstruments.isEmpty()) {
+            return new LinkedHashMap<>();
         }
+
+        Map<String, InstrumentTicks> result = forkJoinPool.submit(() ->
+                validInstruments.parallelStream()
+                        .map(instrument -> {
+                            Path ticksPath = Path.of(dataDir, instrument.getTicker(), "ticks.txt");
+                            TickerInfo tickerInfo = resolveTickerInfo(instrument);
+                            if (tickerInfo == null) {
+                                System.out.println("Warn: ticker info not found for " + instrument);
+                                return null;
+                            }
+                            try {
+                                List<TickRow> ticks = readTicks(ticksPath, tickerInfo);
+                                if (!ticks.isEmpty()) {
+                                    return new InstrumentTicks(tickerInfo, ticks);
+                                }
+                            } catch (IOException e) {
+                                System.out.println("Error reading ticks for " + instrument.getTicker() + ": " + e.getMessage());
+                            }
+                            return null;
+                        })
+                        .filter(it -> it != null)
+                        .collect(Collectors.toMap(
+                                it -> it.tickerInfo.getTicker(),
+                                it -> it,
+                                (a, b) -> a,
+                                LinkedHashMap::new
+                        ))
+        ).get();
+
         return result;
     }
 
@@ -409,6 +453,7 @@ public class MarketTickBacktestRunner {
             }
 
             try {
+                // Parallel update candles for multiple tickers
                 dataCollector.updateCandlesFile(ticker, dataDir, CandleInterval.CANDLE_INTERVAL_HOUR, false);
                 List<TickerCandle> reloadedCandles = loadHourCandles(ticker);
                 hourCandlesByTicker.put(ticker, reloadedCandles);
@@ -416,6 +461,27 @@ public class MarketTickBacktestRunner {
             } catch (Exception ex) {
                 System.out.println("Warn: failed update candles for " + ticker + ": " + ex.getMessage());
                 return candles;
+            }
+        }
+
+        private List<TickerCandle> loadHourCandles(String ticker) {
+            Path candlesPath = Path.of(dataDir, ticker, "candlesHOUR.txt");
+            if (!Files.exists(candlesPath)) {
+                return Collections.emptyList();
+            }
+
+            try (Stream<String> lines = Files.lines(candlesPath)) {
+                return lines.parallel()
+                        .filter(line -> !line.isBlank())
+                        .filter(line -> !CANDLES_HEADER.equals(line))
+                        .map(this::parseCandleRow)
+                        .filter(java.util.Objects::nonNull)
+                        .parallel()
+                        .sorted(Comparator.comparing(candle -> LocalDateTime.parse(candle.getDate(), DATE_TIME_FMT)))
+                        .collect(Collectors.toList());
+            } catch (IOException ex) {
+                System.out.println("Warn: failed read candles for " + ticker + ": " + ex.getMessage());
+                return Collections.emptyList();
             }
         }
 
@@ -430,27 +496,6 @@ public class MarketTickBacktestRunner {
                 count++;
             }
             return count;
-        }
-
-        private List<TickerCandle> loadHourCandles(String ticker) {
-            Path candlesPath = Path.of(dataDir, ticker, "candlesHOUR.txt");
-            if (!Files.exists(candlesPath)) {
-                return Collections.emptyList();
-            }
-
-            List<TickerCandle> result = new ArrayList<>();
-            try (Stream<String> lines = Files.lines(candlesPath)) {
-                lines.filter(line -> !line.isBlank())
-                        .filter(line -> !CANDLES_HEADER.equals(line))
-                        .map(this::parseCandleRow)
-                        .filter(java.util.Objects::nonNull)
-                        .sorted(Comparator.comparing(candle -> LocalDateTime.parse(candle.getDate(), DATE_TIME_FMT)))
-                        .forEach(result::add);
-            } catch (IOException ex) {
-                System.out.println("Warn: failed read candles for " + ticker + ": " + ex.getMessage());
-                return Collections.emptyList();
-            }
-            return result;
         }
 
         private TickerCandle parseCandleRow(String line) {
