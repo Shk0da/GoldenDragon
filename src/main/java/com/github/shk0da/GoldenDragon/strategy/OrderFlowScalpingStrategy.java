@@ -2020,7 +2020,25 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
         currentTime = snapshot.getTime();
         registerTicker(tickerInfo);
         onOrderBook(snapshot);
+        if (config.isLevelsEnabled()) {
+            ScalpingState state = stateByTicker.get(tickerInfo.getTicker());
+            if (state != null) {
+                refreshKeyLevelsIfNeeded(state);
+            }
+        }
         processTicker(tickerInfo.getTicker());
+    }
+
+    /**
+     * Refreshes key levels for a ticker when the configured interval has elapsed.
+     */
+    private void refreshKeyLevelsIfNeeded(ScalpingState state) {
+        Instant now = now();
+        long refreshIntervalSeconds = config.getLevelsRefreshMinutes() * 60L;
+        if (state.levelsLastUpdate == null
+                || Duration.between(state.levelsLastUpdate, now).getSeconds() >= refreshIntervalSeconds) {
+            refreshKeyLevels(state);
+        }
     }
 
     /**
