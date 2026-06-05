@@ -11,7 +11,9 @@ import com.github.shk0da.GoldenDragon.model.Position;
 import com.github.shk0da.GoldenDragon.model.PositionInfo;
 import com.github.shk0da.GoldenDragon.model.TickerCandle;
 import com.github.shk0da.GoldenDragon.model.TickerInfo;
+import com.github.shk0da.GoldenDragon.model.TickerInfo.Key;
 import com.github.shk0da.GoldenDragon.model.TickerType;
+import com.github.shk0da.GoldenDragon.repository.Repository;
 import com.github.shk0da.GoldenDragon.repository.TickerRepository;
 import com.github.shk0da.GoldenDragon.service.TCSService;
 import com.github.shk0da.GoldenDragon.strategy.DataCollector;
@@ -35,6 +37,8 @@ import java.util.stream.Stream;
 import ru.tinkoff.piapi.contract.v1.CandleInterval;
 
 public class MarketTickBacktestRunner {
+
+    private static final Repository<Key, TickerInfo> tickerRepository = TickerRepository.INSTANCE;
 
     private static final DateTimeFormatter DATE_TIME_FMT = DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm:ss");
     private static final String HEADER = "time,best_bid,best_ask,mid_price,bids,asks";
@@ -144,7 +148,7 @@ public class MarketTickBacktestRunner {
 
             TickerInfo tickerInfo = resolveTickerInfo(instrument);
             if (tickerInfo == null) {
-                System.out.println("Warn: ticker info not found for " + instrument.getTicker());
+                System.out.println("Warn: ticker info not found for " + instrument);
                 continue;
             }
 
@@ -158,7 +162,7 @@ public class MarketTickBacktestRunner {
 
     private TickerInfo resolveTickerInfo(OrderFlowScalpingConfig.Instrument instrument) {
         TickerInfo.Key key = new TickerInfo.Key(instrument.getTicker(), instrument.getType());
-        TickerInfo tickerInfo = TickerRepository.INSTANCE.getById(key);
+        TickerInfo tickerInfo = tickerRepository.getById(key);
         if (tickerInfo != null) {
             return tickerInfo;
         }
@@ -301,7 +305,7 @@ public class MarketTickBacktestRunner {
 
         @Override
         public TickerInfo searchTicker(TickerInfo.Key key) {
-            return TickerRepository.INSTANCE.getById(key);
+            return tickerRepository.getById(key);
         }
 
         @Override
@@ -368,7 +372,7 @@ public class MarketTickBacktestRunner {
             if (cashToUse <= 0.0 || price <= 0.0) {
                 return 0;
             }
-            TickerInfo tickerInfo = TickerRepository.INSTANCE.getById(key);
+            TickerInfo tickerInfo = tickerRepository.getById(key);
             int lot = tickerInfo != null && tickerInfo.getLot() != null && tickerInfo.getLot() > 0 ? tickerInfo.getLot() : 1;
             double orderCost = lot * price * (1.0 + commissionRate);
             if (cashToUse < orderCost) {

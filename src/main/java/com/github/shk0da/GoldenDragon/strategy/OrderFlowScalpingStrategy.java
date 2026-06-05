@@ -223,26 +223,53 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
         }
 
         telegramNotifyService.sendMessage("Run OrderFlowScalpingStrategy");
-        instruments.forEach(this::subscribeTicker);
+        
+        // Подписка на тикеры с обработкой ошибок
+        for (OrderFlowScalpingConfig.Instrument instrument : instruments) {
+            try {
+                subscribeTicker(instrument);
+            } catch (Exception e) {
+                log("OrderFlowScalpingStrategy: failed to subscribe " + instrument.getTicker() + ": " + e.getMessage());
+            }
+        }
 
         if (config.isLevelsEnabled()) {
             stateByTicker.values().forEach(this::refreshKeyLevels);
         }
 
         while (running) {
-            if (isDailyLossLimitReached()) {
-                log("OrderFlowScalpingStrategy: daily loss limit reached");
-                running = false;
-                break;
+            try {
+                if (isDailyLossLimitReached()) {
+                    log("OrderFlowScalpingStrategy: daily loss limit reached");
+                    running = false;
+                    break;
+                }
+                for (OrderFlowScalpingConfig.Instrument instrument : instruments) {
+                    try {
+                        processTicker(instrument.getTicker());
+                    } catch (Exception e) {
+                        log("OrderFlowScalpingStrategy: error processing " + instrument.getTicker() + ": " + e.getMessage());
+                    }
+                }
+                if (config.isLevelsEnabled()) {
+                    try {
+                        refreshLevelsIfNeeded();
+                    } catch (Exception e) {
+                        log("OrderFlowScalpingStrategy: error refreshing levels: " + e.getMessage());
+                    }
+                }
+                sleep(config.getLoopSleepMs());
+            } catch (Exception e) {
+                log("OrderFlowScalpingStrategy: unexpected error in main loop: " + e.getMessage());
+                sleep(5000);
             }
-            instruments.forEach(instrument -> processTicker(instrument.getTicker()));
-            if (config.isLevelsEnabled()) {
-                refreshLevelsIfNeeded();
-            }
-            sleep(config.getLoopSleepMs());
         }
 
-        forceCloseAllPositions();
+        try {
+            forceCloseAllPositions();
+        } catch (Exception e) {
+            log("OrderFlowScalpingStrategy: error closing positions on shutdown: " + e.getMessage());
+        }
         instruments.forEach(instrument -> unsubscribeTicker(instrument.getTicker()));
         telegramNotifyService.sendMessage("Stop OrderFlowScalpingStrategy");
     }
@@ -317,10 +344,12 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
             tickerInfo = tradingGateway.searchTicker(new TickerInfo.Key(ticker, instrument.getType()));
         }
         if (tickerInfo == null) {
+            log("OrderFlowScalpingStrategy: ticker info not found for " + ticker);
             return;
         }
         stateByTicker.putIfAbsent(ticker, new ScalpingState(tickerInfo));
         tradingGateway.subscribeMarketData(tickerInfo.getKey(), config.getOrderBookDepth(), this);
+        log("OrderFlowScalpingStrategy: subscribed to " + ticker);
     }
 
     /**
@@ -338,32 +367,36 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
      * Processes one ticker state, manages an open position, or searches for a new entry.
      */
     private void processTicker(String ticker) {
-        ScalpingState state = stateByTicker.get(ticker);
-        if (state == null || state.lastOrderBook == null) {
-            return;
-        }
-
-        synchronized (state) {
-            if (state.openAttemptBlockedUntil != null && state.openAttemptBlockedUntil.isAfter(now())) {
+        try {
+            ScalpingState state = stateByTicker.get(ticker);
+            if (state == null || state.lastOrderBook == null) {
                 return;
             }
 
-            cleanup(state);
-            updateMarketRegime(state);
+            synchronized (state) {
+                if (state.openAttemptBlockedUntil != null && state.openAttemptBlockedUntil.isAfter(now())) {
+                    return;
+                }
 
-            if (hasOpenPosition(state)) {
-                manageOpenPosition(state);
-                return;
-            }
+                cleanup(state);
+                updateMarketRegime(state);
 
-            if (!isRegimeTradable(state)) {
-                return;
-            }
+                if (hasOpenPosition(state)) {
+                    manageOpenPosition(state);
+                    return;
+                }
 
-            Signal signal = detectSignal(state);
-            if (signal != null) {
-                openSignalPosition(state, signal);
+                if (!isRegimeTradable(state)) {
+                    return;
+                }
+
+                Signal signal = detectSignal(state);
+                if (signal != null) {
+                    openSignalPosition(state, signal);
+                }
             }
+        } catch (Exception e) {
+            log("OrderFlowScalpingStrategy error processing ticker " + ticker + ": " + e.getMessage());
         }
     }
 
@@ -1965,6 +1998,7 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
     @Override
     public void onError(Throwable throwable) {
         log("OrderFlowScalpingStrategy stream error: " + throwable.getMessage());
+        log("OrderFlowScalpingStrategy: will continue working, error type: " + throwable.getClass().getSimpleName());
     }
 
     /**
@@ -2326,12 +2360,16 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
      */
     private void forceCloseAllPositions() {
         stateByTicker.values().forEach(state -> {
-            synchronized (state) {
-                if (state.openPosition == null) {
-                    return;
+            try {
+                synchronized (state) {
+                    if (state.openPosition == null) {
+                        return;
+                    }
+                    double exitPrice = getExitPrice(state, state.openPosition.direction);
+                    closeOpenPosition(state, exitPrice, new CloseDecision("shutdown", "graceful_shutdown", false));
                 }
-                double exitPrice = getExitPrice(state, state.openPosition.direction);
-                closeOpenPosition(state, exitPrice, new CloseDecision("shutdown", "graceful_shutdown", false));
+            } catch (Exception e) {
+                log("OrderFlowScalpingStrategy: error closing position for " + state.tickerInfo.getTicker() + ": " + e.getMessage());
             }
         });
     }
