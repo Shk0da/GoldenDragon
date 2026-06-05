@@ -356,11 +356,6 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
                 state.keyLevels = levels != null ? levels : Collections.emptyList();
                 state.levelsLastUpdate = now();
             }
-            log(String.format(
-                    "OrderFlowScalpingStrategy LEVELS REFRESHED %s: count=%d",
-                    state.tickerInfo.getTicker(),
-                    state.keyLevels.size()
-            ));
         } catch (Exception ex) {
             log("OrderFlowScalpingStrategy: failed to refresh levels for "
                     + state.tickerInfo.getTicker() + ": " + ex.getMessage());

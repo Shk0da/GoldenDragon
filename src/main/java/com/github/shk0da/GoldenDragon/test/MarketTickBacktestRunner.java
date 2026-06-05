@@ -345,6 +345,8 @@ public class MarketTickBacktestRunner {
         private final Map<String, MarketDepthSnapshot> lastSnapshotByTicker = new TreeMap<>();
         private final Map<String, List<TickerCandle>> hourCandlesByTicker = new HashMap<>();
         private double cash;
+        private double initialBalance;
+        private double realizedPnl;
         private double peakEquity;
         private double maxDrawdownPercent;
         private long closedTrades;
@@ -353,7 +355,8 @@ public class MarketTickBacktestRunner {
         private SimulationGateway(String dataDir, double initialBalance, double commissionRate, DataCollector dataCollector) {
             this.dataDir = dataDir;
             this.cash = initialBalance;
-            this.peakEquity = initialBalance;
+            this.initialBalance = initialBalance;
+            this.realizedPnl = 0.0;
             this.commissionRate = commissionRate;
             this.dataCollector = dataCollector;
         }
@@ -676,6 +679,7 @@ public class MarketTickBacktestRunner {
                     : (position.entryPrice - exitPrice) * executedCount;
             double entryCommissionPart = position.allocateEntryCommission(executedCount);
             double netPnl = grossPnl - entryCommissionPart - exitCommission;
+            realizedPnl += netPnl;
             closedTrades++;
             if (netPnl > 0.0) {
                 winningTrades++;
@@ -696,18 +700,18 @@ public class MarketTickBacktestRunner {
         }
 
         private double getEquity() {
-            double equity = cash;
+            double equity = initialBalance + realizedPnl;
             for (SimulatedPosition position : positionsByTicker.values()) {
                 MarketDepthSnapshot snapshot = lastSnapshotByTicker.get(position.tickerInfo.getTicker());
                 if (snapshot == null) {
                     continue;
                 }
                 if ("BUY".equals(position.direction) && snapshot.getBestBid() != null) {
-                    // Long position: add market value of holdings
-                    equity += snapshot.getBestBid() * position.quantity;
+                    double unrealizedPnl = (snapshot.getBestBid() - position.entryPrice) * position.quantity;
+                    equity += unrealizedPnl;
                 } else if ("SELL".equals(position.direction) && snapshot.getBestAsk() != null) {
-                    // Short position: cash includes proceeds, subtract buyback liability
-                    equity -= snapshot.getBestAsk() * position.quantity;
+                    double unrealizedPnl = (position.entryPrice - snapshot.getBestAsk()) * position.quantity;
+                    equity += unrealizedPnl;
                 }
             }
             return equity;
