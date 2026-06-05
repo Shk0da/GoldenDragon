@@ -437,11 +437,16 @@ public class MarketTickBacktestRunner {
             }
             TickerInfo tickerInfo = tickerRepository.getById(key);
             int lot = tickerInfo != null && tickerInfo.getLot() != null && tickerInfo.getLot() > 0 ? tickerInfo.getLot() : 1;
-            double orderCost = lot * price * (1.0 + commissionRate);
-            if (cashToUse < orderCost) {
+            
+            // Calculate how many instruments we can buy (including commission)
+            double instrumentCost = price * (1.0 + commissionRate);
+            if (cashToUse < instrumentCost) {
                 return 0;
             }
-            int lots = (int) Math.floor(cashToUse / orderCost);
+            int quantity = (int) Math.floor(cashToUse / instrumentCost);
+            
+            // Round down to nearest lot
+            int lots = quantity / lot;
             return lots * lot;
         }
 
@@ -526,7 +531,13 @@ public class MarketTickBacktestRunner {
             if (bestAsk == null || bestAsk <= 0.0) {
                 return TCSService.OrderExecutionResult.failed();
             }
-            int quantity = Math.max(1, (int) Math.floor(cashToUse / bestAsk));
+            
+            // Calculate quantity considering lot size
+            int quantity = calculateTradeCount(new TickerInfo.Key(tickerInfo.getTicker(), tickerInfo.getType()), cashToUse, bestAsk);
+            if (quantity <= 0) {
+                return TCSService.OrderExecutionResult.failed();
+            }
+            
             double executedNotional = bestAsk * quantity;
             double commission = executedNotional * commissionRate;
             if (cash < executedNotional + commission) {
@@ -544,7 +555,13 @@ public class MarketTickBacktestRunner {
             if (bestBid == null || bestBid <= 0.0) {
                 return TCSService.OrderExecutionResult.failed();
             }
-            int quantity = Math.max(1, (int) Math.floor(cashToUse / bestBid));
+            
+            // Calculate quantity considering lot size
+            int quantity = calculateTradeCount(new TickerInfo.Key(tickerInfo.getTicker(), tickerInfo.getType()), cashToUse, bestBid);
+            if (quantity <= 0) {
+                return TCSService.OrderExecutionResult.failed();
+            }
+            
             double executedNotional = bestBid * quantity;
             double commission = executedNotional * commissionRate;
             if (cash < commission) {
