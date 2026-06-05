@@ -200,6 +200,7 @@ public class TradeDataCollector {
             if (trade.ticker.equals(ticker) && trade.outcome == null) {
                 trade.outcome = pnlR;
                 trade.isWinner = pnlR > 0;
+                appendUpdatedTrade(trade);
                 saveData();
                 break;
             }
@@ -229,6 +230,7 @@ public class TradeDataCollector {
         if (trade != null) {
             trade.outcome = pnlR;
             trade.isWinner = pnlR > 0;
+            appendUpdatedTrade(trade);
             saveData();
         }
     }
@@ -470,25 +472,31 @@ public class TradeDataCollector {
     }
     
     private void saveData() {
+        // Не перезаписываем файл, данные уже сохранены через appendTrade()
+        // Просто обновляем in-memory коллекцию
         deduplicateTradeHistory();
         tradeHistory.sort(Comparator
                 .comparing((TradeFeatures trade) -> trade.entryTime)
                 .thenComparing(trade -> trade.strategy)
                 .thenComparing(trade -> trade.ticker));
+    }
 
+    /**
+     * Appends updated trade with outcome to file.
+     * Called when trade outcome is known.
+     */
+    private void appendUpdatedTrade(TradeFeatures trade) {
         File file = new File(dataFile);
         File parent = file.getParentFile();
         if (parent != null && !parent.exists()) {
             parent.mkdirs();
         }
-        try (PrintWriter writer = new PrintWriter(new FileWriter(dataFile))) {
-            writer.println(CSV_HEADER);
-            
-            for (TradeFeatures t : tradeHistory) {
-                writer.println(formatTradeRow(t));
-            }
+
+        // Always append mode for outcome updates
+        try (PrintWriter writer = new PrintWriter(new FileWriter(file, true))) {
+            writer.println(formatTradeRow(trade));
         } catch (IOException e) {
-            System.err.println("Error saving trade data: " + e.getMessage());
+            System.err.println("Error appending updated trade data: " + e.getMessage());
         }
     }
 
