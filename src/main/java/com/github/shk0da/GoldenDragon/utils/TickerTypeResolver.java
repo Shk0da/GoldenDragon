@@ -118,4 +118,33 @@ public class TickerTypeResolver {
     public static boolean isCurrency(String ticker) {
         return resolve(ticker) == TickerType.CURRENCY;
     }
+
+    /**
+     * Resolves TickerInfo by ticker name using ticker repository.
+     * Searches through all available instruments to find the matching ticker.
+     *
+     * @param ticker ticker symbol to resolve
+     * @return resolved TickerInfo, or null if not found
+     */
+    public static TickerInfo resolveTickerInfo(String ticker) {
+        if (ticker == null || ticker.trim().isEmpty()) {
+            return null;
+        }
+
+        String normalizedTicker = ticker.trim();
+
+        try {
+            Map<TickerInfo.Key, TickerInfo> allTickers = tickerRepository.getAll();
+
+            TickerInfo tickerInfo = allTickers.values().stream()
+                    .filter(it -> it.getName().equalsIgnoreCase(normalizedTicker) ||
+                                  it.getTicker().equalsIgnoreCase(normalizedTicker))
+                    .findFirst()
+                    .orElse(null);
+
+            return tickerInfo;
+        } catch (Exception e) {
+            return null;
+        }
+    }
 }

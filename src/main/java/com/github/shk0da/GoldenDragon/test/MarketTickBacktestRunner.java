@@ -18,6 +18,7 @@ import com.github.shk0da.GoldenDragon.repository.TickerRepository;
 import com.github.shk0da.GoldenDragon.service.TCSService;
 import com.github.shk0da.GoldenDragon.strategy.DataCollector;
 import com.github.shk0da.GoldenDragon.strategy.OrderFlowScalpingStrategy;
+import com.github.shk0da.GoldenDragon.utils.TickerTypeResolver;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -161,12 +162,26 @@ public class MarketTickBacktestRunner {
     }
 
     private TickerInfo resolveTickerInfo(OrderFlowScalpingConfig.Instrument instrument) {
-        TickerInfo.Key key = new TickerInfo.Key(instrument.getTicker(), instrument.getType());
+        String ticker = instrument.getTicker();
+        TickerType type = instrument.getType();
+        
+        TickerInfo.Key key = new TickerInfo.Key(ticker, type);
         TickerInfo tickerInfo = tickerRepository.getById(key);
         if (tickerInfo != null) {
             return tickerInfo;
         }
-        return null;
+        
+        tickerInfo = TickerTypeResolver.resolveTickerInfo(ticker);
+        if (tickerInfo != null) {
+            return tickerInfo;
+        }
+        
+        tickerInfo = tickerRepository.getAll().values().stream()
+                .filter(it -> it.getName().equalsIgnoreCase(ticker) || it.getTicker().equalsIgnoreCase(ticker))
+                .findFirst()
+                .orElse(null);
+        
+        return tickerInfo;
     }
 
     private List<TickRow> readTicks(Path ticksPath, TickerInfo tickerInfo) throws IOException {
@@ -305,7 +320,11 @@ public class MarketTickBacktestRunner {
 
         @Override
         public TickerInfo searchTicker(TickerInfo.Key key) {
-            return tickerRepository.getById(key);
+            TickerInfo tickerInfo = tickerRepository.getById(key);
+            if (tickerInfo != null) {
+                return tickerInfo;
+            }
+            return TickerTypeResolver.resolveTickerInfo(key.getTicker());
         }
 
         @Override
