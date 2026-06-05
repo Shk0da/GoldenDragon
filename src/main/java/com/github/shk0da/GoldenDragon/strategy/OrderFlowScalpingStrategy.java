@@ -1005,19 +1005,23 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
 
         double tickSize = max(state.tickerInfo.getMinPriceIncrement(), 0.01);
         double availableCash = max(0.0, tradingGateway.getAvailableCash()) * BALANCE_SAFETY_FACTOR;
-        double positionCash = availableCash * config.getMaxPositionBalancePercent();
         int lot = resolveLotSize(state.tickerInfo);
+        double minLotCost = signal.entryPrice * lot;
+        // Выделяем на позицию max(30% от баланса, стоимость 1 лота * 1.5 для запаса)
+        double positionCashPercent = availableCash * config.getMaxPositionBalancePercent();
+        double positionCash = max(positionCashPercent, minLotCost * 1.5);
         int quantity = maxAffordableQuantity(state.tickerInfo, signal.entryPrice, positionCash);
         if (quantity <= 0) {
             state.openAttemptBlockedUntil = now().plusSeconds(15);
             log(String.format(
-                    "OrderFlowScalpingStrategy SKIP %s %s by %s: insufficient balance, blockReentryUntil=%s availableCash=%.2f positionCash=%.2f entryPrice=%.4f lot=%d",
+                    "OrderFlowScalpingStrategy SKIP %s %s by %s: insufficient balance, blockReentryUntil=%s availableCash=%.2f positionCash=%.2f minLotCost=%.2f entryPrice=%.4f lot=%d",
                     signal.direction,
                     state.tickerInfo.getTicker(),
                     signal.reason,
                     state.openAttemptBlockedUntil,
                     availableCash,
                     positionCash,
+                    minLotCost,
                     signal.entryPrice,
                     lot
             ));
@@ -1284,6 +1288,7 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
 
     /**
      * Calculates the maximum position size affordable with the available cash.
+     * Returns quantity in whole lots (respecting the instrument's lot size).
      */
     private int maxAffordableQuantity(TickerInfo tickerInfo, double entryPrice, double availableCash) {
         if (tickerInfo == null || entryPrice <= 0.0 || availableCash <= 0.0) {

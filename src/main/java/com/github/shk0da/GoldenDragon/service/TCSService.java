@@ -1408,7 +1408,9 @@ public class TCSService {
             return 0;
         }
 
-        return (int) Math.floor(availableCash / tradeUnitCost);
+        // Return quantity in instruments (multiple of lot size)
+        int lots = (int) Math.floor(availableCash / tradeUnitCost);
+        return lots * lot;
     }
 
     /**

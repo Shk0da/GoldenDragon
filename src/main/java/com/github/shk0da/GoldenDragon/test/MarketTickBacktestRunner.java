@@ -446,7 +446,7 @@ public class MarketTickBacktestRunner {
             }
             int quantity = (int) Math.floor(cashToUse / instrumentCost);
             
-            // Round down to nearest lot
+            // Round down to nearest lot and return quantity in instruments
             int lots = quantity / lot;
             return lots * lot;
         }
