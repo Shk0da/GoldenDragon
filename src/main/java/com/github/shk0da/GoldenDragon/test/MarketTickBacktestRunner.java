@@ -57,6 +57,7 @@ public class MarketTickBacktestRunner {
 
     public MarketTickBacktestRunner() {
         this("data", INITIAL_BALANCE, COMMISSION_RATE);
+        System.out.println("Available Cash: " + INITIAL_BALANCE);
     }
 
     public MarketTickBacktestRunner(String dataDir, double initialBalance, double commissionRate) {
@@ -567,7 +568,8 @@ public class MarketTickBacktestRunner {
             if (cash < commission) {
                 return TCSService.OrderExecutionResult.failed();
             }
-            // For short sell: receive cash from sale, pay commission
+            // For short sell: receive proceeds, pay commission
+            // Proceeds will be used to buy back position when closing
             cash += executedNotional - commission;
             positionsByTicker.put(tickerInfo.getTicker(), new SimulatedPosition(tickerInfo, "SELL", quantity, bestBid, commission));
             return TCSService.OrderExecutionResult.success(bestBid, quantity, commission, null);
@@ -667,8 +669,7 @@ public class MarketTickBacktestRunner {
                     // Long position: add market value of holdings
                     equity += snapshot.getBestBid() * position.quantity;
                 } else if ("SELL".equals(position.direction) && snapshot.getBestAsk() != null) {
-                    // Short position: subtract buyback cost (liability)
-                    // Cash already includes proceeds from sale, so subtract current buyback cost
+                    // Short position: cash includes proceeds, subtract buyback liability
                     equity -= snapshot.getBestAsk() * position.quantity;
                 }
             }
