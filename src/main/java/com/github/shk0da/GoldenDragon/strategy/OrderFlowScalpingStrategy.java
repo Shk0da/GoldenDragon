@@ -1035,7 +1035,7 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
         double entryPricePerUnit = position.entryPrice;
         double stopPricePerUnit = position.stopPrice;
         double takePricePerUnit = position.takePrice;
-        double executedNotional = entryPricePerUnit * max(1, position.remainingQuantity);
+        double executedNotional = entryPricePerUnit * max(1, position.remainingQuantity) * position.lot;
         double expectedGrossTakePnl = expectedGrossTakePnl(position);
         double expectedRoundTripCommission = expectedRoundTripCommission(orderResult);
         double expectedNetTakePnl = expectedGrossTakePnl - expectedRoundTripCommission;
@@ -1210,8 +1210,8 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
      */
     private double expectedGrossTakePnl(LivePosition position) {
         return "BUY".equals(position.direction)
-                ? (position.takePrice - position.entryPrice) * position.remainingQuantity
-                : (position.entryPrice - position.takePrice) * position.remainingQuantity;
+                ? (position.takePrice - position.entryPrice) * position.remainingQuantity * position.lot
+                : (position.entryPrice - position.takePrice) * position.remainingQuantity * position.lot;
     }
 
     /**
@@ -1282,6 +1282,7 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
                 : signal.entryPrice;
         int executedQuantity = orderResult.getExecutedCount() > 0 ? orderResult.getExecutedCount() : quantity;
         List<PartialExit> partialExits = buildPartialPlan(signal, executedEntry, tickSize, executedQuantity);
+        int lot = resolveLotSize(state.tickerInfo);
         return new LivePosition(
                 signal.direction,
                 signal.reason,
@@ -1293,7 +1294,8 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
                 protectivePosition != null && protectivePosition.takeProfit != null ? protectivePosition.takeProfit : signal.takePrice,
                 tickSize,
                 partialExits,
-                signal.anchorPrice
+                signal.anchorPrice,
+                lot
         );
     }
 
@@ -1369,8 +1371,8 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
                     : currentPrice;
             double entryCommissionPart = position.allocateEntryCommission(partialExit.quantity);
             double partialPnl = "BUY".equals(position.direction)
-                    ? (exitExecutionPrice - position.entryPrice) * partialExit.quantity - entryCommissionPart - exitResult.getCommission()
-                    : (position.entryPrice - exitExecutionPrice) * partialExit.quantity - entryCommissionPart - exitResult.getCommission();
+                    ? (exitExecutionPrice - position.entryPrice) * partialExit.quantity * position.lot - entryCommissionPart - exitResult.getCommission()
+                    : (position.entryPrice - exitExecutionPrice) * partialExit.quantity * position.lot - entryCommissionPart - exitResult.getCommission();
             dailyPnl += partialPnl;
             partialExit.executed = true;
             position.remainingQuantity = max(0, position.remainingQuantity - partialExit.quantity);
@@ -1595,8 +1597,8 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
                 : exitPrice;
         double entryCommissionPart = position.allocateEntryCommission(position.remainingQuantity);
         double grossPnl = "BUY".equals(position.direction)
-                ? (exitExecutionPrice - position.entryPrice) * position.remainingQuantity
-                : (position.entryPrice - exitExecutionPrice) * position.remainingQuantity;
+                ? (exitExecutionPrice - position.entryPrice) * position.remainingQuantity * position.lot
+                : (position.entryPrice - exitExecutionPrice) * position.remainingQuantity * position.lot;
         double pnl = grossPnl - entryCommissionPart - exitResult.getCommission();
         dailyPnl += pnl;
         if (closeDecision.isFalseSignal()) {
@@ -2440,6 +2442,7 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
         private Instant lastOppositeCvdFlipAt;
         private Instant anchorRemovedSince;
         private Instant oppositeAbsorptionSince;
+        private final int lot;
 
         private LivePosition(String direction,
                              String reason,
@@ -2451,7 +2454,8 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
                              double takePrice,
                              double tickSize,
                              List<PartialExit> partialExits,
-                             Double anchorPrice) {
+                             Double anchorPrice,
+                             int lot) {
             this.direction = direction;
             this.reason = reason;
             this.entryPrice = entryPrice;
@@ -2465,6 +2469,7 @@ public class OrderFlowScalpingStrategy implements MarketTickListener {
             this.tickSize = tickSize;
             this.partialExits = partialExits;
             this.anchorPrice = anchorPrice;
+            this.lot = lot;
         }
 
         private boolean firstPartialDone() {
