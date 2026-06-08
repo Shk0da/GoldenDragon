@@ -1629,9 +1629,8 @@ public class BacktestRunner {
         System.out.println("-".repeat(header.length()));
 
         // Sort by score (descending)
-        List<StrategyMetrics> sortedMetrics = strategyMetricsMap.values().stream()
-                .sorted((a, b) -> Double.compare(calculateScore(b), calculateScore(a)))
-                .toList();
+        List<StrategyMetrics> sortedMetrics = new ArrayList<>(strategyMetricsMap.values());
+        sortedMetrics.sort((a, b) -> Double.compare(calculateScore(b), calculateScore(a)));
 
         // Rows
         for (StrategyMetrics m : sortedMetrics) {

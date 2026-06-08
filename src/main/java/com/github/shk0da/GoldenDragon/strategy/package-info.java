@@ -120,8 +120,7 @@
  *
  * <h2>Бэктестинг</h2>
  * <p>Стратегии могут запускаться в режиме бэктеста через
- * {@link com.github.shk0da.GoldenDragon.test.BacktestRunner} или
- * {@link com.github.shk0da.GoldenDragon.test.MarketTickBacktestRunner}. Бэктест-движок симулирует
+ * {@link com.github.shk0da.GoldenDragon.test.BacktestRunner}
  * исполнение ордеров на исторических данных с учётом комиссий, рабочих часов и портфельного управления.</p>
  *
  * <h2>Расширение</h2>
