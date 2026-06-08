@@ -62,8 +62,8 @@ import java.util.concurrent.Future;
  * <ul>
  *   <li>{@code backtest.mode} (system property):
  *     <ul>
- *       <li>{@code "fast"} — 6 коротких периодов (декабрь 2025 – май 2026).</li>
- *       <li>иначе (по умолчанию {@code "full"}) — 4 годовых периода (2023–2026).</li>
+ *       <li>{@code "fast"} — 6 коротких периодов.</li>
+ *       <li>иначе (по умолчанию {@code "full"}) — 6 годовых периода.</li>
  *     </ul>
  *   </li>
  *   <li>{@code backtest.threads} — число потоков для параллельной загрузки данных
@@ -495,12 +495,12 @@ public class BacktestRunner {
     private List<PeriodDefinition> getPeriods() {
         if ("fast".equalsIgnoreCase(BACKTEST_MODE)) {
             return List.of(
-                    new PeriodDefinition("2025-12-01", "2026-01-01", "2025.12"),
-                    new PeriodDefinition("2026-01-01", "2026-02-01", "2026.01"),
-                    new PeriodDefinition("2026-02-01", "2026-03-01", "2026.02"),
                     new PeriodDefinition("2026-03-01", "2026-04-01", "2026.03"),
                     new PeriodDefinition("2026-04-01", "2026-05-01", "2026.04"),
-                    new PeriodDefinition("2026-05-01", "2026-06-01", "2026.05")
+                    new PeriodDefinition("2026-05-01", "2026-06-01", "2026.05"),
+                    new PeriodDefinition("2026-06-01", "2026-07-01", "2026.06"),
+                    new PeriodDefinition("2026-07-01", "2026-08-01", "2026.07"),
+                    new PeriodDefinition("2026-08-01", "2026-09-01", "2026.08")
             );
         }
 
@@ -508,7 +508,9 @@ public class BacktestRunner {
                 new PeriodDefinition("2023-01-01", "2023-12-31", "2023"),
                 new PeriodDefinition("2024-01-01", "2024-12-31", "2024"),
                 new PeriodDefinition("2025-01-01", "2025-12-31", "2025"),
-                new PeriodDefinition("2026-01-01", "2026-12-31", "2026")
+                new PeriodDefinition("2026-01-01", "2026-12-31", "2026"),
+                new PeriodDefinition("2027-01-01", "2027-12-31", "2027"),
+                new PeriodDefinition("2028-01-01", "2028-12-31", "2028")
         );
     }
 
