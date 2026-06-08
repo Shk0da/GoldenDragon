@@ -24,6 +24,7 @@ import com.github.shk0da.GoldenDragon.service.TCSService;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
@@ -498,6 +499,12 @@ public class UnifiedStrategy extends BaseStrategy {
 
         double sl = entry - slDist;
         double tp = entry + tpDist;
+        int maxAffordableQty = calculateMaxAffordableQuantity(ticker, balance, entry);
+        int maxAskQty = calculateAvailableAskQuantity(ticker);
+
+        if (maxAskQty <= 0) {
+            return new TradingDecision("HOLD", "ASK_QTY0", 0.0, 0, null, null, null, p);
+        }
 
         // Money Management: Use PositionSizer if enabled
         int qty;
@@ -506,7 +513,7 @@ public class UnifiedStrategy extends BaseStrategy {
             double adjustedBalance = balance * riskMultiplier;
             
             qty = positionSizer.calculateSize(ticker, entry, sl, adjustedBalance, dAtr);
-            qty = Math.min(qty, calculateMaxAffordableQuantity(ticker, balance, entry));
+            qty = Math.min(qty, Math.min(maxAffordableQty, maxAskQty));
             
             if (qty <= 0) {
                 return new TradingDecision("HOLD", "MM_QTY_ZERO", 0.0, 0, null, null, null, p);
@@ -528,7 +535,7 @@ public class UnifiedStrategy extends BaseStrategy {
             double finalRiskMultiplier = regimeResult.positionMultiplier * confidenceK * signalStrengthK;
             double maxRisk = balance * riskP * finalRiskMultiplier;
 
-            double maxQty = calculateMaxAffordableQuantity(ticker, balance, entry);
+            double maxQty = Math.min(maxAffordableQty, maxAskQty);
             qty = (int) Math.min(Math.max(1, Math.floor(maxRisk / slDist)), maxQty);
 
             if (qty <= 0) {
@@ -625,6 +632,31 @@ public class UnifiedStrategy extends BaseStrategy {
         }
 
         return (int) (Math.floor(balance / orderCost) * lot);
+    }
+
+    private int calculateAvailableAskQuantity(String ticker) {
+        if (tcsService == null) {
+            return Integer.MAX_VALUE;
+        }
+
+        TickerInfo tickerInfo = resolveTickerInfo(ticker);
+        if (tickerInfo == null) {
+            return 0;
+        }
+
+        try {
+            Map<Double, Integer> asks = tcsService
+                    .getCurrentPrices(new TickerInfo.Key(ticker, tickerInfo.getType()), false)
+                    .get("asks");
+            if (asks == null || asks.isEmpty()) {
+                return 0;
+            }
+
+            return asks.values().stream().mapToInt(Integer::intValue).sum();
+        } catch (Exception ex) {
+            logWithBacktest("Failed to read asks for " + ticker + ": " + ex.getMessage());
+            return 0;
+        }
     }
 
     private TickerInfo resolveTickerInfo(String ticker) {

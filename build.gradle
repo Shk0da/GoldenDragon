@@ -92,3 +92,9 @@ task runTcsTest(type: JavaExec) {
     classpath = sourceSets.test.runtimeClasspath
     workingDir = rootDir
 }
+
+task runUnifiedStrategySmokeTest(type: JavaExec) {
+    main = 'com.github.shk0da.GoldenDragon.test.UnifiedStrategySmokeTest'
+    classpath = sourceSets.test.runtimeClasspath
+    workingDir = rootDir
+}
