@@ -499,11 +499,13 @@ public abstract class BaseStrategy {
     protected void openPosition(String name, TickerInfo ticker, List<Candle> candles, TradingDecision decision) {
         log("Decision for " + name + ": " + decision.action + " (" + decision.reason + ")");
         if (decision.updatedPosition == null || decision.quantity <= 0) {
+            logOpenCandidateSkipped(name, "invalid_open_decision", decision);
             log("Invalid OPEN decision for " + name + ", skipping.");
             return;
         }
 
         if (!"BUY".equals(decision.updatedPosition.direction) && !"SELL".equals(decision.updatedPosition.direction)) {
+            logOpenCandidateSkipped(name, "invalid_direction", decision);
             log("Invalid direction for " + name + ", skipping.");
             return;
         }
@@ -514,6 +516,7 @@ public abstract class BaseStrategy {
                 .count();
                 
         if (currentPositionCount >= MAX_CONCURRENT_POSITIONS) {
+            logOpenCandidateSkipped(name, "max_concurrent_positions_reached", decision);
             log("Maximum concurrent positions reached (" + MAX_CONCURRENT_POSITIONS + "), skipping " + name);
             return;
         }
@@ -550,6 +553,7 @@ public abstract class BaseStrategy {
             }
 
             if (!orderResult.isSuccess()) {
+                logOpenCandidateSkipped(name, "order_execution_failed", decision);
                 log("Failed to open " + decision.updatedPosition.direction + " for " + name + ".");
                 return;
             }
@@ -582,6 +586,19 @@ public abstract class BaseStrategy {
             log("Failed to open " + decision.updatedPosition.direction + " for " + name + ": " + ex.getMessage());
             telegramNotifyService.sendMessage(getStrategyName() + " FAILED " + decision.updatedPosition.direction + " " + name + ": " + ex.getMessage());
         }
+    }
+
+    private void logOpenCandidateSkipped(String name, String reason, TradingDecision decision) {
+        String direction = decision != null && decision.updatedPosition != null ? decision.updatedPosition.direction : "null";
+        int quantity = decision != null ? decision.quantity : 0;
+        Double entryPrice = decision != null ? decision.entryPrice : null;
+        String signal = decision != null ? decision.reason : null;
+        log("OPEN candidate skipped for " + name
+                + ": reason=" + reason
+                + ", signal=" + signal
+                + ", direction=" + direction
+                + ", qty=" + quantity
+                + ", entry=" + (entryPrice != null ? entryPrice : 0.0));
     }
 
     protected void closePosition(String name, TickerInfo ticker, Position storedPosition, TradingDecision decision) {

@@ -921,19 +921,33 @@ public class TCSService {
         String basicCurrency = marketConfig.getCurrency();
         String currency = searchTicker(key).getCurrency();
         if (!basicCurrency.equals(currency)) {
-            cashToBuy = convertCurrencies(currency, basicCurrency, cashToBuy);
+            double convertedCashToBuy = convertCurrencies(basicCurrency, currency, cashToBuy);
+            log(String.format(
+                    "Buy cash conversion [%s]: baseCurrency=%s instrumentCurrency=%s before=%.5f after=%.5f",
+                    name,
+                    basicCurrency,
+                    currency,
+                    cashToBuy,
+                    convertedCashToBuy
+            ));
+            cashToBuy = convertedCashToBuy;
         }
 
+        Map<String, Map<Double, Integer>> currentPrices = getCurrentPrices(key, false);
         int value = 0;
         double tickerPrice = 0.0;
-        for (Map.Entry<Double, Integer> ask : getCurrentPrices(key, false).get("asks").entrySet()) {
+        for (Map.Entry<Double, Integer> ask : currentPrices.get("asks").entrySet()) {
             tickerPrice = ask.getKey();
             value = value + ask.getValue();
             if (value >= (cashToBuy / tickerPrice)) break;
         }
 
         if (0.0 == tickerPrice) {
-            log("Warn: purchase will be skipped - " + name + " by price " + tickerPrice);
+            log("Warn: purchase will be skipped - " + name
+                    + " due to empty asks in order book"
+                    + " [asks=" + currentPrices.get("asks").size()
+                    + ", bids=" + currentPrices.get("bids").size()
+                    + ", cashToBuy=" + cashToBuy + "]");
             return OrderExecutionResult.failed();
         }
 
