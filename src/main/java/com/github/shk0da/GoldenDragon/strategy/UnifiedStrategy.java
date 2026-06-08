@@ -130,6 +130,8 @@ public class UnifiedStrategy extends BaseStrategy {
     private static final double STRONG_TREND_ADX = 30.0;
     private static final double HOT_TREND_ADX = 38.0;
     private static final int DEFAULT_FUTURES_LOT = 1000;
+    private static final double MARKET_ORDER_CASH_BUFFER_PERCENT = 0.001;
+    private static final double MARKET_ORDER_CASH_BUFFER_MIN = 10.0;
 
     // Money Management components
     private final RiskManager riskManager;
@@ -504,6 +506,7 @@ public class UnifiedStrategy extends BaseStrategy {
             double adjustedBalance = balance * riskMultiplier;
             
             qty = positionSizer.calculateSize(ticker, entry, sl, adjustedBalance, dAtr);
+            qty = Math.min(qty, calculateMaxAffordableQuantity(ticker, balance, entry));
             
             if (qty <= 0) {
                 return new TradingDecision("HOLD", "MM_QTY_ZERO", 0.0, 0, null, null, null, p);
@@ -596,22 +599,32 @@ public class UnifiedStrategy extends BaseStrategy {
         return null;
     }
 
-    private double calculateMaxAffordableQuantity(String ticker, double balance, double entryPrice) {
+    private int calculateMaxAffordableQuantity(String ticker, double balance, double entryPrice) {
         if (entryPrice <= 0.0 || balance <= 0.0) {
-            return 0.0;
+            return 0;
         }
 
         TickerInfo tickerInfo = resolveTickerInfo(ticker);
-        int lot = tickerInfo != null && tickerInfo.getLot() != null ? tickerInfo.getLot() : 1;
+        if (tickerInfo == null) {
+            return (int) Math.floor(balance / entryPrice);
+        }
+
+        if (tcsService != null) {
+            double cashBuffer = Math.max(MARKET_ORDER_CASH_BUFFER_MIN, balance * MARKET_ORDER_CASH_BUFFER_PERCENT);
+            double availableCash = Math.max(0.0, balance - cashBuffer);
+            return tcsService.calculateTradeCount(new TickerInfo.Key(ticker, tickerInfo.getType()), availableCash, entryPrice);
+        }
+
+        int lot = tickerInfo.getLot() != null ? tickerInfo.getLot() : 1;
         double orderCost = lot * entryPrice;
-        if (tickerInfo != null && TickerType.FEATURE == tickerInfo.getType()) {
+        if (TickerType.FEATURE == tickerInfo.getType()) {
             orderCost *= TCSService.FUTURES_MARGIN_RATE;
         }
         if (orderCost <= 0.0) {
-            return 0.0;
+            return 0;
         }
 
-        return Math.floor(balance / orderCost) * lot;
+        return (int) (Math.floor(balance / orderCost) * lot);
     }
 
     private TickerInfo resolveTickerInfo(String ticker) {
