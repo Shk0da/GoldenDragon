@@ -87,8 +87,8 @@ task generateModel {
 
 runMlTraining.mustRunAfter runBacktest
 
-task runTcsTest(type: JavaExec) {
-    main = 'com.github.shk0da.GoldenDragon.test.TCSServiceTest'
+task runTCSServiceSmokeTest(type: JavaExec) {
+    main = 'com.github.shk0da.GoldenDragon.test.TCSServiceSmokeTest'
     classpath = sourceSets.test.runtimeClasspath
     workingDir = rootDir
 }

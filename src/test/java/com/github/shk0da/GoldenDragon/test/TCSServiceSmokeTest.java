@@ -19,7 +19,7 @@ import static java.lang.System.out;
  * Warning: this test performs real trading operations.
  * Make sure sandbox mode (tcs.isSandbox=true) or test mode (tcs.testMode=true) is enabled.
  */
-public class TCSServiceTest {
+public class TCSServiceSmokeTest {
 
     public static String testTicker = "SBER";
     public static TickerType tickerType = TickerType.STOCK;
