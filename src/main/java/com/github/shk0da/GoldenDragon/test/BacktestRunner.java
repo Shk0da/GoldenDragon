@@ -63,7 +63,7 @@ import java.util.concurrent.Future;
  *   <li>{@code backtest.mode} (system property):
  *     <ul>
  *       <li>{@code "fast"} — 6 коротких периодов.</li>
- *       <li>иначе (по умолчанию {@code "full"}) — 6 годовых периода.</li>
+ *       <li>иначе (по умолчанию {@code "full"}) — 6 годовых периодов.</li>
  *     </ul>
  *   </li>
  *   <li>{@code backtest.threads} — число потоков для параллельной загрузки данных

@@ -15,8 +15,8 @@
  *         <li><b>Поддерживаемые стратегии</b>: {@link com.github.shk0da.GoldenDragon.strategy.UnifiedStrategy},
  *             {@link com.github.shk0da.GoldenDragon.strategy.RegimeAwareStrategy},
  *             {@link com.github.shk0da.GoldenDragon.strategy.RegimeAwareStrategyMl}.</li>
- *         <li><b>Режимы запуска</b>: {@code "fast"} (6 коротких периодов, декабрь 2025 – май 2026)
- *             или {@code "full"} (4 годовых периода, 2023–2026).</li>
+ *         <li><b>Режимы запуска</b>: {@code "fast"} (6 коротких периодов)
+ *             или {@code "full"} (6 годовых периодов).</li>
  *         <li><b>Параллельная загрузка данных</b>: пул потоков ({@code backtest.threads}, по умолчанию
  *             {@code availableProcessors - 1}) для чтения CSV-файлов свечей.</li>
  *         <li><b>Портфельная симуляция</b>: общий кэш на все тикеры, распределение капитала,
