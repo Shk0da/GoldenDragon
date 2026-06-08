@@ -36,21 +36,6 @@
  *       {@code decide()}, который возвращает {@link com.github.shk0da.GoldenDragon.model.TradingDecision}.</p>
  *   </li>
  *
- *   <li>{@link com.github.shk0da.GoldenDragon.strategy.OrderFlowScalpingStrategy} — высокочастотная
- *       скальпинг-стратегия на основе order flow. Особенности:
- *       <ul>
- *         <li>Работает напрямую со стаканами (order book) и лентой сделок (time & sales).</li>
- *         <li>Обнаруживает паттерны: дисбаланс стакана (OBI), айсберг-заявки, спуфинг, абсорбция,
- *             сложенные уровни (stacked levels), пробой уровней.</li>
- *         <li>Использует CVD (Cumulative Volume Delta) для оценки агрессивности покупателей/продавцов.</li>
- *         <li>Адаптируется к рыночному режиму: FLAT, TREND, HIGH_VOLATILITY, LOW_LIQUIDITY.</li>
- *         <li>Управляет позицией: частичные выходы, трейлинг-стопы, динамические тейк-профиты.</li>
- *         <li>Поддерживает ключевые уровни поддержки/сопротивления (через {@link com.github.shk0da.GoldenDragon.utils.LevelUtils}).</li>
- *       </ul>
- *       <p>Стратегия реализует {@link com.github.shk0da.GoldenDragon.model.MarketTickListener} и получает
- *       обновления в реальном времени через стримы брокера.</p>
- *   </li>
- *
  *   <li>{@link com.github.shk0da.GoldenDragon.strategy.UnifiedStrategy} — универсальная стратегия
  *       среднесрочной торговли, наследуется от {@code BaseStrategy}. Комбинирует:
  *       <ul>
@@ -97,9 +82,6 @@
  *       обновлений рыночных данных в реальном времени (стаканы, сделки). Реализуется стратегиями
  *       для подписки на стримы.</li>
  *
- *   <li>{@link com.github.shk0da.GoldenDragon.strategy.OrderFlowScalpingStrategy.TradingGateway} —
- *       интерфейс-адаптер между стратегией и {@code TCSService}. Позволяет подменять реализацию
- *       для тестирования (например, симуляция исполнения в бэктесте).</li>
  * </ul>
  *
  * <h2>Управление состоянием</h2>
@@ -119,9 +101,6 @@
  * <ul>
  *   <li>{@code BaseStrategy} — использует {@code ExecutorService} с пулом потоков, каждый тикер
  *       обрабатывается в отдельном потоке. Состояние по тикерам разделяется через {@code ConcurrentHashMap}.</li>
- *   <li>{@code OrderFlowScalpingStrategy} — получает данные из stream-потока (callback) и обрабатывает
- *       в основном цикле. Критические секции защищены через {@code synchronized(state)} на уровне
- *       объекта состояния каждого тикера ({@code ScalpingState}).</li>
  *   <li>Остальные стратегии — однопоточные в рамках одного тикера, многопоточные на уровне пула тикеров.</li>
  * </ul>
  *
@@ -130,8 +109,6 @@
  * <ul>
  *   <li>{@link com.github.shk0da.GoldenDragon.config.UnifiedTraderConfig} — параметры для
  *       {@code BaseStrategy} и наследников (тикеры, лимиты, индикаторы).</li>
- *   <li>{@link com.github.shk0da.GoldenDragon.config.OrderFlowScalpingConfig} — параметры для
- *       {@code OrderFlowScalpingStrategy} (глубина стакана, пороги паттернов, управление риском).</li>
  *   <li>{@link com.github.shk0da.GoldenDragon.config.MainConfig} — общие настройки (API-ключи,
  *       режим песочницы, флаг тестовой торговли).</li>
  * </ul>

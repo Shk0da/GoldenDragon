@@ -29,22 +29,6 @@
  *       <p>Бэктест имитирует реальную торговлю: проверяет рабочие часы, закрывает позиции в EOD,
  *       применяет комиссию, соблюдает лимиты на позицию и портфель.</p>
  *   </li>
- *
- *   <li>{@link com.github.shk0da.GoldenDragon.test.MarketTickBacktestRunner} — движок бэктестинга
- *       для order flow стратегий ({@link com.github.shk0da.GoldenDragon.strategy.OrderFlowScalpingStrategy}).
- *       Особенности:
- *       <ul>
- *         <li><b>Данные</b>: стаканы (order book) и сделки (trades) с временными метками
- *             {@code dd.MM.yyyy HH:mm:ss}. Формат CSV: {@code time,best_bid,best_ask,mid_price,bids,asks}.</li>
- *         <li><b>Симуляция</b>: стриминговая подача данных в стратегию через {@code onOrderBook()}
- *             и {@code onTrade()}, как в реальном времени.</li>
- *         <li><b>TradingGateway</b>: симуляция исполнения ордеров без реального API, учёт комиссий
- *             и проскальзывания.</li>
- *         <li><b>Статистика</b>: PnL по сделкам, дневной PnL, количество сделок, максимальная
- *             просадка, итоговый баланс.</li>
- *       </ul>
- *       <p>Используется для валидации order flow стратегий на тиковых данных с высокой детализацией.</p>
- *   </li>
  * </ul>
  *
  * <h2>Структура данных для бэктеста</h2>

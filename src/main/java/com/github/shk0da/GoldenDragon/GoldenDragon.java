@@ -4,7 +4,6 @@ import com.github.shk0da.GoldenDragon.config.DataCollectorConfig;
 import com.github.shk0da.GoldenDragon.config.LevelTraderConfig;
 import com.github.shk0da.GoldenDragon.config.MainConfig;
 import com.github.shk0da.GoldenDragon.config.MarketConfig;
-import com.github.shk0da.GoldenDragon.config.OrderFlowScalpingConfig;
 import com.github.shk0da.GoldenDragon.config.RSXConfig;
 import com.github.shk0da.GoldenDragon.config.RebalanceConfig;
 import com.github.shk0da.GoldenDragon.config.UnifiedTraderConfig;
@@ -18,7 +17,6 @@ import com.github.shk0da.GoldenDragon.strategy.DivFlow;
 import com.github.shk0da.GoldenDragon.strategy.IndicatorTrader;
 import com.github.shk0da.GoldenDragon.strategy.LevelTrader;
 import com.github.shk0da.GoldenDragon.strategy.ModelGenerator;
-import com.github.shk0da.GoldenDragon.strategy.OrderFlowScalpingStrategy;
 import com.github.shk0da.GoldenDragon.strategy.RSX;
 import com.github.shk0da.GoldenDragon.strategy.Rebalance;
 import com.github.shk0da.GoldenDragon.strategy.RegimeAwareStrategyMl;
@@ -122,15 +120,7 @@ public class GoldenDragon {
                 telegramNotifyService.sendMessage("Stop UnifiedStrategy");
             }
 
-            // 8. OrderFlowScalpingStrategy
-            if ("OrderFlowScalpingStrategy".equals(strategy)) {
-                telegramNotifyService.sendMessage("Run OrderFlowScalpingStrategy");
-                OrderFlowScalpingConfig orderFlowScalpingConfig = new OrderFlowScalpingConfig();
-                new OrderFlowScalpingStrategy(orderFlowScalpingConfig, tcsService).run();
-                telegramNotifyService.sendMessage("Stop OrderFlowScalpingStrategy");
-            }
-
-            // 9. GenerateModel
+            // 8. GenerateModel
             if ("GenerateModel".equals(strategy)) {
                 telegramNotifyService.sendMessage("Run GenerateModel");
                 new ModelGenerator().runGenerateModel(args);
