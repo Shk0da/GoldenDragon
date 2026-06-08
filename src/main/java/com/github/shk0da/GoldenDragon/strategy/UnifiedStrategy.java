@@ -519,8 +519,6 @@ public class UnifiedStrategy extends BaseStrategy {
                 return new TradingDecision("HOLD", "MM_QTY_ZERO", 0.0, 0, null, null, null, p);
             }
             
-            logWithBacktest("MM: Position size for " + ticker + ": " + qty + " (risk=" + 
-                (riskP * 100) + "%, multiplier=" + riskMultiplier + ")");
         } else {
             // Legacy sizing (fallback if MM disabled)
             double confidenceK = Math.max(0.35, regimeResult.confidence / 100.0);
