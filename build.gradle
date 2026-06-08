@@ -45,18 +45,6 @@ task runBacktest(type: JavaExec) {
     }
 }
 
-task runMarketTickBacktest(type: JavaExec) {
-    main = 'com.github.shk0da.GoldenDragon.test.MarketTickBacktestRunner'
-    classpath = sourceSets.test.runtimeClasspath
-    workingDir = rootDir
-}
-
-task runMarketTickBacktestPerf(type: JavaExec) {
-    main = 'com.github.shk0da.GoldenDragon.test.MarketTickBacktestRunnerPerformanceTest'
-    classpath = sourceSets.test.runtimeClasspath
-    workingDir = rootDir
-}
-
 task runStrategy(type: JavaExec) {
     main = 'com.github.shk0da.GoldenDragon.GoldenDragon'
     classpath = sourceSets.test.runtimeClasspath
