@@ -2010,7 +2010,6 @@ public class TCSService {
      * and as a last resort fetches the order book from the API.
      *
      * @param key          ticker key identifying the instrument
-     * @param isPrintGlass if {@code true}, prints the glass of prices to the console
      * @return a map with "bids" and "asks" keys, each containing a price-to-quantity mapping
      */
     public Map<String, Map<Double, Integer>> getCurrentPrices(TickerInfo.Key key) {
