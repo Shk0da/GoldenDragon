@@ -5,8 +5,8 @@ import com.github.shk0da.GoldenDragon.config.MarketConfig;
 import com.github.shk0da.GoldenDragon.model.PositionInfo;
 import com.github.shk0da.GoldenDragon.model.TickerType;
 import com.github.shk0da.GoldenDragon.service.TCSService;
-import java.util.Map;
 
+import java.util.Map;
 
 import static com.github.shk0da.GoldenDragon.model.Market.MOEX;
 import static com.github.shk0da.GoldenDragon.model.TickerInfo.Key;
@@ -21,9 +21,9 @@ import static java.lang.System.out;
  */
 public class TCSServiceSmokeTest {
 
-    public static String testTicker = "SBER";
-    public static TickerType tickerType = TickerType.STOCK;
-    public static double testCashAmount = 1000; // Сумма для теста в рублях
+    public static String testTicker = "SBERF";
+    public static TickerType tickerType = TickerType.FEATURE;
+    public static double testCashAmount = 100_000; // Сумма для теста в рублях
 
     public static void main(String[] args) {
         try {

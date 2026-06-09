@@ -1570,7 +1570,7 @@ public class TCSService {
      * @param key          ticker key identifying the instrument
      * @param availableCash amount of cash available for trading
      * @param price        price per instrument
-     * @return number of instruments to trade (always a multiple of lot size), or 0 if insufficient funds
+     * @return number of instruments to trade, or 0 if insufficient funds
      */
     public int calculateTradeCount(TickerInfo.Key key, double availableCash, double price) {
         if (availableCash <= 0.0 || price <= 0.0) {
@@ -1579,15 +1579,13 @@ public class TCSService {
 
         TickerInfo tickerInfo = searchTicker(key);
         int lot = Math.max(1, tickerInfo.getLot());
-        int tradeUnit = lot;
-        double tradeUnitCost = price * tradeUnit;
+        double tradeUnitCost = price * lot;
         if (availableCash < tradeUnitCost) {
             return 0;
         }
 
-        // Return quantity in instruments (multiple of lot size)
-        int lots = (int) Math.floor(availableCash / tradeUnitCost);
-        return lots * lot;
+        // Return quantity in instrument
+        return (int) Math.floor(availableCash / tradeUnitCost);
     }
 
     /**
