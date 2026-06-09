@@ -1048,16 +1048,14 @@ public class TCSService {
         int lotSize = tickerInfo.getLot();
         int normalizedCount = normalizeOrderCount(count, lotSize);
         int contractUnits = getContractUnits(tickerInfo);
-        int brokerLots = (normalizedCount / lotSize / contractUnits);
-        if (normalizedCount <= 0 || brokerLots <= 0) {
+        if (normalizedCount <= 0 || count <= 0) {
             log(String.format(
-                    "Skip create order [%s]: invalid count=%d, normalizedCount=%d, lot=%d, contractUnits=%d, quantity=%d",
+                    "Skip create order [%s]: invalid normalizedCount=%d, lot=%d, contractUnits=%d, quantity=%d",
                     key.getTicker(),
-                    count,
                     normalizedCount,
                     lotSize,
                     contractUnits,
-                    brokerLots
+                    count
             ));
             return OrderExecutionResult.failed();
         }
@@ -1074,15 +1072,14 @@ public class TCSService {
         double fullNotional = referencePrice > 0.0 ? normalizedCount * referencePrice : 0.0;
         double estimatedCost = referencePrice > 0.0 ? getRequiredCashForOrder(key, normalizedCount, referencePrice) : 0.0;
         log(String.format(
-                "Create order request [%s]: operation=%s direction=%s type=%s count=%d lot=%d lots=%d quantity=%d requestedPrice=%.4f referencePrice=%.4f fullNotional=%.2f cashToUse=%.2f estimatedCost=%.2f takeProfit=%.4f stopLose=%.4f isFullPrice=%s",
+                "Create order request [%s]: operation=%s direction=%s type=%s quantity=%d lot=%d lots=%d requestedPrice=%.4f referencePrice=%.4f fullNotional=%.2f cashToUse=%.2f estimatedCost=%.2f takeProfit=%.4f stopLose=%.4f isFullPrice=%s",
                 key.getTicker(),
                 operation,
                 direction,
                 type,
                 normalizedCount,
                 lotSize,
-                Math.max(1, normalizedCount / lotSize),
-                brokerLots,
+                count,
                 price,
                 referencePrice,
                 fullNotional,
@@ -1146,7 +1143,7 @@ public class TCSService {
             Position bracketPosition = null;
             if (response.getExecutionReportStatus().equals(EXECUTION_REPORT_STATUS_FILL)) {
                 bracketPosition = createProtectivePosition(direction, executedPrice, stopLose, takeProfit, isFullPrice, executedCount, tickerInfo);
-                placeOrLogProtectiveOrders(figi, executedLots > 0 ? executedLots : brokerLots, key, direction, bracketPosition);
+                placeOrLogProtectiveOrders(figi, executedCount, key, direction, bracketPosition);
             }
 
             telegramNotifyService.sendMessage(message, true);
@@ -1622,8 +1619,8 @@ public class TCSService {
         } catch (Exception ignored) {
             // keep default lot
         }
-        int lots = Math.max(1, normalizedCount / lot);
-        return String.format("%s: %s count=%d lot=%d lots=%d by %s", operation, ticker, normalizedCount, lot, lots, details);
+        int quantity = normalizedCount * lot;
+        return String.format("%s: %s count=%d lot=%d quantity=%d by %s", operation, ticker, normalizedCount, lot, quantity, details);
     }
 
     private int normalizeOrderCount(int count, int lot) {
