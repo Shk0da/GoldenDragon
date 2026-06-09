@@ -15,6 +15,28 @@ import com.github.shk0da.GoldenDragon.repository.FigiRepository;
 import com.github.shk0da.GoldenDragon.repository.PricesRepository;
 import com.github.shk0da.GoldenDragon.repository.Repository;
 import com.github.shk0da.GoldenDragon.repository.TickerRepository;
+import ru.tinkoff.piapi.contract.v1.Bond;
+import ru.tinkoff.piapi.contract.v1.CandleInterval;
+import ru.tinkoff.piapi.contract.v1.Currency;
+import ru.tinkoff.piapi.contract.v1.Etf;
+import ru.tinkoff.piapi.contract.v1.Future;
+import ru.tinkoff.piapi.contract.v1.GetOrderBookResponse;
+import ru.tinkoff.piapi.contract.v1.HistoricCandle;
+import ru.tinkoff.piapi.contract.v1.MarketDataResponse;
+import ru.tinkoff.piapi.contract.v1.Order;
+import ru.tinkoff.piapi.contract.v1.OrderDirection;
+import ru.tinkoff.piapi.contract.v1.OrderType;
+import ru.tinkoff.piapi.contract.v1.PostOrderResponse;
+import ru.tinkoff.piapi.contract.v1.Quotation;
+import ru.tinkoff.piapi.contract.v1.Share;
+import ru.tinkoff.piapi.contract.v1.StopOrderDirection;
+import ru.tinkoff.piapi.core.InvestApi;
+import ru.tinkoff.piapi.core.models.Money;
+import ru.tinkoff.piapi.core.models.Portfolio;
+import ru.tinkoff.piapi.core.models.Positions;
+import ru.tinkoff.piapi.core.stream.MarketDataSubscriptionService;
+
+import javax.annotation.Nullable;
 import java.io.IOException;
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
@@ -39,28 +61,6 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
-import javax.annotation.Nullable;
-import ru.tinkoff.piapi.contract.v1.Bond;
-import ru.tinkoff.piapi.contract.v1.CandleInterval;
-import ru.tinkoff.piapi.contract.v1.Currency;
-import ru.tinkoff.piapi.contract.v1.Etf;
-import ru.tinkoff.piapi.contract.v1.Future;
-import ru.tinkoff.piapi.contract.v1.GetOrderBookResponse;
-import ru.tinkoff.piapi.contract.v1.HistoricCandle;
-import ru.tinkoff.piapi.contract.v1.MarketDataResponse;
-import ru.tinkoff.piapi.contract.v1.Order;
-import ru.tinkoff.piapi.contract.v1.OrderDirection;
-import ru.tinkoff.piapi.contract.v1.OrderType;
-import ru.tinkoff.piapi.contract.v1.PostOrderResponse;
-import ru.tinkoff.piapi.contract.v1.Quotation;
-import ru.tinkoff.piapi.contract.v1.Share;
-import ru.tinkoff.piapi.contract.v1.StopOrderDirection;
-import ru.tinkoff.piapi.core.InvestApi;
-import ru.tinkoff.piapi.core.models.Money;
-import ru.tinkoff.piapi.core.models.Portfolio;
-import ru.tinkoff.piapi.core.models.Positions;
-import ru.tinkoff.piapi.core.stream.MarketDataSubscriptionService;
-
 
 import static com.github.shk0da.GoldenDragon.dictionary.CurrenciesDictionary.getTickerName;
 import static com.github.shk0da.GoldenDragon.service.TelegramNotifyService.telegramNotifyService;
@@ -1095,7 +1095,7 @@ public class TCSService {
 
         try {
             PostOrderResponse response = investApi.getOrdersService().postOrderSync(
-                    figi, brokerLots, orderPrice, direction, mainConfig.getTcsAccountId(), type, null
+                    figi, count, orderPrice, direction, mainConfig.getTcsAccountId(), type, null
             );
             int executedLots = Math.toIntExact(response.getLotsExecuted());
             int executedCount = executedLots > 0 ? executedLots * lotSize * contractUnits : normalizedCount;
