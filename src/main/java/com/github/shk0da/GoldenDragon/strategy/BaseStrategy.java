@@ -14,6 +14,9 @@ import com.github.shk0da.GoldenDragon.model.TradingDecision;
 import com.github.shk0da.GoldenDragon.repository.TickerRepository;
 import com.github.shk0da.GoldenDragon.service.TCSService;
 import com.github.shk0da.GoldenDragon.utils.IndicatorsUtil;
+import ru.tinkoff.piapi.contract.v1.CandleInterval;
+import ru.tinkoff.piapi.contract.v1.HistoricCandle;
+
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileWriter;
@@ -41,9 +44,6 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
-import ru.tinkoff.piapi.contract.v1.CandleInterval;
-import ru.tinkoff.piapi.contract.v1.HistoricCandle;
-
 
 import static com.github.shk0da.GoldenDragon.model.TickerType.FEATURE;
 import static com.github.shk0da.GoldenDragon.model.TickerType.STOCK;
@@ -528,7 +528,8 @@ public abstract class BaseStrategy {
                 : candles.get(candles.size() - 1).close;
 
         int qty = decision.quantity;
-        double positionValue = qty * entryPrice;
+        int lotSize = ticker.getLot() != null ? Math.max(1, ticker.getLot()) : 1;
+        double positionValue = qty * entryPrice * lotSize;
 
         double slPrice = decision.stopLoss != null ? decision.stopLoss : 
             ("BUY".equals(decision.updatedPosition.direction) ? entryPrice * 0.98 : entryPrice * 1.02);

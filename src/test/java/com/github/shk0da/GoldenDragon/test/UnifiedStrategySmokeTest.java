@@ -12,9 +12,9 @@ import com.github.shk0da.GoldenDragon.model.TickerType;
 import com.github.shk0da.GoldenDragon.model.TradingDecision;
 import com.github.shk0da.GoldenDragon.service.TCSService;
 import com.github.shk0da.GoldenDragon.strategy.UnifiedStrategy;
+
 import java.util.ArrayList;
 import java.util.List;
-
 
 import static com.github.shk0da.GoldenDragon.model.Market.MOEX;
 import static java.lang.System.out;
@@ -28,9 +28,9 @@ import static java.lang.System.out;
  */
 public class UnifiedStrategySmokeTest {
 
-    public static String testTicker = "SBER";
-    public static TickerType tickerType = TickerType.STOCK;
-    public static double testCashAmount = 1000;
+    public static String testTicker = "SBERF";
+    public static TickerType tickerType = TickerType.FEATURE;
+    public static double testCashAmount = 100_000;
     public static double takeProfitPercent = 2.0;
     public static double stopLossPercent = 1.0;
 
@@ -58,7 +58,8 @@ public class UnifiedStrategySmokeTest {
 
             List<Candle> candles = buildStubCandles(tcsService, tickerInfo);
             double marketPrice = candles.get(candles.size() - 1).close;
-            int quantity = tcsService.calculateTradeCount(tickerInfo.getKey(), testCashAmount, marketPrice);
+            int lotSize = Math.max(1, tickerInfo.getLot());
+            int quantity = (int) Math.floor(testCashAmount / (marketPrice * lotSize));
             if (quantity <= 0) {
                 out.println("Calculated quantity is zero. Increase testCashAmount or use another ticker.");
                 return;
