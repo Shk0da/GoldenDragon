@@ -3,6 +3,7 @@ package com.github.shk0da.GoldenDragon.ml;
 import com.github.shk0da.GoldenDragon.model.Candle;
 import com.github.shk0da.GoldenDragon.model.Position;
 import com.github.shk0da.GoldenDragon.model.TradingDecision;
+
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileReader;
@@ -501,12 +502,21 @@ public class TradeDataCollector {
         if (parent != null && !parent.exists()) {
             parent.mkdirs();
         }
-        // Перезаписываем файл с сортированными записями для поддержания порядка
-        try (PrintWriter writer = new PrintWriter(new FileWriter(file, false))) {
-            writer.println(CSV_HEADER);
-            
-            for (TradeFeatures t : tradeHistory) {
-                writer.println(formatTradeRow(t));
+        List<String> existingRows = readExistingRows(file);
+        boolean writeHeader = !file.exists() || 0L == file.length();
+
+        try (PrintWriter writer = new PrintWriter(new FileWriter(file, true))) {
+            if (writeHeader) {
+                writer.println(CSV_HEADER);
+            }
+
+            for (TradeFeatures trade : tradeHistory) {
+                String row = formatTradeRow(trade);
+                if (existingRows.contains(row)) {
+                    continue;
+                }
+                writer.println(row);
+                existingRows.add(row);
             }
         } catch (IOException e) {
             System.err.println("Error saving trade data: " + e.getMessage());
@@ -557,6 +567,32 @@ public class TradeDataCollector {
         } catch (IOException e) {
             System.err.println("Error appending trade data: " + e.getMessage());
         }
+    }
+
+    private List<String> readExistingRows(File file) {
+        List<String> rows = new ArrayList<>();
+        if (!file.exists()) {
+            return rows;
+        }
+
+        try (BufferedReader reader = new BufferedReader(new FileReader(file))) {
+            String line;
+            boolean skipHeader = true;
+            while ((line = reader.readLine()) != null) {
+                if (skipHeader) {
+                    skipHeader = false;
+                    if (CSV_HEADER.equals(line)) {
+                        continue;
+                    }
+                }
+                if (!line.isBlank()) {
+                    rows.add(line);
+                }
+            }
+        } catch (IOException e) {
+            System.err.println("Error reading existing trade data: " + e.getMessage());
+        }
+        return rows;
     }
 
     private TradeFeatures removeLatestOpenTrade(String ticker, String strategy) {
