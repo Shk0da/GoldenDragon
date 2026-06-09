@@ -1074,9 +1074,9 @@ public class TCSService {
         }
         double referencePrice = price > 0.0
                 ? price
-                : getAvailablePrice(key, Math.max(1, count), ORDER_DIRECTION_BUY == direction ? "asks" : "bids", false);
-        double fullNotional = referencePrice > 0.0 ? count * referencePrice : 0.0;
-        double estimatedCost = referencePrice > 0.0 ? getRequiredCashForOrder(key, count, referencePrice) : 0.0;
+                : getAvailablePrice(key, Math.max(1, normalizedCount), ORDER_DIRECTION_BUY == direction ? "asks" : "bids", false);
+        double fullNotional = referencePrice > 0.0 ? normalizedCount * referencePrice : 0.0;
+        double estimatedCost = referencePrice > 0.0 ? getRequiredCashForOrder(key, normalizedCount, referencePrice) : 0.0;
         log(String.format(
                 "Create order request [%s]: operation=%s direction=%s type=%s count=%d lot=%d lots=%d quantity=%d requestedPrice=%.4f referencePrice=%.4f fullNotional=%.2f cashToUse=%.2f estimatedCost=%.2f takeProfit=%.4f stopLose=%.4f isFullPrice=%s",
                 key.getTicker(),
