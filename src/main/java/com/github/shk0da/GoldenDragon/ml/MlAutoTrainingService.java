@@ -8,13 +8,14 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
+import java.util.Date;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 public class MlAutoTrainingService {
 
     private static final int MIN_TRADES_TO_RETRAIN = 500;
     private static final Duration DEFAULT_RETRAIN_INTERVAL = Duration.ofHours(6);
-    private static final DateTimeFormatter LOG_TIME_FORMATTER = DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm:ss")
+    private static final DateTimeFormatter INSTANT_FORMATTER = DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm:ss.SSS")
             .withZone(ZoneId.systemDefault());
 
     private final Path tradesPath;
@@ -47,18 +48,11 @@ public class MlAutoTrainingService {
 
         long tradeCount = countTrades();
         if (tradeCount < MIN_TRADES_TO_RETRAIN) {
-            System.out.println("Auto retraining skipped at " + formatInstant(Instant.now())
-                    + ". trades=" + tradeCount
-                    + ", minTrades=" + MIN_TRADES_TO_RETRAIN);
             return;
         }
 
         Instant now = Instant.now();
         if (tradeCount == lastObservedTrades && now.isBefore(lastSuccessfulTraining.plus(retrainInterval))) {
-            System.out.println("Auto retraining skipped at " + formatInstant(now)
-                    + ". trades=" + tradeCount
-                    + ", lastTraining=" + formatInstant(lastSuccessfulTraining)
-                    + ", nextAllowed=" + formatInstant(lastSuccessfulTraining.plus(retrainInterval)));
             return;
         }
 
@@ -68,7 +62,7 @@ public class MlAutoTrainingService {
 
         try {
             Path temporaryModel = modelPath.resolveSibling(modelPath.getFileName() + ".tmp");
-            System.out.println("Auto retraining started at " + formatInstant(now)
+            log("Auto retraining started at " + formatInstant(now)
                     + ". trades=" + tradeCount
                     + ", lastTraining=" + formatInstant(lastSuccessfulTraining));
             MlModelTrainer.TrainingArtifacts artifacts = MlModelTrainer.train(
@@ -81,11 +75,11 @@ public class MlAutoTrainingService {
             predictionService.setProbabilityThreshold(artifacts.recommendedThreshold);
             lastObservedTrades = tradeCount;
             lastSuccessfulTraining = now;
-            System.out.println("Auto retraining finished at " + formatInstant(lastSuccessfulTraining)
+            log("Auto retraining finished at " + formatInstant(lastSuccessfulTraining)
                     + ". threshold=" + artifacts.recommendedThreshold
                     + ", nextAllowed=" + formatInstant(lastSuccessfulTraining.plus(retrainInterval)));
         } catch (IOException ex) {
-            System.err.println("Auto retraining failed at " + formatInstant(now) + ": " + ex.getMessage());
+            logError("Auto retraining failed at " + formatInstant(now) + ": " + ex.getMessage());
         } finally {
             trainingInProgress.set(false);
         }
@@ -95,7 +89,15 @@ public class MlAutoTrainingService {
         if (instant == null || Instant.EPOCH.equals(instant)) {
             return "n/a";
         }
-        return LOG_TIME_FORMATTER.format(instant);
+        return INSTANT_FORMATTER.format(instant);
+    }
+
+    private void log(String message) {
+        System.out.println("[" + INSTANT_FORMATTER.format(new Date().toInstant()) + "] " + message);
+    }
+
+    private void logError(String message) {
+        System.err.println("[" + INSTANT_FORMATTER.format(new Date().toInstant()) + "] " + message);
     }
 
     private long countTrades() {
