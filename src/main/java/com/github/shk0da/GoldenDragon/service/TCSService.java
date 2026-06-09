@@ -353,14 +353,14 @@ public class TCSService {
             int count = ticker.getBalance();
             String name = ticker.getTicker();
             if (count > 0) {
-                var message = "Sell: " + count + " " + name + " by Market";
+                var message = formatTradeLog("Sell", name, count, type, "Market");
                 log(message);
                 if (mainConfig.isTestMode()) return;
                 telegramNotifyService.sendMessage(message);
                 createOrder(new TickerInfo.Key(name, type), 0.0, count, "Sell");
             }
             if (count < 0) {
-                var message = "Buy: " + count + " " + name + " by Market";
+                var message = formatTradeLog("Buy", name, Math.abs(count), type, "Market");
                 log(message);
                 if (mainConfig.isTestMode()) return;
                 telegramNotifyService.sendMessage(message);
@@ -421,7 +421,7 @@ public class TCSService {
     public boolean closeShortByMarket(String name, TickerType type) {
         int count = getCountOfCurrentPositions(type, name);
         if (count < 0) {
-            log("Buy: " + Math.abs(count) + " " + name + " by Market");
+            log(formatTradeLog("Buy", name, Math.abs(count), type, "Market"));
 
             if (mainConfig.isTestMode()) return true;
             return 1 == createOrder(new TickerInfo.Key(name, type), 0.0, Math.abs(count), "Buy");
@@ -439,7 +439,7 @@ public class TCSService {
     public OrderExecutionResult closeShortByMarketWithDetails(String name, TickerType type) {
         int count = getCountOfCurrentPositions(type, name);
         if (count < 0) {
-            log("Buy: " + Math.abs(count) + " " + name + " by Market");
+            log(formatTradeLog("Buy", name, Math.abs(count), type, "Market"));
 
             if (mainConfig.isTestMode()) {
                 return OrderExecutionResult.testSuccess(getAvailablePrice(new TickerInfo.Key(name, type)), Math.abs(count));
@@ -466,7 +466,7 @@ public class TCSService {
             if (quantityToBuy <= 0) {
                 return OrderExecutionResult.failed();
             }
-            log("Buy: " + quantityToBuy + " " + name + " by Market");
+            log(formatTradeLog("Buy", name, quantityToBuy, type, "Market"));
 
             if (mainConfig.isTestMode()) {
                 return OrderExecutionResult.testSuccess(getAvailablePrice(new TickerInfo.Key(name, type)), quantityToBuy);
@@ -486,7 +486,7 @@ public class TCSService {
     public boolean closeLongByMarket(String name, TickerType type) {
         int count = getCountOfCurrentPositions(type, name);
         if (count > 0) {
-            log("Sell: " + count + " " + name + " by Market");
+            log(formatTradeLog("Sell", name, count, type, "Market"));
 
             if (mainConfig.isTestMode()) return true;
             return 1 == createOrder(new TickerInfo.Key(name, type), 0.0, count, "Sell");
@@ -504,7 +504,7 @@ public class TCSService {
     public OrderExecutionResult closeLongByMarketWithDetails(String name, TickerType type) {
         int count = getCountOfCurrentPositions(type, name);
         if (count > 0) {
-            log("Sell: " + count + " " + name + " by Market");
+            log(formatTradeLog("Sell", name, count, type, "Market"));
 
             if (mainConfig.isTestMode()) {
                 return OrderExecutionResult.testSuccess(getAvailablePrice(new TickerInfo.Key(name, type)), count);
@@ -531,7 +531,7 @@ public class TCSService {
             if (quantityToSell <= 0) {
                 return OrderExecutionResult.failed();
             }
-            log("Sell: " + quantityToSell + " " + name + " by Market");
+            log(formatTradeLog("Sell", name, quantityToSell, type, "Market"));
 
             if (mainConfig.isTestMode()) {
                 return OrderExecutionResult.testSuccess(getAvailablePrice(new TickerInfo.Key(name, type)), quantityToSell);
@@ -674,10 +674,15 @@ public class TCSService {
         int lot = Math.max(1, searchTicker(key).getLot());
         int quantity = Math.max(1, count / lot);
 
-        log("Sell: " + count + " " + key.getTicker() + " by "
-                + (byMarket
-                ? String.format("Market [price=%.4f, cost=%.2f %s, lot=%d, lots=%d, cash=%.2f]", tickerPrice, cost, currency, lot, quantity, cashToSell)
-                : tickerPrice + " (" + cost + " " + currency + ")"));
+        log(formatTradeLog(
+                "Sell",
+                key.getTicker(),
+                count,
+                key.getType(),
+                byMarket
+                        ? String.format("Market [price=%.4f, cost=%.2f %s, cash=%.2f]", tickerPrice, cost, currency, cashToSell)
+                        : tickerPrice + " (" + cost + " " + currency + ")"
+        ));
         if (mainConfig.isTestMode()) {
             return OrderExecutionResult.testSuccess(tickerPrice, count);
         }
@@ -727,7 +732,7 @@ public class TCSService {
             log("Warn: sale will be used Market Price - " + name);
         }
 
-        log("Sell: " + count + " " + key.getTicker() + " by " + tickerPrice + " (" + cost + " " + currency + ")");
+        log(formatTradeLog("Sell", key.getTicker(), count, key.getType(), tickerPrice + " (" + cost + " " + currency + ")"));
         if (mainConfig.isTestMode()) {
             return true;
         }
@@ -821,8 +826,13 @@ public class TCSService {
             marginRequirement = convertCurrencies(currency, basicCurrency, marginRequirement);
         }
 
-        log("Sell (by quantity): " + quantity + " " + key.getTicker() + " by "
-                + limitPrice + " (fullNotional=" + fullNotional + ", margin=" + marginRequirement + " " + basicCurrency + ")");
+        log(formatTradeLog(
+                "Sell",
+                key.getTicker(),
+                quantity,
+                key.getType(),
+                limitPrice + " (fullNotional=" + fullNotional + ", margin=" + marginRequirement + " " + basicCurrency + ")"
+        ));
         if (mainConfig.isTestMode()) {
             return OrderExecutionResult.testSuccess(limitPrice, quantity);
         }
@@ -852,8 +862,13 @@ public class TCSService {
         double fullNotional = getRequiredCashForOrder(key, quantity, limitPrice);
         double cashForLog = fullNotional;
 
-        log("Buy (by quantity): " + quantity + " " + key.getTicker() + " by "
-                + limitPrice + " (fullNotional=" + fullNotional + " " + tickerInfo.getCurrency() + ")");
+        log(formatTradeLog(
+                "Buy",
+                key.getTicker(),
+                quantity,
+                key.getType(),
+                limitPrice + " (fullNotional=" + fullNotional + " " + tickerInfo.getCurrency() + ")"
+        ));
         if (mainConfig.isTestMode()) {
             return OrderExecutionResult.testSuccess(limitPrice, quantity);
         }
@@ -892,8 +907,7 @@ public class TCSService {
         }
 
         double cost = getRequiredCashForOrder(key, count, limitPrice);
-        log("Buy: " + count + " " + key.getTicker() + " by "
-                + limitPrice + " (" + cost + " " + currency + ")");
+        log(formatTradeLog("Buy", key.getTicker(), count, key.getType(), limitPrice + " (" + cost + " " + currency + ")"));
         if (mainConfig.isTestMode()) {
             return OrderExecutionResult.testSuccess(limitPrice, count);
         }
@@ -960,10 +974,15 @@ public class TCSService {
         int lot = Math.max(1, searchTicker(key).getLot());
         int quantity = Math.max(1, count / lot);
 
-        log("Buy: " + count + " " + key.getTicker() + " by "
-                + (byMarket
-                ? String.format("Market [price=%.4f, cost=%.2f %s, lot=%d, lots=%d, cash=%.2f]", tickerPrice, cost, currency, lot, quantity, cashToBuy)
-                : tickerPrice + " (" + cost + " " + currency + ")"));
+        log(formatTradeLog(
+                "Buy",
+                key.getTicker(),
+                count,
+                key.getType(),
+                byMarket
+                        ? String.format("Market [price=%.4f, cost=%.2f %s, cash=%.2f]", tickerPrice, cost, currency, cashToBuy)
+                        : tickerPrice + " (" + cost + " " + currency + ")"
+        ));
         if (mainConfig.isTestMode()) {
             return OrderExecutionResult.testSuccess(tickerPrice, count);
         }
@@ -1031,8 +1050,21 @@ public class TCSService {
         String figi = figiByName(key);
         TickerInfo tickerInfo = searchTicker(key);
         int lot = tickerInfo.getLot();
+        int normalizedCount = normalizeOrderCount(count, lot);
         int contractUnits = getContractUnits(tickerInfo);
-        int quantity = (count / lot / contractUnits);
+        int quantity = (normalizedCount / lot / contractUnits);
+        if (normalizedCount <= 0 || quantity <= 0) {
+            log(String.format(
+                    "Skip create order [%s]: invalid count=%d, normalizedCount=%d, lot=%d, contractUnits=%d, quantity=%d",
+                    key.getTicker(),
+                    count,
+                    normalizedCount,
+                    lot,
+                    contractUnits,
+                    quantity
+            ));
+            return OrderExecutionResult.failed();
+        }
         OrderDirection direction = "Buy".equals(operation) ? ORDER_DIRECTION_BUY : ORDER_DIRECTION_SELL;
         OrderType type = OrderType.ORDER_TYPE_MARKET;
         Quotation orderPrice = Quotation.newBuilder().build();
@@ -1046,13 +1078,14 @@ public class TCSService {
         double fullNotional = referencePrice > 0.0 ? count * referencePrice : 0.0;
         double estimatedCost = referencePrice > 0.0 ? getRequiredCashForOrder(key, count, referencePrice) : 0.0;
         log(String.format(
-                "Create order request [%s]: operation=%s direction=%s type=%s count=%d lot=%d quantity=%d requestedPrice=%.4f referencePrice=%.4f fullNotional=%.2f cashToUse=%.2f estimatedCost=%.2f takeProfit=%.4f stopLose=%.4f isFullPrice=%s",
+                "Create order request [%s]: operation=%s direction=%s type=%s count=%d lot=%d lots=%d quantity=%d requestedPrice=%.4f referencePrice=%.4f fullNotional=%.2f cashToUse=%.2f estimatedCost=%.2f takeProfit=%.4f stopLose=%.4f isFullPrice=%s",
                 key.getTicker(),
                 operation,
                 direction,
                 type,
-                count,
+                normalizedCount,
                 lot,
+                Math.max(1, normalizedCount / lot),
                 quantity,
                 price,
                 referencePrice,
@@ -1069,7 +1102,7 @@ public class TCSService {
                     figi, quantity, orderPrice, direction, mainConfig.getTcsAccountId(), type, null
             );
             int executedLots = Math.toIntExact(response.getLotsExecuted());
-            int executedCount = executedLots > 0 ? executedLots * lot * contractUnits : count;
+            int executedCount = executedLots > 0 ? executedLots * lot * contractUnits : normalizedCount;
             double rawExecutedPrice = toDouble(
                     response.getExecutedOrderPrice().getUnits(),
                     response.getExecutedOrderPrice().getNano()
@@ -1083,21 +1116,25 @@ public class TCSService {
             }
             lastExecutedPriceByTicker.put(key, executedPrice);
             log(String.format(
-                    "%s execution price normalized for %s: raw=%f normalized=%f reference=%f executedCount=%d",
+                    "%s execution price normalized for %s: raw=%f normalized=%f reference=%f executedCount=%d lot=%d lots=%d",
                     operation,
                     key.getTicker(),
                     rawExecutedPrice,
                     executedPrice,
                     referencePrice,
-                    executedCount
+                    executedCount,
+                    lot,
+                    Math.max(1, executedCount / lot)
             ));
 
             double executedCommission = toDouble(response.getExecutedCommission().getUnits(), response.getExecutedCommission().getNano());
             String message = String.format(
-                    "%s %d %s by %f (%f): %s [order=%s, status=%s, price=%f, commission=%f]\n",
+                    "%s %s count=%d lot=%d lots=%d by %f (%f): %s [order=%s, status=%s, price=%f, commission=%f]\n",
                     operation,
-                    executedCount,
                     key.getTicker(),
+                    executedCount,
+                    lot,
+                    Math.max(1, executedCount / lot),
                     price,
                     executedCount * price,
                     response.getMessage(),
@@ -1505,6 +1542,28 @@ public class TCSService {
 
     private int getContractUnits(TickerInfo tickerInfo) {
         return 1;
+    }
+
+    private String formatTradeLog(String operation, String ticker, int count, TickerType type, String details) {
+        int normalizedCount = Math.abs(count);
+        int lot = 1;
+        try {
+            lot = Math.max(1, searchTicker(new TickerInfo.Key(ticker, type)).getLot());
+        } catch (Exception ignored) {
+            // keep default lot
+        }
+        int lots = Math.max(1, normalizedCount / lot);
+        return String.format("%s: %s count=%d lot=%d lots=%d by %s", operation, ticker, normalizedCount, lot, lots, details);
+    }
+
+    private int normalizeOrderCount(int count, int lot) {
+        if (count <= 0) {
+            return count;
+        }
+        if (lot <= 1 || count >= lot) {
+            return count;
+        }
+        return count * lot;
     }
 
     private static Quotation createQuotation(double price) {
