@@ -310,6 +310,8 @@ public abstract class BaseStrategy {
             return;
         }
 
+        restoreTrackedPositions(activeTickers);
+
         // Daily reset for Money Management
         onDailyReset();
 
@@ -801,6 +803,83 @@ public abstract class BaseStrategy {
                 .filter(t -> t.getName().equalsIgnoreCase(name) || t.getTicker().equalsIgnoreCase(name))
                 .findFirst()
                 .orElse(null);
+    }
+
+    private void restoreTrackedPositions(List<String> activeTickers) {
+        if (tcsService == null || isBacktest) {
+            return;
+        }
+
+        Set<String> activeTickerSet = new HashSet<>(activeTickers);
+        restoreTrackedPositions(activeTickerSet, STOCK);
+        restoreTrackedPositions(activeTickerSet, FEATURE);
+        logRestoredPositionsReport();
+    }
+
+    private void restoreTrackedPositions(Set<String> activeTickers, TickerType tickerType) {
+        Map<TickerInfo.Key, com.github.shk0da.GoldenDragon.model.PositionInfo> currentPositions = tcsService.getCurrentPositions(tickerType);
+        currentPositions.values().stream()
+                .filter(positionInfo -> activeTickers.contains(positionInfo.getTicker()))
+                .filter(positionInfo -> positionInfo.getBalance() != 0)
+                .forEach(positionInfo -> {
+                    TickerInfo tickerInfo = findTickerInfo(positionInfo.getTicker());
+                    if (tickerInfo == null) {
+                        return;
+                    }
+
+                    String direction = positionInfo.getBalance() > 0 ? "BUY" : "SELL";
+                    int quantity = Math.abs(positionInfo.getBalance());
+                    Double entryPrice = positionInfo.getAveragePositionPrice();
+                    Position restoredPosition = new Position(direction, entryPrice, null, null, quantity, 0);
+                    restoredPosition = tcsService.restoreProtectivePosition(positionInfo.getTicker(), tickerType, restoredPosition);
+                    positionStore.put(positionInfo.getTicker(), restoredPosition);
+                    initializeLastSeenHourBar(positionInfo.getTicker(), tickerInfo);
+
+                    log("Restored tracked position for " + positionInfo.getTicker()
+                            + ": direction=" + direction
+                            + ", quantity=" + quantity
+                            + ", entry=" + (entryPrice != null ? entryPrice : 0.0)
+                            + ", stopLoss=" + (restoredPosition.stopLoss != null ? restoredPosition.stopLoss : 0.0)
+                            + ", takeProfit=" + (restoredPosition.takeProfit != null ? restoredPosition.takeProfit : 0.0));
+
+                    if (entryPrice != null) {
+                        tcsService.syncProtectiveOrders(positionInfo.getTicker(), tickerType, restoredPosition);
+                    }
+                });
+    }
+
+    private void initializeLastSeenHourBar(String ticker, TickerInfo tickerInfo) {
+        try {
+            List<Candle> hourCandles = loadOrRefreshCandles(
+                    ticker,
+                    tickerInfo.getFigi(),
+                    unifiedTraderConfig.getDataDir(),
+                    OffsetDateTime.now(),
+                    CandleInterval.CANDLE_INTERVAL_HOUR
+            );
+            if (hourCandles != null && !hourCandles.isEmpty()) {
+                lastSeenHourBarByTicker.put(ticker, hourCandles.get(hourCandles.size() - 1).time);
+            }
+        } catch (Exception ex) {
+            log("Failed to initialize last seen hour bar for " + ticker + ": " + ex.getMessage());
+        }
+    }
+
+    private void logRestoredPositionsReport() {
+        if (positionStore.isEmpty()) {
+            log("Restored positions report: no tracked positions were recovered from portfolio.");
+            return;
+        }
+
+        StringBuilder report = new StringBuilder("Restored positions report:");
+        positionStore.forEach((ticker, position) -> report.append("\n - ")
+                .append(ticker)
+                .append(": direction=").append(position.direction)
+                .append(", quantity=").append(position.quantity)
+                .append(", entry=").append(position.entryPrice != null ? position.entryPrice : 0.0)
+                .append(", stopLoss=").append(position.stopLoss != null ? position.stopLoss : 0.0)
+                .append(", takeProfit=").append(position.takeProfit != null ? position.takeProfit : 0.0));
+        log(report.toString());
     }
 
     protected List<Candle> loadOrRefreshCandles(String name,

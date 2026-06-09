@@ -1259,6 +1259,80 @@ public class TCSService {
         cancelStopOrder(key, protectiveOrders.takeProfitOrderId, "TakeProfit");
     }
 
+    public Position restoreProtectivePosition(String name, TickerType type, Position position) {
+        if (mainConfig.isSandbox() || position == null || position.quantity <= 0) {
+            return position;
+        }
+
+        TickerInfo.Key key = new TickerInfo.Key(name, type);
+        String figi = figiByName(key);
+        if (figi == null || figi.isEmpty()) {
+            return position;
+        }
+
+        try {
+            ProtectiveOrders protectiveOrders = new ProtectiveOrders();
+            Double stopLoss = null;
+            Double takeProfit = null;
+
+            List<ru.tinkoff.piapi.contract.v1.StopOrder> stopOrders = investApi.getStopOrdersService()
+                    .getStopOrdersSync(mainConfig.getTcsAccountId());
+            for (ru.tinkoff.piapi.contract.v1.StopOrder stopOrder : stopOrders) {
+                if (!figi.equals(stopOrder.getFigi())) {
+                    continue;
+                }
+
+                double stopPrice = toDouble(stopOrder.getPrice().getUnits(), stopOrder.getPrice().getNano());
+                if ("BUY".equals(position.direction)) {
+                    if (position.entryPrice != null && stopPrice <= position.entryPrice) {
+                        if (stopLoss == null || stopPrice > stopLoss) {
+                            stopLoss = stopPrice;
+                            protectiveOrders.stopLossOrderId = stopOrder.getStopOrderId();
+                        }
+                    } else {
+                        if (takeProfit == null || stopPrice < takeProfit) {
+                            takeProfit = stopPrice;
+                            protectiveOrders.takeProfitOrderId = stopOrder.getStopOrderId();
+                        }
+                    }
+                } else if ("SELL".equals(position.direction)) {
+                    if (position.entryPrice != null && stopPrice >= position.entryPrice) {
+                        if (stopLoss == null || stopPrice < stopLoss) {
+                            stopLoss = stopPrice;
+                            protectiveOrders.stopLossOrderId = stopOrder.getStopOrderId();
+                        }
+                    } else {
+                        if (takeProfit == null || stopPrice > takeProfit) {
+                            takeProfit = stopPrice;
+                            protectiveOrders.takeProfitOrderId = stopOrder.getStopOrderId();
+                        }
+                    }
+                }
+            }
+
+            if (protectiveOrders.stopLossOrderId != null || protectiveOrders.takeProfitOrderId != null) {
+                protectiveOrdersByTicker.put(key, protectiveOrders);
+            }
+
+            if (stopLoss == null && takeProfit == null) {
+                return position;
+            }
+
+            return new Position(
+                    position.direction,
+                    position.entryPrice,
+                    stopLoss,
+                    takeProfit,
+                    position.quantity,
+                    position.candlesHeld,
+                    position.cooldownRemaining
+            );
+        } catch (Exception ex) {
+            log("Failed to restore protective orders for " + name + ": " + ex.getMessage());
+            return position;
+        }
+    }
+
     private Position createProtectivePosition(OrderDirection direction,
                                               double executedPrice,
                                               double stopLose,
