@@ -665,28 +665,26 @@ public class TCSService {
             return OrderExecutionResult.failed();
         }
 
-        int count = calculateTradeCount(key, cashToSell, tickerPrice);
-        if (count == 0) {
-            log("Warn: short will be skipped - " + name + " with count " + count + ". CashToSell: " + cashToSell + ", price: " + tickerPrice);
+        int unitsCount = calculateTradeCount(key, cashToSell, tickerPrice);
+        if (unitsCount == 0) {
+            log("Warn: short will be skipped - " + name + " with count " + unitsCount + ". CashToSell: " + cashToSell + ", price: " + tickerPrice);
             return OrderExecutionResult.failed();
         }
-        double cost = getRequiredCashForOrder(key, count, tickerPrice);
-        int lot = Math.max(1, searchTicker(key).getLot());
-        int quantity = Math.max(1, count / lot);
+        double cost = getRequiredCashForOrder(key, unitsCount, tickerPrice);
 
         log(formatTradeLog(
                 "Sell",
                 key.getTicker(),
-                count,
+                unitsCount,
                 key.getType(),
                 byMarket
                         ? String.format("Market [price=%.4f, cost=%.2f %s, cash=%.2f]", tickerPrice, cost, currency, cashToSell)
                         : tickerPrice + " (" + cost + " " + currency + ")"
         ));
         if (mainConfig.isTestMode()) {
-            return OrderExecutionResult.testSuccess(tickerPrice, count);
+            return OrderExecutionResult.testSuccess(tickerPrice, unitsCount);
         }
-        return createOrder(key, byMarket ? 0.0 : tickerPrice, count, "Sell", takeProfit, stopLose, isFullPrice, cashToSell);
+        return createOrder(key, byMarket ? 0.0 : tickerPrice, unitsCount, "Sell", takeProfit, stopLose, isFullPrice, cashToSell);
     }
 
     /**
@@ -965,28 +963,26 @@ public class TCSService {
             return OrderExecutionResult.failed();
         }
 
-        int count = calculateTradeCount(key, cashToBuy, tickerPrice);
-        if (count == 0) {
-            log("Warn: long will be skipped - " + name + " with count " + count + ". CashToBuy: " + cashToBuy + ", price: " + tickerPrice);
+        int unitsCount = calculateTradeCount(key, cashToBuy, tickerPrice);
+        if (unitsCount == 0) {
+            log("Warn: long will be skipped - " + name + " with count " + unitsCount + ". CashToBuy: " + cashToBuy + ", price: " + tickerPrice);
             return OrderExecutionResult.failed();
         }
-        double cost = getRequiredCashForOrder(key, count, tickerPrice);
-        int lot = Math.max(1, searchTicker(key).getLot());
-        int quantity = Math.max(1, count / lot);
+        double cost = getRequiredCashForOrder(key, unitsCount, tickerPrice);
 
         log(formatTradeLog(
                 "Buy",
                 key.getTicker(),
-                count,
+                unitsCount,
                 key.getType(),
                 byMarket
                         ? String.format("Market [price=%.4f, cost=%.2f %s, cash=%.2f]", tickerPrice, cost, currency, cashToBuy)
                         : tickerPrice + " (" + cost + " " + currency + ")"
         ));
         if (mainConfig.isTestMode()) {
-            return OrderExecutionResult.testSuccess(tickerPrice, count);
+            return OrderExecutionResult.testSuccess(tickerPrice, unitsCount);
         }
-        return createOrder(key, byMarket ? 0.0 : tickerPrice, count, "Buy", takeProfit, stopLose, isFullPrice, cashToBuy);
+        return createOrder(key, byMarket ? 0.0 : tickerPrice, unitsCount, "Buy", takeProfit, stopLose, isFullPrice, cashToBuy);
     }
 
     /**
@@ -1049,19 +1045,19 @@ public class TCSService {
                                             double cashToUse) {
         String figi = figiByName(key);
         TickerInfo tickerInfo = searchTicker(key);
-        int lot = tickerInfo.getLot();
-        int normalizedCount = normalizeOrderCount(count, lot);
+        int lotSize = tickerInfo.getLot();
+        int normalizedCount = normalizeOrderCount(count, lotSize);
         int contractUnits = getContractUnits(tickerInfo);
-        int quantity = (normalizedCount / lot / contractUnits);
-        if (normalizedCount <= 0 || quantity <= 0) {
+        int brokerLots = (normalizedCount / lotSize / contractUnits);
+        if (normalizedCount <= 0 || brokerLots <= 0) {
             log(String.format(
                     "Skip create order [%s]: invalid count=%d, normalizedCount=%d, lot=%d, contractUnits=%d, quantity=%d",
                     key.getTicker(),
                     count,
                     normalizedCount,
-                    lot,
+                    lotSize,
                     contractUnits,
-                    quantity
+                    brokerLots
             ));
             return OrderExecutionResult.failed();
         }
@@ -1084,9 +1080,9 @@ public class TCSService {
                 direction,
                 type,
                 normalizedCount,
-                lot,
-                Math.max(1, normalizedCount / lot),
-                quantity,
+                lotSize,
+                Math.max(1, normalizedCount / lotSize),
+                brokerLots,
                 price,
                 referencePrice,
                 fullNotional,
@@ -1099,10 +1095,10 @@ public class TCSService {
 
         try {
             PostOrderResponse response = investApi.getOrdersService().postOrderSync(
-                    figi, quantity, orderPrice, direction, mainConfig.getTcsAccountId(), type, null
+                    figi, brokerLots, orderPrice, direction, mainConfig.getTcsAccountId(), type, null
             );
             int executedLots = Math.toIntExact(response.getLotsExecuted());
-            int executedCount = executedLots > 0 ? executedLots * lot * contractUnits : normalizedCount;
+            int executedCount = executedLots > 0 ? executedLots * lotSize * contractUnits : normalizedCount;
             double rawExecutedPrice = toDouble(
                     response.getExecutedOrderPrice().getUnits(),
                     response.getExecutedOrderPrice().getNano()
@@ -1123,20 +1119,22 @@ public class TCSService {
                     executedPrice,
                     referencePrice,
                     executedCount,
-                    lot,
-                    Math.max(1, executedCount / lot)
+                    lotSize,
+                    Math.max(1, executedCount / lotSize)
             ));
 
             double executedCommission = toDouble(response.getExecutedCommission().getUnits(), response.getExecutedCommission().getNano());
+            String executionType = price > 0.0
+                    ? String.format("%.6f (%.6f)", price, executedCount * price)
+                    : "Market";
             String message = String.format(
-                    "%s %s count=%d lot=%d lots=%d by %f (%f): %s [order=%s, status=%s, price=%f, commission=%f]\n",
+                    "%s %s count=%d lot=%d lots=%d by %s: %s [order=%s, status=%s, price=%f, commission=%f]\n",
                     operation,
                     key.getTicker(),
                     executedCount,
-                    lot,
-                    Math.max(1, executedCount / lot),
-                    price,
-                    executedCount * price,
+                    lotSize,
+                    Math.max(1, executedCount / lotSize),
+                    executionType,
                     response.getMessage(),
                     response.getOrderId(),
                     response.getExecutionReportStatus(),
@@ -1148,7 +1146,7 @@ public class TCSService {
             Position bracketPosition = null;
             if (response.getExecutionReportStatus().equals(EXECUTION_REPORT_STATUS_FILL)) {
                 bracketPosition = createProtectivePosition(direction, executedPrice, stopLose, takeProfit, isFullPrice, executedCount, tickerInfo);
-                placeOrLogProtectiveOrders(figi, executedLots > 0 ? executedLots : quantity, key, direction, bracketPosition);
+                placeOrLogProtectiveOrders(figi, executedLots > 0 ? executedLots : brokerLots, key, direction, bracketPosition);
             }
 
             telegramNotifyService.sendMessage(message, true);
