@@ -14,9 +14,6 @@ import com.github.shk0da.GoldenDragon.model.TradingDecision;
 import com.github.shk0da.GoldenDragon.repository.TickerRepository;
 import com.github.shk0da.GoldenDragon.service.TCSService;
 import com.github.shk0da.GoldenDragon.utils.IndicatorsUtil;
-import ru.tinkoff.piapi.contract.v1.CandleInterval;
-import ru.tinkoff.piapi.contract.v1.HistoricCandle;
-
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileWriter;
@@ -44,6 +41,9 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import ru.tinkoff.piapi.contract.v1.CandleInterval;
+import ru.tinkoff.piapi.contract.v1.HistoricCandle;
+
 
 import static com.github.shk0da.GoldenDragon.model.TickerType.FEATURE;
 import static com.github.shk0da.GoldenDragon.model.TickerType.STOCK;
@@ -226,6 +226,13 @@ import static java.util.concurrent.CompletableFuture.runAsync;
 public abstract class BaseStrategy {
 
     protected static final TradeDataCollector TRADE_DATA_COLLECTOR = new TradeDataCollector("ml_strategy/data_pipeline/trades.csv");
+    
+    /**
+     * Controls whether trades are recorded to trades.csv during backtest.
+     * Default: true (record trades for ML training).
+     * Set to false for pure backtest without ML data collection.
+     */
+    public boolean recordTradesInBacktest = true;
 
     protected final Config config;
     protected final TCSService tcsService;
@@ -755,6 +762,9 @@ public abstract class BaseStrategy {
     public void recordBacktestTradeEntry(String ticker,
                                          List<Candle> hourCandles,
                                          TradingDecision decision) {
+        if (!recordTradesInBacktest) {
+            return;
+        }
         LocalDateTime entryTime = null;
         if (hourCandles != null && !hourCandles.isEmpty()) {
             try {
@@ -771,6 +781,9 @@ public abstract class BaseStrategy {
                                            double entryPrice,
                                            double stopLoss,
                                            int quantity) {
+        if (!recordTradesInBacktest) {
+            return;
+        }
         TRADE_DATA_COLLECTOR.recordTradeOutcome(ticker, getStrategyName(), pnl, entryPrice, stopLoss, quantity);
     }
 

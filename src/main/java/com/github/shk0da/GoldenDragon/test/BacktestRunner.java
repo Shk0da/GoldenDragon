@@ -240,6 +240,7 @@ public class BacktestRunner {
     private static final String[] ALL_STRATEGIES = {
             "UnifiedStrategy",
             "RegimeAwareStrategy",
+            "RegimeAwareStrategyMl",
     };
 
     public static class RawCandle {
@@ -493,25 +494,38 @@ public class BacktestRunner {
     }
 
     private List<PeriodDefinition> getPeriods() {
+        java.time.LocalDate today = java.time.LocalDate.now();
+        
         if ("fast".equalsIgnoreCase(BACKTEST_MODE)) {
-            return List.of(
-                    new PeriodDefinition("2026-03-01", "2026-04-01", "2026.03"),
-                    new PeriodDefinition("2026-04-01", "2026-05-01", "2026.04"),
-                    new PeriodDefinition("2026-05-01", "2026-06-01", "2026.05"),
-                    new PeriodDefinition("2026-06-01", "2026-07-01", "2026.06"),
-                    new PeriodDefinition("2026-07-01", "2026-08-01", "2026.07"),
-                    new PeriodDefinition("2026-08-01", "2026-09-01", "2026.08")
-            );
+            // Last 6 months (monthly periods)
+            List<PeriodDefinition> periods = new ArrayList<>();
+            java.time.LocalDate currentMonthStart = today.withDayOfMonth(1);
+            
+            for (int i = 5; i >= 0; i--) {
+                java.time.LocalDate monthStart = currentMonthStart.minusMonths(i);
+                java.time.LocalDate monthEnd = monthStart.plusMonths(1);
+                String label = String.format("%d.%02d", monthStart.getYear(), monthStart.getMonthValue());
+                periods.add(new PeriodDefinition(
+                        monthStart.toString(),
+                        monthEnd.toString(),
+                        label
+                ));
+            }
+            return periods;
         }
 
-        return List.of(
-                new PeriodDefinition("2023-01-01", "2023-12-31", "2023"),
-                new PeriodDefinition("2024-01-01", "2024-12-31", "2024"),
-                new PeriodDefinition("2025-01-01", "2025-12-31", "2025"),
-                new PeriodDefinition("2026-01-01", "2026-12-31", "2026"),
-                new PeriodDefinition("2027-01-01", "2027-12-31", "2027"),
-                new PeriodDefinition("2028-01-01", "2028-12-31", "2028")
-        );
+        // Last 5 years (yearly periods)
+        List<PeriodDefinition> periods = new ArrayList<>();
+        int currentYear = today.getYear();
+        
+        for (int i = 4; i >= 0; i--) {
+            int year = currentYear - i;
+            String start = year + "-01-01";
+            String end = year + "-12-31";
+            String label = String.valueOf(year);
+            periods.add(new PeriodDefinition(start, end, label));
+        }
+        return periods;
     }
 
     private void printResults(String strategyName,
@@ -628,7 +642,12 @@ public class BacktestRunner {
         Map<String, Integer> minuteIndexByTicker = new LinkedHashMap<>();
 
         for (String ticker : marketDataByTicker.keySet()) {
-            strategies.put(ticker, StrategyFactory.createStrategy(strategyName, config));
+            BaseStrategy strategy = StrategyFactory.createStrategy(strategyName, config);
+            // Disable trade recording for ML strategies during backtest (we don't want to pollute trades.csv)
+            if ("RegimeAwareStrategyMl".equals(strategyName)) {
+                strategy.recordTradesInBacktest = false;
+            }
+            strategies.put(ticker, strategy);
             positionStates.put(ticker, new PortfolioPositionState());
             tradesByTicker.put(ticker, new ArrayList<>());
             equityByTicker.put(ticker, new ArrayList<>());
