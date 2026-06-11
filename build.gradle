@@ -135,6 +135,10 @@ task trainAllTickers {
 task generateModel {
     group = 'ml'
     description = 'Run backtest and train ML model.'
+    def tradesFile = file('ml_strategy/data_pipeline/trades.csv')
+    if (tradesFile.exists()) {
+        tradesFile.delete()
+    }
     dependsOn 'runBacktest', 'runMlTraining', 'trainAllTickers'
 }
 

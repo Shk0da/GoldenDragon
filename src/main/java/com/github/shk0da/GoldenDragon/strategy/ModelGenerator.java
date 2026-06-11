@@ -2,8 +2,6 @@ package com.github.shk0da.GoldenDragon.strategy;
 
 import com.github.shk0da.GoldenDragon.ml.MlModelTrainer;
 import com.github.shk0da.GoldenDragon.test.BacktestRunner;
-import java.nio.file.Files;
-import java.nio.file.Path;
 
 
 import static java.lang.System.out;
@@ -35,7 +33,6 @@ public class ModelGenerator {
         if (!skipBacktest) {
             out.println("Step 1: Running backtest...");
             try {
-                Files.deleteIfExists(Path.of(dataPath));
                 BacktestRunner.main(new String[]{});
                 out.println("Backtest completed successfully.");
             } catch (Exception ex) {
