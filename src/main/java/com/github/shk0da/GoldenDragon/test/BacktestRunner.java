@@ -17,6 +17,7 @@ import com.github.shk0da.GoldenDragon.utils.PropertiesUtils;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
+import java.nio.file.Paths;
 import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -240,7 +241,6 @@ public class BacktestRunner {
     private static final String[] ALL_STRATEGIES = {
             "UnifiedStrategy",
             "RegimeAwareStrategy",
-            "RegimeAwareStrategyMl",
     };
 
     public static class RawCandle {
@@ -430,6 +430,9 @@ public class BacktestRunner {
     public static void main(String[] args) throws IOException {
         BacktestRunner runner = new BacktestRunner();
         boolean singleStrategyRun = args != null && args.length > 0;
+
+        String dataPath = "ml_strategy/data_pipeline/trades.csv";
+        Files.deleteIfExists(Paths.get(dataPath));
         
         // Check if specific strategy is provided via args
         if (singleStrategyRun) {
@@ -643,10 +646,6 @@ public class BacktestRunner {
 
         for (String ticker : marketDataByTicker.keySet()) {
             BaseStrategy strategy = StrategyFactory.createStrategy(strategyName, config);
-            // Disable trade recording for ML strategies during backtest (we don't want to pollute trades.csv)
-            if ("RegimeAwareStrategyMl".equals(strategyName)) {
-                strategy.recordTradesInBacktest = false;
-            }
             strategies.put(ticker, strategy);
             positionStates.put(ticker, new PortfolioPositionState());
             tradesByTicker.put(ticker, new ArrayList<>());
@@ -712,7 +711,7 @@ public class BacktestRunner {
 
                     TradingDecision decision = strategy.decide(ticker, hourHistory, minHistory, state.position, sharedCash, hourChanged);
                     sharedCash = applyPortfolioDecision(
-                            ticker, strategy, state, decision, current, current.time, hourHistory, sharedCash, tradesByTicker.get(ticker)
+                            ticker, strategy, state, decision, current, current.time, hourHistory, minHistory, sharedCash, tradesByTicker.get(ticker)
                     );
                 }
 
@@ -889,6 +888,7 @@ public class BacktestRunner {
                                           Candle current,
                                           String currentTime,
                                           List<Candle> hourHistory,
+                                          List<Candle> minHistory,
                                           double sharedCash,
                                           List<TradeResult> trades) {
         if (decision == null) {
@@ -911,7 +911,8 @@ public class BacktestRunner {
                 sharedCash -= (positionValue + entryCommission);
                 state.position = decision.updatedPosition;
                 state.entryPrice = openEntry;
-                strategy.recordBacktestTradeEntry(ticker, hourHistory, decision);
+                // Use minute candles for accurate timestamp (5-min precision instead of hourly)
+                strategy.recordBacktestTradeEntry(ticker, minHistory, decision);
                 return sharedCash;
 
             case "CLOSE":
@@ -1100,7 +1101,8 @@ public class BacktestRunner {
                     cash -= (positionValue + entryCommission);
                     pos = decision.updatedPosition;
                     entryPrice = openEntry;
-                    strategy.recordBacktestTradeEntry(ticker, hourHistory, decision);
+                    // Use minute candles for accurate timestamp (5-min precision instead of hourly)
+                    strategy.recordBacktestTradeEntry(ticker, minHistory, decision);
                     break;
 
                 case "CLOSE":

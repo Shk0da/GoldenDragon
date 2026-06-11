@@ -135,14 +135,11 @@ task trainAllTickers {
 task generateModel {
     group = 'ml'
     description = 'Run backtest and train ML model.'
-    def tradesFile = file('ml_strategy/data_pipeline/trades.csv')
-    if (tradesFile.exists()) {
-        tradesFile.delete()
-    }
     dependsOn 'runBacktest', 'runMlTraining', 'trainAllTickers'
 }
 
 runMlTraining.mustRunAfter runBacktest
+trainAllTickers.mustRunAfter runBacktest
 
 task runTCSServiceSmokeTest(type: JavaExec) {
     main = 'com.github.shk0da.GoldenDragon.test.TCSServiceSmokeTest'
