@@ -3,7 +3,6 @@ package com.github.shk0da.GoldenDragon.ml;
 import com.github.shk0da.GoldenDragon.model.Candle;
 import com.github.shk0da.GoldenDragon.model.Position;
 import com.github.shk0da.GoldenDragon.model.TradingDecision;
-
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileReader;
@@ -109,7 +108,6 @@ public class TradeDataCollector {
         
         tradeHistory.add(features);
         openTrades.put(buildTradeKey(ticker, strategy, features.entryTime), features);
-        appendTrade(features);
     }
 
     public synchronized void recordTradeEntry(String ticker,
@@ -187,25 +185,6 @@ public class TradeDataCollector {
 
         tradeHistory.add(features);
         openTrades.put(buildTradeKey(ticker, strategy, features.entryTime), features);
-        appendTrade(features);
-    }
-    
-    /**
-     * Update trade with outcome.
-     */
-    public synchronized void recordTradeOutcome(String ticker, double pnlRubles, double entryPrice, double stopLoss, int quantity) {
-        double risk = Math.abs(entryPrice - stopLoss);
-        double pnlR = risk > 0 && quantity > 0 ? pnlRubles / (risk * quantity) : 0.0;
-        
-        for (TradeFeatures trade : tradeHistory) {
-            if (trade.ticker.equals(ticker) && trade.outcome == null) {
-                trade.outcome = pnlR;
-                trade.isWinner = pnlR > 0;
-                // При обновлении outcome всегда сортируем и перезаписываем
-                saveData();
-                break;
-            }
-        }
     }
 
     public synchronized void recordTradeOutcome(String ticker,
@@ -231,8 +210,7 @@ public class TradeDataCollector {
         if (trade != null) {
             trade.outcome = pnlR;
             trade.isWinner = pnlR > 0;
-            // При обновлении outcome всегда сортируем и перезаписываем
-            saveData();
+            appendTrade(trade);
         }
     }
     
@@ -526,26 +504,14 @@ public class TradeDataCollector {
     private void appendTrade(TradeFeatures trade) {
         deduplicateTradeHistory();
         
-        // Проверяем, нужно ли сортировать и перезаписывать
-        if (isSortedByTime() && !hasOpenTradesWithoutOutcome()) {
-            // Записи отсортированы, просто добавляем новую в конец
+        // Check if sorting and full rewrite is needed
+        if (isSortedByTime()) {
+            // Records are sorted, just append the new one at the end
             appendTradeRow(trade);
         } else {
-            // Требуется сортировка и полная перезапись
+            // Sorting and full rewrite required
             saveData();
         }
-    }
-
-    /**
-     * Проверяет, есть ли в истории сделки без outcome.
-     */
-    private boolean hasOpenTradesWithoutOutcome() {
-        for (TradeFeatures trade : tradeHistory) {
-            if (trade.outcome == null) {
-                return true;
-            }
-        }
-        return false;
     }
 
     /**
