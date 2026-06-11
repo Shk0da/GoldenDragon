@@ -7,6 +7,11 @@ import java.util.Map;
 
 import static com.github.shk0da.GoldenDragon.utils.SerializationUtils.loadDataFromDisk;
 
+/**
+ * Repository for storing ticker information.
+ * Singleton instance that loads data from disk on initialization.
+ * Used to cache ticker metadata (FIGI, ISIN, currency, type) for fast lookup.
+ */
 public class TickerRepository extends AbstractRepository<TickerInfo.Key, TickerInfo> {
 
     public static final String SERIALIZE_NAME = "tickers.json";

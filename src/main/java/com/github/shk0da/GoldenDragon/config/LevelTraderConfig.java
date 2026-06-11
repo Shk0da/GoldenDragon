@@ -9,6 +9,10 @@ import java.util.Properties;
 import static java.util.Arrays.stream;
 import static java.util.stream.Collectors.toList;
 
+/**
+ * Configuration for LevelTrader strategy.
+ * Loads settings from properties file for level-based trading with stop-loss and take-profit.
+ */
 public class LevelTraderConfig {
 
     private String dataDir;

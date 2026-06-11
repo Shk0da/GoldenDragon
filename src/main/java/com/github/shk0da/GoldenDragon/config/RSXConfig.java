@@ -4,6 +4,10 @@ import com.github.shk0da.GoldenDragon.utils.PropertiesUtils;
 
 import java.util.Properties;
 
+/**
+ * Configuration for RSX (RSI Smoothed) strategy.
+ * Defines trend stock ticker and maximum portfolio size.
+ */
 public class RSXConfig {
 
     public static final String SERIALIZE_NAME = "rsx.json";

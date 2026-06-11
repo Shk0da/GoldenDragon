@@ -46,6 +46,11 @@ import static java.lang.System.setOut;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static java.util.TimeZone.setDefault;
 
+/**
+ * Main application entry point for GoldenDragon trading system.
+ * Supports multiple trading strategies: LevelTrader, UnifiedStrategy, RSX, DivFlow, Rebalance, etc.
+ * Initializes market data, ticker repository, and runs selected strategy.
+ */
 public class GoldenDragon {
 
     private static final Repository<TickerInfo.Key, TickerInfo> tickerRepository = TickerRepository.INSTANCE;

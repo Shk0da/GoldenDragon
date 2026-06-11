@@ -3,6 +3,11 @@ package com.github.shk0da.GoldenDragon.filters;
 import com.github.shk0da.GoldenDragon.model.Candle;
 import java.util.List;
 
+/**
+ * Market regime filter for detecting trending vs ranging markets.
+ * Uses ADX (trend strength), ATR (volatility), and volume analysis.
+ * Returns trading permission with confidence score and position multiplier.
+ */
 public class MarketRegimeFilter {
 
     private final boolean enabled;

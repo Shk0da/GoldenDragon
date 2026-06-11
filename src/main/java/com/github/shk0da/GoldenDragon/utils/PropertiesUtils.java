@@ -7,6 +7,10 @@ import java.nio.file.Path;
 import java.util.Objects;
 import java.util.Properties;
 
+/**
+ * Utility class for loading properties from configuration files.
+ * Supports loading from classpath and external file system with fallback.
+ */
 public final class PropertiesUtils {
 
     private static final String PROPERTIES_FILE = "application.properties";

@@ -9,6 +9,10 @@ import java.util.Properties;
 
 import static java.lang.System.out;
 
+/**
+ * Market-specific configuration (MOEX, etc.).
+ * Provides currency and position cost limits for different markets.
+ */
 public final class MarketConfig {
 
     private static final Map<Market, MarketConfig> defaultMarketConfigs = new HashMap<>();

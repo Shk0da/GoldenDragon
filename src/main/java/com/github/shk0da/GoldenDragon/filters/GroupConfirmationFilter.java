@@ -4,6 +4,11 @@ import com.github.shk0da.GoldenDragon.model.Candle;
 import java.util.List;
 import java.util.Map;
 
+/**
+ * Group confirmation filter for peer validation.
+ * Checks if correlated instruments confirm the trading signal.
+ * Requires minimum number of peers moving in the same direction.
+ */
 public class GroupConfirmationFilter {
 
     private static final int LOOKBACK_BARS = 3;

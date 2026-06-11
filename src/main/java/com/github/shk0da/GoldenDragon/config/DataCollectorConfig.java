@@ -9,6 +9,10 @@ import java.util.Properties;
 import static java.util.Arrays.stream;
 import static java.util.stream.Collectors.toList;
 
+/**
+ * Configuration for DataCollector strategy.
+ * Defines data directory, instrument list, and replace mode for historical data collection.
+ */
 public class DataCollectorConfig {
 
     private final String dataDir;

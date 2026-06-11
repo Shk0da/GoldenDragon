@@ -5,6 +5,10 @@ import com.github.shk0da.GoldenDragon.utils.PropertiesUtils;
 import java.io.IOException;
 import java.util.Properties;
 
+/**
+ * Telegram notification configuration.
+ * Loads bot token, chat ID, and notification settings from properties.
+ */
 public class TelegramNotifyConfig {
 
     private final Boolean enable;

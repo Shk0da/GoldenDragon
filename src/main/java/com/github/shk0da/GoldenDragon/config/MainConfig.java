@@ -9,6 +9,10 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Properties;
 
+/**
+ * Main application configuration.
+ * Loads Tinkoff Invest API settings, test mode flags, and HTTP client configuration.
+ */
 public class MainConfig {
 
     public static final String HEADER_COOKIES = "Cookie";

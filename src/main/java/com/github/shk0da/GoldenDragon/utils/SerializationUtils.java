@@ -12,6 +12,10 @@ import java.nio.file.Files;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.Date;
 
+/**
+ * Utility class for JSON serialization/deserialization using Gson.
+ * Provides methods to load and save data to disk with custom type adapters.
+ */
 public final class SerializationUtils {
 
     private static final GsonBuilder gsonBuilder = new GsonBuilder();

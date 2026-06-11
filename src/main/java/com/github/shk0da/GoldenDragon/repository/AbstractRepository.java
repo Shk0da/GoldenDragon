@@ -3,6 +3,13 @@ package com.github.shk0da.GoldenDragon.repository;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
+/**
+ * Abstract thread-safe repository implementation using ConcurrentHashMap.
+ * Provides default implementation for all Repository interface methods.
+ *
+ * @param <ID> the type of the identifier
+ * @param <T> the type of the stored element
+ */
 public abstract class AbstractRepository<ID, T> implements Repository<ID, T> {
 
     private final Map<ID, T> register = new ConcurrentHashMap<>();
