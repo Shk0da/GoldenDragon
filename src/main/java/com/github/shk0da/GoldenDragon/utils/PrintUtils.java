@@ -155,8 +155,4 @@ public final class PrintUtils {
         out.printf("Total portfolio cost: %.2f %s", totalPortfolioCost, currency);
         out.println("\n");
     }
-
-    public static String formatFloat(Double value) {
-        return String.format("%.2f", round(value * 100) / 100.0);
-    }
 }
