@@ -56,7 +56,6 @@ public class MlPredictionService {
         ModelData modelData = new ModelData();
         loadModelFromFile(modelFile, modelData);
         tickerModels.put(ticker, modelData);
-        System.out.println("Loaded model for ticker " + ticker + " from " + modelFile);
     }
     
     /**

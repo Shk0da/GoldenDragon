@@ -163,9 +163,6 @@ public class RegimeAwareStrategyMl extends BaseStrategy {
             if (file.exists()) {
                 mlService.loadModelForTicker(ticker, modelFile);
                 loadedCount++;
-                System.out.println("Loaded per-ticker model for " + ticker + ": " + modelFile);
-            } else {
-                System.out.println("No per-ticker model for " + ticker + ", will use default model");
             }
         }
         logWithBacktest("Loaded " + loadedCount + " per-ticker models out of " + config.getStocks().size() + " tickers");
