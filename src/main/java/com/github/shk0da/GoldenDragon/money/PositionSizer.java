@@ -52,31 +52,4 @@ public class PositionSizer {
         // Round down to lot step
         return (rawSize / lotStep) * lotStep;
     }
-
-    /**
-     * Get sizing strategy.
-     *
-     * @return sizing strategy implementation
-     */
-    public SizingStrategy getSizingStrategy() {
-        return sizingStrategy;
-    }
-
-    /**
-     * Get minimum lot size.
-     *
-     * @return minimum position size
-     */
-    public int getMinLotSize() {
-        return minLotSize;
-    }
-
-    /**
-     * Get lot step.
-     *
-     * @return position size step
-     */
-    public int getLotStep() {
-        return lotStep;
-    }
 }

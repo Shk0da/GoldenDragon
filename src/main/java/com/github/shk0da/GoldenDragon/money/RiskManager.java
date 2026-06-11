@@ -112,42 +112,6 @@ public class RiskManager {
     }
 
     /**
-     * Get trades count today.
-     *
-     * @return number of trades today
-     */
-    public int getTradesToday() {
-        return dailyStats.get().trades;
-    }
-
-    /**
-     * Get risk per trade parameter.
-     *
-     * @return risk per trade as decimal
-     */
-    public double getRiskPerTradePercent() {
-        return riskPerTradePercent;
-    }
-
-    /**
-     * Get maximum daily loss parameter.
-     *
-     * @return maximum daily loss as decimal
-     */
-    public double getMaxDailyLossPercent() {
-        return maxDailyLossPercent;
-    }
-
-    /**
-     * Get maximum consecutive losses parameter.
-     *
-     * @return maximum consecutive losses allowed
-     */
-    public int getMaxConsecutiveLosses() {
-        return maxConsecutiveLosses;
-    }
-
-    /**
      * Immutable daily statistics holder.
      */
     private static class DailyStats {

@@ -71,32 +71,4 @@ public class KillSwitch {
     public String getTriggerReason() {
         return triggerReason.get();
     }
-
-    /**
-     * Get trigger time.
-     *
-     * @return timestamp when kill switch was triggered (0 if not triggered)
-     */
-    public long getTriggerTime() {
-        return triggerTime.get();
-    }
-
-    /**
-     * Get critical drawdown parameter.
-     *
-     * @return critical drawdown as decimal
-     */
-    public double getCriticalDrawdownPercent() {
-        return criticalDrawdownPercent;
-    }
-
-    /**
-     * Check if kill switch was triggered by drawdown.
-     *
-     * @return true if triggered by drawdown
-     */
-    public boolean isDrawdownTriggered() {
-        String reason = triggerReason.get();
-        return reason != null && reason.startsWith("CRITICAL_DD");
-    }
 }

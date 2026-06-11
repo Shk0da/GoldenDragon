@@ -86,33 +86,6 @@ public class AdaptiveCapital {
     }
 
     /**
-     * Get base risk percent.
-     *
-     * @return base risk per trade as decimal
-     */
-    public double getBaseRiskPercent() {
-        return baseRiskPercent;
-    }
-
-    /**
-     * Get consecutive wins count.
-     *
-     * @return number of consecutive wins
-     */
-    public int getConsecutiveWins() {
-        return consecutiveWins.get();
-    }
-
-    /**
-     * Get consecutive losses count.
-     *
-     * @return number of consecutive losses
-     */
-    public int getConsecutiveLosses() {
-        return consecutiveLosses.get();
-    }
-
-    /**
      * Reset adaptive capital state.
      */
     public void reset() {

@@ -85,46 +85,6 @@ public class PerformanceTracker {
     }
 
     /**
-     * Get session statistics.
-     *
-     * @return current session stats
-     */
-    public SessionStats getSessionStats() {
-        return sessionStats.get();
-    }
-
-    /**
-     * Get total trades.
-     *
-     * @return total number of trades
-     */
-    public int getTotalTrades() {
-        return sessionStats.get().trades;
-    }
-
-    /**
-     * Get win rate.
-     *
-     * @return win rate as decimal (0.0 to 1.0)
-     */
-    public double getWinRate() {
-        SessionStats stats = sessionStats.get();
-        if (stats.trades == 0) {
-            return 0.0;
-        }
-        return (double) stats.wins / stats.trades;
-    }
-
-    /**
-     * Get total PnL.
-     *
-     * @return total PnL
-     */
-    public double getTotalPnL() {
-        return sessionStats.get().totalPnL;
-    }
-
-    /**
      * Reset session statistics.
      */
     public void resetSession() {
