@@ -427,11 +427,11 @@ public class BacktestRunner {
     private final double monthlyRebalanceAmount;
 
     public BacktestRunner() {
-        this("data", 1_000_000.0, 0.0005, 0.0);
+        this("data", 1_000_000.0, 0.0005, 100000.0);
     }
 
     public BacktestRunner(String dataDir, double initialBalance, double commission) {
-        this(dataDir, initialBalance, commission, 0.0);
+        this(dataDir, initialBalance, commission, 100000.0);
     }
 
     public BacktestRunner(String dataDir, double initialBalance, double commission, double monthlyRebalanceAmount) {
@@ -514,6 +514,9 @@ public class BacktestRunner {
         
         // Generate equity curve chart
         plotEquityCurveChart(strategyName, portfolioData);
+        
+        // Generate basic buy & hold chart (16% annual)
+        plotBasicBuyAndHoldChart(periods);
     }
 
     /**
@@ -597,6 +600,100 @@ public class BacktestRunner {
             System.out.println("Equity curve chart saved to: " + outputPath.toAbsolutePath());
         } catch (Exception e) {
             System.out.println("Failed to save equity curve chart: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Generates and saves basic buy & hold strategy chart (16% annual return).
+     *
+     * @param periods list of backtest periods
+     */
+    private void plotBasicBuyAndHoldChart(List<PeriodDefinition> periods) {
+        TimeSeries basicSeries = new TimeSeries("Buy & Hold (16% annual)");
+        
+        // Monthly return rate: (1 + 0.16)^(1/12) - 1 ≈ 1.24%
+        double annualReturn = 0.16;
+        double monthlyReturn = Math.pow(1 + annualReturn, 1.0 / 12.0) - 1.0;
+        
+        double capital = initialBalance;
+        LocalDate currentDate = LocalDate.parse(periods.get(0).start);
+        LocalDate endDate = LocalDate.parse(periods.get(periods.size() - 1).endExclusive);
+        
+        int lastRebalanceMonth = -1;
+        int lastRebalanceYear = -1;
+        
+        // Add starting point
+        try {
+            Day startDay = new Day(java.util.Date.from(
+                currentDate.atStartOfDay(java.time.ZoneId.systemDefault()).toInstant()
+            ));
+            basicSeries.add(startDay, capital);
+        } catch (Exception e) {
+            // Skip
+        }
+        
+        // Add monthly points with rebalancing
+        while (!currentDate.isAfter(endDate)) {
+            currentDate = currentDate.plusMonths(1);
+            
+            // Monthly rebalance: add funds on the first day of each month
+            int currentMonth = currentDate.getMonthValue();
+            int currentYear = currentDate.getYear();
+            if (currentMonth != lastRebalanceMonth || currentYear != lastRebalanceYear) {
+                capital += monthlyRebalanceAmount;
+                lastRebalanceMonth = currentMonth;
+                lastRebalanceYear = currentYear;
+            }
+            
+            // Apply monthly return on the capital (including new deposits)
+            capital *= (1 + monthlyReturn);
+            
+            try {
+                Day day = new Day(java.util.Date.from(
+                    currentDate.atStartOfDay(java.time.ZoneId.systemDefault()).toInstant()
+                ));
+                basicSeries.add(day, capital);
+            } catch (Exception e) {
+                // Skip invalid dates
+            }
+        }
+        
+        if (basicSeries.getItemCount() == 0) {
+            System.out.println("No data available for basic chart generation");
+            return;
+        }
+        
+        TimeSeriesCollection dataset = new TimeSeriesCollection(basicSeries);
+        
+        JFreeChart chart = ChartFactory.createTimeSeriesChart(
+            "Buy & Hold Strategy (16% Annual + Monthly Rebalance)",
+            "Date",
+            "Capital (RUB)",
+            dataset,
+            true,
+            true,
+            false
+        );
+        
+        // Customize date axis to show months
+        XYPlot plot = (XYPlot) chart.getPlot();
+        DateAxis dateAxis = (DateAxis) plot.getDomainAxis();
+        dateAxis.setDateFormatOverride(new SimpleDateFormat("yyyy-MM"));
+        
+        try {
+            Path imagesDir = Paths.get("ml_strategy/images");
+            Files.createDirectories(imagesDir);
+            
+            String fileName = "Basic.png";
+            Path outputPath = imagesDir.resolve(fileName);
+            
+            try (FileOutputStream out = new FileOutputStream(outputPath.toFile())) {
+                ChartUtilities.writeChartAsPNG(out, chart, 1200, 600);
+            }
+            
+            System.out.println("Basic buy & hold chart saved to: " + outputPath.toAbsolutePath());
+        } catch (Exception e) {
+            System.out.println("Failed to save basic chart: " + e.getMessage());
         }
     }
 
