@@ -424,15 +424,21 @@ public class BacktestRunner {
     private final String dataDir;
     private final double initialBalance;
     private final double commission;
+    private final double monthlyRebalanceAmount;
 
     public BacktestRunner() {
-        this("data", 1_000_000.0, 0.0005);
+        this("data", 1_000_000.0, 0.0005, 0.0);
     }
 
     public BacktestRunner(String dataDir, double initialBalance, double commission) {
+        this(dataDir, initialBalance, commission, 0.0);
+    }
+
+    public BacktestRunner(String dataDir, double initialBalance, double commission, double monthlyRebalanceAmount) {
         this.dataDir = dataDir;
         this.initialBalance = initialBalance;
         this.commission = commission;
+        this.monthlyRebalanceAmount = monthlyRebalanceAmount;
     }
 
     // Store results for comparison
@@ -755,9 +761,19 @@ public class BacktestRunner {
         List<String> globalTimeline = buildGlobalTimeline(marketDataByTicker);
         double sharedCash = initialBalance;
         List<EquityPoint> portfolioEquity = new ArrayList<>();
+        
+        // Track monthly rebalance
+        int lastRebalanceMonth = -1;
 
         for (String time : globalTimeline) {
             LocalDateTime currentTime = LocalDateTime.parse(time, DATE_TIME_FMT);
+            
+            // Monthly rebalance: add funds on the first trading day of each month
+            int currentMonth = currentTime.getMonthValue();
+            if (currentMonth != lastRebalanceMonth) {
+                sharedCash += monthlyRebalanceAmount;
+                lastRebalanceMonth = currentMonth;
+            }
 
             for (String ticker : marketDataByTicker.keySet()) {
                 MarketData marketData = marketDataByTicker.get(ticker);
