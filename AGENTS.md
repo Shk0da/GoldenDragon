@@ -57,4 +57,12 @@
 ## Commands
 - Run backtest strategies: `./gradlew clean runBacktest`
 - Full build: `./gradlew clean uberJar`
-- Run Strategy `./gradlew runStrategy -Pstrategy=UnifiedStrategy`
+- Run Strategy: `./gradlew runStrategy -Pstrategy=UnifiedStrategy`
+
+### ML Training Commands
+- Train ML model (default params): `./gradlew runMlTraining`
+- Train with custom data: `./gradlew runMlTraining -Pdata=ml_strategy/data_pipeline/trades.csv`
+- Train with custom output: `./gradlew runMlTraining -Poutput=ml_strategy/models/model.txt`
+- Train for specific ticker: `./gradlew runMlTraining -Pticker=SBER`
+- Train models for all tickers: `./gradlew trainAllTickers`
+- Full ML pipeline (backtest + train): `./gradlew generateModel`
