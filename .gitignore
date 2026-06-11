@@ -93,3 +93,5 @@ Thumbs.db
 tickers.json
 /ml_strategy/data_pipeline/
 /ml_strategy/reports/
+/.vscode/
+/.github/
