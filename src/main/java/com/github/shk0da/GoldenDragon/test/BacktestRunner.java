@@ -427,11 +427,11 @@ public class BacktestRunner {
     private final double monthlyRebalanceAmount;
 
     public BacktestRunner() {
-        this("data", 1_000_000.0, 0.0005, 100000.0);
+        this("data", 1_000_000.0, 0.0005, 0.0);
     }
 
     public BacktestRunner(String dataDir, double initialBalance, double commission) {
-        this(dataDir, initialBalance, commission, 100000.0);
+        this(dataDir, initialBalance, commission, 0.0);
     }
 
     public BacktestRunner(String dataDir, double initialBalance, double commission, double monthlyRebalanceAmount) {
@@ -606,7 +606,7 @@ public class BacktestRunner {
     /**
      * Generates and saves basic buy & hold strategy chart (16% annual return).
      *
-     * @param periods list of backtest periods
+     * @param periods list of backtest periods (used for start date only)
      */
     private void plotBasicBuyAndHoldChart(List<PeriodDefinition> periods) {
         TimeSeries basicSeries = new TimeSeries("Buy & Hold (16% annual)");
@@ -617,7 +617,7 @@ public class BacktestRunner {
         
         double capital = initialBalance;
         LocalDate currentDate = LocalDate.parse(periods.get(0).start);
-        LocalDate endDate = LocalDate.parse(periods.get(periods.size() - 1).endExclusive);
+        LocalDate today = LocalDate.now();
         
         int lastRebalanceMonth = -1;
         int lastRebalanceYear = -1;
@@ -632,9 +632,12 @@ public class BacktestRunner {
             // Skip
         }
         
-        // Add monthly points with rebalancing
-        while (!currentDate.isAfter(endDate)) {
+        // Add monthly points with rebalancing until today
+        while (!currentDate.isAfter(today)) {
             currentDate = currentDate.plusMonths(1);
+            if (currentDate.isAfter(today)) {
+                break;
+            }
             
             // Monthly rebalance: add funds on the first day of each month
             int currentMonth = currentDate.getMonthValue();
