@@ -138,13 +138,37 @@ public class RegimeAwareStrategyMl extends BaseStrategy {
         this.mlAutoTrainingService = new MlAutoTrainingService(
                 "ml_strategy/data_pipeline/trades.csv",
                 "ml_strategy/models/trade_classifier_v2.txt",
-                "ml_strategy"
+                "ml_strategy",
+                true  // Enable per-ticker training
         );
         this.useMlFiltering = useMlFiltering;
         this.useMlSizing = useMlSizing;
         
+        // Load per-ticker models if available
+        loadPerTickerModels(unifiedTraderConfig);
+        
         logWithBacktest("RegimeAwareStrategy ML v5: ML_Filter=" + useMlFiltering + 
-                        ", ML_Sizing=" + useMlSizing);
+                        ", ML_Sizing=" + useMlSizing + ", PerTickerModels=true");
+    }
+    
+    /**
+     * Load per-ticker models from ml_strategy/models/trade_classifier_{TICKER}.txt
+     * Falls back to default model if ticker-specific model not found.
+     */
+    private void loadPerTickerModels(UnifiedTraderConfig config) {
+        int loadedCount = 0;
+        for (String ticker : config.getStocks()) {
+            String modelFile = "ml_strategy/models/trade_classifier_" + ticker + ".txt";
+            java.io.File file = new java.io.File(modelFile);
+            if (file.exists()) {
+                mlService.loadModelForTicker(ticker, modelFile);
+                loadedCount++;
+                System.out.println("Loaded per-ticker model for " + ticker + ": " + modelFile);
+            } else {
+                System.out.println("No per-ticker model for " + ticker + ", will use default model");
+            }
+        }
+        logWithBacktest("Loaded " + loadedCount + " per-ticker models out of " + config.getStocks().size() + " tickers");
     }
 
     private double resolveMlProbabilityThreshold() {
@@ -233,8 +257,8 @@ public class RegimeAwareStrategyMl extends BaseStrategy {
             return wrapDecision(decision, regime, adx, 0.0);
         }
         
-        // Get ML prediction
-        double winProbability = mlService.predictProbability(features);
+        // Get ML prediction using ticker-specific model
+        double winProbability = mlService.predictProbability(ticker, features);
         trackProbability(winProbability);
         // Apply ML filtering
         double regimeThreshold = resolveRegimeProbabilityThreshold(regime);
@@ -245,9 +269,9 @@ public class RegimeAwareStrategyMl extends BaseStrategy {
         
         mlApprovedTrades++;
         
-        // Apply ML position sizing
+        // Apply ML position sizing using ticker-specific model
         if (useMlSizing) {
-            double sizeMultiplier = mlService.getPositionSizeMultiplier(features);
+            double sizeMultiplier = mlService.getPositionSizeMultiplier(ticker, features);
             if (regime == MarketRegime.RANGE) {
                 sizeMultiplier *= 0.75;
             } else if (regime == MarketRegime.TREND && winProbability >= 0.54) {

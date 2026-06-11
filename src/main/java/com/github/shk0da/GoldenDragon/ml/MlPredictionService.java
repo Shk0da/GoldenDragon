@@ -9,94 +9,134 @@ import java.io.PrintWriter;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Simple ML prediction service using logistic regression.
  * Implements model directly in Java for fast inference.
+ * Supports per-ticker models for better prediction accuracy.
  */
 public class MlPredictionService {
     
-    // Model coefficients (to be trained and updated)
-    private final Map<String, Double> coefficients;
-    private Double intercept;
-    private final Map<String, Double> featureMeans;
-    private final Map<String, Double> featureStds;
+    // Per-ticker models: ticker -> ModelData
+    private final Map<String, ModelData> tickerModels;
+    private final Map<String, Double> defaultCoefficients;
+    private Double defaultIntercept;
+    private final Map<String, Double> defaultFeatureMeans;
+    private final Map<String, Double> defaultFeatureStds;
     
     // Thresholds
     private double probabilityThreshold = 0.55;
     private double minConfidence = 0.3;
     
     public MlPredictionService() {
-        // Initialize with dummy coefficients
-        this.coefficients = new HashMap<>();
-        this.intercept = 0.0;
-        this.featureMeans = new HashMap<>();
-        this.featureStds = new HashMap<>();
+        this.tickerModels = new ConcurrentHashMap<>();
+        this.defaultCoefficients = new HashMap<>();
+        this.defaultIntercept = 0.0;
+        this.defaultFeatureMeans = new HashMap<>();
+        this.defaultFeatureStds = new HashMap<>();
         initializeDefaultModel();
     }
     
     public MlPredictionService(String modelFile) {
-        this.coefficients = new HashMap<>();
-        this.intercept = 0.0;
-        this.featureMeans = new HashMap<>();
-        this.featureStds = new HashMap<>();
-        loadModel(modelFile);
+        this.tickerModels = new ConcurrentHashMap<>();
+        this.defaultCoefficients = new HashMap<>();
+        this.defaultIntercept = 0.0;
+        this.defaultFeatureMeans = new HashMap<>();
+        this.defaultFeatureStds = new HashMap<>();
+        loadDefaultModel(modelFile);
+    }
+    
+    /**
+     * Load model for specific ticker.
+     * @param ticker ticker symbol (e.g., "SBER", "GAZP")
+     * @param modelFile path to model file
+     */
+    public void loadModelForTicker(String ticker, String modelFile) {
+        ModelData modelData = new ModelData();
+        loadModelFromFile(modelFile, modelData);
+        tickerModels.put(ticker, modelData);
+        System.out.println("Loaded model for ticker " + ticker + " from " + modelFile);
+    }
+    
+    /**
+     * Get or create model data for ticker.
+     */
+    private ModelData getModelData(String ticker) {
+        ModelData modelData = tickerModels.get(ticker);
+        if (modelData == null) {
+            // Return default model if ticker-specific model not found
+            return new ModelData(defaultCoefficients, defaultIntercept, defaultFeatureMeans, defaultFeatureStds);
+        }
+        return modelData;
     }
     
     private void initializeDefaultModel() {
         // Default coefficients based on trained Random Forest feature importances
-        coefficients.put("entry_confidence", 0.43);
-        coefficients.put("risk_reward_ratio", 0.21);
-        coefficients.put("adx", 0.12);
-        coefficients.put("rsi", 0.05);
-        coefficients.put("ema_ratio", 0.04);
-        coefficients.put("atr_ratio", 0.04);
-        coefficients.put("volume_ratio", 0.04);
-        coefficients.put("stop_distance", 0.03);
-        coefficients.put("hour_of_day", 0.02);
-        coefficients.put("day_of_week", 0.01);
+        defaultCoefficients.put("entry_confidence", 0.43);
+        defaultCoefficients.put("risk_reward_ratio", 0.21);
+        defaultCoefficients.put("adx", 0.12);
+        defaultCoefficients.put("rsi", 0.05);
+        defaultCoefficients.put("ema_ratio", 0.04);
+        defaultCoefficients.put("atr_ratio", 0.04);
+        defaultCoefficients.put("volume_ratio", 0.04);
+        defaultCoefficients.put("stop_distance", 0.03);
+        defaultCoefficients.put("hour_of_day", 0.02);
+        defaultCoefficients.put("day_of_week", 0.01);
         
-        intercept = 0.0;  // Base score
+        defaultIntercept = 0.0;  // Base score
         
         // Normalization parameters based on typical trading data
-        featureMeans.put("adx", 25.0);
-        featureMeans.put("rsi", 50.0);
-        featureMeans.put("atr_ratio", 1.0);
-        featureMeans.put("ema_ratio", 1.0);
-        featureMeans.put("volume_ratio", 1.0);
-        featureMeans.put("entry_confidence", 0.6);
-        featureMeans.put("risk_reward_ratio", 2.5);
-        featureMeans.put("stop_distance", 2.0);
-        featureMeans.put("hour_of_day", 14.0);
-        featureMeans.put("day_of_week", 3.0);
+        defaultFeatureMeans.put("adx", 25.0);
+        defaultFeatureMeans.put("rsi", 50.0);
+        defaultFeatureMeans.put("atr_ratio", 1.0);
+        defaultFeatureMeans.put("ema_ratio", 1.0);
+        defaultFeatureMeans.put("volume_ratio", 1.0);
+        defaultFeatureMeans.put("entry_confidence", 0.6);
+        defaultFeatureMeans.put("risk_reward_ratio", 2.5);
+        defaultFeatureMeans.put("stop_distance", 2.0);
+        defaultFeatureMeans.put("hour_of_day", 14.0);
+        defaultFeatureMeans.put("day_of_week", 3.0);
         
-        featureStds.put("adx", 10.0);
-        featureStds.put("rsi", 15.0);
-        featureStds.put("atr_ratio", 0.5);
-        featureStds.put("ema_ratio", 0.05);
-        featureStds.put("volume_ratio", 0.5);
-        featureStds.put("entry_confidence", 0.2);
-        featureStds.put("risk_reward_ratio", 1.0);
-        featureStds.put("stop_distance", 1.0);
-        featureStds.put("hour_of_day", 3.0);
-        featureStds.put("day_of_week", 1.4);
+        defaultFeatureStds.put("adx", 10.0);
+        defaultFeatureStds.put("rsi", 15.0);
+        defaultFeatureStds.put("atr_ratio", 0.5);
+        defaultFeatureStds.put("ema_ratio", 0.05);
+        defaultFeatureStds.put("volume_ratio", 0.5);
+        defaultFeatureStds.put("entry_confidence", 0.2);
+        defaultFeatureStds.put("risk_reward_ratio", 1.0);
+        defaultFeatureStds.put("stop_distance", 1.0);
+        defaultFeatureStds.put("hour_of_day", 3.0);
+        defaultFeatureStds.put("day_of_week", 1.4);
     }
     
     /**
-     * Predict probability of trade success.
+     * Predict probability of trade success using default model.
      * Uses weighted sum based on feature importances.
      */
     public double predictProbability(TradeFeatures features) {
-        double score = intercept != null ? intercept : 0.0;
+        return predictProbability(null, features);
+    }
+    
+    /**
+     * Predict probability of trade success for specific ticker.
+     * Uses ticker-specific model if available, otherwise falls back to default model.
+     * @param ticker ticker symbol (can be null for default model)
+     * @param features trade features
+     * @return probability of success
+     */
+    public double predictProbability(String ticker, TradeFeatures features) {
+        ModelData modelData = getModelData(ticker);
+        double score = modelData.intercept != null ? modelData.intercept : 0.0;
         
-        for (Map.Entry<String, Double> entry : coefficients.entrySet()) {
+        for (Map.Entry<String, Double> entry : modelData.coefficients.entrySet()) {
             String feature = entry.getKey();
             double weight = entry.getValue();
             double value = getFeatureValue(features, feature);
             
             // Normalize feature value
-            double mean = featureMeans.getOrDefault(feature, 0.0);
-            double std = featureStds.getOrDefault(feature, 1.0);
+            double mean = modelData.featureMeans.getOrDefault(feature, 0.0);
+            double std = modelData.featureStds.getOrDefault(feature, 1.0);
             double normalized = std > 0 ? (value - mean) / std : 0.0;
             
             // Add weighted contribution (use absolute normalized value for importance-based scoring)
@@ -108,18 +148,32 @@ public class MlPredictionService {
     }
     
     /**
-     * Predict if trade should be taken.
+     * Predict if trade should be taken using default model.
      */
     public boolean shouldTakeTrade(TradeFeatures features) {
-        double prob = predictProbability(features);
+        return shouldTakeTrade(null, features);
+    }
+    
+    /**
+     * Predict if trade should be taken for specific ticker.
+     */
+    public boolean shouldTakeTrade(String ticker, TradeFeatures features) {
+        double prob = predictProbability(ticker, features);
         return prob >= probabilityThreshold && features.entryConfidence >= minConfidence;
     }
     
     /**
-     * Get recommended position size multiplier (0.5x to 2.0x).
+     * Get recommended position size multiplier (0.5x to 2.0x) using default model.
      */
     public double getPositionSizeMultiplier(TradeFeatures features) {
-        double prob = predictProbability(features);
+        return getPositionSizeMultiplier(null, features);
+    }
+    
+    /**
+     * Get recommended position size multiplier for specific ticker.
+     */
+    public double getPositionSizeMultiplier(String ticker, TradeFeatures features) {
+        double prob = predictProbability(ticker, features);
         
         // More aggressive sizing with trained model
         if (prob < 0.35) return 0.3;   // Very low confidence
@@ -131,10 +185,17 @@ public class MlPredictionService {
     }
     
     /**
-     * Get recommended stop loss multiplier.
+     * Get recommended stop loss multiplier using default model.
      */
     public double getStopLossMultiplier(TradeFeatures features) {
-        double prob = predictProbability(features);
+        return getStopLossMultiplier(null, features);
+    }
+    
+    /**
+     * Get recommended stop loss multiplier for specific ticker.
+     */
+    public double getStopLossMultiplier(String ticker, TradeFeatures features) {
+        double prob = predictProbability(ticker, features);
         
         // Higher confidence = wider stop
         if (prob > 0.7) return 3.0;
@@ -176,13 +237,17 @@ public class MlPredictionService {
         }
     }
     
-    private void loadModel(String modelFile) {
-        coefficients.clear();
-        featureMeans.clear();
-        featureStds.clear();
+    private void loadDefaultModel(String modelFile) {
+        loadModelFromFile(modelFile, new ModelData(defaultCoefficients, defaultIntercept, defaultFeatureMeans, defaultFeatureStds));
+    }
+    
+    private void loadModelFromFile(String modelFile, ModelData modelData) {
+        modelData.coefficients.clear();
+        modelData.featureMeans.clear();
+        modelData.featureStds.clear();
         File file = new File(modelFile);
         if (!file.exists()) {
-            System.out.println("Model file not found, using default model");
+            System.out.println("Model file not found: " + modelFile + ", using default model");
             initializeDefaultModel();
             return;
         }
@@ -201,7 +266,7 @@ public class MlPredictionService {
                 }
 
                 if ("[intercept]".equals(section)) {
-                    this.intercept = Double.parseDouble(line);
+                    modelData.intercept = Double.parseDouble(line);
                     continue;
                 }
                 
@@ -212,13 +277,13 @@ public class MlPredictionService {
                 double value = Double.parseDouble(parts[1].trim());
                 
                 if ("[coefficients]".equals(section)) {
-                    coefficients.put(key, value);
+                    modelData.coefficients.put(key, value);
                 } else if ("[intercept]".equals(section)) {
-                    this.intercept = value;
+                    modelData.intercept = value;
                 } else if ("[means]".equals(section)) {
-                    featureMeans.put(key, value);
+                    modelData.featureMeans.put(key, value);
                 } else if ("[stds]".equals(section)) {
-                    featureStds.put(key, value);
+                    modelData.featureStds.put(key, value);
                 }
             }
         } catch (IOException | NumberFormatException e) {
@@ -228,6 +293,23 @@ public class MlPredictionService {
     }
     
     public void saveModel(String modelFile) {
+        saveModel(modelFile, defaultCoefficients, defaultIntercept, defaultFeatureMeans, defaultFeatureStds);
+    }
+    
+    /**
+     * Save model for specific ticker.
+     */
+    public void saveModelForTicker(String ticker, String modelFile) {
+        ModelData modelData = tickerModels.get(ticker);
+        if (modelData != null) {
+            saveModel(modelFile, modelData.coefficients, modelData.intercept, modelData.featureMeans, modelData.featureStds);
+        } else {
+            System.err.println("No model found for ticker: " + ticker);
+        }
+    }
+    
+    private void saveModel(String modelFile, Map<String, Double> coefficients, Double intercept, 
+                          Map<String, Double> featureMeans, Map<String, Double> featureStds) {
         try (PrintWriter writer = new PrintWriter(new FileWriter(modelFile))) {
             writer.println("[coefficients]");
             for (Map.Entry<String, Double> entry : coefficients.entrySet()) {
@@ -263,18 +345,50 @@ public class MlPredictionService {
     }
 
     public void reloadModel(String modelFile) {
-        loadModel(modelFile);
+        loadDefaultModel(modelFile);
+    }
+    
+    /**
+     * Reload model for specific ticker.
+     */
+    public void reloadModelForTicker(String ticker, String modelFile) {
+        loadModelForTicker(ticker, modelFile);
     }
     
     public Map<String, Double> getCoefficients() {
-        return Collections.unmodifiableMap(coefficients);
+        return Collections.unmodifiableMap(defaultCoefficients);
     }
     
     public Double getIntercept() {
-        return intercept;
+        return defaultIntercept;
     }
 
     public double getProbabilityThreshold() {
         return probabilityThreshold;
+    }
+    
+    /**
+     * Internal class to hold model data for a specific ticker.
+     */
+    private static class ModelData {
+        final Map<String, Double> coefficients;
+        Double intercept;
+        final Map<String, Double> featureMeans;
+        final Map<String, Double> featureStds;
+        
+        ModelData() {
+            this.coefficients = new HashMap<>();
+            this.intercept = 0.0;
+            this.featureMeans = new HashMap<>();
+            this.featureStds = new HashMap<>();
+        }
+        
+        ModelData(Map<String, Double> coefficients, Double intercept, 
+                 Map<String, Double> featureMeans, Map<String, Double> featureStds) {
+            this.coefficients = new HashMap<>(coefficients);
+            this.intercept = intercept;
+            this.featureMeans = new HashMap<>(featureMeans);
+            this.featureStds = new HashMap<>(featureStds);
+        }
     }
 }

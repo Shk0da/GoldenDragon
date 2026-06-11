@@ -44,63 +44,52 @@ public class MlModelTrainer {
         String dataPath = options.getOrDefault("data", "ml_strategy/data_pipeline/trades.csv");
         String outputPath = options.getOrDefault("output", "ml_strategy/models/trade_classifier_v2.txt");
         String reportDir = options.getOrDefault("report-dir", "ml_strategy");
+        String ticker = options.get("ticker");
 
         System.out.println("============================================================");
         System.out.println("GOLDENDRAGON ML MODEL TRAINING (JAVA)");
         System.out.println("============================================================");
         System.out.println("Random seed: " + RANDOM_SEED);
+        System.out.println("Ticker: " + (ticker != null ? ticker : "ALL (global model)"));
 
-        List<TradeSample> samples = loadSamples(dataPath);
-        if (samples.size() < MIN_SAMPLES) {
-            throw new IOException("Not enough data for training. Need at least " + MIN_SAMPLES + " trades.");
-        }
+        TrainingArtifacts artifacts = train(dataPath, outputPath, reportDir, ticker);
 
-        DatasetSplit split = splitChronologically(samples);
-        if (split.train.isEmpty() || split.validation.isEmpty() || split.test.isEmpty()) {
-            throw new IOException("Train/validation/test split produced empty dataset parts.");
-        }
-
-        FeatureStats stats = calculateFeatureStats(split.train);
-        LogisticModel model = trainModel(split.train, split.validation, stats);
-
-        List<ScoredSample> validationScores = scoreSamples(split.validation, stats, model);
-        List<ScoredSample> testScores = scoreSamples(split.test, stats, model);
-        ThresholdSelection bestThreshold = selectBestThreshold(validationScores);
-
-        Metrics validationMetrics = evaluate(validationScores, bestThreshold.threshold);
-        Metrics testMetrics = evaluate(testScores, bestThreshold.threshold);
-        CrossValidationMetrics cvMetrics = timeSeriesCrossValidation(concat(split.train, split.validation));
-
-        System.out.println("Loaded trades: " + samples.size());
+        System.out.println("Filtered trades: " + artifacts.totalSamples);
         System.out.println("Features: " + FEATURE_COLUMNS.size());
-        System.out.println("Train size: " + split.train.size() + ", Validation size: " + split.validation.size() + ", Test size: " + split.test.size());
-        System.out.println("Validation accuracy: " + formatDouble(validationMetrics.accuracy));
-        System.out.println("Test accuracy: " + formatDouble(testMetrics.accuracy));
-        System.out.println("Test AUC: " + formatDouble(testMetrics.auc));
-        System.out.println("CV AUC mean: " + formatDouble(cvMetrics.mean));
-        System.out.println("Recommended threshold: " + formatDouble(bestThreshold.threshold));
-
-        File reportRoot = new File(reportDir);
-        File dataPipelineDir = new File(reportRoot, "data_pipeline");
-        File reportsDir = new File(reportRoot, "reports");
-        ensureDirectory(dataPipelineDir);
-        ensureDirectory(reportsDir);
-        ensureDirectory(new File(outputPath).getParentFile());
-
-        writeDatasetCsv(new File(dataPipelineDir, "train.csv"), split.train);
-        writeDatasetCsv(new File(dataPipelineDir, "validation.csv"), split.validation);
-        writeDatasetCsv(new File(dataPipelineDir, "test.csv"), split.test);
-        writeModel(outputPath, stats, model);
-        writeTrainingReport(new File(reportsDir, "training_report.json"), split, testMetrics, validationMetrics, cvMetrics, bestThreshold);
+        System.out.println("Train size: " + artifacts.split.train.size() + ", Validation size: " + artifacts.split.validation.size() + ", Test size: " + artifacts.split.test.size());
+        System.out.println("Validation accuracy: " + formatDouble(artifacts.validationMetrics.accuracy));
+        System.out.println("Test accuracy: " + formatDouble(artifacts.testMetrics.accuracy));
+        System.out.println("Test AUC: " + formatDouble(artifacts.testMetrics.auc));
+        System.out.println("CV AUC mean: " + formatDouble(artifacts.cvMetrics.mean));
+        System.out.println("Recommended threshold: " + formatDouble(artifacts.recommendedThreshold));
 
         System.out.println("Model exported to: " + outputPath);
-        System.out.println("Training report written to: " + new File(reportsDir, "training_report.json").getPath());
+        System.out.println("Training report written to: " + new File(reportDir, "reports/training_report_" + (ticker != null ? ticker : "all") + ".json").getPath());
     }
 
     public static TrainingArtifacts train(String dataPath, String outputPath, String reportDir) throws IOException {
-        List<TradeSample> samples = loadSamples(dataPath);
+        return train(dataPath, outputPath, reportDir, null);
+    }
+    
+    /**
+     * Train model for specific ticker.
+     * @param dataPath path to trades.csv
+     * @param outputPath path to output model file
+     * @param reportDir path to reports directory
+     * @param ticker ticker symbol to filter by (null for all tickers)
+     * @return training artifacts
+     * @throws IOException if training fails
+     */
+    public static TrainingArtifacts train(String dataPath, String outputPath, String reportDir, String ticker) throws IOException {
+        List<TradeSample> allSamples = loadSamples(dataPath);
+        List<TradeSample> samples = ticker != null ? filterByTicker(allSamples, ticker) : allSamples;
+        
+        System.out.println("Filtered trades for ticker " + (ticker != null ? ticker : "ALL") + ": " + samples.size() + 
+                " (from " + allSamples.size() + " total)");
+        
         if (samples.size() < MIN_SAMPLES) {
-            throw new IOException("Not enough data for training. Need at least " + MIN_SAMPLES + " trades.");
+            throw new IOException("Not enough data for training " + (ticker != null ? ticker : "model") + 
+                    ". Need at least " + MIN_SAMPLES + " trades, got " + samples.size());
         }
 
         DatasetSplit split = splitChronologically(samples);
@@ -126,13 +115,28 @@ public class MlModelTrainer {
         ensureDirectory(reportsDir);
         ensureDirectory(new File(outputPath).getParentFile());
 
-        writeDatasetCsv(new File(dataPipelineDir, "train.csv"), split.train);
-        writeDatasetCsv(new File(dataPipelineDir, "validation.csv"), split.validation);
-        writeDatasetCsv(new File(dataPipelineDir, "test.csv"), split.test);
+        if (ticker == null) {
+            writeDatasetCsv(new File(dataPipelineDir, "train.csv"), split.train);
+            writeDatasetCsv(new File(dataPipelineDir, "validation.csv"), split.validation);
+            writeDatasetCsv(new File(dataPipelineDir, "test.csv"), split.test);
+        }
         writeModel(outputPath, stats, model);
-        writeTrainingReport(new File(reportsDir, "training_report.json"), split, testMetrics, validationMetrics, cvMetrics, bestThreshold);
+        writeTrainingReport(new File(reportsDir, "training_report_" + (ticker != null ? ticker : "all") + ".json"), 
+                split, testMetrics, validationMetrics, cvMetrics, bestThreshold);
 
         return new TrainingArtifacts(samples.size(), split, validationMetrics, testMetrics, cvMetrics, bestThreshold.threshold);
+    }
+    
+    private static List<TradeSample> filterByTicker(List<TradeSample> samples, String ticker) {
+        List<TradeSample> filtered = new ArrayList<>();
+        for (TradeSample sample : samples) {
+            if (ticker.equals(sample.ticker)) {
+                filtered.add(sample);
+            }
+        }
+        System.out.println("Filtered " + filtered.size() + " trades for ticker " + ticker + 
+                " from total " + samples.size());
+        return filtered;
     }
 
     public static final class TrainingArtifacts {
@@ -177,6 +181,7 @@ public class MlModelTrainer {
             throw new IOException("Training data not found: " + path);
         }
 
+        System.out.println("Loading samples from: " + path + " (size: " + file.length() + " bytes)");
         List<TradeSample> samples = new ArrayList<>();
         try (BufferedReader reader = new BufferedReader(new FileReader(file))) {
             String headerLine = reader.readLine();
@@ -191,7 +196,9 @@ public class MlModelTrainer {
             }
 
             String line;
+            int lineNumber = 0;
             while ((line = reader.readLine()) != null) {
+                lineNumber++;
                 if (line.trim().isEmpty()) {
                     continue;
                 }
@@ -201,9 +208,14 @@ public class MlModelTrainer {
                 if (sample != null) {
                     samples.add(sample);
                 }
+                
+                if (lineNumber % 10000 == 0) {
+                    System.out.println("Read " + lineNumber + " lines, samples: " + samples.size());
+                }
             }
         }
 
+        System.out.println("Total samples loaded: " + samples.size());
         samples.sort((a, b) -> a.timestamp.compareTo(b.timestamp));
         return samples;
     }
@@ -230,7 +242,40 @@ public class MlModelTrainer {
                 return null;
             }
 
-            LocalDateTime timestamp = LocalDateTime.parse(timestampText);
+            // Skip section headers (e.g., "2023-07", "2024-01")
+            if (timestampText.length() < 10 || !timestampText.contains("T")) {
+                return null;
+            }
+
+            LocalDateTime timestamp;
+            try {
+                // Handle timestamps with timezone offset and microseconds
+                // e.g., 2021-12-09T10:51:56.342+03:00 or 2024-01-08T19:03:43.315266+03:00
+                String ts = timestampText;
+                // Only remove timezone if it's after the time (after 'T')
+                int tIndex = ts.indexOf('T');
+                if (tIndex > 0) {
+                    String timePart = ts.substring(tIndex + 1);
+                    if (timePart.contains("+") || timePart.contains("-")) {
+                        int tzIndex = Math.max(timePart.lastIndexOf('+'), timePart.lastIndexOf('-'));
+                        if (tzIndex > 0 && Character.isDigit(timePart.charAt(tzIndex - 1))) {
+                            ts = ts.substring(0, tIndex + 1 + tzIndex);
+                        }
+                    }
+                }
+                // Remove microseconds if present (keep only milliseconds)
+                int dotIndex = ts.indexOf('.');
+                if (dotIndex > 0) {
+                    // Keep only 3 digits after dot (milliseconds)
+                    if (ts.length() > dotIndex + 4) {
+                        ts = ts.substring(0, dotIndex + 4);
+                    }
+                }
+                timestamp = LocalDateTime.parse(ts);
+            } catch (Exception e) {
+                return null;
+            }
+            
             return new TradeSample(
                     timestamp,
                     readString(parts, indexes, "ticker"),

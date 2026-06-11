@@ -67,6 +67,9 @@ task runMlTraining(type: JavaExec) {
     if (project.hasProperty('reportDir')) {
         args '--report-dir', project.property('reportDir')
     }
+    if (project.hasProperty('ticker')) {
+        args '--ticker', project.property('ticker')
+    }
 
     if (!project.hasProperty('data')) {
         args '--data', 'ml_strategy/data_pipeline/trades.csv'
@@ -79,10 +82,60 @@ task runMlTraining(type: JavaExec) {
     }
 }
 
+task trainAllTickers {
+    group = 'ml'
+    description = 'Train per-ticker ML models for all tickers'
+    
+    doLast {
+        def tradesFile = file('ml_strategy/data_pipeline/trades.csv')
+        if (!tradesFile.exists()) {
+            throw new GradleException('Trades file not found. Run generateModel first.')
+        }
+        
+        // Extract unique tickers from trades.csv
+        def tickers = tradesFile.readLines().drop(1).collect { line ->
+            def parts = line.split(',')
+            return parts.length > 1 ? parts[1].trim() : null
+        }.findAll { it != null && !it.isEmpty() }.unique()
+        
+        println "Found ${tickers.size()} tickers: ${tickers.join(', ')}"
+        
+        def successful = 0
+        def failed = 0
+        
+        tickers.each { ticker ->
+            println "\n=========================================="
+            println "Training model for ticker: $ticker"
+            println "=========================================="
+            
+            try {
+                javaexec {
+                    main = 'com.github.shk0da.GoldenDragon.ml.MlModelTrainer'
+                    classpath = sourceSets.main.runtimeClasspath
+                    workingDir = rootDir
+                    args '--data', 'ml_strategy/data_pipeline/trades.csv'
+                    args '--output', "ml_strategy/models/trade_classifier_${ticker}.txt"
+                    args '--report-dir', 'ml_strategy'
+                    args '--ticker', ticker
+                }
+                successful++
+            } catch (Exception e) {
+                println "Failed to train model for $ticker: ${e.message}"
+                failed++
+            }
+        }
+        
+        println "\n=========================================="
+        println "Training complete!"
+        println "Successful: $successful, Failed: $failed"
+        println "=========================================="
+    }
+}
+
 task generateModel {
     group = 'ml'
     description = 'Run backtest and train ML model.'
-    dependsOn 'runBacktest', 'runMlTraining'
+    dependsOn 'runBacktest', 'runMlTraining', 'trainAllTickers'
 }
 
 runMlTraining.mustRunAfter runBacktest
