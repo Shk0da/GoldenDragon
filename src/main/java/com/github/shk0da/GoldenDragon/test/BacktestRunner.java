@@ -15,9 +15,12 @@ import com.github.shk0da.GoldenDragon.strategy.RegimeAwareStrategyMl;
 import com.github.shk0da.GoldenDragon.strategy.UnifiedStrategy;
 import com.github.shk0da.GoldenDragon.utils.PropertiesUtils;
 import java.io.File;
+import java.io.FileOutputStream;
 import java.io.IOException;
 import java.nio.file.Files;
+import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.text.SimpleDateFormat;
 import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -39,6 +42,14 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import org.jfree.chart.ChartFactory;
+import org.jfree.chart.ChartUtilities;
+import org.jfree.chart.JFreeChart;
+import org.jfree.chart.axis.DateAxis;
+import org.jfree.chart.plot.XYPlot;
+import org.jfree.data.time.Day;
+import org.jfree.data.time.TimeSeries;
+import org.jfree.data.time.TimeSeriesCollection;
 
 /**
  * Движок бэктестинга торговых стратегий на исторических данных.
@@ -494,6 +505,93 @@ public class BacktestRunner {
         
         // Collect metrics for comparison
         collectStrategyMetrics(strategyName, allData, portfolioData);
+        
+        // Generate equity curve chart
+        plotEquityCurveChart(strategyName, portfolioData);
+    }
+
+    /**
+     * Generates and saves equity curve chart for the backtest.
+     *
+     * @param strategyName strategy name used for file naming
+     * @param portfolioData map of period label to portfolio result with equity curve
+     */
+    private void plotEquityCurveChart(String strategyName, Map<String, PortfolioPeriodResult> portfolioData) {
+        TimeSeries series = new TimeSeries("Capital");
+        
+        // Calculate cumulative offset for each period
+        List<Double> periodOffsets = new ArrayList<>();
+        double cumulativeOffset = 0;
+        
+        for (Map.Entry<String, PortfolioPeriodResult> entry : portfolioData.entrySet()) {
+            periodOffsets.add(cumulativeOffset);
+            PortfolioPeriodResult result = entry.getValue();
+            if (!result.equityCurve.isEmpty()) {
+                double periodPnl = result.equityCurve.get(result.equityCurve.size() - 1).equity - initialBalance;
+                cumulativeOffset += periodPnl;
+            }
+        }
+        
+        // Add all points with their period offsets
+        int periodIndex = 0;
+        for (Map.Entry<String, PortfolioPeriodResult> entry : portfolioData.entrySet()) {
+            PortfolioPeriodResult result = entry.getValue();
+            double offset = periodOffsets.get(periodIndex++);
+            
+            for (EquityPoint point : result.equityCurve) {
+                try {
+                    LocalDateTime localDateTime = LocalDateTime.parse(
+                        point.time, 
+                        DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm:ss")
+                    );
+                    Day day = new Day(java.util.Date.from(
+                        localDateTime.atZone(java.time.ZoneId.systemDefault()).toInstant()
+                    ));
+                    double capital = point.equity + offset;
+                    series.add(day, capital);
+                } catch (Exception e) {
+                    // Skip invalid dates
+                }
+            }
+        }
+        
+        if (series.getItemCount() == 0) {
+            System.out.println("No equity data available for chart generation");
+            return;
+        }
+        
+        TimeSeriesCollection dataset = new TimeSeriesCollection(series);
+        
+        JFreeChart chart = ChartFactory.createTimeSeriesChart(
+            "Equity Curve - " + strategyName,
+            "Date",
+            "Capital (RUB)",
+            dataset,
+            true,
+            true,
+            false
+        );
+        
+        // Customize date axis to show months
+        XYPlot plot = (XYPlot) chart.getPlot();
+        DateAxis dateAxis = (DateAxis) plot.getDomainAxis();
+        dateAxis.setDateFormatOverride(new SimpleDateFormat("yyyy-MM"));
+        
+        try {
+            Path imagesDir = Paths.get("ml_strategy/images");
+            Files.createDirectories(imagesDir);
+            
+            String fileName = strategyName + ".png";
+            Path outputPath = imagesDir.resolve(fileName);
+            
+            try (FileOutputStream out = new FileOutputStream(outputPath.toFile())) {
+                ChartUtilities.writeChartAsPNG(out, chart, 1200, 600);
+            }
+            
+            System.out.println("Equity curve chart saved to: " + outputPath.toAbsolutePath());
+        } catch (Exception e) {
+            System.out.println("Failed to save equity curve chart: " + e.getMessage());
+        }
     }
 
     private List<PeriodDefinition> getPeriods() {
