@@ -4,23 +4,23 @@ import com.github.shk0da.GoldenDragon.model.Candle;
 import java.util.List;
 
 /**
- * Фильтр рыночных условий "плохая погода".
- * Запрещает открывать новые сделки при неблагоприятных условиях рынка.
+ * "Bad Weather" market conditions filter.
+ * Prohibits opening new trades under unfavorable market conditions.
  */
 public class BadWeatherFilter {
 
-    // Параметры фильтра (настраиваемые)
-    private final double lowVolumeThreshold;        // Порог низкого объёма (множитель от среднего)
-    private final double lowAtrThreshold;           // Порог низкого ATR (множитель от среднего)
-    private final double minRangePercent;           // Минимальный диапазон свечи в %
-    private final double highAtrThreshold;          // Порог высокого ATR (множитель от среднего)
-    private final double maxSpreadPercent;          // Максимальный спред в %
-    private final double maxWickRatio;              // Максимальное соотношение теней
-    private final double panicVolumeThreshold;      // Порог панического объёма
-    private final double minAvgDailyVolume;         // Минимальный средний дневной объём
-    private final double atrSpikeThreshold;         // Порог скачка ATR
+    // Filter parameters (configurable)
+    private final double lowVolumeThreshold;        // Low volume threshold (multiplier of average)
+    private final double lowAtrThreshold;           // Low ATR threshold (multiplier of average)
+    private final double minRangePercent;           // Minimum candle range in %
+    private final double highAtrThreshold;          // High ATR threshold (multiplier of average)
+    private final double maxSpreadPercent;          // Maximum spread in %
+    private final double maxWickRatio;              // Maximum wick ratio
+    private final double panicVolumeThreshold;      // Panic volume threshold
+    private final double minAvgDailyVolume;         // Minimum average daily volume
+    private final double atrSpikeThreshold;         // ATR spike threshold
 
-    // Включён ли фильтр
+    // Whether filter is enabled
     private final boolean enabled;
 
     public static class Params {
@@ -105,8 +105,8 @@ public class BadWeatherFilter {
     }
 
     /**
-     * Проверяет, разрешено ли открывать новые сделки.
-     * @return true если торговля разрешена, false если "плохая погода"
+     * Check if opening new trades is allowed.
+     * @return true if trading is allowed, false if "bad weather"
      */
     public boolean canTrade(List<Candle> candles, double currentPrice) {
         return canTrade(candles, currentPrice, new Params(
@@ -134,7 +134,7 @@ public class BadWeatherFilter {
     }
 
     /**
-     * 1. Слишком низкая активность
+     * 1. Too low activity
      */
     private boolean isLowActivity(List<Candle> candles, Params params) {
         int lookback = Math.min(20, candles.size() - 1);
@@ -167,7 +167,7 @@ public class BadWeatherFilter {
     }
 
     /**
-     * 2. Слишком хаотичная / опасная активность
+     * 2. Too chaotic / dangerous activity
      */
     private boolean isChaoticActivity(List<Candle> candles, double currentPrice, Params params) {
         int lookback = Math.min(20, candles.size() - 1);
@@ -209,7 +209,7 @@ public class BadWeatherFilter {
     }
 
     /**
-     * 3. Плохая ликвидность
+     * 3. Poor liquidity
      */
     private boolean isPoorLiquidity(List<Candle> candles, double currentPrice, Params params) {
         int lookback = Math.min(20, candles.size() - 1);
@@ -235,7 +235,7 @@ public class BadWeatherFilter {
     }
 
     /**
-     * 4. Новостной / турбулентный режим
+     * 4. News / turbulent regime
      */
     private boolean isTurbulentRegime(List<Candle> candles, Params params) {
         int lookback = Math.min(10, candles.size() - 1);
@@ -264,7 +264,7 @@ public class BadWeatherFilter {
     }
 
     /**
-     * Расчёт ATR за период
+     * Calculate ATR for period
      */
     private double calculateAtr(List<Candle> candles, int period) {
         if (candles.size() < period + 1) return 0.0;
@@ -283,7 +283,7 @@ public class BadWeatherFilter {
     }
 
     /**
-     * Расчёт среднего ATR за период
+     * Calculate average ATR for period
      */
     private double calculateAvgAtr(List<Candle> candles, int period) {
         if (candles.size() < period + 1) return 0.0;

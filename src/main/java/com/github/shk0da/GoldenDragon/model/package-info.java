@@ -1,67 +1,67 @@
 /**
- * Модельные классы и структуры данных приложения GoldenDragon.
+ * Model classes and data structures for GoldenDragon application.
  *
- * <h2>Назначение пакета</h2>
- * <p>Пакет {@code model} содержит классы данных (DTO), интерфейсы и enum для представления
- * рыночных данных, позиций, инструментов и торговых решений. Эти классы используются
- * всеми компонентами системы: стратегиями, сервисами, репозиториями.</p>
+ * <h2>Package Purpose</h2>
+ * <p>The {@code model} package contains data transfer objects (DTOs), interfaces, and enums
+ * for representing market data, positions, instruments, and trading decisions. These classes
+ * are used by all system components: strategies, services, repositories.</p>
  *
- * <h2>Рыночные данные</h2>
+ * <h2>Market Data</h2>
  * <ul>
- *   <li>{@link com.github.shk0da.GoldenDragon.model.Candle} — свеча (OHLCV) для бэктестов и анализа.</li>
- *   <li>{@link com.github.shk0da.GoldenDragon.model.MarketDepthSnapshot} — снимок стакана (bids/asks).</li>
- *   <li>{@link com.github.shk0da.GoldenDragon.model.MarketDepthLevel} — уровень стакана (цена/объем).</li>
- *   <li>{@link com.github.shk0da.GoldenDragon.model.MarketTradeTick} — тик последней сделки.</li>
+ *   <li>{@link com.github.shk0da.GoldenDragon.model.Candle} — candlestick (OHLCV) for backtests and analysis.</li>
+ *   <li>{@link com.github.shk0da.GoldenDragon.model.MarketDepthSnapshot} — order book snapshot (bids/asks).</li>
+ *   <li>{@link com.github.shk0da.GoldenDragon.model.MarketDepthLevel} — order book level (price/quantity).</li>
+ *   <li>{@link com.github.shk0da.GoldenDragon.model.MarketTradeTick} — last trade tick.</li>
  * </ul>
  *
- * <h2>Инструменты и тикеры</h2>
+ * <h2>Instruments and Tickers</h2>
  * <ul>
- *   <li>{@link com.github.shk0da.GoldenDragon.model.TickerInfo} — информация об инструменте:
- *       FIGI, ISIN, валюта, тип, лот.</li>
- *   <li>{@link com.github.shk0da.GoldenDragon.model.TickerType} — enum типов инструментов:
+ *   <li>{@link com.github.shk0da.GoldenDragon.model.TickerInfo} — instrument information:
+ *       FIGI, ISIN, currency, type, lot.</li>
+ *   <li>{@link com.github.shk0da.GoldenDragon.model.TickerType} — instrument type enum:
  *       STOCK, BOND, ETF, CURRENCY, FEATURE.</li>
- *   <li>{@link com.github.shk0da.GoldenDragon.model.Market} — enum рынков: MOEX.</li>
- *   <li>{@link com.github.shk0da.GoldenDragon.model.Group} — enum групп инструментов:
+ *   <li>{@link com.github.shk0da.GoldenDragon.model.Market} — market enum: MOEX.</li>
+ *   <li>{@link com.github.shk0da.GoldenDragon.model.Group} — instrument group enum:
  *       TREND, FX, MIXED.</li>
  * </ul>
  *
- * <h2>Позиции и портфель</h2>
+ * <h2>Positions and Portfolio</h2>
  * <ul>
- *   <li>{@link com.github.shk0da.GoldenDragon.model.Position} — торговая позиция:
- *       направление, количество, цена входа.</li>
- *   <li>{@link com.github.shk0da.GoldenDragon.model.PositionInfo} — информация о позиции из API:
- *       баланс, лоты, ожидаемая доходность.</li>
- *   <li>{@link com.github.shk0da.GoldenDragon.model.PortfolioPosition} — целевая позиция портфеля:
- *       имя, тип, процент в портфеле.</li>
+ *   <li>{@link com.github.shk0da.GoldenDragon.model.Position} — trading position:
+ *       direction, quantity, entry price.</li>
+ *   <li>{@link com.github.shk0da.GoldenDragon.model.PositionInfo} — position info from API:
+ *       balance, lots, expected yield.</li>
+ *   <li>{@link com.github.shk0da.GoldenDragon.model.PortfolioPosition} — target portfolio position:
+ *       name, type, portfolio percentage.</li>
  * </ul>
  *
- * <h2>Торговые решения</h2>
+ * <h2>Trading Decisions</h2>
  * <ul>
- *   <li>{@link com.github.shk0da.GoldenDragon.model.TradingDecision} — решение стратегии:
- *       действие (BUY/SELL/HOLD/CLOSE), сигнал, количество, цены.</li>
+ *   <li>{@link com.github.shk0da.GoldenDragon.model.TradingDecision} — strategy decision:
+ *       action (BUY/SELL/HOLD/CLOSE), signal, quantity, prices.</li>
  * </ul>
  *
- * <h2>Специализированные модели</h2>
+ * <h2>Specialized Models</h2>
  * <ul>
- *   <li>{@link com.github.shk0da.GoldenDragon.model.DiviTicker} — дивидендная информация:
- *       тикер, дата отсечки, дивиденд, доходность.</li>
- *   <li>{@link com.github.shk0da.GoldenDragon.model.TickerScan} — результат сканирования TradingView:
- *       рекомендация аналитиков, долг/капитал.</li>
- *   <li>{@link com.github.shk0da.GoldenDragon.model.TickerJson} — сериализуемые данные для LevelTrader:
- *       тикер + уровни поддержки/сопротивления.</li>
- *   <li>{@link com.github.shk0da.GoldenDragon.model.Config} — конфигурация для ML-стратегий
+ *   <li>{@link com.github.shk0da.GoldenDragon.model.DiviTicker} — dividend information:
+ *       ticker, cut-off date, dividend, yield.</li>
+ *   <li>{@link com.github.shk0da.GoldenDragon.model.TickerScan} — TradingView scan result:
+ *       analyst recommendation, debt/equity.</li>
+ *   <li>{@link com.github.shk0da.GoldenDragon.model.TickerJson} — serializable data for LevelTrader:
+ *       ticker + support/resistance levels.</li>
+ *   <li>{@link com.github.shk0da.GoldenDragon.model.Config} — configuration for ML strategies
  *       (RegimeAwareStrategyMl).</li>
  * </ul>
  *
- * <h2>Интерфейсы</h2>
+ * <h2>Interfaces</h2>
  * <ul>
- *   <li>{@link com.github.shk0da.GoldenDragon.model.MarketTickListener} — интерфейс для получения
- *       рыночных данных в реальном времени (стаканы, сделки). Реализуется стратегиями.</li>
+ *   <li>{@link com.github.shk0da.GoldenDragon.model.MarketTickListener} — interface for receiving
+ *       real-time market data (order book, trades). Implemented by strategies.</li>
  * </ul>
  *
- * <h2>Потокобезопасность</h2>
- * <p>Большинство классов данных иммутабельны или используются в однопоточном контексте.
- * Для потокобезопасности в стратегиях используются {@code ConcurrentHashMap} и явная синхронизация.</p>
+ * <h2>Thread Safety</h2>
+ * <p>Most data classes are immutable or used in single-threaded context.
+ * For thread safety, strategies use {@code ConcurrentHashMap} and explicit synchronization.</p>
  *
  * @see com.github.shk0da.GoldenDragon.strategy
  * @see com.github.shk0da.GoldenDragon.service

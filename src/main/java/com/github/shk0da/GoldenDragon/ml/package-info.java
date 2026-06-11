@@ -1,83 +1,83 @@
 /**
- * Машинное обучение и сбор данных для ML приложения GoldenDragon.
+ * Machine learning and data collection for GoldenDragon application.
  *
- * <h2>Назначение пакета</h2>
- * <p>Пакет {@code ml} содержит компоненты для сбора размеченных данных, обучения моделей
- * классификации (XGBoost), прогнозирования рыночных режимов и торговых сигналов.
- * ML-модели используются в {@code RegimeAwareStrategyMl} для адаптации к рыночным условиям.</p>
+ * <h2>Package Purpose</h2>
+ * <p>The {@code ml} package contains components for collecting labeled data, training
+ * classification models (XGBoost), predicting market regimes and trading signals.
+ * ML models are used in {@code RegimeAwareStrategyMl} for market adaptation.</p>
  *
- * <h2>Сбор данных</h2>
+ * <h2>Data Collection</h2>
  * <ul>
- *   <li>{@link com.github.shk0da.GoldenDragon.ml.TradeDataCollector} — сбор размеченных данных
- *       о сделках для обучения. Сохраняет в CSV:
+ *   <li>{@link com.github.shk0da.GoldenDragon.ml.TradeDataCollector} — collect labeled trade
+ *       data for training. Saves to CSV:
  *       <ul>
- *         <li>Время входа/выхода, тикер, стратегия.</li>
- *         <li>Цена входа/выхода, PnL, комиссия.</li>
- *         <li>Индикаторы на момент входа (RSI, MACD, ATR, ADX).</li>
- *         <li>Рыночный режим (тренд/флэт).</li>
- *         <li>Метка (label): прибыльная/убыточная сделка.</li>
+ *         <li>Entry/exit time, ticker, strategy.</li>
+ *         <li>Entry/exit price, PnL, commission.</li>
+ *         <li>Indicators at entry (RSI, MACD, ATR, ADX).</li>
+ *         <li>Market regime (trend/range).</li>
+ *         <li>Label: profitable/unprofitable trade.</li>
  *       </ul>
- *       <br><b>Формат</b>: {@code trades.csv} для обучения XGBoost.</li>
+ *       <br><b>Format</b>: {@code trades.csv} for XGBoost training.</li>
  *
- *   <li>{@link com.github.shk0da.GoldenDragon.ml.TradeFeatures} — признаки для ML-модели:
- *       технические индикаторы, рыночный режим, волатильность, объёмы.
- *       Используется как входной вектор для предсказания.</li>
+ *   <li>{@link com.github.shk0da.GoldenDragon.ml.TradeFeatures} — ML model features:
+ *       technical indicators, market regime, volatility, volume.
+ *       Used as input vector for prediction.</li>
  * </ul>
  *
- * <h2>Обучение моделей</h2>
+ * <h2>Model Training</h2>
  * <ul>
- *   <li>{@link com.github.shk0da.GoldenDragon.ml.MlModelTrainer} — обучение ML-модели (XGBoost)
- *       на исторических данных. Поддерживает:
+ *   <li>{@link com.github.shk0da.GoldenDragon.ml.MlModelTrainer} — train ML model (XGBoost)
+ *       on historical data. Supports:
  *       <ul>
- *         <li>Обучение на всех данных (общая модель).</li>
- *         <li>Обучение по тикерам (персональная модель для каждого инструмента).</li>
- *         <li>Кросс-валидацию, подбор гиперпараметров.</li>
- *         <li>Сохранение модели в текстовый формат ({@code .txt}).</li>
+ *         <li>Training on all data (general model).</li>
+ *         <li>Per-ticker training (personal model for each instrument).</li>
+ *         <li>Cross-validation, hyperparameter tuning.</li>
+ *         <li>Model save to text format ({@code .txt}).</li>
  *       </ul>
- *       <br><b>Запуск</b>: {@code ./gradlew runMlTraining} или {@code ./gradlew trainAllTickers}.</li>
+ *       <br><b>Run</b>: {@code ./gradlew runMlTraining} or {@code ./gradlew trainAllTickers}.</li>
  *
- *   <li>{@link com.github.shk0da.GoldenDragon.ml.MlAutoTrainingService} — автоматическое
- *       переобучение модели. Проверяет накопленные данные, запускает обучение при достижении
- *       минимального количества новых сделок. Используется в {@code RegimeAwareStrategyMl}.</li>
+ *   <li>{@link com.github.shk0da.GoldenDragon.ml.MlAutoTrainingService} — automatic
+ *       model retraining. Checks accumulated data, triggers training when minimum
+ *       new trades reached. Used in {@code RegimeAwareStrategyMl}.</li>
  * </ul>
  *
- * <h2>Прогнозирование</h2>
+ * <h2>Prediction</h2>
  * <ul>
- *   <li>{@link com.github.shk0da.GoldenDragon.ml.MlPredictionService} — сервис для предсказаний
- *       на основе обученной модели. Предоставляет:
+ *   <li>{@link com.github.shk0da.GoldenDragon.ml.MlPredictionService} — prediction service
+ *       based on trained model. Provides:
  *       <ul>
- *         <li>{@code predictProbability(features)} — вероятность прибыльной сделки.</li>
- *         <li>{@code shouldTakeTrade(features)} — бинарное решение (брать сделку или нет).</li>
- *         <li>{@code getPositionSizeMultiplier(features)} — множитель размера позиции
- *             (увеличение при высокой уверенности, уменьшение при низкой).</li>
- *         <li>{@code getStopLossMultiplier(features)} — корректировка стоп-лосса.</li>
+ *         <li>{@code predictProbability(features)} — profitable trade probability.</li>
+ *         <li>{@code shouldTakeTrade(features)} — binary decision (take trade or not).</li>
+ *         <li>{@code getPositionSizeMultiplier(features)} — position size multiplier
+ *             (increase on high confidence, decrease on low).</li>
+ *         <li>{@code getStopLossMultiplier(features)} — stop-loss adjustment.</li>
  *       </ul>
- *       <br><b>Модели</b>: поддерживает общую модель и персональные модели по тикерам.</li>
+ *       <br><b>Models</b>: supports general model and per-ticker models.</li>
  * </ul>
  *
- * <h2>Интеграция со стратегиями</h2>
- * <p>ML-компоненты используются в {@code RegimeAwareStrategyMl}:</p>
+ * <h2>Strategy Integration</h2>
+ * <p>ML components are used in {@code RegimeAwareStrategyMl}:</p>
  * <ol>
- *   <li>Перед входом: создание {@code TradeFeatures} с текущими индикаторами.</li>
- *   <li>Прогноз: {@code MlPredictionService.shouldTakeTrade(features)}.</li>
- *   <li>Размер позиции: {@code getPositionSizeMultiplier(features)} * базовый размер.</li>
- *   <li>После выхода: {@code TradeDataCollector.registerTrade()} для сбора данных.</li>
- *   <li>Переобучение: {@code MlAutoTrainingService.tryRetrain()} периодически.</li>
+ *   <li>Before entry: create {@code TradeFeatures} with current indicators.</li>
+ *   <li>Prediction: {@code MlPredictionService.shouldTakeTrade(features)}.</li>
+ *   <li>Position size: {@code getPositionSizeMultiplier(features)} * base size.</li>
+ *   <li>After exit: {@code TradeDataCollector.registerTrade()} for data collection.</li>
+ *   <li>Retraining: {@code MlAutoTrainingService.tryRetrain()} periodically.</li>
  * </ol>
  *
- * <h2>Gradle команды</h2>
+ * <h2>Gradle Commands</h2>
  * <ul>
- *   <li>{@code ./gradlew runMlTraining} — обучить модель по умолчанию.</li>
- *   <li>{@code ./gradlew runMlTraining -Pdata=... -Poutput=...} — кастомные пути.</li>
- *   <li>{@code ./gradlew runMlTraining -Pticker=SBER} — модель для конкретного тикера.</li>
- *   <li>{@code ./gradlew trainAllTickers} — модели для всех тикеров.</li>
- *   <li>{@code ./gradlew generateModel} — полный pipeline (бэктест + обучение).</li>
+ *   <li>{@code ./gradlew runMlTraining} — train default model.</li>
+ *   <li>{@code ./gradlew runMlTraining -Pdata=... -Poutput=...} — custom paths.</li>
+ *   <li>{@code ./gradlew runMlTraining -Pticker=SBER} — model for specific ticker.</li>
+ *   <li>{@code ./gradlew trainAllTickers} — models for all tickers.</li>
+ *   <li>{@code ./gradlew generateModel} — full pipeline (backtest + training).</li>
  * </ul>
  *
- * <h2>Потокобезопасность</h2>
- * <p>{@code TradeDataCollector} и {@code MlPredictionService} потокобезопасны
- * (синхронизированные методы, concurrent коллекции).
- * {@code MlModelTrainer} запускается в отдельном потоке при переобучении.</p>
+ * <h2>Thread Safety</h2>
+ * <p>{@code TradeDataCollector} and {@code MlPredictionService} are thread-safe
+ * (synchronized methods, concurrent collections).
+ * {@code MlModelTrainer} runs in separate thread during retraining.</p>
  *
  * @see com.github.shk0da.GoldenDragon.strategy.RegimeAwareStrategyMl
  * @see com.github.shk0da.GoldenDragon.strategy.BaseStrategy

@@ -1,84 +1,84 @@
 /**
- * Сервисный слой приложения GoldenDragon — интеграция с внешними системами и инфраструктурные компоненты.
+ * Service layer for GoldenDragon application — external system integration and infrastructure components.
  *
- * <h2>Назначение пакета</h2>
- * <p>Пакет {@code service} содержит классы, отвечающие за взаимодействие с внешними API и сервисами:
- * брокерское API (Тинькофф Инвестиции), Telegram-бот для уведомлений, TradingView для сканирования рынка.
- * Эти классы не содержат торговой логики — они предоставляют низкоуровневые абстракции для работы
- * с биржевыми данными, исполнения ордеров и отправки сообщений.</p>
+ * <h2>Package Purpose</h2>
+ * <p>The {@code service} package contains classes responsible for interaction with external APIs and services:
+ * broker API (Tinkoff Investments), Telegram bot for notifications, TradingView for market scanning.
+ * These classes contain no trading logic — they provide low-level abstractions for working
+ * with exchange data, order execution, and message sending.</p>
  *
- * <h2>Ключевые компоненты</h2>
+ * <h2>Key Components</h2>
  * <ul>
- *   <li>{@link com.github.shk0da.GoldenDragon.service.TCSService} — основной сервис для работы
- *       с брокерским API (Тинькофф Инвестиции). Предоставляет методы для:
+ *   <li>{@link com.github.shk0da.GoldenDragon.service.TCSService} — main service for working
+ *       with broker API (Tinkoff Investments). Provides methods for:
  *       <ul>
- *         <li>Получения рыночных данных: стаканы (order book), последние сделки, исторические свечи.</li>
- *         <li>Исполнения ордеров: рыночные и лимитные заявки на покупку/продажу.</li>
- *         <li>Управления позициями: закрытие позиций, установка стоп-лоссов и тейк-профитов.</li>
- *         <li>Портфеля: получение доступного кэша, текущих позиций, общей стоимости портфеля.</li>
- *         <li>Поиска инструментов: конвертация тикеров в FIGI, кеширование метаданных инструментов.</li>
+ *         <li>Market data retrieval: order books, last trades, historical candles.</li>
+ *         <li>Order execution: market and limit orders for buy/sell.</li>
+ *         <li>Position management: close positions, set stop-losses and take-profits.</li>
+ *         <li>Portfolio: get available cash, current positions, total portfolio value.</li>
+ *         <li>Instrument search: ticker-to-FIGI conversion, instrument metadata caching.</li>
  *       </ul>
- *       <p>Класс инкапсулирует {@link ru.tinkoff.piapi.core.InvestApi} и предоставляет удобный интерфейс
- *       для стратегий. Поддерживает работу с песочницей (sandbox mode) и ведение логов с временными метками.</p>
+ *       <p>Class encapsulates {@link ru.tinkoff.piapi.core.InvestApi} and provides convenient interface
+ *       for strategies. Supports sandbox mode and timestamped logging.</p>
  *   </li>
  *
- *   <li>{@link com.github.shk0da.GoldenDragon.service.TelegramNotifyService} — синглтон для отправки
- *       уведомлений в Telegram. Используется для:
+ *   <li>{@link com.github.shk0da.GoldenDragon.service.TelegramNotifyService} — singleton for sending
+ *       Telegram notifications. Used for:
  *       <ul>
- *         <li>Оповещений об открытии/закрытии позиций.</li>
- *         <li>Сообщений о достижении лимитов (дневной убыток, ошибки).</li>
- *         <li>Стартовых/финальных сообщений стратегии.</li>
+ *         <li>Position open/close notifications.</li>
+ *         <li>Limit achievement messages (daily loss, errors).</li>
+ *         <li>Strategy start/finish messages.</li>
  *       </ul>
- *       <p>Отправка выполняется асинхронно через {@link java.util.concurrent.ExecutorService}, чтобы не
- *       блокировать основной поток торговли. Поддерживает режим extended-уведомлений (только важные события).</p>
+ *       <p>Sending is asynchronous via {@link java.util.concurrent.ExecutorService} to avoid
+ *       blocking main trading thread. Supports extended notification mode (important events only).</p>
  *   </li>
  *
- *   <li>{@link com.github.shk0da.GoldenDragon.service.TradingViewService} — сканер рынка через API
- *       TradingView. Позволяет:
+ *   <li>{@link com.github.shk0da.GoldenDragon.service.TradingViewService} — market scanner via
+ *       TradingView API. Allows:
  *       <ul>
- *         <li>Фильтровать акции по фундаментальным показателям (долг/капитал, рекомендация аналитиков,
- *             рыночная капитализация, выручка).</li>
- *         <li>Получать список тикеров MOEX для дальнейшего анализа.</li>
- *         <li>Сканировать рынок по произвольным фильтрам и спискам тикеров.</li>
+ *         <li>Filter stocks by fundamental indicators (debt/equity, analyst recommendation,
+ *             market cap, revenue).</li>
+ *         <li>Get MOEX ticker list for further analysis.</li>
+ *         <li>Scan market by arbitrary filters and ticker lists.</li>
  *       </ul>
- *       <p>Используется на этапе предторгового анализа для отбора ликвидных инструментов с приемлемым
- *           финансовым состоянием.</p>
+ *       <p>Used in pre-trading analysis for selecting liquid instruments with acceptable
+ *           financial health.</p>
  *   </li>
  * </ul>
  *
- * <h2>Взаимодействие со стратегиями</h2>
- * <p>Стратегии из пакета {@code strategy} используют сервисы следующим образом:</p>
+ * <h2>Strategy Interaction</h2>
+ * <p>Strategies from {@code strategy} package use services as follows:</p>
  * <ul>
- *   <li>{@code TCSService} — прямой вызов через {@link com.github.shk0da.GoldenDragon.service.TCSService}
- *       или через интерфейс {@code TradingGateway} (адаптер для упрощения тестирования).</li>
- *   <li>{@code TelegramNotifyService} — через статический экземпляр
+ *   <li>{@code TCSService} — direct call via {@link com.github.shk0da.GoldenDragon.service.TCSService}
+ *       or via {@code TradingGateway} interface (adapter for easier testing).</li>
+ *   <li>{@code TelegramNotifyService} — via static instance
  *       {@link com.github.shk0da.GoldenDragon.service.TelegramNotifyService#telegramNotifyService}.</li>
- *   <li>{@code TradingViewService} — через {@link com.github.shk0da.GoldenDragon.service.TradingViewService#INSTANCE}
- *       для сканирования рынка перед запуском стратегии.</li>
+ *   <li>{@code TradingViewService} — via {@link com.github.shk0da.GoldenDragon.service.TradingViewService#INSTANCE}
+ *       for market scanning before strategy start.</li>
  * </ul>
  *
- * <h2>Потокобезопасность</h2>
+ * <h2>Thread Safety</h2>
  * <ul>
- *   <li>{@code TCSService} — не является полностью потокобезопасным. Внутренние коллекции
- *       ({@code ConcurrentHashMap}, {@code CopyOnWriteArrayList}) защищены от конкурентного доступа,
- *       но вызовы методов исполнения ордеров должны синхронизироваться на уровне стратегии.</li>
- *   <li>{@code TelegramNotifyService} — потокобезопасен благодаря использованию {@code ExecutorService}
- *       с одиночным потоком (очередь сообщений).</li>
- *   <li>{@code TradingViewService} — состояние отсутствует (stateless), потокобезопасен.</li>
+ *   <li>{@code TCSService} — not fully thread-safe. Internal collections
+ *       ({@code ConcurrentHashMap}, {@code CopyOnWriteArrayList}) are protected from concurrent access,
+ *       but order execution calls must be synchronized at strategy level.</li>
+ *   <li>{@code TelegramNotifyService} — thread-safe thanks to {@code ExecutorService}
+ *       with single thread (message queue).</li>
+ *   <li>{@code TradingViewService} — stateless, thread-safe.</li>
  * </ul>
  *
- * <h2>Конфигурация</h2>
- * <p>Сервисы используют конфигурацию из:</p>
+ * <h2>Configuration</h2>
+ * <p>Services use configuration from:</p>
  * <ul>
- *   <li>{@link com.github.shk0da.GoldenDragon.config.MainConfig} — API-ключи, аккаунт, режим песочницы.</li>
- *   <li>{@link com.github.shk0da.GoldenDragon.config.MarketConfig} — базовая валюта, параметры рынка.</li>
- *   <li>{@link com.github.shk0da.GoldenDragon.config.TelegramNotifyConfig} — токен бота, chat_id, режим уведомлений.</li>
+ *   <li>{@link com.github.shk0da.GoldenDragon.config.MainConfig} — API keys, account, sandbox mode.</li>
+ *   <li>{@link com.github.shk0da.GoldenDragon.config.MarketConfig} — base currency, market parameters.</li>
+ *   <li>{@link com.github.shk0da.GoldenDragon.config.TelegramNotifyConfig} — bot token, chat_id, notification mode.</li>
  * </ul>
  *
- * <h2>Логирование</h2>
- * <p>Сервисы пишут логи в {@link java.lang.System#out} с временными метками в формате
- * {@code dd.MM.yyyy HH:mm:ss}. Форматирование выполняется через
- * {@link java.time.format.DateTimeFormatter} или {@link java.text.SimpleDateFormat}.</p>
+ * <h2>Logging</h2>
+ * <p>Services log to {@link java.lang.System#out} with timestamps in format
+ * {@code dd.MM.yyyy HH:mm:ss}. Formatting via
+ * {@link java.time.format.DateTimeFormatter} or {@link java.text.SimpleDateFormat}.</p>
  *
  * @see com.github.shk0da.GoldenDragon.strategy
  * @see com.github.shk0da.GoldenDragon.config

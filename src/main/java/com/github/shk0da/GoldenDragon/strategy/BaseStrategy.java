@@ -56,118 +56,116 @@ import static java.util.concurrent.CompletableFuture.allOf;
 import static java.util.concurrent.CompletableFuture.runAsync;
 
 /**
- * Базовый абстрактный класс торговой стратегии, реализующий общий жизненный цикл
- * исполнения, управление позициями, загрузку рыночных данных, фильтрацию входов
- * и расчёт технических индикаторов. Конкретные стратегии (например,
- * {@code UnifiedStrategy}) наследуются от него и реализуют сигнальную логику в
- * методе {@link #decide}.
+ * Base abstract trading strategy class implementing common execution lifecycle,
+ * position management, market data loading, entry filtering, and technical
+ * indicator calculation. Concrete strategies (e.g., {@code UnifiedStrategy})
+ * extend it and implement signal logic in {@link #decide} method.
  *
- * <h2>Архитектура</h2>
- * Класс выступает «движком» (engine) стратегии:
+ * <h2>Architecture</h2>
+ * Class acts as strategy "engine":
  * <ul>
- *   <li>Управляет потоком исполнения (рабочие часы, торговые дни, EOD).</li>
- *   <li>Загружает и кеширует исторические свечи (часовые и 5-минутные).</li>
- *   <li>Координирует параллельную обработку нескольких тикеров.</li>
- *   <li>Делегирует принятие торгового решения наследнику через {@link #decide}.</li>
- *   <li>Исполняет ордера через {@link TCSService} (брокерский API).</li>
- *   <li>Ведёт учёт позиций, cooldown'ов и интегрируется с Money Management.</li>
+ *   <li>Manages execution flow (trading hours, trading days, EOD).</li>
+ *   <li>Loads and caches historical candles (hourly and 5-minute).</li>
+ *   <li>Coordinates parallel ticker processing.</li>
+ *   <li>Delegates trading decision to subclass via {@link #decide}.</li>
+ *   <li>Executes orders via {@link TCSService} (broker API).</li>
+ *   <li>Tracks positions, cooldowns, integrates with Money Management.</li>
  * </ul>
  *
- * <h2>Жизненный цикл {@link #run()}</h2>
+ * <h2>Lifecycle {@link #run()}</h2>
  * <ol>
- *   <li>Получение начальной стоимости портфеля и отправка уведомления в Telegram.</li>
- *   <li>Сбор списка активных тикеров из {@link UnifiedTraderConfig}.</li>
- *   <li>Вызов {@link #onDailyReset()} — сброс дневных лимитов MM.</li>
- *   <li>Если торговый день закончен или сегодня выходной — закрытие всех позиций
- *       и выход.</li>
- *   <li>Расчёт распределения капитала по тикерам ({@link #computeCapitalAllocation}).</li>
- *   <li>Запуск пула потоков ({@code activeTickers.size() + 1}):
+ *   <li>Get initial portfolio value and send Telegram notification.</li>
+ *   <li>Collect active ticker list from {@link UnifiedTraderConfig}.</li>
+ *   <li>Call {@link #onDailyReset()} — reset MM daily limits.</li>
+ *   <li>If trading day ended or weekend — close all positions and exit.</li>
+ *   <li>Calculate capital allocation per ticker ({@link #computeCapitalAllocation}).</li>
+ *   <li>Start thread pool ({@code activeTickers.size() + 1}):
  *     <ul>
- *       <li>Один поток — фоновое обновление peer-свечей раз в 60 секунд
- *           ({@link #refreshPeerCandles}) для групповых подтверждений.</li>
- *       <li>По одному потоку на тикер — цикл вызова {@link #processTicker}
- *           каждые 30 секунд, пока активны рабочие часы.</li>
+ *       <li>One thread — background peer candle update every 60 seconds
+ *           ({@link #refreshPeerCandles}) for group confirmations.</li>
+ *       <li>One thread per ticker — {@link #processTicker} call loop
+ *           every 30 seconds while trading hours active.</li>
  *     </ul>
  *   </li>
- *   <li>По завершении рабочих часов: закрытие всех позиций
- *       ({@link #closeAllPositions}), остановка executor'а, финальный отчёт.</li>
+ *   <li>After trading hours: close all positions ({@link #closeAllPositions}),
+ *       stop executor, final report.</li>
  * </ol>
  *
- * <h2>Обработка тикера ({@link #processTicker})</h2>
- * Для каждого тикера на каждом цикле:
+ * <h2>Ticker Processing ({@link #processTicker})</h2>
+ * For each ticker on each cycle:
  * <ol>
- *   <li>Проверка персонального cooldown'а — пропуск, если ещё действует
- *       ({@link #COOLDOWN_DURATION_MS} = 5 минут после ошибки).</li>
- *   <li>Проверка рабочих часов и флага {@code tickerParams.enabled}.</li>
- *   <li>Поиск {@link TickerInfo} в {@link TickerRepository}.</li>
- *   <li>Загрузка свечей через {@link #loadOrRefreshCandles}: сначала проверяется
- *       свежесть кэша ({@link #isCandleDataFresh}), при необходимости — запрос к API.</li>
- *   <li>Часовые свечи обязательны; 5-минутные — только если
+ *   <li>Check personal cooldown — skip if still active
+ *       ({@link #COOLDOWN_DURATION_MS} = 5 minutes after error).</li>
+ *   <li>Check trading hours and {@code tickerParams.enabled} flag.</li>
+ *   <li>Find {@link TickerInfo} in {@link TickerRepository}.</li>
+ *   <li>Load candles via {@link #loadOrRefreshCandles}: first check
+ *       cache freshness ({@link #isCandleDataFresh}), then API if needed.</li>
+ *   <li>Hourly candles required; 5-minute only if
  *       {@code tickerParams.useMinuteCandles}.</li>
- *   <li>Определение смены часового бара ({@code hourChanged}) для корректного
- *       инкремента {@code candlesHeld} в открытой позиции.</li>
- *   <li>Расчёт баланса: выделенный капитал или текущая ликвидность.</li>
- *   <li>Вызов абстрактного {@link #decide} — получение {@link TradingDecision}.</li>
- *   <li>Маршрутизация по действию:
+ *   <li>Detect hourly bar change ({@code hourChanged}) for correct
+ *       {@code candlesHeld} increment in open position.</li>
+ *   <li>Calculate balance: allocated capital or current liquidity.</li>
+ *   <li>Call abstract {@link #decide} — get {@link TradingDecision}.</li>
+ *   <li>Route by action:
  *     <ul>
- *       <li>{@code HOLD} — обновление позиции в {@link #positionStore}.</li>
- *       <li>{@code OPEN} — открытие позиции через {@link #openPosition}.</li>
- *       <li>{@code CLOSE} — закрытие через {@link #closePosition}.</li>
+ *       <li>{@code HOLD} — update position in {@link #positionStore}.</li>
+ *       <li>{@code OPEN} — open position via {@link #openPosition}.</li>
+ *       <li>{@code CLOSE} — close via {@link #closePosition}.</li>
  *     </ul>
  *   </li>
- *   <li>При любой ошибке тикер ставится на cooldown 5 минут, отправляется
- *       уведомление в Telegram.</li>
+ *   <li>On any error, ticker put on 5-minute cooldown, send
+ *       Telegram notification.</li>
  * </ol>
  *
- * <h2>Открытие позиции ({@link #openPosition})</h2>
+ * <h2>Position Open ({@link #openPosition})</h2>
  * <ul>
- *   <li>Валидация направления ({@code BUY}/{@code SELL}) и количества.</li>
- *   <li>Проверка лимита одновременных позиций
+ *   <li>Validate direction ({@code BUY}/{@code SELL}) and quantity.</li>
+ *   <li>Check concurrent position limit
  *       ({@link #MAX_CONCURRENT_POSITIONS} = 8).</li>
- *   <li>Расчёт SL/TP в процентах от цены входа (с дефолтами 2%/4% если не заданы).</li>
- *   <li>Вызов {@code tcsService.buyByMarket} / {@code sellByMarket} рыночным
- *       ордером с автоматической установкой SL/TP.</li>
- *   <li>Сохранение позиции, фиксация бара входа, запись в
- *       {@link TradeDataCollector} (для ML-pipeline), Telegram-уведомление.</li>
+ *   <li>Calculate SL/TP as percentage of entry price (defaults 2%/4% if not set).</li>
+ *   <li>Call {@code tcsService.buyByMarket} / {@code sellByMarket} with market
+ *       order and automatic SL/TP setup.</li>
+ *   <li>Save position, record entry bar, write to
+ *       {@link TradeDataCollector} (for ML-pipeline), Telegram notification.</li>
  * </ul>
  *
- * <h2>Закрытие позиции ({@link #closePosition})</h2>
+ * <h2>Position Close ({@link #closePosition})</h2>
  * <ul>
- *   <li>Закрытие длинной/короткой позиции через
+ *   <li>Close long/short position via
  *       {@code closeLongByMarket} / {@code closeShortByMarket}.</li>
- *   <li>Установка cooldown-позиции ({@code config.cooldownCandles}).</li>
- *   <li>Расчёт PnL ({@link #calculatePnl}) и запись результата в ML-pipeline.</li>
- *   <li>Вызов {@link #onTradeClosed} — хук для MM-интеграции в наследнике.</li>
- *   <li>Telegram-уведомление с причиной закрытия и PnL.</li>
+ *   <li>Set position cooldown ({@code config.cooldownCandles}).</li>
+ *   <li>Calculate PnL ({@link #calculatePnl}) and write result to ML-pipeline.</li>
+ *   <li>Call {@link #onTradeClosed} — hook for MM integration in subclass.</li>
+ *   <li>Telegram notification with close reason and PnL.</li>
  * </ul>
  *
- * <h2>Управление данными (свечи)</h2>
+ * <h2>Data Management (Candles)</h2>
  * <ul>
- *   <li>{@link #loadOrRefreshCandles} — двухуровневая загрузка:
- *       сначала кэш на диске, затем API при устаревании.</li>
- *   <li>{@link #isCandleDataFresh} — проверка по дню и часу/5-минутному слоту.</li>
- *   <li>{@link #writeCandlesToFile} — инкрементальная запись CSV с дедупликацией
- *       по timestamp.</li>
- *   <li>{@link #throttleApiCall} — глобальный rate-limiter (100мс между вызовами,
- *       синхронизация через {@link #API_LOCK}).</li>
- *   <li>{@link #refreshPeerCandles} — параллельное обновление часовых свечей
- *       всех тикеров для использования в групповых фильтрах подтверждения.</li>
+ *   <li>{@link #loadOrRefreshCandles} — two-level loading:
+ *       first disk cache, then API on stale.</li>
+ *   <li>{@link #isCandleDataFresh} — check by day and hour/5-minute slot.</li>
+ *   <li>{@link #writeCandlesToFile} — incremental CSV write with deduplication
+ *       by timestamp.</li>
+ *   <li>{@link #throttleApiCall} — global rate-limiter (100ms between calls,
+ *       synchronization via {@link #API_LOCK}).</li>
+ *   <li>{@link #refreshPeerCandles} — parallel hourly candle update
+ *       for all tickers for group confirmation filters.</li>
  * </ul>
  *
- * <h2>Расчёт распределения капитала ({@link #computeCapitalAllocation})</h2>
- * Пропорциональное распределение свободного кэша между активными тикерами
- * на основе весов {@code allocationWeight} (по умолчанию 1.0):
+ * <h2>Capital Allocation ({@link #computeCapitalAllocation})</h2>
+ * Proportional free cash distribution across active tickers
+ * based on {@code allocationWeight} (default 1.0):
  * {@code allocation[i] = totalCash × (weight[i] / Σweights)}.
  *
- * <h2>Фильтры входа ({@link #applyFilters})</h2>
- * Утилитарный метод, последовательно применяющий:
+ * <h2>Entry Filters ({@link #applyFilters})</h2>
+ * Utility method sequentially applying:
  * <ol>
- *   <li>{@link BadWeatherFilter} — фильтрация неблагоприятных рыночных условий
- *       (низкий объём, ATR-спайки, широкие спреды, длинные тени, паника).</li>
- *   <li>{@link MarketRegimeFilter} — оценка пригодности режима рынка по ADX,
- *       объёму и confidence.</li>
+ *   <li>{@link BadWeatherFilter} — filter unfavorable market conditions
+ *       (low volume, ATR spikes, wide spreads, long wicks, panic).</li>
+ *   <li>{@link MarketRegimeFilter} — assess market regime suitability by ADX,
+ *       volume and confidence.</li>
  * </ol>
- * Возвращает {@code HOLD} с причиной блокировки или {@code null} при прохождении.
+ * Returns {@code HOLD} with block reason or {@code null} if passed.
  *
  * <h2>Временные ограничения</h2>
  * <ul>

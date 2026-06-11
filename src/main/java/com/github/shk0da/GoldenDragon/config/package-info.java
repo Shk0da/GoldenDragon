@@ -1,48 +1,48 @@
 /**
- * Конфигурационные классы приложения GoldenDragon.
+ * Configuration classes for GoldenDragon application.
  *
- * <h2>Назначение пакета</h2>
- * <p>Пакет {@code config} содержит классы конфигурации для различных компонентов системы:
- * торговых стратегий, сервисов, рыночных настроек. Конфигурация загружается из properties-файлов
- * и предоставляет типизированный доступ к параметрам.</p>
+ * <h2>Package Purpose</h2>
+ * <p>The {@code config} package contains configuration classes for various system components:
+ * trading strategies, services, market settings. Configuration is loaded from properties files
+ * and provides typed access to parameters.</p>
  *
- * <h2>Ключевые классы</h2>
+ * <h2>Key Classes</h2>
  * <ul>
- *   <li>{@link com.github.shk0da.GoldenDragon.config.MainConfig} — основная конфигурация приложения:
- *       API-ключи Tinkoff Invest, настройки песочницы, тестовый режим, HTTP клиент.</li>
+ *   <li>{@link com.github.shk0da.GoldenDragon.config.MainConfig} — main application configuration:
+ *       Tinkoff Invest API keys, sandbox settings, test mode, HTTP client.</li>
  *
- *   <li>{@link com.github.shk0da.GoldenDragon.config.MarketConfig} — настройки рынка (MOEX):
- *       валюта, лимиты на позицию, параметры рынка.</li>
+ *   <li>{@link com.github.shk0da.GoldenDragon.config.MarketConfig} — market settings (MOEX):
+ *       currency, position limits, market parameters.</li>
  *
- *   <li>{@link com.github.shk0da.GoldenDragon.config.LevelTraderConfig} — параметры для LevelTrader:
- *       стоп-лосс, тейк-профит, подтверждение уровней, список инструментов.</li>
+ *   <li>{@link com.github.shk0da.GoldenDragon.config.LevelTraderConfig} — LevelTrader parameters:
+ *       stop-loss, take-profit, level confirmation, instrument list.</li>
  *
- *   <li>{@link com.github.shk0da.GoldenDragon.config.UnifiedTraderConfig} — конфигурация для UnifiedStrategy:
- *       параметры индикаторов, лимиты, настройки money management.</li>
+ *   <li>{@link com.github.shk0da.GoldenDragon.config.UnifiedTraderConfig} — UnifiedStrategy configuration:
+ *       indicator parameters, limits, money management settings.</li>
  *
- *   <li>{@link com.github.shk0da.GoldenDragon.config.RSXConfig} — настройки для RSX стратегии:
- *       трендовый тикер, максимальный размер портфеля.</li>
+ *   <li>{@link com.github.shk0da.GoldenDragon.config.RSXConfig} — RSX strategy settings:
+ *       trend ticker, maximum portfolio size.</li>
  *
- *   <li>{@link com.github.shk0da.GoldenDragon.config.DivFlowConfig} — константы для DivFlow:
- *       URL календарей дивидендов (Smart-Lab, Dohod, Investing.com).</li>
+ *   <li>{@link com.github.shk0da.GoldenDragon.config.DivFlowConfig} — DivFlow constants:
+ *       dividend calendar URLs (Smart-Lab, Dohod, Investing.com).</li>
  *
- *   <li>{@link com.github.shk0da.GoldenDragon.config.TelegramNotifyConfig} — Telegram уведомления:
- *       токен бота, chat_id, режим расширенных уведомлений.</li>
+ *   <li>{@link com.github.shk0da.GoldenDragon.config.TelegramNotifyConfig} — Telegram notifications:
+ *       bot token, chat_id, extended notification mode.</li>
  *
- *   <li>{@link com.github.shk0da.GoldenDragon.config.DataCollectorConfig} — сбор данных:
- *       директория для данных, список инструментов, режим замены.</li>
+ *   <li>{@link com.github.shk0da.GoldenDragon.config.DataCollectorConfig} — data collection:
+ *       data directory, instrument list, replace mode.</li>
  *
- *   <li>{@link com.github.shk0da.GoldenDragon.config.RebalanceConfig} — ребалансировка портфеля:
- *       целевые веса позиций, проценты для ребалансировки.</li>
+ *   <li>{@link com.github.shk0da.GoldenDragon.config.RebalanceConfig} — portfolio rebalancing:
+ *       target position weights, rebalancing percentages.</li>
  * </ul>
  *
- * <h2>Загрузка конфигурации</h2>
- * <p>Все классы конфигурации используют {@link com.github.shk0da.GoldenDragon.utils.PropertiesUtils}
- * для загрузки настроек из {@code application.properties}. Значения по умолчанию указываются в конструкторах.</p>
+ * <h2>Configuration Loading</h2>
+ * <p>All configuration classes use {@link com.github.shk0da.GoldenDragon.utils.PropertiesUtils}
+ * to load settings from {@code application.properties}. Default values are specified in constructors.</p>
  *
- * <h2>Потокобезопасность</h2>
- * <p>Классы конфигурации иммутабельны после создания (кроме MainConfig с изменяемым accountId).
- * Конфигурация загружается один раз при создании экземпляра.</p>
+ * <h2>Thread Safety</h2>
+ * <p>Configuration classes are immutable after creation (except MainConfig with mutable accountId).
+ * Configuration is loaded once during instance creation.</p>
  *
  * @see com.github.shk0da.GoldenDragon.strategy
  * @see com.github.shk0da.GoldenDragon.service

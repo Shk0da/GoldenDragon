@@ -1,71 +1,71 @@
 /**
- * Утилитные классы приложения GoldenDragon.
+ * Utility classes for GoldenDragon application.
  *
- * <h2>Назначение пакета</h2>
- * <p>Пакет {@code utils} содержит вспомогательные классы для работы с properties, JSON, временем,
- * индикаторами, HTTP-запросами. Эти классы не содержат бизнес-логики и используются
- * всеми компонентами системы.</p>
+ * <h2>Package Purpose</h2>
+ * <p>The {@code utils} package contains helper classes for working with properties, JSON, time,
+ * indicators, HTTP requests. These classes contain no business logic and are used
+ * by all system components.</p>
  *
- * <h2>Работа с конфигурацией</h2>
+ * <h2>Configuration</h2>
  * <ul>
- *   <li>{@link com.github.shk0da.GoldenDragon.utils.PropertiesUtils} — загрузка properties-файлов
- *       из classpath и файловой системы. Используется всеми конфигурационными классами.</li>
+ *   <li>{@link com.github.shk0da.GoldenDragon.utils.PropertiesUtils} — load properties files
+ *       from classpath and file system. Used by all configuration classes.</li>
  * </ul>
  *
- * <h2>Сериализация</h2>
+ * <h2>Serialization</h2>
  * <ul>
- *   <li>{@link com.github.shk0da.GoldenDragon.utils.SerializationUtils} — сериализация/десериализация
- *       JSON через Gson. Поддерживает загрузку/сохранение данных на диск, работу с {@code TypeToken},
- *       кастомные десериализаторы (например, для {@code TickerInfo.Key}).</li>
+ *   <li>{@link com.github.shk0da.GoldenDragon.utils.SerializationUtils} — JSON serialization/deserialization
+ *       via Gson. Supports disk load/save, {@code TypeToken} handling,
+ *       custom deserializers (e.g., for {@code TickerInfo.Key}).</li>
  * </ul>
  *
- * <h2>Время</h2>
+ * <h2>Time</h2>
  * <ul>
- *   <li>{@link com.github.shk0da.GoldenDragon.utils.TimeUtils} — утилиты для работы со временем:
- *       {@code sleep(long millis)} с обработкой {@code InterruptedException}.</li>
+ *   <li>{@link com.github.shk0da.GoldenDragon.utils.TimeUtils} — time utilities:
+ *       {@code sleep(long millis)} with {@code InterruptedException} handling.</li>
  * </ul>
  *
- * <h2>Предикаты</h2>
+ * <h2>Predicates</h2>
  * <ul>
- *   <li>{@link com.github.shk0da.GoldenDragon.utils.PredicateUtils} — утилиты для предикатов:
- *       {@code distinctByKey()} для фильтрации дубликатов в стримах.</li>
+ *   <li>{@link com.github.shk0da.GoldenDragon.utils.PredicateUtils} — predicate utilities:
+ *       {@code distinctByKey()} for duplicate filtering in streams.</li>
  * </ul>
  *
- * <h2>Технические индикаторы</h2>
+ * <h2>Technical Indicators</h2>
  * <ul>
- *   <li>{@link com.github.shk0da.GoldenDragon.utils.IndicatorsUtil} — расчет технических индикаторов:
- *       RSI, MACD, ATR, скользящие средние (SMA, EMA). Использует TA-Lib библиотеку.</li>
+ *   <li>{@link com.github.shk0da.GoldenDragon.utils.IndicatorsUtil} — technical indicator calculation:
+ *       RSI, MACD, ATR, moving averages (SMA, EMA). Uses TA-Lib library.</li>
  * </ul>
  *
- * <h2>HTTP запросы</h2>
+ * <h2>HTTP Requests</h2>
  * <ul>
- *   <li>{@link com.github.shk0da.GoldenDragon.utils.RequestUtils} — HTTP запросы с повторными попытками:
- *       {@code requestWithRetry()} для устойчивой работы с внешними API (TradingView, Telegram).</li>
+ *   <li>{@link com.github.shk0da.GoldenDragon.utils.RequestUtils} — HTTP requests with retries:
+ *       {@code requestWithRetry()} for stable external API work (TradingView, Telegram).</li>
  * </ul>
  *
- * <h2>Уровни (LevelUtils)</h2>
+ * <h2>Levels (LevelUtils)</h2>
  * <ul>
- *   <li>{@link com.github.shk0da.GoldenDragon.utils.LevelUtils} — работа с уровнями поддержки/сопротивления:
- *       классы {@code Level}, методы для определения пробоев уровней.</li>
+ *   <li>{@link com.github.shk0da.GoldenDragon.utils.LevelUtils} — support/resistance level handling:
+ *       {@code Level} classes, level breakout detection methods.</li>
  * </ul>
  *
  * <h2>GerchikUtils</h2>
  * <ul>
- *   <li>{@link com.github.shk0da.GoldenDragon.utils.GerchikUtils} — методы по системе Герчика:
- *       расчет уровней, паттерны входа, управление позицией.</li>
+ *   <li>{@link com.github.shk0da.GoldenDragon.utils.GerchikUtils} — Gerchik system methods:
+ *       level calculation, entry patterns, position management.</li>
  * </ul>
  *
  * <h2>TickerTypeResolver</h2>
  * <ul>
- *   <li>{@link com.github.shk0da.GoldenDragon.utils.TickerTypeResolver} — определение типа тикера
- *       (STOCK, BOND, ETF, CURRENCY) по названию. Использует эвристики и префиксы.</li>
+ *   <li>{@link com.github.shk0da.GoldenDragon.utils.TickerTypeResolver} — ticker type detection
+ *       (STOCK, BOND, ETF, CURRENCY) by name. Uses heuristics and prefixes.</li>
  * </ul>
  *
- * <h2>Потокобезопасность</h2>
- * <p>Большинство утилитных классов stateless и потокобезопасны. Исключения:</p>
+ * <h2>Thread Safety</h2>
+ * <p>Most utility classes are stateless and thread-safe. Exceptions:</p>
  * <ul>
- *   <li>{@code SerializationUtils} — синхронизированные методы для загрузки/сохранения.</li>
- *   <li>{@code IndicatorsUtil} — требует внешнюю синхронизацию при параллельных вычислениях.</li>
+ *   <li>{@code SerializationUtils} — synchronized methods for load/save.</li>
+ *   <li>{@code IndicatorsUtil} — requires external synchronization for parallel calculations.</li>
  * </ul>
  *
  * @see com.github.shk0da.GoldenDragon.config

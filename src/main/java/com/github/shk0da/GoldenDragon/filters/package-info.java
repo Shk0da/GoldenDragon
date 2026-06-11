@@ -1,39 +1,39 @@
 /**
- * Фильтры торговых сигналов приложения GoldenDragon.
+ * Trading signal filters for GoldenDragon application.
  *
- * <h2>Назначение пакета</h2>
- * <p>Пакет {@code filters} содержит классы для фильтрации торговых сигналов перед исполнением.
- * Фильтры проверяют рыночные условия, подтверждение от коррелированных инструментов,
- * экстремальные рыночные ситуации. Используются стратегиями для уменьшения ложных входов.</p>
+ * <h2>Package Purpose</h2>
+ * <p>The {@code filters} package contains classes for filtering trading signals before execution.
+ * Filters check market conditions, confirmation from correlated instruments,
+ * extreme market situations. Used by strategies to reduce false entries.</p>
  *
- * <h2>Ключевые фильтры</h2>
+ * <h2>Key Filters</h2>
  * <ul>
- *   <li>{@link com.github.shk0da.GoldenDragon.filters.MarketRegimeFilter} — фильтр рыночного режима.
- *       Определяет тренд/флэт по ADX (Average Directional Index), волатильности (ATR), объёмам.
- *       Возвращает разрешение на торговлю с коэффициентом доверия (confidence) и множителем позиции.
- *       <br><b>Параметры</b>: ADX период (14), ATR период (14), volume период (50).</li>
+ *   <li>{@link com.github.shk0da.GoldenDragon.filters.MarketRegimeFilter} — market regime filter.
+ *       Detects trend/range by ADX (Average Directional Index), volatility (ATR), volume.
+ *       Returns trading permission with confidence score and position multiplier.
+ *       <br><b>Parameters</b>: ADX period (14), ATR period (14), volume period (50).</li>
  *
- *   <li>{@link com.github.shk0da.GoldenDragon.filters.GroupConfirmationFilter} — фильтр группового
- *       подтверждения. Проверяет, движутся ли коррелированные инструменты (peer instruments)
- *       в том же направлении. Требует минимальное количество подтверждений (min 2 из 3).
- *       <br><b>Использование</b>: {@code UnifiedStrategy} для проверки сигналов.</li>
+ *   <li>{@link com.github.shk0da.GoldenDragon.filters.GroupConfirmationFilter} — group
+ *       confirmation filter. Checks if correlated instruments (peer instruments)
+ *       move in the same direction. Requires minimum confirmations (min 2 of 3).
+ *       <br><b>Usage</b>: {@code UnifiedStrategy} for signal validation.</li>
  *
- *   <li>{@link com.github.shk0da.GoldenDragon.filters.BadWeatherFilter} — фильтр "плохой погоды".
- *       Запрещает торговлю при неблагоприятных условиях:
+ *   <li>{@link com.github.shk0da.GoldenDragon.filters.BadWeatherFilter} — "bad weather" filter.
+ *       Prohibits trading under unfavorable conditions:
  *       <ul>
- *         <li>Низкий объём (ниже среднего * порог).</li>
- *         <li>Низкая волатильность (ATR ниже среднего).</li>
- *         <li>Аномально высокий спред.</li>
- *         <li>Большая свеча с длинными тенями (panic candle).</li>
- *         <li>Скачок волатильности (ATR spike).</li>
+ *         <li>Low volume (below average * threshold).</li>
+ *         <li>Low volatility (ATR below average).</li>
+ *         <li>Abnormally high spread.</li>
+ *         <li>Large candle with long wicks (panic candle).</li>
+ *         <li>Volatility spike (ATR spike).</li>
  *       </ul>
- *       <br><b>Параметры</b>: настраиваемые пороги для каждого условия.</li>
+ *       <br><b>Parameters</b>: configurable thresholds for each condition.</li>
  * </ul>
  *
- * <h2>Интеграция со стратегиями</h2>
- * <p>Фильтры вызываются в методе {@code decide()} стратегий перед генерацией сигнала:</p>
+ * <h2>Strategy Integration</h2>
+ * <p>Filters are called in strategy {@code decide()} method before signal generation:</p>
  * <pre>{@code
- * // Пример использования в BaseStrategy
+ * // Example usage in BaseStrategy
  * MarketRegimeFilter.FilterResult regimeResult = marketRegimeFilter.checkRegime(ticker, candles);
  * if (!regimeResult.canTrade) return TradingDecision.HOLD(regimeResult.reason);
  *
@@ -44,18 +44,18 @@
  * if (!weather.isGood) return TradingDecision.HOLD("badWeather");
  * }</pre>
  *
- * <h2>Результаты фильтрации</h2>
- * <p>Фильтры возвращают:</p>
+ * <h2>Filter Results</h2>
+ * <p>Filters return:</p>
  * <ul>
- *   <li>Разрешение на торговлю (boolean).</li>
- *   <li>Коэффициент доверия (confidence 0.0–1.0).</li>
- *   <li>Множитель позиции (positionMultiplier) для уменьшения размера при неопределенности.</li>
- *   <li>Причину отказа (reason) для логирования.</li>
+ *   <li>Trading permission (boolean).</li>
+ *   <li>Confidence score (0.0–1.0).</li>
+ *   <li>Position multiplier for size reduction during uncertainty.</li>
+ *   <li>Rejection reason for logging.</li>
  * </ul>
  *
- * <h2>Потокобезопасность</h2>
- * <p>Фильтры stateless и потокобезопасны. Параметры задаются в конструкторе и не изменяются.
- * Методы могут вызываться из разных потоков стратегии.</p>
+ * <h2>Thread Safety</h2>
+ * <p>Filters are stateless and thread-safe. Parameters are set in constructor and immutable.
+ * Methods can be called from different strategy threads.</p>
  *
  * @see com.github.shk0da.GoldenDragon.strategy.BaseStrategy
  * @see com.github.shk0da.GoldenDragon.strategy.UnifiedStrategy

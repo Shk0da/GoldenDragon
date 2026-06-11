@@ -1,62 +1,62 @@
 /**
- * Репозитории для хранения данных приложения GoldenDragon.
+ * Repositories for data storage in GoldenDragon application.
  *
- * <h2>Назначение пакета</h2>
- * <p>Пакет {@code repository} содержит реализации паттерна Repository для ин-мемори хранения
- * данных: тикеры, FIGI, цены. Репозитории используются для кеширования справочной информации
- * и быстрого доступа к данным во время торговли.</p>
+ * <h2>Package Purpose</h2>
+ * <p>The {@code repository} package contains Repository pattern implementations for in-memory
+ * data storage: tickers, FIGI, prices. Repositories are used for caching reference data
+ * and fast data access during trading.</p>
  *
- * <h2>Архитектура</h2>
- * <p>Все репозитории наследуются от {@link com.github.shk0da.GoldenDragon.repository.AbstractRepository},
- * который реализует интерфейс {@link com.github.shk0da.GoldenDragon.repository.Repository}.
- * AbstractRepository использует {@code ConcurrentHashMap} для потокобезопасного хранения.</p>
+ * <h2>Architecture</h2>
+ * <p>All repositories extend {@link com.github.shk0da.GoldenDragon.repository.AbstractRepository},
+ * which implements {@link com.github.shk0da.GoldenDragon.repository.Repository} interface.
+ * AbstractRepository uses {@code ConcurrentHashMap} for thread-safe storage.</p>
  *
- * <h2>Ключевые репозитории</h2>
+ * <h2>Key Repositories</h2>
  * <ul>
- *   <li>{@link com.github.shk0da.GoldenDragon.repository.TickerRepository} — хранилище информации
- *       о тикерах ({@code TickerInfo}): FIGI, ISIN, валюта, тип, лот.
- *       <br><b>Синглтон</b>: загружает данные из {@code tickers.json} при инициализации.
- *       <br>Используется: {@code TCSService}, {@code GoldenDragon}, стратегии.</li>
+ *   <li>{@link com.github.shk0da.GoldenDragon.repository.TickerRepository} — ticker information
+ *       storage ({@code TickerInfo}): FIGI, ISIN, currency, type, lot.
+ *       <br><b>Singleton</b>: loads data from {@code tickers.json} on initialization.
+ *       <br>Used by: {@code TCSService}, {@code GoldenDragon}, strategies.</li>
  *
- *   <li>{@link com.github.shk0da.GoldenDragon.repository.FigiRepository} — хранилище FIGI
- *       (Financial Instrument Global Identifier). Маппинг тикер → FIGI.
- *       <br><b>Синглтон</b>.
- *       <br>Используется: {@code TCSService} для конвертации тикеров в FIGI.</li>
+ *   <li>{@link com.github.shk0da.GoldenDragon.repository.FigiRepository} — FIGI
+ *       (Financial Instrument Global Identifier) storage. Ticker to FIGI mapping.
+ *       <br><b>Singleton</b>.
+ *       <br>Used by: {@code TCSService} for ticker-to-FIGI conversion.</li>
  *
- *   <li>{@link com.github.shk0da.GoldenDragon.repository.PricesRepository} — хранилище текущих
- *       рыночных цен (стакан: bids/asks).
- *       <br><b>Синглтон</b>.
- *       <br>Используется: {@code TCSService} для кеширования последних цен.</li>
+ *   <li>{@link com.github.shk0da.GoldenDragon.repository.PricesRepository} — current
+ *       market price storage (order book: bids/asks).
+ *       <br><b>Singleton</b>.
+ *       <br>Used by: {@code TCSService} for caching latest prices.</li>
  * </ul>
  *
- * <h2>Интерфейс Repository</h2>
+ * <h2>Repository Interface</h2>
  * <ul>
- *   <li>{@code getById(ID id)} — получение элемента по идентификатору.</li>
- *   <li>{@code getById(ID id, T defaultValue)} — получение с значением по умолчанию.</li>
- *   <li>{@code insert(ID id, T value)} — вставка/обновление элемента.</li>
- *   <li>{@code putAll(Map<ID, T> values)} — массовая вставка.</li>
- *   <li>{@code containsKey(ID key)} — проверка наличия ключа.</li>
- *   <li>{@code getAll()} — получение всех элементов.</li>
+ *   <li>{@code getById(ID id)} — get element by identifier.</li>
+ *   <li>{@code getById(ID id, T defaultValue)} — get with default value.</li>
+ *   <li>{@code insert(ID id, T value)} — insert/update element.</li>
+ *   <li>{@code putAll(Map<ID, T> values)} — bulk insert.</li>
+ *   <li>{@code containsKey(ID key)} — check key existence.</li>
+ *   <li>{@code getAll()} — get all elements.</li>
  * </ul>
  *
- * <h2>Сериализация</h2>
- * <p>{@code TickerRepository} поддерживает загрузку/сохранение данных на диск через
- * {@link com.github.shk0da.GoldenDragon.utils.SerializationUtils}. Данные хранятся в JSON формате
- * ({@code tickers.json}) и загружаются при старте приложения для ускорения инициализации.</p>
+ * <h2>Serialization</h2>
+ * <p>{@code TickerRepository} supports disk load/save via
+ * {@link com.github.shk0da.GoldenDragon.utils.SerializationUtils}. Data is stored in JSON format
+ * ({@code tickers.json}) and loaded on application startup for faster initialization.</p>
  *
- * <h2>Потокобезопасность</h2>
- * <p>Все репозитории потокобезопасны благодаря использованию {@code ConcurrentHashMap}.
- * Методы могут вызываться из разных потоков без дополнительной синхронизации.</p>
+ * <h2>Thread Safety</h2>
+ * <p>All repositories are thread-safe using {@code ConcurrentHashMap}.
+ * Methods can be called from different threads without additional synchronization.</p>
  *
- * <h2>Пример использования</h2>
+ * <h2>Usage Example</h2>
  * <pre>{@code
- * // Получение тикера из репозитория
+ * // Get ticker from repository
  * TickerInfo ticker = TickerRepository.INSTANCE.getById(new TickerInfo.Key("SBER", TickerType.STOCK));
  *
- * // Вставка нового тикера
+ * // Insert new ticker
  * TickerRepository.INSTANCE.insert(key, tickerInfo);
  *
- * // Массовая вставка из API
+ * // Bulk insert from API
  * tickerRepository.putAll(tcsService.getStockList());
  * }</pre>
  *

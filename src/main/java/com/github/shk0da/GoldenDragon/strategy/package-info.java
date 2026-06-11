@@ -1,138 +1,137 @@
 /**
- * Торговые стратегии и алгоритмы принятия решений приложения GoldenDragon.
+ * Trading strategies and decision-making algorithms for GoldenDragon application.
  *
- * <h2>Назначение пакета</h2>
- * <p>Пакет {@code strategy} содержит реализацию торговых стратегий, базовые классы для управления
- * жизненным циклом стратегии, индикаторы, фильтры рыночных режимов и вспомогательные компоненты
- * для генерации торговых сигналов. Стратегии работают в реальном времени (live trading) и могут
- * запускаться через бэктест-движок из пакета {@code test}.</p>
+ * <h2>Package Purpose</h2>
+ * <p>The {@code strategy} package contains trading strategy implementations, base classes for
+ * strategy lifecycle management, indicators, market regime filters, and helper components
+ * for generating trading signals. Strategies work in real-time (live trading) and can
+ * be run through the backtest engine from the {@code test} package.</p>
  *
- * <h2>Архитектура стратегий</h2>
- * <p>Все стратегии следуют общей архитектуре:</p>
+ * <h2>Strategy Architecture</h2>
+ * <p>All strategies follow a common architecture:</p>
  * <ol>
- *   <li><b>Инициализация</b>: загрузка конфигурации, подписка на рыночные данные, инициализация
- *       индикаторов и фильтров.</li>
- *   <li><b>Основной цикл</b>: периодический опрос рыночных данных (свечи, стаканы, сделки),
- *       вычисление индикаторов, генерация сигналов.</li>
- *   <li><b>Принятие решений</b>: проверка сигналов через фильтры (рыночный режим, риск-менеджмент),
- *       расчёт размера позиции, установка стоп-лосса и тейк-профита.</li>
- *   <li><b>Исполнение</b>: отправка ордеров через {@link com.github.shk0da.GoldenDragon.service.TCSService},
- *       мониторинг исполнения, управление открытыми позициями.</li>
- *   <li><b>Завершение</b>: закрытие позиций по сигналу, таймауту или окончанию торговой сессии.</li>
+ *   <li><b>Initialization</b>: load configuration, subscribe to market data, initialize
+ *       indicators and filters.</li>
+ *   <li><b>Main Loop</b>: periodic market data polling (candles, order books, trades),
+ *       indicator calculation, signal generation.</li>
+ *   <li><b>Decision Making</b>: signal validation through filters (market regime, risk management),
+ *       position size calculation, stop-loss and take-profit setup.</li>
+ *   <li><b>Execution</b>: order submission via {@link com.github.shk0da.GoldenDragon.service.TCSService},
+ *       execution monitoring, open position management.</li>
+ *   <li><b>Completion</b>: position close on signal, timeout, or trading session end.</li>
  * </ol>
  *
- * <h2>Ключевые классы</h2>
+ * <h2>Key Classes</h2>
  * <ul>
- *   <li>{@link com.github.shk0da.GoldenDragon.strategy.BaseStrategy} — абстрактный базовый класс
- *       для стратегий, торгующих по свечам. Реализует:
+ *   <li>{@link com.github.shk0da.GoldenDragon.strategy.BaseStrategy} — abstract base class
+ *       for candle-based trading strategies. Implements:
  *       <ul>
- *         <li>Жизненный цикл: рабочие часы, проверка торговых дней, EOD-закрытие позиций.</li>
- *         <li>Загрузку и кеширование исторических свечей (часовые, 5-минутные).</li>
- *         <li>Параллельную обработку нескольких тикеров через {@link java.util.concurrent.ExecutorService}.</li>
- *         <li>Управление капиталом: распределение кэша по тикерам, cooldown'ы после ошибок.</li>
- *         <li>Технические индикаторы: RSI, MACD, ATR, скользящие средние (через {@code IndicatorsUtil}).</li>
+ *         <li>Lifecycle: trading hours, trading day checks, EOD position close.</li>
+ *         <li>Historical candle loading and caching (hourly, 5-minute).</li>
+ *         <li>Parallel ticker processing via {@link java.util.concurrent.ExecutorService}.</li>
+ *         <li>Capital management: cash distribution across tickers, error cooldowns.</li>
+ *         <li>Technical indicators: RSI, MACD, ATR, moving averages (via {@code IndicatorsUtil}).</li>
  *       </ul>
- *       <p>Конкретные стратегии наследуются от {@code BaseStrategy} и реализуют метод
- *       {@code decide()}, который возвращает {@link com.github.shk0da.GoldenDragon.model.TradingDecision}.</p>
+ *       <p>Concrete strategies extend {@code BaseStrategy} and implement
+ *       {@code decide()} method returning {@link com.github.shk0da.GoldenDragon.model.TradingDecision}.</p>
  *   </li>
  *
- *   <li>{@link com.github.shk0da.GoldenDragon.strategy.UnifiedStrategy} — универсальная стратегия
- *       среднесрочной торговли, наследуется от {@code BaseStrategy}. Комбинирует:
+ *   <li>{@link com.github.shk0da.GoldenDragon.strategy.UnifiedStrategy} — universal
+ *       medium-term trading strategy, extends {@code BaseStrategy}. Combines:
  *       <ul>
- *         <li>Технические индикаторы (RSI, MACD, ATR) для входа и выхода.</li>
- *         <li>Фильтры рыночного режима (волатильность, тренд).</li>
- *         <li>Портфельное управление капиталом (распределение по тикерам).</li>
- *         <li>Групповые подтверждения (peer confirmation) — проверка коррелированных инструментов.</li>
+ *         <li>Technical indicators (RSI, MACD, ATR) for entry and exit.</li>
+ *         <li>Market regime filters (volatility, trend).</li>
+ *         <li>Portfolio capital management (ticker distribution).</li>
+ *         <li>Group confirmation — correlated instrument validation.</li>
  *       </ul>
  *   </li>
  *
- *   <li>{@link com.github.shk0da.GoldenDragon.strategy.RegimeAwareStrategy} — стратегия с адаптацией
- *       к рыночному режиму. Определяет режим по волатильности и объёмам, переключает логику входа
- *       и параметры риска в зависимости от режима.</li>
+ *   <li>{@link com.github.shk0da.GoldenDragon.strategy.RegimeAwareStrategy} — strategy with
+ *       market regime adaptation. Detects regime by volatility and volume, switches entry
+ *       logic and risk parameters based on regime.</li>
  *
- *   <li>{@link com.github.shk0da.GoldenDragon.strategy.RegimeAwareStrategyMl} — расширение
- *       {@code RegimeAwareStrategy} с использованием ML-модели (XGBoost) для классификации режима
- *       и прогнозирования направления движения цены.</li>
+ *   <li>{@link com.github.shk0da.GoldenDragon.strategy.RegimeAwareStrategyMl} — extension
+ *       of {@code RegimeAwareStrategy} using ML model (XGBoost) for regime classification
+ *       and price movement prediction.</li>
  *
- *   <li>{@link com.github.shk0da.GoldenDragon.strategy.DivFlow} — стратегия дивидендной торговли.
- *       Анализирует дивидендную доходность, даты отсечек, фундаментальные показатели.</li>
+ *   <li>{@link com.github.shk0da.GoldenDragon.strategy.DivFlow} — dividend trading strategy.
+ *       Analyzes dividend yield, cut-off dates, fundamental indicators.</li>
  *
- *   <li>{@link com.github.shk0da.GoldenDragon.strategy.LevelTrader} — торговля от ключевых уровней
- *       поддержки/сопротивления. Использует исторические экстремумы, объёмные профили.</li>
+ *   <li>{@link com.github.shk0da.GoldenDragon.strategy.LevelTrader} — key level trading
+ *       (support/resistance). Uses historical extremes, volume profiles.</li>
  *
- *   <li>{@link com.github.shk0da.GoldenDragon.strategy.IndicatorTrader} — индикаторная стратегия,
- *       фокусируется на технических индикаторах без привязки к паттернам.</li>
+ *   <li>{@link com.github.shk0da.GoldenDragon.strategy.IndicatorTrader} — indicator strategy,
+ *       focuses on technical indicators without pattern dependency.</li>
  *
- *   <li>{@link com.github.shk0da.GoldenDragon.strategy.Rebalance} — стратегия
- *       периодической ребалансировки портфеля по целевым весам.</li>
+ *   <li>{@link com.github.shk0da.GoldenDragon.strategy.Rebalance} — strategy for
+ *       periodic portfolio rebalancing by target weights.</li>
  *
- *   <li>{@link com.github.shk0da.GoldenDragon.strategy.ModelGenerator} — генерация и валидация
- *       торговых моделей (гиперпараметры, кросс-валидация).</li>
+ *   <li>{@link com.github.shk0da.GoldenDragon.strategy.ModelGenerator} — trading model
+ *       generation and validation (hyperparameters, cross-validation).</li>
  *
- *   <li>{@link com.github.shk0da.GoldenDragon.strategy.RSX} — индикатор RSI с экспоненциальным
- *       сглаживанием (RSX = RSI Smoothed).</li>
+ *   <li>{@link com.github.shk0da.GoldenDragon.strategy.RSX} — RSI with exponential
+ *       smoothing (RSX = RSI Smoothed).</li>
  *
- *   <li>{@link com.github.shk0da.GoldenDragon.strategy.DataCollector} — сбор данных для ML-модели:
- *       сохранение свечей, позиций, решений в формате для обучения.</li>
+ *   <li>{@link com.github.shk0da.GoldenDragon.strategy.DataCollector} — ML model data collection:
+ *       save candles, positions, decisions in training format.</li>
  * </ul>
  *
- * <h2>Интерфейсы и абстракции</h2>
+ * <h2>Interfaces and Abstractions</h2>
  * <ul>
- *   <li>{@link com.github.shk0da.GoldenDragon.model.MarketTickListener} — интерфейс для получения
- *       обновлений рыночных данных в реальном времени (стаканы, сделки). Реализуется стратегиями
- *       для подписки на стримы.</li>
- *
+ *   <li>{@link com.github.shk0da.GoldenDragon.model.MarketTickListener} — interface for receiving
+ *       real-time market data updates (order books, trades). Implemented by strategies
+ *       for stream subscription.</li>
  * </ul>
  *
- * <h2>Управление состоянием</h2>
- * <p>Стратегии хранят состояние в полях классов:</p>
+ * <h2>State Management</h2>
+ * <p>Strategies store state in class fields:</p>
  * <ul>
- *   <li>Позиции: {@link com.github.shk0da.GoldenDragon.model.Position},
+ *   <li>Positions: {@link com.github.shk0da.GoldenDragon.model.Position},
  *       {@link com.github.shk0da.GoldenDragon.model.PositionInfo}.</li>
- *   <li>Рыночные данные: {@link com.github.shk0da.GoldenDragon.model.Candle},
+ *   <li>Market data: {@link com.github.shk0da.GoldenDragon.model.Candle},
  *       {@link com.github.shk0da.GoldenDragon.model.MarketDepthSnapshot},
  *       {@link com.github.shk0da.GoldenDragon.model.MarketTradeTick}.</li>
- *   <li>Сигналы: {@link com.github.shk0da.GoldenDragon.model.TradingDecision}.</li>
+ *   <li>Signals: {@link com.github.shk0da.GoldenDragon.model.TradingDecision}.</li>
  * </ul>
- * <p>Для потокобезопасности используются {@link java.util.concurrent.ConcurrentHashMap},
- * {@link java.util.concurrent.CopyOnWriteArrayList} и явная синхронизация на объектах состояния.</p>
+ * <p>For thread safety, uses {@link java.util.concurrent.ConcurrentHashMap},
+ * {@link java.util.concurrent.CopyOnWriteArrayList} and explicit state object synchronization.</p>
  *
- * <h2>Потокобезопасность</h2>
+ * <h2>Thread Safety</h2>
  * <ul>
- *   <li>{@code BaseStrategy} — использует {@code ExecutorService} с пулом потоков, каждый тикер
- *       обрабатывается в отдельном потоке. Состояние по тикерам разделяется через {@code ConcurrentHashMap}.</li>
- *   <li>Остальные стратегии — однопоточные в рамках одного тикера, многопоточные на уровне пула тикеров.</li>
+ *   <li>{@code BaseStrategy} — uses {@code ExecutorService} with thread pool, each ticker
+ *       processed in separate thread. State shared across tickers via {@code ConcurrentHashMap}.</li>
+ *   <li>Other strategies — single-threaded per ticker, multi-threaded at ticker pool level.</li>
  * </ul>
  *
- * <h2>Конфигурация</h2>
- * <p>Стратегии используют конфигурацию из:</p>
+ * <h2>Configuration</h2>
+ * <p>Strategies use configuration from:</p>
  * <ul>
- *   <li>{@link com.github.shk0da.GoldenDragon.config.UnifiedTraderConfig} — параметры для
- *       {@code BaseStrategy} и наследников (тикеры, лимиты, индикаторы).</li>
- *   <li>{@link com.github.shk0da.GoldenDragon.config.MainConfig} — общие настройки (API-ключи,
- *       режим песочницы, флаг тестовой торговли).</li>
+ *   <li>{@link com.github.shk0da.GoldenDragon.config.UnifiedTraderConfig} — parameters for
+ *       {@code BaseStrategy} and subclasses (tickers, limits, indicators).</li>
+ *   <li>{@link com.github.shk0da.GoldenDragon.config.MainConfig} — general settings (API keys,
+ *       sandbox mode, test trading flag).</li>
  * </ul>
  *
- * <h2>Логирование и уведомления</h2>
- * <p>Стратегии пишут логи в {@link java.lang.System#out} с временными метками
- * {@code dd.MM.yyyy HH:mm:ss}. Критические события (открытие/закрытие позиций, ошибки)
- * дублируются в Telegram через {@link com.github.shk0da.GoldenDragon.service.TelegramNotifyService}.</p>
+ * <h2>Logging and Notifications</h2>
+ * <p>Strategies log to {@link java.lang.System#out} with timestamps
+ * {@code dd.MM.yyyy HH:mm:ss}. Critical events (position open/close, errors)
+ * are duplicated to Telegram via {@link com.github.shk0da.GoldenDragon.service.TelegramNotifyService}.</p>
  *
- * <h2>Бэктестинг</h2>
- * <p>Стратегии могут запускаться в режиме бэктеста через
+ * <h2>Backtesting</h2>
+ * <p>Strategies can be run in backtest mode via
  * {@link com.github.shk0da.GoldenDragon.test.BacktestRunner}
- * исполнение ордеров на исторических данных с учётом комиссий, рабочих часов и портфельного управления.</p>
+ * order execution on historical data with commissions, trading hours, and portfolio management.</p>
  *
- * <h2>Расширение</h2>
- * <p>Для создания новой стратегии:</p>
+ * <h2>Extension</h2>
+ * <p>To create a new strategy:</p>
  * <ol>
- *   <li>Наследоваться от {@code BaseStrategy} (для свечной торговли) или реализовать
- *       {@code MarketTickListener} (для order flow).</li>
- *   <li>Реализовать метод {@code decide()} (для {@code BaseStrategy}) или
- *       {@code onOrderBook()}/{@code onTrade()} (для {@code MarketTickListener}).</li>
- *   <li>Добавить конфигурационный класс (если нужны параметры).</li>
- *   <li>Зарегистрировать стратегию в {@link com.github.shk0da.GoldenDragon.GoldenDragon#main}
- *       или в бэктест-движке.</li>
+ *   <li>Extend {@code BaseStrategy} (for candle trading) or implement
+ *       {@code MarketTickListener} (for order flow).</li>
+ *   <li>Implement {@code decide()} method (for {@code BaseStrategy}) or
+ *       {@code onOrderBook()}/{@code onTrade()} (for {@code MarketTickListener}).</li>
+ *   <li>Add configuration class (if parameters needed).</li>
+ *   <li>Register strategy in {@link com.github.shk0da.GoldenDragon.GoldenDragon#main}
+ *       or backtest engine.</li>
  * </ol>
  *
  * @see com.github.shk0da.GoldenDragon.service

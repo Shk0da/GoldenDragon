@@ -1,34 +1,34 @@
 /**
- * Словари и справочники приложения GoldenDragon.
+ * Dictionaries and reference data for GoldenDragon application.
  *
- * <h2>Назначение пакета</h2>
- * <p>Пакет {@code dictionary} содержит справочные данные для конвертации валют,
- * маппинга тикеров и других статических данных. Словари используются сервисами
- * и стратегиями для нормализации данных.</p>
+ * <h2>Package Purpose</h2>
+ * <p>The {@code dictionary} package contains reference data for currency conversion,
+ * ticker mapping, and other static data. Dictionaries are used by services
+ * and strategies for data normalization.</p>
  *
- * <h2>Ключевые классы</h2>
+ * <h2>Key Classes</h2>
  * <ul>
- *   <li>{@link com.github.shk0da.GoldenDragon.dictionary.CurrenciesDictionary} — словарь валют.
- *       Предоставляет методы для:
+ *   <li>{@link com.github.shk0da.GoldenDragon.dictionary.CurrenciesDictionary} — currency dictionary.
+ *       Provides methods for:
  *       <ul>
- *         <li>Конвертации названий валют (RUB, USD, EUR → полные названия).</li>
- *         <li>Получения валюты по тикеру инструмента.</li>
- *         <li>Проверки поддерживаемых валют.</li>
+ *         <li>Currency name conversion (RUB, USD, EUR → full names).</li>
+ *         <li>Getting currency by instrument ticker.</li>
+ *         <li>Checking supported currencies.</li>
  *       </ul>
- *       <br><b>Использование</b>: {@code TCSService} для обработки валютных пар.</li>
+ *       <br><b>Usage</b>: {@code TCSService} for currency pair handling.</li>
  * </ul>
  *
- * <h2>Расширение</h2>
- * <p>При необходимости можно добавить новые словари:</p>
+ * <h2>Extension</h2>
+ * <p>New dictionaries can be added if needed:</p>
  * <ul>
- *   <li>Словарь секторов экономики (для группировки тикеров).</li>
- *   <li>Словарь стран эмитентов.</li>
- *   <li>Словарь торговых площадок.</li>
+ *   <li>Economic sector dictionary (for ticker grouping).</li>
+ *   <li>Issuer country dictionary.</li>
+ *   <li>Trading venue dictionary.</li>
  * </ul>
  *
- * <h2>Потокобезопасность</h2>
- * <p>Словари иммутабельны и потокобезопасны. Данные загружаются при старте
- * и не изменяются в runtime.</p>
+ * <h2>Thread Safety</h2>
+ * <p>Dictionaries are immutable and thread-safe. Data is loaded at startup
+ * and not modified at runtime.</p>
  *
  * @see com.github.shk0da.GoldenDragon.service.TCSService
  * @see com.github.shk0da.GoldenDragon.model.TickerInfo
