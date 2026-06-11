@@ -63,7 +63,7 @@
  *   <li>{@link com.github.shk0da.GoldenDragon.strategy.IndicatorTrader} — индикаторная стратегия,
  *       фокусируется на технических индикаторах без привязки к паттернам.</li>
  *
- *   <li>{@link com.github.shk0da.GoldenDragon.strategy.Rebalance} / {@link com.github.shk0da.GoldenDragon.strategy.Rebalancing} — стратегии
+ *   <li>{@link com.github.shk0da.GoldenDragon.strategy.Rebalance} — стратегия
  *       периодической ребалансировки портфеля по целевым весам.</li>
  *
  *   <li>{@link com.github.shk0da.GoldenDragon.strategy.ModelGenerator} — генерация и валидация
