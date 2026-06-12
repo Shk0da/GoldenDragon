@@ -769,9 +769,9 @@ public class BacktestRunner {
             Map<String, Map<String, TickerPeriodResult>> allData,
             Map<String, PortfolioPeriodResult> portfolioData,
             List<String> allTickers) {
-        System.out.println("\n" + "=".repeat(170));
+        System.out.println("\n" + "=".repeat(130));
         System.out.println("РЕЗУЛЬТАТЫ ПО ПЕРИОДАМ ДЛЯ СТРАТЕГИИ: " + strategyName);
-        System.out.println("=".repeat(170));
+        System.out.println("=".repeat(130));
 
         StringBuilder header = new StringBuilder();
         header.append(String.format("%-10s", "Тикер"));
@@ -837,7 +837,7 @@ public class BacktestRunner {
         }
 
         System.out.println(portRow);
-        System.out.println("=".repeat(170));
+        System.out.println("=".repeat(130));
     }
 
     private ExecutionResult execute(
