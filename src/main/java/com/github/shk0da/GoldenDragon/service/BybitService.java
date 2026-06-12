@@ -2,7 +2,6 @@ package com.github.shk0da.goldendragon.service;
 
 import static com.github.shk0da.goldendragon.utils.LoggingUtils.log;
 import static com.github.shk0da.goldendragon.utils.LoggingUtils.logError;
-
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
 import java.io.IOException;
@@ -22,6 +21,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.TreeMap;
 import java.util.zip.GZIPInputStream;
@@ -117,18 +117,46 @@ public class BybitService {
         String coinDataDir = Paths.get(dataDir, coin).toString();
         Files.createDirectories(Paths.get(coinDataDir));
 
-        // Download files one by one and convert immediately
+        CandleIncrementalConverter converter =
+                new CandleIncrementalConverter(coinDataDir, coinDataDir);
+
+        // Check if candle files already exist and have data
+        Path candlesHourFile = Paths.get(coinDataDir, "candlesHOUR.txt");
+        boolean candlesExist = Files.exists(candlesHourFile) && Files.size(candlesHourFile) > 0;
+
+        if (!candlesExist) {
+            // Try to process existing CSV files first instead of re-downloading
+            List<Path> existingCsvFiles = findExistingCsvFiles(coinDataDir);
+            if (!existingCsvFiles.isEmpty()) {
+                log("Found " + existingCsvFiles.size()
+                        + " existing CSV files for " + coin + ", processing...");
+                for (Path csvFile : existingCsvFiles) {
+                    converter.convertSingleFile(csvFile);
+                }
+            }
+        }
+
+        // Download any missing files from Bybit (skips files already on disk)
         BybitDataDownloader downloader =
                 new BybitDataDownloader(
                         coinDataDir,
                         coin,
                         startDate,
                         endDate,
-                        new CandleIncrementalConverter(coinDataDir, coinDataDir));
+                        converter);
 
         downloader.downloadAll();
 
         log("Completed processing coin: " + coin);
+    }
+
+    /** Find existing CSV files in the coin data directory. */
+    private List<Path> findExistingCsvFiles(String dir) throws IOException {
+        List<Path> csvFiles = new ArrayList<>();
+        try (java.util.stream.Stream<Path> stream = Files.walk(Paths.get(dir))) {
+            stream.filter(p -> p.toString().endsWith(".csv")).sorted().forEach(csvFiles::add);
+        }
+        return csvFiles;
     }
 
     // ========================================================================
@@ -421,11 +449,11 @@ public class BybitService {
                 if (!allTicks.isEmpty()) {
                     // Write 5-minute candles
                     List<Candle> candles5Min = aggregateCandles(allTicks, 5 * 60 * 1000);
-                    writeCandlesFile(dataDir.resolve("candles5_MIN.txt"), candles5Min, false);
+                    writeCandlesFile(dataDir.resolve("candles5_MIN.txt"), candles5Min, true);
 
                     // Write 1-hour candles
                     List<Candle> candles1H = aggregateCandles(allTicks, 60 * 60 * 1000);
-                    writeCandlesFile(dataDir.resolve("candlesHOUR.txt"), candles1H, false);
+                    writeCandlesFile(dataDir.resolve("candlesHOUR.txt"), candles1H, true);
 
                     // Write ticker.json only once
                     if (!initialized) {
@@ -512,6 +540,7 @@ public class BybitService {
 
                     writer.write(
                             String.format(
+                                    Locale.US,
                                     "%s,%.2f,%.2f,%.2f,%.2f,%d",
                                     dateTimeStr,
                                     candle.open,
