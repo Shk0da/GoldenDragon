@@ -157,6 +157,7 @@ int size = (int)(baseSize * multiplier);
 - **Position limits** — Max 8 concurrent positions
 - **Daily loss limit** — Configurable (default 3%)
 - **Risk per trade** — Configurable (default 1%)
+- **Leverage** — Configurable per ticker (1x, 2x, 3x, 5x), default 1x. Futures (FEATURE type) additionally use broker margin rate (FUTURES_MARGIN_RATE=0.4) applied before leverage.
 
 ## File Locations
 

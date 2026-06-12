@@ -947,7 +947,8 @@ public class BacktestRunner {
                                         current.time,
                                         "eod_close",
                                         sharedCash,
-                                        tradesByTicker.get(ticker));
+                                        tradesByTicker.get(ticker),
+                                        config);
                         state.lastEodCloseDate = currentTime.toLocalDate();
                     }
 
@@ -956,7 +957,7 @@ public class BacktestRunner {
                             .add(
                                     new EquityPoint(
                                             current.time,
-                                            tickerEquity(ticker, state, current.close)));
+                                            tickerEquity(ticker, state, current.close, config)));
                     minuteIndexByTicker.put(ticker, idx + 1);
                     continue;
                 }
@@ -971,7 +972,8 @@ public class BacktestRunner {
                         .get(ticker)
                         .add(
                                 new EquityPoint(
-                                        current.time, tickerEquity(ticker, state, current.close)));
+                                        current.time,
+                                        tickerEquity(ticker, state, current.close, config)));
 
                 if (state.hourIdx + 1 >= MIN_HOURS_REQUIRED) {
                     List<Candle> hourHistory = marketData.hourCandles.subList(0, state.hourIdx + 1);
@@ -1010,7 +1012,8 @@ public class BacktestRunner {
                                     hourHistory,
                                     minHistory,
                                     sharedCash,
-                                    tradesByTicker.get(ticker));
+                                    tradesByTicker.get(ticker),
+                                    config);
                 }
 
                 state.lastSeenHourIdx = state.hourIdx;
@@ -1026,7 +1029,8 @@ public class BacktestRunner {
                             getRequiredCash(
                                     ticker,
                                     state.position.quantity,
-                                    lastPriceByTicker.getOrDefault(ticker, state.entryPrice));
+                                    lastPriceByTicker.getOrDefault(ticker, state.entryPrice),
+                                    config.getTickerParams(ticker).leverage);
                 }
             }
             portfolioEquity.add(new EquityPoint(time, totalEquity));
@@ -1047,7 +1051,8 @@ public class BacktestRunner {
                                 lastCandle.time,
                                 "period_end",
                                 sharedCash,
-                                tradesByTicker.get(ticker));
+                                tradesByTicker.get(ticker),
+                                config);
             }
         }
 
@@ -1060,7 +1065,8 @@ public class BacktestRunner {
                         getRequiredCash(
                                 ticker,
                                 state.position.quantity,
-                                lastPriceByTicker.getOrDefault(ticker, state.entryPrice));
+                                lastPriceByTicker.getOrDefault(ticker, state.entryPrice),
+                                config.getTickerParams(ticker).leverage);
             }
         }
 
@@ -1202,7 +1208,8 @@ public class BacktestRunner {
             List<Candle> hourHistory,
             List<Candle> minHistory,
             double sharedCash,
-            List<TradeResult> trades) {
+            List<TradeResult> trades,
+            UnifiedTraderConfig config) {
         if (decision == null) {
             return sharedCash;
         }
@@ -1218,7 +1225,8 @@ public class BacktestRunner {
                                 ? decision.updatedPosition.entryPrice
                                 : current.close;
                 int openQty = decision.quantity;
-                double positionValue = getRequiredCash(ticker, openQty, openEntry);
+                int leverage = config.getTickerParams(ticker).leverage;
+                double positionValue = getRequiredCash(ticker, openQty, openEntry, leverage);
                 double entryCommission = positionValue * commission;
                 if (positionValue + entryCommission > sharedCash) {
                     return sharedCash;
@@ -1250,7 +1258,8 @@ public class BacktestRunner {
                         currentTime,
                         decision.reason,
                         sharedCash,
-                        trades);
+                        trades,
+                        config);
 
             case "HOLD":
                 if (decision.updatedPosition != null) {
@@ -1271,10 +1280,12 @@ public class BacktestRunner {
             String time,
             String reason,
             double sharedCash,
-            List<TradeResult> trades) {
+            List<TradeResult> trades,
+            UnifiedTraderConfig config) {
         int quantity = state.position.quantity;
-        double exitValue = getRequiredCash(ticker, quantity, exitPrice);
-        double entryValue = getRequiredCash(ticker, quantity, state.entryPrice);
+        int leverage = config.getTickerParams(ticker).leverage;
+        double exitValue = getRequiredCash(ticker, quantity, exitPrice, leverage);
+        double entryValue = getRequiredCash(ticker, quantity, state.entryPrice, leverage);
         double totalCommission = (entryValue + exitValue) * commission;
         double pnl = exitValue - entryValue - totalCommission;
 
@@ -1292,11 +1303,18 @@ public class BacktestRunner {
         return sharedCash;
     }
 
-    private double tickerEquity(String ticker, PortfolioPositionState state, double currentPrice) {
+    private double tickerEquity(
+            String ticker,
+            PortfolioPositionState state,
+            double currentPrice,
+            UnifiedTraderConfig config) {
         double unrealizedPnl = 0.0;
         if (state.position.quantity > 0) {
-            double exitValue = getRequiredCash(ticker, state.position.quantity, currentPrice);
-            double entryValue = getRequiredCash(ticker, state.position.quantity, state.entryPrice);
+            int leverage = config.getTickerParams(ticker).leverage;
+            double exitValue =
+                    getRequiredCash(ticker, state.position.quantity, currentPrice, leverage);
+            double entryValue =
+                    getRequiredCash(ticker, state.position.quantity, state.entryPrice, leverage);
             double exitCommission = exitValue * commission;
             unrealizedPnl = exitValue - entryValue - exitCommission;
         }
@@ -1530,17 +1548,26 @@ public class BacktestRunner {
         return new SimulateResult(trades, equityCurve, finalBalance);
     }
 
+    // Legacy overload: no leverage (default 1x)
     private double getRequiredCash(String ticker, int quantity, double price) {
+        return getRequiredCash(ticker, quantity, price, 1);
+    }
+
+    private double getRequiredCash(String ticker, int quantity, double price, int leverage) {
         if (quantity <= 0 || price <= 0.0) {
             return 0.0;
         }
 
         TickerInfo tickerInfo = resolveTickerInfo(ticker);
         double fullValue = quantity * price;
+        double marginMultiplier = 1.0;
         if (tickerInfo != null && TickerType.FEATURE == tickerInfo.getType()) {
-            return fullValue * TCSService.FUTURES_MARGIN_RATE;
+            marginMultiplier = TCSService.FUTURES_MARGIN_RATE;
         }
-        return fullValue;
+        if (leverage > 1) {
+            marginMultiplier /= leverage;
+        }
+        return fullValue * marginMultiplier;
     }
 
     private TickerInfo resolveTickerInfo(String ticker) {

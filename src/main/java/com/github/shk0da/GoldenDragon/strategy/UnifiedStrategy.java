@@ -709,9 +709,15 @@ public class UnifiedStrategy extends BaseStrategy {
 
         int lot = tickerInfo.getLot() != null ? tickerInfo.getLot() : 1;
         double orderCost = lot * entryPrice;
+        double marginMultiplier = 1.0;
         if (TickerType.FEATURE == tickerInfo.getType()) {
-            orderCost *= TCSService.FUTURES_MARGIN_RATE;
+            marginMultiplier = TCSService.FUTURES_MARGIN_RATE;
         }
+        int leverage = unifiedTraderConfig.getTickerParams(ticker).leverage;
+        if (leverage > 1) {
+            marginMultiplier /= leverage;
+        }
+        orderCost *= marginMultiplier;
         if (orderCost <= 0.0) {
             return 0;
         }

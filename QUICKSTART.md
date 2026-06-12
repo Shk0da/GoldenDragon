@@ -46,6 +46,7 @@ telegram.notify.chatId=YOUR_CHAT_ID
 # Strategy parameters
 unifiedTrader.ticker.SBER.enabled=true
 unifiedTrader.ticker.GAZP.enabled=true
+unifiedTrader.ticker.BTCUSDT.leverage=3   # trade with 3x leverage
 ```
 
 ### 4. Build Project

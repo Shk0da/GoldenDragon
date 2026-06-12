@@ -35,6 +35,7 @@ public class UnifiedTraderConfig {
         public final double mmAtrStopMultiplier;
         public final double mmTrailingMultiplier;
         public final boolean mmEnabled;
+        public final int leverage;
 
         public TickerParams(
                 String group,
@@ -60,7 +61,8 @@ public class UnifiedTraderConfig {
                     0.01,
                     2.0,
                     1.0,
-                    true);
+                    true,
+                    1);
         }
 
         public TickerParams(
@@ -96,7 +98,8 @@ public class UnifiedTraderConfig {
                     0.01,
                     2.0,
                     1.0,
-                    true);
+                    true,
+                    1);
         }
 
         public TickerParams(
@@ -117,7 +120,8 @@ public class UnifiedTraderConfig {
                 double mmRiskPercent,
                 double mmAtrStopMultiplier,
                 double mmTrailingMultiplier,
-                boolean mmEnabled) {
+                boolean mmEnabled,
+                int leverage) {
             this.group = group;
             this.slMult = slMult;
             this.tpMult = tpMult;
@@ -136,6 +140,7 @@ public class UnifiedTraderConfig {
             this.mmAtrStopMultiplier = mmAtrStopMultiplier;
             this.mmTrailingMultiplier = mmTrailingMultiplier;
             this.mmEnabled = mmEnabled;
+            this.leverage = leverage;
         }
     }
 
@@ -261,6 +266,8 @@ public class UnifiedTraderConfig {
                 Double.parseDouble(properties.getProperty(prefix + "mmTrailingMultiplier", "1.0"));
         boolean tickerMmEnabled =
                 Boolean.parseBoolean(properties.getProperty(prefix + "mmEnabled", "true"));
+        String globalLeverage = properties.getProperty("unifiedTrader.leverage", "1");
+        int leverage = Integer.parseInt(properties.getProperty(prefix + "leverage", globalLeverage));
 
         return new TickerParams(
                 group,
@@ -280,7 +287,8 @@ public class UnifiedTraderConfig {
                 tickerMmRiskPercent,
                 tickerMmAtrStopMultiplier,
                 tickerMmTrailingMultiplier,
-                tickerMmEnabled);
+                tickerMmEnabled,
+                leverage);
     }
 
     private String getGroupDefault(

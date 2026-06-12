@@ -113,6 +113,7 @@ unifiedTrader.ticker.SBER.enabled=true
 unifiedTrader.ticker.SBER.slMult=1.2
 unifiedTrader.ticker.SBER.tpMult=2.5
 unifiedTrader.ticker.SBER.riskP=0.01
+unifiedTrader.ticker.SBER.leverage=1
 
 # Money management
 unifiedTrader.mmEnabled=true

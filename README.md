@@ -84,6 +84,7 @@ src/main/java/com/github/shk0da/GoldenDragon/
 - **KillSwitch** — остановка при просадке >= 10%
 - **AdaptiveCapital** — снижение риска на 50% после 3 лоссов подряд, восстановление после 5 побед
 - **RiskManager** — дневной лимит убытков (3%), ограничение серии проигрышей (3)
+- **Leverage** — настраиваемое плечо (1x, 2x, 3x, 5x) для каждого тикера
 
 ## ML-подсистема
 
@@ -122,6 +123,10 @@ apiKey=<api_key>
 # Telegram Bot (опционально)
 telegram.bot.token=<bot_token>
 telegram.chat.id=<chat_id>
+
+# Leverage (опционально, по умолчанию 1)
+unifiedTrader.ticker.BTCUSDT.leverage=3
+unifiedTrader.ticker.ETHUSDT.leverage=2
 ```
 
 ### Запуск стратегий
