@@ -1,17 +1,31 @@
 package com.github.shk0da.goldendragon.service;
 
-import static com.github.shk0da.goldendragon.utils.LoggingUtils.log;
-import static com.github.shk0da.goldendragon.utils.LoggingUtils.logError;
-
-import java.io.*;
+import java.io.BufferedReader;
+import java.io.BufferedWriter;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
-import java.nio.file.*;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.List;
+import java.util.Map;
+import java.util.TreeMap;
 import java.util.zip.GZIPInputStream;
+
+
+import static com.github.shk0da.goldendragon.utils.LoggingUtils.log;
+import static com.github.shk0da.goldendragon.utils.LoggingUtils.logError;
 
 /**
  * Service for downloading and converting historical data from Bybit. Integrates with DataCollector
