@@ -138,6 +138,9 @@ public class BybitService {
                     Files.deleteIfExists(csvFile);
                 }
             }
+        } else {
+            // Load existing candles into accumulators so new data is merged, not lost
+            converter.loadExistingCandles();
         }
 
         // Download any missing files from Bybit (skips files already on disk)
@@ -427,7 +430,7 @@ public class BybitService {
      */
     private static class CandleIncrementalConverter {
 
-        private static final DateTimeFormatter OUTPUT_DATE_FORMAT =
+        private static final DateTimeFormatter DATE_FORMAT =
                 DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm:ss");
 
         private static final long INTERVAL_5MIN = 5 * 60 * 1000;
@@ -440,6 +443,48 @@ public class BybitService {
 
         CandleIncrementalConverter(String dataDir, String outputDir) {
             this.dataDir = Paths.get(dataDir);
+        }
+
+        synchronized void loadExistingCandles() {
+            try {
+                loadCandlesFile(dataDir.resolve("candles5_MIN.txt"), INTERVAL_5MIN, acc5min);
+                loadCandlesFile(dataDir.resolve("candlesHOUR.txt"), INTERVAL_1H, acc1h);
+            } catch (Exception e) {
+                System.err.println("Error loading existing candles: " + e.getMessage());
+            }
+        }
+
+        private void loadCandlesFile(
+                Path file, long intervalMs, Map<Long, CandleAccumulator> accumulators)
+                throws IOException {
+            if (!Files.exists(file) || Files.size(file) == 0) return;
+
+            try (BufferedReader reader = Files.newBufferedReader(file)) {
+                String line = reader.readLine(); // Skip header
+                if (line == null) return;
+
+                while ((line = reader.readLine()) != null) {
+                    String[] parts = line.split(",");
+                    if (parts.length < 6) continue;
+
+                    try {
+                        LocalDateTime dt = LocalDateTime.parse(parts[0], DATE_FORMAT);
+                        long timestamp = dt.toEpochSecond(java.time.ZoneOffset.UTC) * 1000;
+                        double open = Double.parseDouble(parts[1]);
+                        double high = Double.parseDouble(parts[2]);
+                        double low = Double.parseDouble(parts[3]);
+                        double close = Double.parseDouble(parts[4]);
+                        long volume = (long) Double.parseDouble(parts[5]);
+
+                        long key = (timestamp / intervalMs) * intervalMs;
+                        accumulators
+                                .computeIfAbsent(key, k -> new CandleAccumulator())
+                                .merge(open, high, low, close, volume);
+                    } catch (Exception e) {
+                        // Skip malformed lines
+                    }
+                }
+            }
         }
 
         synchronized void convertSingleFile(Path csvFile) {
@@ -511,7 +556,7 @@ public class BybitService {
                     LocalDateTime dateTime =
                             LocalDateTime.ofEpochSecond(
                                     entry.getKey() / 1000, 0, java.time.ZoneOffset.UTC);
-                    String dateTimeStr = dateTime.format(OUTPUT_DATE_FORMAT);
+                    String dateTimeStr = dateTime.format(DATE_FORMAT);
                     CandleAccumulator acc = entry.getValue();
 
                     writer.write(
@@ -572,6 +617,22 @@ public class BybitService {
                 if (price < low) low = price;
                 close = price;
                 volume += vol;
+            }
+
+            void merge(
+                    double mergedOpen,
+                    double mergedHigh,
+                    double mergedLow,
+                    double mergedClose,
+                    long mergedVolume) {
+                if (!hasTicks) {
+                    open = mergedOpen;
+                    hasTicks = true;
+                }
+                if (mergedHigh > high) high = mergedHigh;
+                if (mergedLow < low) low = mergedLow;
+                close = mergedClose;
+                volume += mergedVolume;
             }
         }
     }
