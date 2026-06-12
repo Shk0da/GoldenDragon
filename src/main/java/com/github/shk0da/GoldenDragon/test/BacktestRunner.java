@@ -837,6 +837,39 @@ public class BacktestRunner {
         }
 
         System.out.println(portRow);
+
+        StringBuilder avgRow = new StringBuilder();
+        avgRow.append(String.format("%-10s", "СРЕДНЕЕ"));
+        double totalPnl = 0;
+        int totalTrades = 0;
+        double totalDd = 0;
+        double totalWr = 0;
+        int count = 0;
+
+        for (String label : periodLabels) {
+            PortfolioPeriodResult result = portfolioData.get(label);
+            if (result != null) {
+                totalPnl += result.pnl;
+                totalTrades += result.totalTrades;
+                totalDd += result.dd;
+                totalWr += result.winRate;
+                count++;
+            }
+        }
+
+        if (count > 0) {
+            avgRow.append(
+                    String.format(
+                            " %6s %5s %4d %5.1f",
+                            formatCompactPnL(totalPnl / count),
+                            formatCompactDD((totalDd / count) * 100.0),
+                            totalTrades / count,
+                            (totalWr / count) * 100.0));
+        }
+        for (int i = 1; i < periodLabels.size(); i++) {
+            avgRow.append(String.format(" %22s", ""));
+        }
+        System.out.println(avgRow);
         System.out.println("=".repeat(130));
     }
 
