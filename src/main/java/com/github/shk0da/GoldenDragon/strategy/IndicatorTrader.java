@@ -1,15 +1,15 @@
-package com.github.shk0da.GoldenDragon.strategy;
+package com.github.shk0da.goldendragon.strategy;
 
-import static com.github.shk0da.GoldenDragon.service.TelegramNotifyService.telegramNotifyService;
-import static com.github.shk0da.GoldenDragon.utils.IndicatorsUtil.toDouble;
-import static com.github.shk0da.GoldenDragon.utils.TimeUtils.sleep;
+import static com.github.shk0da.goldendragon.service.TelegramNotifyService.telegramNotifyService;
+import static com.github.shk0da.goldendragon.utils.IndicatorsUtil.toDouble;
+import static com.github.shk0da.goldendragon.utils.TimeUtils.sleep;
 import static java.lang.System.out;
 import static java.time.OffsetDateTime.now;
 import static java.util.Collections.max;
 import static java.util.stream.Collectors.toList;
 
-import com.github.shk0da.GoldenDragon.service.TCSService;
-import com.github.shk0da.GoldenDragon.utils.IndicatorsUtil;
+import com.github.shk0da.goldendragon.service.TCSService;
+import com.github.shk0da.goldendragon.utils.IndicatorsUtil;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.HashMap;

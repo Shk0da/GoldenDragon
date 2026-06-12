@@ -10,7 +10,7 @@
  * <h2>Data Collection</h2>
  *
  * <ul>
- *   <li>{@link com.github.shk0da.GoldenDragon.ml.TradeDataCollector} — collect labeled trade data
+ *   <li>{@link com.github.shk0da.goldendragon.ml.TradeDataCollector} — collect labeled trade data
  *       for training. Saves to CSV:
  *       <ul>
  *         <li>Entry/exit time, ticker, strategy.
@@ -21,14 +21,14 @@
  *       </ul>
  *       <br>
  *       <b>Format</b>: {@code trades.csv} for XGBoost training.
- *   <li>{@link com.github.shk0da.GoldenDragon.ml.TradeFeatures} — ML model features: technical
+ *   <li>{@link com.github.shk0da.goldendragon.ml.TradeFeatures} — ML model features: technical
  *       indicators, market regime, volatility, volume. Used as input vector for prediction.
  * </ul>
  *
  * <h2>Model Training</h2>
  *
  * <ul>
- *   <li>{@link com.github.shk0da.GoldenDragon.ml.MlModelTrainer} — train ML model (XGBoost) on
+ *   <li>{@link com.github.shk0da.goldendragon.ml.MlModelTrainer} — train ML model (XGBoost) on
  *       historical data. Supports:
  *       <ul>
  *         <li>Training on all data (general model).
@@ -38,7 +38,7 @@
  *       </ul>
  *       <br>
  *       <b>Run</b>: {@code ./gradlew runMlTraining} or {@code ./gradlew trainAllTickers}.
- *   <li>{@link com.github.shk0da.GoldenDragon.ml.MlAutoTrainingService} — automatic model
+ *   <li>{@link com.github.shk0da.goldendragon.ml.MlAutoTrainingService} — automatic model
  *       retraining. Checks accumulated data, triggers training when minimum new trades reached.
  *       Used in {@code RegimeAwareStrategyMl}.
  * </ul>
@@ -46,7 +46,7 @@
  * <h2>Prediction</h2>
  *
  * <ul>
- *   <li>{@link com.github.shk0da.GoldenDragon.ml.MlPredictionService} — prediction service based on
+ *   <li>{@link com.github.shk0da.goldendragon.ml.MlPredictionService} — prediction service based on
  *       trained model. Provides:
  *       <ul>
  *         <li>{@code predictProbability(features)} — profitable trade probability.
@@ -87,7 +87,7 @@
  * methods, concurrent collections). {@code MlModelTrainer} runs in separate thread during
  * retraining.
  *
- * @see com.github.shk0da.GoldenDragon.strategy.RegimeAwareStrategyMl
- * @see com.github.shk0da.GoldenDragon.strategy.BaseStrategy
+ * @see com.github.shk0da.goldendragon.strategy.RegimeAwareStrategyMl
+ * @see com.github.shk0da.goldendragon.strategy.BaseStrategy
  */
-package com.github.shk0da.GoldenDragon.ml;
+package com.github.shk0da.goldendragon.ml;

@@ -10,31 +10,31 @@
  * <h2>Position Sizing</h2>
  *
  * <ul>
- *   <li>{@link com.github.shk0da.GoldenDragon.money.SizingStrategy} — interface for position sizing
+ *   <li>{@link com.github.shk0da.goldendragon.money.SizingStrategy} — interface for position sizing
  *       algorithms. Implementations calculate optimal size based on risk.
- *   <li>{@link com.github.shk0da.GoldenDragon.money.FixedRiskSizing} — fixed risk per trade (e.g.,
+ *   <li>{@link com.github.shk0da.goldendragon.money.FixedRiskSizing} — fixed risk per trade (e.g.,
  *       1% of capital). Classic position sizing approach.
- *   <li>{@link com.github.shk0da.GoldenDragon.money.VolatilityAdjustedSizing} — position size
+ *   <li>{@link com.github.shk0da.goldendragon.money.VolatilityAdjustedSizing} — position size
  *       adjusted by volatility (ATR). Smaller size during high volatility.
- *   <li>{@link com.github.shk0da.GoldenDragon.money.PositionSizer} — SizingStrategy wrapper.
+ *   <li>{@link com.github.shk0da.goldendragon.money.PositionSizer} — SizingStrategy wrapper.
  *       Applies minimum lot size and lot step to calculation.
  * </ul>
  *
  * <h2>Risk Control</h2>
  *
  * <ul>
- *   <li>{@link com.github.shk0da.GoldenDragon.money.RiskManager} — risk manager: daily loss limits,
+ *   <li>{@link com.github.shk0da.goldendragon.money.RiskManager} — risk manager: daily loss limits,
  *       consecutive losses, risk per trade. {@code canTrade()} method checks if trading is allowed.
- *   <li>{@link com.github.shk0da.GoldenDragon.money.KillSwitch} — emergency trading halt. Triggers
+ *   <li>{@link com.github.shk0da.goldendragon.money.KillSwitch} — emergency trading halt. Triggers
  *       on critical drawdown, connection loss, abnormal spread. Blocks trading until manual reset.
- *   <li>{@link com.github.shk0da.GoldenDragon.money.StopLossManager} — stop-loss management.
+ *   <li>{@link com.github.shk0da.goldendragon.money.StopLossManager} — stop-loss management.
  *       Dynamic stop update on profit (trailing stop), ATR-based calculation.
  * </ul>
  *
  * <h2>Adaptive Capital</h2>
  *
  * <ul>
- *   <li>{@link com.github.shk0da.GoldenDragon.money.AdaptiveCapital} — anti-martingale system.
+ *   <li>{@link com.github.shk0da.goldendragon.money.AdaptiveCapital} — anti-martingale system.
  *       Reduces risk after losing streaks, restores after winning trades. Never uses martingale (no
  *       doubling down on losses).
  * </ul>
@@ -42,7 +42,7 @@
  * <h2>Performance Tracking</h2>
  *
  * <ul>
- *   <li>{@link com.github.shk0da.GoldenDragon.money.PerformanceTracker} — trading statistics: PnL,
+ *   <li>{@link com.github.shk0da.goldendragon.money.PerformanceTracker} — trading statistics: PnL,
  *       trade count, win rate, maximum drawdown, largest win/loss. Used for adaptive capital
  *       management.
  * </ul>
@@ -64,7 +64,7 @@
  * <p>All classes use {@code AtomicReference}, {@code AtomicInteger}, {@code volatile} for thread
  * safety. Methods can be called from different strategy threads.
  *
- * @see com.github.shk0da.GoldenDragon.strategy.UnifiedStrategy
- * @see com.github.shk0da.GoldenDragon.strategy.BaseStrategy
+ * @see com.github.shk0da.goldendragon.strategy.UnifiedStrategy
+ * @see com.github.shk0da.goldendragon.strategy.BaseStrategy
  */
-package com.github.shk0da.GoldenDragon.money;
+package com.github.shk0da.goldendragon.money;

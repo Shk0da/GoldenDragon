@@ -1,4 +1,4 @@
-package com.github.shk0da.GoldenDragon.config;
+package com.github.shk0da.goldendragon.config;
 
 /**
  * Dividend calendar URLs for DivFlow strategy. Provides data sources for dividend analysis from

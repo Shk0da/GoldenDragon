@@ -1,10 +1,10 @@
-package com.github.shk0da.GoldenDragon.config;
+package com.github.shk0da.goldendragon.config;
 
-import com.github.shk0da.GoldenDragon.model.PortfolioPosition;
-import com.github.shk0da.GoldenDragon.model.TickerInfo;
-import com.github.shk0da.GoldenDragon.model.TickerType;
-import com.github.shk0da.GoldenDragon.utils.PropertiesUtils;
-import com.github.shk0da.GoldenDragon.utils.TickerTypeResolver;
+import com.github.shk0da.goldendragon.model.PortfolioPosition;
+import com.github.shk0da.goldendragon.model.TickerInfo;
+import com.github.shk0da.goldendragon.model.TickerType;
+import com.github.shk0da.goldendragon.utils.PropertiesUtils;
+import com.github.shk0da.goldendragon.utils.TickerTypeResolver;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;

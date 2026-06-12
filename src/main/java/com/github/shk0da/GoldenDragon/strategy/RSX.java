@@ -1,21 +1,21 @@
-package com.github.shk0da.GoldenDragon.strategy;
+package com.github.shk0da.goldendragon.strategy;
 
-import static com.github.shk0da.GoldenDragon.utils.SerializationUtils.loadDataFromDisk;
-import static com.github.shk0da.GoldenDragon.utils.SerializationUtils.saveDataToDisk;
+import static com.github.shk0da.goldendragon.utils.SerializationUtils.loadDataFromDisk;
+import static com.github.shk0da.goldendragon.utils.SerializationUtils.saveDataToDisk;
 import static java.lang.System.out;
 import static java.util.stream.Collectors.toList;
 
-import com.github.shk0da.GoldenDragon.config.MainConfig;
-import com.github.shk0da.GoldenDragon.config.MarketConfig;
-import com.github.shk0da.GoldenDragon.config.RSXConfig;
-import com.github.shk0da.GoldenDragon.model.PortfolioPosition;
-import com.github.shk0da.GoldenDragon.model.TickerInfo;
-import com.github.shk0da.GoldenDragon.model.TickerScan;
-import com.github.shk0da.GoldenDragon.model.TickerType;
-import com.github.shk0da.GoldenDragon.repository.Repository;
-import com.github.shk0da.GoldenDragon.repository.TickerRepository;
-import com.github.shk0da.GoldenDragon.service.TCSService;
-import com.github.shk0da.GoldenDragon.service.TradingViewService;
+import com.github.shk0da.goldendragon.config.MainConfig;
+import com.github.shk0da.goldendragon.config.MarketConfig;
+import com.github.shk0da.goldendragon.config.RSXConfig;
+import com.github.shk0da.goldendragon.model.PortfolioPosition;
+import com.github.shk0da.goldendragon.model.TickerInfo;
+import com.github.shk0da.goldendragon.model.TickerScan;
+import com.github.shk0da.goldendragon.model.TickerType;
+import com.github.shk0da.goldendragon.repository.Repository;
+import com.github.shk0da.goldendragon.repository.TickerRepository;
+import com.github.shk0da.goldendragon.service.TCSService;
+import com.github.shk0da.goldendragon.service.TradingViewService;
 import com.google.gson.reflect.TypeToken;
 import java.util.ArrayList;
 import java.util.Comparator;

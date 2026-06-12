@@ -1,30 +1,30 @@
-package com.github.shk0da.GoldenDragon.strategy;
+package com.github.shk0da.goldendragon.strategy;
 
-import static com.github.shk0da.GoldenDragon.model.TickerType.FEATURE;
-import static com.github.shk0da.GoldenDragon.model.TickerType.STOCK;
-import static com.github.shk0da.GoldenDragon.service.TelegramNotifyService.telegramNotifyService;
-import static com.github.shk0da.GoldenDragon.utils.LoggingUtils.log;
-import static com.github.shk0da.GoldenDragon.utils.TimeUtils.sleep;
+import static com.github.shk0da.goldendragon.model.TickerType.FEATURE;
+import static com.github.shk0da.goldendragon.model.TickerType.STOCK;
+import static com.github.shk0da.goldendragon.service.TelegramNotifyService.telegramNotifyService;
+import static com.github.shk0da.goldendragon.utils.LoggingUtils.log;
+import static com.github.shk0da.goldendragon.utils.TimeUtils.sleep;
 import static java.lang.Math.abs;
 import static java.lang.Math.max;
 import static java.util.concurrent.CompletableFuture.allOf;
 import static java.util.concurrent.CompletableFuture.runAsync;
 
-import com.github.shk0da.GoldenDragon.config.UnifiedTraderConfig;
-import com.github.shk0da.GoldenDragon.filters.BadWeatherFilter;
-import com.github.shk0da.GoldenDragon.filters.MarketRegimeFilter;
-import com.github.shk0da.GoldenDragon.ml.TradeDataCollector;
-import com.github.shk0da.GoldenDragon.model.Candle;
-import com.github.shk0da.GoldenDragon.model.Config;
-import com.github.shk0da.GoldenDragon.model.Position;
-import com.github.shk0da.GoldenDragon.model.TickerCandle;
-import com.github.shk0da.GoldenDragon.model.TickerInfo;
-import com.github.shk0da.GoldenDragon.model.TickerType;
-import com.github.shk0da.GoldenDragon.model.TradingDecision;
-import com.github.shk0da.GoldenDragon.repository.TickerRepository;
-import com.github.shk0da.GoldenDragon.service.TCSService;
-import com.github.shk0da.GoldenDragon.utils.IndicatorsUtil;
-import com.github.shk0da.GoldenDragon.utils.LoggingUtils;
+import com.github.shk0da.goldendragon.config.UnifiedTraderConfig;
+import com.github.shk0da.goldendragon.filters.BadWeatherFilter;
+import com.github.shk0da.goldendragon.filters.MarketRegimeFilter;
+import com.github.shk0da.goldendragon.ml.TradeDataCollector;
+import com.github.shk0da.goldendragon.model.Candle;
+import com.github.shk0da.goldendragon.model.Config;
+import com.github.shk0da.goldendragon.model.Position;
+import com.github.shk0da.goldendragon.model.TickerCandle;
+import com.github.shk0da.goldendragon.model.TickerInfo;
+import com.github.shk0da.goldendragon.model.TickerType;
+import com.github.shk0da.goldendragon.model.TradingDecision;
+import com.github.shk0da.goldendragon.repository.TickerRepository;
+import com.github.shk0da.goldendragon.service.TCSService;
+import com.github.shk0da.goldendragon.utils.IndicatorsUtil;
+import com.github.shk0da.goldendragon.utils.LoggingUtils;
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileWriter;
@@ -959,7 +959,7 @@ public abstract class BaseStrategy {
   }
 
   private void restoreTrackedPositions(Set<String> activeTickers, TickerType tickerType) {
-    Map<TickerInfo.Key, com.github.shk0da.GoldenDragon.model.PositionInfo> currentPositions =
+    Map<TickerInfo.Key, com.github.shk0da.goldendragon.model.PositionInfo> currentPositions =
         tcsService.getCurrentPositions(tickerType);
     currentPositions.values().stream()
         .filter(positionInfo -> activeTickers.contains(positionInfo.getTicker()))

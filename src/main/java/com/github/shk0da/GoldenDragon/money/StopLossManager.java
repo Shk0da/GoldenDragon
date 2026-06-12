@@ -1,7 +1,7 @@
-package com.github.shk0da.GoldenDragon.money;
+package com.github.shk0da.goldendragon.money;
 
-import com.github.shk0da.GoldenDragon.model.Candle;
-import com.github.shk0da.GoldenDragon.model.Position;
+import com.github.shk0da.goldendragon.model.Candle;
+import com.github.shk0da.goldendragon.model.Position;
 
 /**
  * Stop loss manager with multiple stop types and trailing logic. Supports fixed, ATR-based, and

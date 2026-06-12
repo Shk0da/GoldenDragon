@@ -1,19 +1,19 @@
-package com.github.shk0da.GoldenDragon.service;
+package com.github.shk0da.goldendragon.service;
 
-import static com.github.shk0da.GoldenDragon.config.MainConfig.HEADER_USER_AGENT;
-import static com.github.shk0da.GoldenDragon.config.MainConfig.USER_AGENT;
-import static com.github.shk0da.GoldenDragon.config.MainConfig.httpClient;
-import static com.github.shk0da.GoldenDragon.utils.RequestUtils.requestWithRetry;
-import static com.github.shk0da.GoldenDragon.utils.TimeUtils.sleep;
+import static com.github.shk0da.goldendragon.config.MainConfig.HEADER_USER_AGENT;
+import static com.github.shk0da.goldendragon.config.MainConfig.USER_AGENT;
+import static com.github.shk0da.goldendragon.config.MainConfig.httpClient;
+import static com.github.shk0da.goldendragon.utils.RequestUtils.requestWithRetry;
+import static com.github.shk0da.goldendragon.utils.TimeUtils.sleep;
 import static java.lang.System.out;
 import static java.util.stream.Collectors.toList;
 
-import com.github.shk0da.GoldenDragon.model.Market;
-import com.github.shk0da.GoldenDragon.model.ScanRequest;
-import com.github.shk0da.GoldenDragon.model.ScanRequest.Filter;
-import com.github.shk0da.GoldenDragon.model.ScanRequest.Options;
-import com.github.shk0da.GoldenDragon.model.ScanRequest.Symbols;
-import com.github.shk0da.GoldenDragon.model.TickerScan;
+import com.github.shk0da.goldendragon.model.Market;
+import com.github.shk0da.goldendragon.model.ScanRequest;
+import com.github.shk0da.goldendragon.model.ScanRequest.Filter;
+import com.github.shk0da.goldendragon.model.ScanRequest.Options;
+import com.github.shk0da.goldendragon.model.ScanRequest.Symbols;
+import com.github.shk0da.goldendragon.model.TickerScan;
 import com.google.gson.Gson;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;

@@ -1,8 +1,8 @@
-package com.github.shk0da.GoldenDragon.repository;
+package com.github.shk0da.goldendragon.repository;
 
-import static com.github.shk0da.GoldenDragon.utils.SerializationUtils.loadDataFromDisk;
+import static com.github.shk0da.goldendragon.utils.SerializationUtils.loadDataFromDisk;
 
-import com.github.shk0da.GoldenDragon.model.TickerInfo;
+import com.github.shk0da.goldendragon.model.TickerInfo;
 import com.google.gson.reflect.TypeToken;
 import java.util.Map;
 

@@ -1,4 +1,4 @@
-package com.github.shk0da.GoldenDragon.utils;
+package com.github.shk0da.goldendragon.utils;
 
 import java.io.FileInputStream;
 import java.io.IOException;

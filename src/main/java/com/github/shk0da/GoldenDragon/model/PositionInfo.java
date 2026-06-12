@@ -1,4 +1,4 @@
-package com.github.shk0da.GoldenDragon.model;
+package com.github.shk0da.goldendragon.model;
 
 import com.google.gson.JsonObject;
 import java.util.LinkedHashMap;

@@ -1,9 +1,9 @@
-package com.github.shk0da.GoldenDragon.config;
+package com.github.shk0da.goldendragon.config;
 
 import static java.lang.System.out;
 
-import com.github.shk0da.GoldenDragon.model.Market;
-import com.github.shk0da.GoldenDragon.utils.PropertiesUtils;
+import com.github.shk0da.goldendragon.model.Market;
+import com.github.shk0da.goldendragon.utils.PropertiesUtils;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Properties;

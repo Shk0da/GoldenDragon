@@ -1,6 +1,6 @@
-package com.github.shk0da.GoldenDragon.repository;
+package com.github.shk0da.goldendragon.repository;
 
-import com.github.shk0da.GoldenDragon.model.TickerInfo;
+import com.github.shk0da.goldendragon.model.TickerInfo;
 
 /**
  * Repository for storing FIGI (Financial Instrument Global Identifier) mappings. Singleton instance

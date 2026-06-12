@@ -10,14 +10,14 @@
  * <h2>Configuration</h2>
  *
  * <ul>
- *   <li>{@link com.github.shk0da.GoldenDragon.utils.PropertiesUtils} — load properties files from
+ *   <li>{@link com.github.shk0da.goldendragon.utils.PropertiesUtils} — load properties files from
  *       classpath and file system. Used by all configuration classes.
  * </ul>
  *
  * <h2>Serialization</h2>
  *
  * <ul>
- *   <li>{@link com.github.shk0da.GoldenDragon.utils.SerializationUtils} — JSON
+ *   <li>{@link com.github.shk0da.goldendragon.utils.SerializationUtils} — JSON
  *       serialization/deserialization via Gson. Supports disk load/save, {@code TypeToken}
  *       handling, custom deserializers (e.g., for {@code TickerInfo.Key}).
  * </ul>
@@ -25,49 +25,49 @@
  * <h2>Time</h2>
  *
  * <ul>
- *   <li>{@link com.github.shk0da.GoldenDragon.utils.TimeUtils} — time utilities: {@code sleep(long
+ *   <li>{@link com.github.shk0da.goldendragon.utils.TimeUtils} — time utilities: {@code sleep(long
  *       millis)} with {@code InterruptedException} handling.
  * </ul>
  *
  * <h2>Predicates</h2>
  *
  * <ul>
- *   <li>{@link com.github.shk0da.GoldenDragon.utils.PredicateUtils} — predicate utilities: {@code
+ *   <li>{@link com.github.shk0da.goldendragon.utils.PredicateUtils} — predicate utilities: {@code
  *       distinctByKey()} for duplicate filtering in streams.
  * </ul>
  *
  * <h2>Technical Indicators</h2>
  *
  * <ul>
- *   <li>{@link com.github.shk0da.GoldenDragon.utils.IndicatorsUtil} — technical indicator
+ *   <li>{@link com.github.shk0da.goldendragon.utils.IndicatorsUtil} — technical indicator
  *       calculation: RSI, MACD, ATR, moving averages (SMA, EMA). Uses TA-Lib library.
  * </ul>
  *
  * <h2>HTTP Requests</h2>
  *
  * <ul>
- *   <li>{@link com.github.shk0da.GoldenDragon.utils.RequestUtils} — HTTP requests with retries:
+ *   <li>{@link com.github.shk0da.goldendragon.utils.RequestUtils} — HTTP requests with retries:
  *       {@code requestWithRetry()} for stable external API work (TradingView, Telegram).
  * </ul>
  *
  * <h2>Levels (LevelUtils)</h2>
  *
  * <ul>
- *   <li>{@link com.github.shk0da.GoldenDragon.utils.LevelUtils} — support/resistance level
+ *   <li>{@link com.github.shk0da.goldendragon.utils.LevelUtils} — support/resistance level
  *       handling: {@code Level} classes, level breakout detection methods.
  * </ul>
  *
  * <h2>GerchikUtils</h2>
  *
  * <ul>
- *   <li>{@link com.github.shk0da.GoldenDragon.utils.GerchikUtils} — Gerchik system methods: level
+ *   <li>{@link com.github.shk0da.goldendragon.utils.GerchikUtils} — Gerchik system methods: level
  *       calculation, entry patterns, position management.
  * </ul>
  *
  * <h2>TickerTypeResolver</h2>
  *
  * <ul>
- *   <li>{@link com.github.shk0da.GoldenDragon.utils.TickerTypeResolver} — ticker type detection
+ *   <li>{@link com.github.shk0da.goldendragon.utils.TickerTypeResolver} — ticker type detection
  *       (STOCK, BOND, ETF, CURRENCY) by name. Uses heuristics and prefixes.
  * </ul>
  *
@@ -80,8 +80,8 @@
  *   <li>{@code IndicatorsUtil} — requires external synchronization for parallel calculations.
  * </ul>
  *
- * @see com.github.shk0da.GoldenDragon.config
- * @see com.github.shk0da.GoldenDragon.strategy
- * @see com.github.shk0da.GoldenDragon.service
+ * @see com.github.shk0da.goldendragon.config
+ * @see com.github.shk0da.goldendragon.strategy
+ * @see com.github.shk0da.goldendragon.service
  */
-package com.github.shk0da.GoldenDragon.utils;
+package com.github.shk0da.goldendragon.utils;

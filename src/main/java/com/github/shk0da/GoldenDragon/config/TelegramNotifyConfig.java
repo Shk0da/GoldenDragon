@@ -1,6 +1,6 @@
-package com.github.shk0da.GoldenDragon.config;
+package com.github.shk0da.goldendragon.config;
 
-import com.github.shk0da.GoldenDragon.utils.PropertiesUtils;
+import com.github.shk0da.goldendragon.utils.PropertiesUtils;
 import java.io.IOException;
 import java.util.Properties;
 

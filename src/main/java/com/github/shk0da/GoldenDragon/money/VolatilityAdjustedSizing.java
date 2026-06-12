@@ -1,4 +1,4 @@
-package com.github.shk0da.GoldenDragon.money;
+package com.github.shk0da.goldendragon.money;
 
 /**
  * Volatility-adjusted position sizing strategy. Reduces position size when volatility (ATR) is

@@ -1,6 +1,6 @@
-package com.github.shk0da.GoldenDragon.utils;
+package com.github.shk0da.goldendragon.utils;
 
-import com.github.shk0da.GoldenDragon.model.TickerInfo;
+import com.github.shk0da.goldendragon.model.TickerInfo;
 import com.google.gson.GsonBuilder;
 import com.google.gson.JsonDeserializer;
 import com.google.gson.JsonObject;

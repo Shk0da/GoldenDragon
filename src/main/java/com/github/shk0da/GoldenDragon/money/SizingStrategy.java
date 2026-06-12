@@ -1,4 +1,4 @@
-package com.github.shk0da.GoldenDragon.money;
+package com.github.shk0da.goldendragon.money;
 
 /**
  * Interface for position sizing algorithms. Implementations calculate optimal position size based

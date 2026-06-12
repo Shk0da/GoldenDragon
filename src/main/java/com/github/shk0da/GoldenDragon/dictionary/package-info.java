@@ -10,7 +10,7 @@
  * <h2>Key Classes</h2>
  *
  * <ul>
- *   <li>{@link com.github.shk0da.GoldenDragon.dictionary.CurrenciesDictionary} — currency
+ *   <li>{@link com.github.shk0da.goldendragon.dictionary.CurrenciesDictionary} — currency
  *       dictionary. Provides methods for:
  *       <ul>
  *         <li>Currency name conversion (RUB, USD, EUR → full names).
@@ -36,7 +36,7 @@
  * <p>Dictionaries are immutable and thread-safe. Data is loaded at startup and not modified at
  * runtime.
  *
- * @see com.github.shk0da.GoldenDragon.service.TCSService
- * @see com.github.shk0da.GoldenDragon.model.TickerInfo
+ * @see com.github.shk0da.goldendragon.service.TCSService
+ * @see com.github.shk0da.goldendragon.model.TickerInfo
  */
-package com.github.shk0da.GoldenDragon.dictionary;
+package com.github.shk0da.goldendragon.dictionary;

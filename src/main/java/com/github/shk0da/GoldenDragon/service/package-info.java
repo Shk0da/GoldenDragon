@@ -12,7 +12,7 @@
  * <h2>Key Components</h2>
  *
  * <ul>
- *   <li>{@link com.github.shk0da.GoldenDragon.service.TCSService} — main service for working with
+ *   <li>{@link com.github.shk0da.goldendragon.service.TCSService} — main service for working with
  *       broker API (Tinkoff Investments). Provides methods for:
  *       <ul>
  *         <li>Market data retrieval: order books, last trades, historical candles.
@@ -23,7 +23,7 @@
  *       </ul>
  *       <p>Class encapsulates {@link ru.tinkoff.piapi.core.InvestApi} and provides convenient
  *       interface for strategies. Supports sandbox mode and timestamped logging.
- *   <li>{@link com.github.shk0da.GoldenDragon.service.TelegramNotifyService} — singleton for
+ *   <li>{@link com.github.shk0da.goldendragon.service.TelegramNotifyService} — singleton for
  *       sending Telegram notifications. Used for:
  *       <ul>
  *         <li>Position open/close notifications.
@@ -32,7 +32,7 @@
  *       </ul>
  *       <p>Sending is asynchronous via {@link java.util.concurrent.ExecutorService} to avoid
  *       blocking main trading thread. Supports extended notification mode (important events only).
- *   <li>{@link com.github.shk0da.GoldenDragon.service.TradingViewService} — market scanner via
+ *   <li>{@link com.github.shk0da.goldendragon.service.TradingViewService} — market scanner via
  *       TradingView API. Allows:
  *       <ul>
  *         <li>Filter stocks by fundamental indicators (debt/equity, analyst recommendation, market
@@ -50,12 +50,12 @@
  *
  * <ul>
  *   <li>{@code TCSService} — direct call via {@link
- *       com.github.shk0da.GoldenDragon.service.TCSService} or via {@code TradingGateway} interface
+ *       com.github.shk0da.goldendragon.service.TCSService} or via {@code TradingGateway} interface
  *       (adapter for easier testing).
  *   <li>{@code TelegramNotifyService} — via static instance {@link
- *       com.github.shk0da.GoldenDragon.service.TelegramNotifyService#telegramNotifyService}.
+ *       com.github.shk0da.goldendragon.service.TelegramNotifyService#telegramNotifyService}.
  *   <li>{@code TradingViewService} — via {@link
- *       com.github.shk0da.GoldenDragon.service.TradingViewService#INSTANCE} for market scanning
+ *       com.github.shk0da.goldendragon.service.TradingViewService#INSTANCE} for market scanning
  *       before strategy start.
  * </ul>
  *
@@ -75,10 +75,10 @@
  * <p>Services use configuration from:
  *
  * <ul>
- *   <li>{@link com.github.shk0da.GoldenDragon.config.MainConfig} — API keys, account, sandbox mode.
- *   <li>{@link com.github.shk0da.GoldenDragon.config.MarketConfig} — base currency, market
+ *   <li>{@link com.github.shk0da.goldendragon.config.MainConfig} — API keys, account, sandbox mode.
+ *   <li>{@link com.github.shk0da.goldendragon.config.MarketConfig} — base currency, market
  *       parameters.
- *   <li>{@link com.github.shk0da.GoldenDragon.config.TelegramNotifyConfig} — bot token, chat_id,
+ *   <li>{@link com.github.shk0da.goldendragon.config.TelegramNotifyConfig} — bot token, chat_id,
  *       notification mode.
  * </ul>
  *
@@ -88,8 +88,8 @@
  * HH:mm:ss}. Formatting via {@link java.time.format.DateTimeFormatter} or {@link
  * java.text.SimpleDateFormat}.
  *
- * @see com.github.shk0da.GoldenDragon.strategy
- * @see com.github.shk0da.GoldenDragon.config
- * @see com.github.shk0da.GoldenDragon.model
+ * @see com.github.shk0da.goldendragon.strategy
+ * @see com.github.shk0da.goldendragon.config
+ * @see com.github.shk0da.goldendragon.model
  */
-package com.github.shk0da.GoldenDragon.service;
+package com.github.shk0da.goldendragon.service;

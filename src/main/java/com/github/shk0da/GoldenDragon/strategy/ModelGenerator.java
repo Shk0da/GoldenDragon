@@ -1,9 +1,9 @@
-package com.github.shk0da.GoldenDragon.strategy;
+package com.github.shk0da.goldendragon.strategy;
 
 import static java.lang.System.out;
 
-import com.github.shk0da.GoldenDragon.ml.MlModelTrainer;
-import com.github.shk0da.GoldenDragon.test.BacktestRunner;
+import com.github.shk0da.goldendragon.ml.MlModelTrainer;
+import com.github.shk0da.goldendragon.test.BacktestRunner;
 
 public class ModelGenerator {
 

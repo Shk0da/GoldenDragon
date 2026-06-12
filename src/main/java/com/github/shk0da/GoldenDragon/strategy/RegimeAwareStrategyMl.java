@@ -1,14 +1,14 @@
-package com.github.shk0da.GoldenDragon.strategy;
+package com.github.shk0da.goldendragon.strategy;
 
-import com.github.shk0da.GoldenDragon.config.UnifiedTraderConfig;
-import com.github.shk0da.GoldenDragon.ml.MlAutoTrainingService;
-import com.github.shk0da.GoldenDragon.ml.MlPredictionService;
-import com.github.shk0da.GoldenDragon.ml.TradeFeatures;
-import com.github.shk0da.GoldenDragon.model.Candle;
-import com.github.shk0da.GoldenDragon.model.Config;
-import com.github.shk0da.GoldenDragon.model.Position;
-import com.github.shk0da.GoldenDragon.model.TradingDecision;
-import com.github.shk0da.GoldenDragon.service.TCSService;
+import com.github.shk0da.goldendragon.config.UnifiedTraderConfig;
+import com.github.shk0da.goldendragon.ml.MlAutoTrainingService;
+import com.github.shk0da.goldendragon.ml.MlPredictionService;
+import com.github.shk0da.goldendragon.ml.TradeFeatures;
+import com.github.shk0da.goldendragon.model.Candle;
+import com.github.shk0da.goldendragon.model.Config;
+import com.github.shk0da.goldendragon.model.Position;
+import com.github.shk0da.goldendragon.model.TradingDecision;
+import com.github.shk0da.goldendragon.service.TCSService;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.ArrayList;

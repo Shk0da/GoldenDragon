@@ -1,8 +1,8 @@
-package com.github.shk0da.GoldenDragon.utils;
+package com.github.shk0da.goldendragon.utils;
 
-import com.github.shk0da.GoldenDragon.model.TickerInfo;
-import com.github.shk0da.GoldenDragon.model.TickerType;
-import com.github.shk0da.GoldenDragon.repository.TickerRepository;
+import com.github.shk0da.goldendragon.model.TickerInfo;
+import com.github.shk0da.goldendragon.model.TickerType;
+import com.github.shk0da.goldendragon.repository.TickerRepository;
 import java.util.Map;
 
 /**

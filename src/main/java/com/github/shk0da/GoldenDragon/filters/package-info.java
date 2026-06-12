@@ -10,15 +10,15 @@
  * <h2>Key Filters</h2>
  *
  * <ul>
- *   <li>{@link com.github.shk0da.GoldenDragon.filters.MarketRegimeFilter} — market regime filter.
+ *   <li>{@link com.github.shk0da.goldendragon.filters.MarketRegimeFilter} — market regime filter.
  *       Detects trend/range by ADX (Average Directional Index), volatility (ATR), volume. Returns
  *       trading permission with confidence score and position multiplier. <br>
  *       <b>Parameters</b>: ADX period (14), ATR period (14), volume period (50).
- *   <li>{@link com.github.shk0da.GoldenDragon.filters.GroupConfirmationFilter} — group confirmation
+ *   <li>{@link com.github.shk0da.goldendragon.filters.GroupConfirmationFilter} — group confirmation
  *       filter. Checks if correlated instruments (peer instruments) move in the same direction.
  *       Requires minimum confirmations (min 2 of 3). <br>
  *       <b>Usage</b>: {@code UnifiedStrategy} for signal validation.
- *   <li>{@link com.github.shk0da.GoldenDragon.filters.BadWeatherFilter} — "bad weather" filter.
+ *   <li>{@link com.github.shk0da.goldendragon.filters.BadWeatherFilter} — "bad weather" filter.
  *       Prohibits trading under unfavorable conditions:
  *       <ul>
  *         <li>Low volume (below average * threshold).
@@ -63,7 +63,7 @@
  * <p>Filters are stateless and thread-safe. Parameters are set in constructor and immutable.
  * Methods can be called from different strategy threads.
  *
- * @see com.github.shk0da.GoldenDragon.strategy.BaseStrategy
- * @see com.github.shk0da.GoldenDragon.strategy.UnifiedStrategy
+ * @see com.github.shk0da.goldendragon.strategy.BaseStrategy
+ * @see com.github.shk0da.goldendragon.strategy.UnifiedStrategy
  */
-package com.github.shk0da.GoldenDragon.filters;
+package com.github.shk0da.goldendragon.filters;

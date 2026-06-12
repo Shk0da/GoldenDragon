@@ -1,6 +1,6 @@
-package com.github.shk0da.GoldenDragon.model;
+package com.github.shk0da.goldendragon.model;
 
-import static com.github.shk0da.GoldenDragon.config.MainConfig.dateFormat;
+import static com.github.shk0da.goldendragon.config.MainConfig.dateFormat;
 import static java.lang.Math.min;
 import static java.lang.Math.round;
 import static java.lang.System.out;

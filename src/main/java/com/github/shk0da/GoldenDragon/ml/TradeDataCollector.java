@@ -1,8 +1,8 @@
-package com.github.shk0da.GoldenDragon.ml;
+package com.github.shk0da.goldendragon.ml;
 
-import com.github.shk0da.GoldenDragon.model.Candle;
-import com.github.shk0da.GoldenDragon.model.Position;
-import com.github.shk0da.GoldenDragon.model.TradingDecision;
+import com.github.shk0da.goldendragon.model.Candle;
+import com.github.shk0da.goldendragon.model.Position;
+import com.github.shk0da.goldendragon.model.TradingDecision;
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileReader;

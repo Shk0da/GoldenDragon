@@ -11,13 +11,13 @@
  * <h2>Key Components</h2>
  *
  * <ul>
- *   <li>{@link com.github.shk0da.GoldenDragon.test.BacktestRunner} — backtest engine for
+ *   <li>{@link com.github.shk0da.goldendragon.test.BacktestRunner} — backtest engine for
  *       candle-based strategies ({@code BaseStrategy} and subclasses). Features:
  *       <ul>
  *         <li><b>Supported Strategies</b>: {@link
- *             com.github.shk0da.GoldenDragon.strategy.UnifiedStrategy}, {@link
- *             com.github.shk0da.GoldenDragon.strategy.RegimeAwareStrategy}, {@link
- *             com.github.shk0da.GoldenDragon.strategy.RegimeAwareStrategyMl}.
+ *             com.github.shk0da.goldendragon.strategy.UnifiedStrategy}, {@link
+ *             com.github.shk0da.goldendragon.strategy.RegimeAwareStrategy}, {@link
+ *             com.github.shk0da.goldendragon.strategy.RegimeAwareStrategyMl}.
  *         <li><b>Run Modes</b>: {@code "fast"} (6 short periods) or {@code "full"} (6 yearly
  *             periods).
  *         <li><b>Parallel Data Loading</b>: thread pool ({@code backtest.threads}, default {@code
@@ -72,10 +72,10 @@
  * <p>Classes for collecting labeled training data:
  *
  * <ul>
- *   <li>{@link com.github.shk0da.GoldenDragon.ml.TradeDataCollector} — collect trade data:
+ *   <li>{@link com.github.shk0da.goldendragon.ml.TradeDataCollector} — collect trade data:
  *       entry/exit, PnL, indicators at entry, market regime. Saves to CSV for model training
  *       ({@code XGBoost}, {@code Random Forest}).
- *   <li>{@link com.github.shk0da.GoldenDragon.strategy.DataCollector} — collect candles, positions,
+ *   <li>{@link com.github.shk0da.goldendragon.strategy.DataCollector} — collect candles, positions,
  *       strategy decisions in real-time. Used for dataset accumulation.
  * </ul>
  *
@@ -160,8 +160,8 @@
  *   <li>Network delays and order execution delays not simulated.
  * </ul>
  *
- * @see com.github.shk0da.GoldenDragon.strategy
- * @see com.github.shk0da.GoldenDragon.service
- * @see com.github.shk0da.GoldenDragon.ml
+ * @see com.github.shk0da.goldendragon.strategy
+ * @see com.github.shk0da.goldendragon.service
+ * @see com.github.shk0da.goldendragon.ml
  */
-package com.github.shk0da.GoldenDragon.test;
+package com.github.shk0da.goldendragon.test;

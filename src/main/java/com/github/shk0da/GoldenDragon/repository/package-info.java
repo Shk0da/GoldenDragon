@@ -9,22 +9,22 @@
  *
  * <h2>Architecture</h2>
  *
- * <p>All repositories extend {@link com.github.shk0da.GoldenDragon.repository.AbstractRepository},
- * which implements {@link com.github.shk0da.GoldenDragon.repository.Repository} interface.
+ * <p>All repositories extend {@link com.github.shk0da.goldendragon.repository.AbstractRepository},
+ * which implements {@link com.github.shk0da.goldendragon.repository.Repository} interface.
  * AbstractRepository uses {@code ConcurrentHashMap} for thread-safe storage.
  *
  * <h2>Key Repositories</h2>
  *
  * <ul>
- *   <li>{@link com.github.shk0da.GoldenDragon.repository.TickerRepository} — ticker information
+ *   <li>{@link com.github.shk0da.goldendragon.repository.TickerRepository} — ticker information
  *       storage ({@code TickerInfo}): FIGI, ISIN, currency, type, lot. <br>
  *       <b>Singleton</b>: loads data from {@code tickers.json} on initialization. <br>
  *       Used by: {@code TCSService}, {@code GoldenDragon}, strategies.
- *   <li>{@link com.github.shk0da.GoldenDragon.repository.FigiRepository} — FIGI (Financial
+ *   <li>{@link com.github.shk0da.goldendragon.repository.FigiRepository} — FIGI (Financial
  *       Instrument Global Identifier) storage. Ticker to FIGI mapping. <br>
  *       <b>Singleton</b>. <br>
  *       Used by: {@code TCSService} for ticker-to-FIGI conversion.
- *   <li>{@link com.github.shk0da.GoldenDragon.repository.PricesRepository} — current market price
+ *   <li>{@link com.github.shk0da.goldendragon.repository.PricesRepository} — current market price
  *       storage (order book: bids/asks). <br>
  *       <b>Singleton</b>. <br>
  *       Used by: {@code TCSService} for caching latest prices.
@@ -44,7 +44,7 @@
  * <h2>Serialization</h2>
  *
  * <p>{@code TickerRepository} supports disk load/save via {@link
- * com.github.shk0da.GoldenDragon.utils.SerializationUtils}. Data is stored in JSON format ({@code
+ * com.github.shk0da.goldendragon.utils.SerializationUtils}. Data is stored in JSON format ({@code
  * tickers.json}) and loaded on application startup for faster initialization.
  *
  * <h2>Thread Safety</h2>
@@ -65,8 +65,8 @@
  * tickerRepository.putAll(tcsService.getStockList());
  * }</pre>
  *
- * @see com.github.shk0da.GoldenDragon.service.TCSService
- * @see com.github.shk0da.GoldenDragon.model.TickerInfo
- * @see com.github.shk0da.GoldenDragon.utils.SerializationUtils
+ * @see com.github.shk0da.goldendragon.service.TCSService
+ * @see com.github.shk0da.goldendragon.model.TickerInfo
+ * @see com.github.shk0da.goldendragon.utils.SerializationUtils
  */
-package com.github.shk0da.GoldenDragon.repository;
+package com.github.shk0da.goldendragon.repository;

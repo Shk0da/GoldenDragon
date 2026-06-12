@@ -1,12 +1,12 @@
-package com.github.shk0da.GoldenDragon.service;
+package com.github.shk0da.goldendragon.service;
 
-import static com.github.shk0da.GoldenDragon.config.MainConfig.HEADER_USER_AGENT;
-import static com.github.shk0da.GoldenDragon.config.MainConfig.USER_AGENT;
-import static com.github.shk0da.GoldenDragon.config.MainConfig.httpClient;
-import static com.github.shk0da.GoldenDragon.utils.RequestUtils.requestWithRetry;
+import static com.github.shk0da.goldendragon.config.MainConfig.HEADER_USER_AGENT;
+import static com.github.shk0da.goldendragon.config.MainConfig.USER_AGENT;
+import static com.github.shk0da.goldendragon.config.MainConfig.httpClient;
+import static com.github.shk0da.goldendragon.utils.RequestUtils.requestWithRetry;
 import static java.lang.System.out;
 
-import com.github.shk0da.GoldenDragon.config.TelegramNotifyConfig;
+import com.github.shk0da.goldendragon.config.TelegramNotifyConfig;
 import java.net.URI;
 import java.net.URLEncoder;
 import java.net.http.HttpRequest;

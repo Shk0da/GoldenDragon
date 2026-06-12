@@ -1,9 +1,9 @@
-package com.github.shk0da.GoldenDragon.utils;
+package com.github.shk0da.goldendragon.utils;
 
 import static java.time.LocalDateTime.ofInstant;
 import static java.time.ZoneId.systemDefault;
 
-import com.github.shk0da.GoldenDragon.model.TickerCandle;
+import com.github.shk0da.goldendragon.model.TickerCandle;
 import com.tictactec.ta.lib.Core;
 import com.tictactec.ta.lib.MAType;
 import com.tictactec.ta.lib.MInteger;

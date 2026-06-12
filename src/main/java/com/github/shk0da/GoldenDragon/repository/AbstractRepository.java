@@ -1,4 +1,4 @@
-package com.github.shk0da.GoldenDragon.repository;
+package com.github.shk0da.goldendragon.repository;
 
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;

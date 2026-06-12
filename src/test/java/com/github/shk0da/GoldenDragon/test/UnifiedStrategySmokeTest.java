@@ -1,20 +1,20 @@
-package com.github.shk0da.GoldenDragon.test;
+package com.github.shk0da.goldendragon.test;
 
-import static com.github.shk0da.GoldenDragon.model.Market.MOEX;
+import static com.github.shk0da.goldendragon.model.Market.MOEX;
 import static java.lang.System.out;
 
-import com.github.shk0da.GoldenDragon.config.MainConfig;
-import com.github.shk0da.GoldenDragon.config.MarketConfig;
-import com.github.shk0da.GoldenDragon.config.UnifiedTraderConfig;
-import com.github.shk0da.GoldenDragon.model.Candle;
-import com.github.shk0da.GoldenDragon.model.Config;
-import com.github.shk0da.GoldenDragon.model.Position;
-import com.github.shk0da.GoldenDragon.model.PositionInfo;
-import com.github.shk0da.GoldenDragon.model.TickerInfo;
-import com.github.shk0da.GoldenDragon.model.TickerType;
-import com.github.shk0da.GoldenDragon.model.TradingDecision;
-import com.github.shk0da.GoldenDragon.service.TCSService;
-import com.github.shk0da.GoldenDragon.strategy.UnifiedStrategy;
+import com.github.shk0da.goldendragon.config.MainConfig;
+import com.github.shk0da.goldendragon.config.MarketConfig;
+import com.github.shk0da.goldendragon.config.UnifiedTraderConfig;
+import com.github.shk0da.goldendragon.model.Candle;
+import com.github.shk0da.goldendragon.model.Config;
+import com.github.shk0da.goldendragon.model.Position;
+import com.github.shk0da.goldendragon.model.PositionInfo;
+import com.github.shk0da.goldendragon.model.TickerInfo;
+import com.github.shk0da.goldendragon.model.TickerType;
+import com.github.shk0da.goldendragon.model.TradingDecision;
+import com.github.shk0da.goldendragon.service.TCSService;
+import com.github.shk0da.goldendragon.strategy.UnifiedStrategy;
 import java.util.ArrayList;
 import java.util.List;
 

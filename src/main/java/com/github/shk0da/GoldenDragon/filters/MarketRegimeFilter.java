@@ -1,6 +1,6 @@
-package com.github.shk0da.GoldenDragon.filters;
+package com.github.shk0da.goldendragon.filters;
 
-import com.github.shk0da.GoldenDragon.model.Candle;
+import com.github.shk0da.goldendragon.model.Candle;
 import java.util.List;
 
 /**

@@ -1,17 +1,17 @@
-package com.github.shk0da.GoldenDragon.strategy;
+package com.github.shk0da.goldendragon.strategy;
 
-import static com.github.shk0da.GoldenDragon.utils.PrintUtils.printCurrentPositions;
+import static com.github.shk0da.goldendragon.utils.PrintUtils.printCurrentPositions;
 import static java.lang.Math.round;
 import static java.lang.System.out;
 import static java.util.Comparator.comparing;
 
-import com.github.shk0da.GoldenDragon.config.MarketConfig;
-import com.github.shk0da.GoldenDragon.model.PortfolioPosition;
-import com.github.shk0da.GoldenDragon.model.PositionInfo;
-import com.github.shk0da.GoldenDragon.model.TickerInfo;
-import com.github.shk0da.GoldenDragon.model.TickerInfo.Key;
-import com.github.shk0da.GoldenDragon.model.TickerType;
-import com.github.shk0da.GoldenDragon.service.TCSService;
+import com.github.shk0da.goldendragon.config.MarketConfig;
+import com.github.shk0da.goldendragon.model.PortfolioPosition;
+import com.github.shk0da.goldendragon.model.PositionInfo;
+import com.github.shk0da.goldendragon.model.TickerInfo;
+import com.github.shk0da.goldendragon.model.TickerInfo.Key;
+import com.github.shk0da.goldendragon.model.TickerType;
+import com.github.shk0da.goldendragon.service.TCSService;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;

@@ -1,4 +1,4 @@
-package com.github.shk0da.GoldenDragon.ml;
+package com.github.shk0da.goldendragon.ml;
 
 import java.io.BufferedReader;
 import java.io.File;

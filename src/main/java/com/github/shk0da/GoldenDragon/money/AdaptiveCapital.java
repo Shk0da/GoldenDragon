@@ -1,4 +1,4 @@
-package com.github.shk0da.GoldenDragon.money;
+package com.github.shk0da.goldendragon.money;
 
 import java.util.concurrent.atomic.AtomicInteger;
 

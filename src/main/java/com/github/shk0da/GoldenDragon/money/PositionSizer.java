@@ -1,4 +1,4 @@
-package com.github.shk0da.GoldenDragon.money;
+package com.github.shk0da.goldendragon.money;
 
 /**
  * Position sizer wrapper that uses SizingStrategy implementations. Provides unified interface for

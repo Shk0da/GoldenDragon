@@ -1,4 +1,4 @@
-package com.github.shk0da.GoldenDragon.utils;
+package com.github.shk0da.goldendragon.utils;
 
 import static java.lang.Math.min;
 import static java.lang.System.out;
@@ -6,11 +6,11 @@ import static java.util.Comparator.comparing;
 import static java.util.stream.Collectors.toList;
 import static java.util.stream.Collectors.toMap;
 
-import com.github.shk0da.GoldenDragon.model.DiviTicker;
-import com.github.shk0da.GoldenDragon.model.PortfolioPosition;
-import com.github.shk0da.GoldenDragon.model.PositionInfo;
-import com.github.shk0da.GoldenDragon.model.TickerInfo;
-import com.github.shk0da.GoldenDragon.service.TCSService;
+import com.github.shk0da.goldendragon.model.DiviTicker;
+import com.github.shk0da.goldendragon.model.PortfolioPosition;
+import com.github.shk0da.goldendragon.model.PositionInfo;
+import com.github.shk0da.goldendragon.model.TickerInfo;
+import com.github.shk0da.goldendragon.service.TCSService;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;

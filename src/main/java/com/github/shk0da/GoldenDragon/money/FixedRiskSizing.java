@@ -1,4 +1,4 @@
-package com.github.shk0da.GoldenDragon.money;
+package com.github.shk0da.goldendragon.money;
 
 /**
  * Fixed risk position sizing strategy. Calculates position size based on fixed risk percentage per

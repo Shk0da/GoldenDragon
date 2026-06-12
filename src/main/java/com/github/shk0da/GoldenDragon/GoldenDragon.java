@@ -1,38 +1,38 @@
-package com.github.shk0da.GoldenDragon;
+package com.github.shk0da.goldendragon;
 
-import static com.github.shk0da.GoldenDragon.repository.TickerRepository.SERIALIZE_NAME;
-import static com.github.shk0da.GoldenDragon.service.TelegramNotifyService.telegramNotifyService;
-import static com.github.shk0da.GoldenDragon.utils.SerializationUtils.getDateOfContentOnDisk;
-import static com.github.shk0da.GoldenDragon.utils.SerializationUtils.loadDataFromDisk;
-import static com.github.shk0da.GoldenDragon.utils.SerializationUtils.saveDataToDisk;
-import static com.github.shk0da.GoldenDragon.utils.TimeUtils.sleep;
+import static com.github.shk0da.goldendragon.repository.TickerRepository.SERIALIZE_NAME;
+import static com.github.shk0da.goldendragon.service.TelegramNotifyService.telegramNotifyService;
+import static com.github.shk0da.goldendragon.utils.SerializationUtils.getDateOfContentOnDisk;
+import static com.github.shk0da.goldendragon.utils.SerializationUtils.loadDataFromDisk;
+import static com.github.shk0da.goldendragon.utils.SerializationUtils.saveDataToDisk;
+import static com.github.shk0da.goldendragon.utils.TimeUtils.sleep;
 import static java.lang.System.currentTimeMillis;
 import static java.lang.System.out;
 import static java.lang.System.setOut;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static java.util.TimeZone.setDefault;
 
-import com.github.shk0da.GoldenDragon.config.DataCollectorConfig;
-import com.github.shk0da.GoldenDragon.config.LevelTraderConfig;
-import com.github.shk0da.GoldenDragon.config.MainConfig;
-import com.github.shk0da.GoldenDragon.config.MarketConfig;
-import com.github.shk0da.GoldenDragon.config.RSXConfig;
-import com.github.shk0da.GoldenDragon.config.RebalanceConfig;
-import com.github.shk0da.GoldenDragon.config.UnifiedTraderConfig;
-import com.github.shk0da.GoldenDragon.model.Market;
-import com.github.shk0da.GoldenDragon.model.TickerInfo;
-import com.github.shk0da.GoldenDragon.repository.Repository;
-import com.github.shk0da.GoldenDragon.repository.TickerRepository;
-import com.github.shk0da.GoldenDragon.service.TCSService;
-import com.github.shk0da.GoldenDragon.strategy.DataCollector;
-import com.github.shk0da.GoldenDragon.strategy.DivFlow;
-import com.github.shk0da.GoldenDragon.strategy.IndicatorTrader;
-import com.github.shk0da.GoldenDragon.strategy.LevelTrader;
-import com.github.shk0da.GoldenDragon.strategy.ModelGenerator;
-import com.github.shk0da.GoldenDragon.strategy.RSX;
-import com.github.shk0da.GoldenDragon.strategy.Rebalance;
-import com.github.shk0da.GoldenDragon.strategy.RegimeAwareStrategyMl;
-import com.github.shk0da.GoldenDragon.strategy.UnifiedStrategy;
+import com.github.shk0da.goldendragon.config.DataCollectorConfig;
+import com.github.shk0da.goldendragon.config.LevelTraderConfig;
+import com.github.shk0da.goldendragon.config.MainConfig;
+import com.github.shk0da.goldendragon.config.MarketConfig;
+import com.github.shk0da.goldendragon.config.RSXConfig;
+import com.github.shk0da.goldendragon.config.RebalanceConfig;
+import com.github.shk0da.goldendragon.config.UnifiedTraderConfig;
+import com.github.shk0da.goldendragon.model.Market;
+import com.github.shk0da.goldendragon.model.TickerInfo;
+import com.github.shk0da.goldendragon.repository.Repository;
+import com.github.shk0da.goldendragon.repository.TickerRepository;
+import com.github.shk0da.goldendragon.service.TCSService;
+import com.github.shk0da.goldendragon.strategy.DataCollector;
+import com.github.shk0da.goldendragon.strategy.DivFlow;
+import com.github.shk0da.goldendragon.strategy.IndicatorTrader;
+import com.github.shk0da.goldendragon.strategy.LevelTrader;
+import com.github.shk0da.goldendragon.strategy.ModelGenerator;
+import com.github.shk0da.goldendragon.strategy.RSX;
+import com.github.shk0da.goldendragon.strategy.Rebalance;
+import com.github.shk0da.goldendragon.strategy.RegimeAwareStrategyMl;
+import com.github.shk0da.goldendragon.strategy.UnifiedStrategy;
 import com.google.gson.reflect.TypeToken;
 import java.io.FileDescriptor;
 import java.io.FileOutputStream;
@@ -50,102 +50,216 @@ import java.util.concurrent.atomic.AtomicReference;
  * strategies: LevelTrader, UnifiedStrategy, RSX, DivFlow, Rebalance, etc. Initializes market data,
  * ticker repository, and runs selected strategy.
  */
-public class GoldenDragon {
+public final class GoldenDragon {
 
   private static final Repository<TickerInfo.Key, TickerInfo> tickerRepository =
       TickerRepository.INSTANCE;
 
-  public static void main(String[] args) {
+  private static final String STRATEGY_REBALANCE = "Rebalance";
+  private static final String STRATEGY_RSX = "RSX";
+  private static final String STRATEGY_DIV_FLOW = "DivFlow";
+  private static final String STRATEGY_INDICATOR_TRADER = "IndicatorTrader";
+  private static final String STRATEGY_DATA_COLLECTOR = "DataCollector";
+  private static final String STRATEGY_LEVEL_TRADER = "LevelTrader";
+  private static final String STRATEGY_UNIFIED = "UnifiedStrategy";
+  private static final String STRATEGY_GENERATE_MODEL = "GenerateModel";
+  private static final String STRATEGY_REGIME_AWARE_ML = "RegimeAwareStrategyMl";
+  private static final int DEFAULT_ARG_INDEX = 0;
+  private static final int MARKET_ARG_INDEX = 1;
+  private static final int ACCOUNT_ARG_INDEX = 2;
+  private static final String DEFAULT_STRATEGY = "LevelTrader";
+  private static final Market DEFAULT_MARKET = Market.MOEX;
+  private static final int SLEEP_MS = 5_000;
+
+  private GoldenDragon() {
+    // Utility class - prevent instantiation
+  }
+
+  public static void main(final String[] args) {
     setDefault(TimeZone.getTimeZone("Europe/Moscow"));
     setOut(new PrintStream(new FileOutputStream(FileDescriptor.out), true, UTF_8));
     out.printf("%s: Start GoldenDragon%n", new Date());
 
     try {
-      MainConfig mainConfig = new MainConfig();
-      String strategy = (args.length >= 1) ? args[0] : "LevelTrader";
-      Market market = (args.length >= 2) ? Market.valueOf(args[1]) : Market.MOEX;
-      String accountId = (args.length >= 3) ? args[2] : mainConfig.getTcsAccountId();
+      final MainConfig mainConfig = new MainConfig();
+      final String strategy = getStrategy(args);
+      final Market market = getMarket(args);
+      final String accountId = getAccountId(args, mainConfig);
       out.println("Run: " + strategy + " " + market.name() + " [" + accountId + "]");
 
-      MarketConfig marketConfig = MarketConfig.byMarket(market);
-      TCSService tcsService = new TCSService(mainConfig.withAccountId(accountId), marketConfig);
+      final MarketConfig marketConfig = MarketConfig.byMarket(market);
+      final TCSService tcsService =
+          new TCSService(mainConfig.withAccountId(accountId), marketConfig);
       updateTickerRepository(tcsService);
 
-      // 1. Rebalance
-      if ("Rebalance".equals(strategy)) {
-        telegramNotifyService.sendMessage("Run Rebalance");
-        final RebalanceConfig rebalanceConfig = new RebalanceConfig();
-        new Rebalance(marketConfig, rebalanceConfig, tcsService).run();
-        telegramNotifyService.sendMessage("End Rebalance");
-      }
-
-      // 2. RSX
-      if ("RSX".equals(strategy)) {
-        telegramNotifyService.sendMessage("Run RSX");
-        final RSXConfig rsxConfig = new RSXConfig();
-        new RSX(mainConfig, marketConfig, rsxConfig, tcsService).run();
-        telegramNotifyService.sendMessage("End RSX");
-      }
-
-      // 3. DivFlow
-      if ("DivFlow".equals(strategy)) {
-        telegramNotifyService.sendMessage("Run DivFlow");
-        new DivFlow(mainConfig, marketConfig, tcsService).run();
-        telegramNotifyService.sendMessage("End DivFlow");
-      }
-
-      // 4. IndicatorTrader
-      if ("IndicatorTrader".equals(strategy)) {
-        telegramNotifyService.sendMessage("Run IndicatorTrader");
-        new IndicatorTrader(tcsService).run();
-        telegramNotifyService.sendMessage("End IndicatorTrader");
-      }
-
-      // 5. DataCollector
-      if ("DataCollector".equals(strategy)) {
-        telegramNotifyService.sendMessage("Run DataCollector");
-        DataCollectorConfig dataCollectorConfig = new DataCollectorConfig();
-        new DataCollector(dataCollectorConfig, tcsService).run();
-        telegramNotifyService.sendMessage("End DataCollector");
-      }
-
-      // 6.LevelTrader
-      if ("LevelTrader".equals(strategy)) {
-        telegramNotifyService.sendMessage("Run LevelTrader");
-        LevelTraderConfig levelTraderConfig = new LevelTraderConfig();
-        new LevelTrader(levelTraderConfig, tcsService).run();
-        telegramNotifyService.sendMessage("Stop LevelTrader");
-      }
-
-      // 7. UnifiedStrategy
-      if ("UnifiedStrategy".equals(strategy)) {
-        telegramNotifyService.sendMessage("Run UnifiedStrategy");
-        UnifiedTraderConfig unifiedTraderConfig = new UnifiedTraderConfig();
-        new UnifiedStrategy(unifiedTraderConfig, tcsService).run();
-        telegramNotifyService.sendMessage("Stop UnifiedStrategy");
-      }
-
-      // 8. GenerateModel
-      if ("GenerateModel".equals(strategy)) {
-        telegramNotifyService.sendMessage("Run GenerateModel");
-        new ModelGenerator().runGenerateModel(args);
-        telegramNotifyService.sendMessage("Stop GenerateModel");
-      }
-
-      // 9. RegimeAwareStrategyMl
-      if ("RegimeAwareStrategyMl".equals(strategy)) {
-        telegramNotifyService.sendMessage("Run RegimeAwareStrategyMl");
-        UnifiedTraderConfig unifiedTraderConfig = new UnifiedTraderConfig();
-        new RegimeAwareStrategyMl(unifiedTraderConfig, tcsService).run();
-        telegramNotifyService.sendMessage("Stop RegimeAwareStrategyMl");
-      }
-    } catch (Exception ex) {
+      executeStrategy(strategy, mainConfig, marketConfig, tcsService, args);
+    } catch (final Exception ex) {
       out.printf("Error: %s%n", ex.getMessage());
       ex.printStackTrace();
     }
     out.printf("%s: Finish GoldenDragon%n", new Date());
-    sleep(5_000);
+    sleep(SLEEP_MS);
     System.exit(0);
+  }
+
+  private static String getStrategy(final String[] args) {
+    return args.length > DEFAULT_ARG_INDEX ? args[DEFAULT_ARG_INDEX] : DEFAULT_STRATEGY;
+  }
+
+  private static Market getMarket(final String[] args) {
+    return args.length > MARKET_ARG_INDEX ? Market.valueOf(args[MARKET_ARG_INDEX]) : DEFAULT_MARKET;
+  }
+
+  private static String getAccountId(final String[] args, final MainConfig mainConfig) {
+    return args.length > ACCOUNT_ARG_INDEX ? args[ACCOUNT_ARG_INDEX] : mainConfig.getTcsAccountId();
+  }
+
+  private static void executeStrategy(
+      final String strategy,
+      final MainConfig mainConfig,
+      final MarketConfig marketConfig,
+      final TCSService tcsService,
+      final String[] args) {
+
+    switch (strategy) {
+      case STRATEGY_REBALANCE:
+        executeRebalance(marketConfig, tcsService);
+        break;
+      case STRATEGY_RSX:
+        executeRsx(mainConfig, marketConfig, tcsService);
+        break;
+      case STRATEGY_DIV_FLOW:
+        executeDivFlow(mainConfig, marketConfig, tcsService);
+        break;
+      case STRATEGY_INDICATOR_TRADER:
+        executeIndicatorTrader(tcsService);
+        break;
+      case STRATEGY_DATA_COLLECTOR:
+        executeDataCollector(tcsService);
+        break;
+      case STRATEGY_LEVEL_TRADER:
+        executeLevelTrader(tcsService);
+        break;
+      case STRATEGY_UNIFIED:
+        executeUnifiedStrategy(tcsService);
+        break;
+      case STRATEGY_GENERATE_MODEL:
+        executeGenerateModel(args);
+        break;
+      case STRATEGY_REGIME_AWARE_ML:
+        executeRegimeAwareStrategyMl(tcsService);
+        break;
+      default:
+        out.println("Unknown strategy: " + strategy);
+    }
+  }
+
+  private static void executeRebalance(
+      final MarketConfig marketConfig, final TCSService tcsService) {
+    telegramNotifyService.sendMessage("Run Rebalance");
+    try {
+      final RebalanceConfig rebalanceConfig = new RebalanceConfig();
+      new Rebalance(marketConfig, rebalanceConfig, tcsService).run();
+      telegramNotifyService.sendMessage("End Rebalance");
+    } catch (final Exception ex) {
+      out.printf("Rebalance error: %s%n", ex.getMessage());
+      ex.printStackTrace();
+    }
+  }
+
+  private static void executeRsx(
+      final MainConfig mainConfig, final MarketConfig marketConfig, final TCSService tcsService) {
+    telegramNotifyService.sendMessage("Run RSX");
+    try {
+      final RSXConfig rsxConfig = new RSXConfig();
+      new RSX(mainConfig, marketConfig, rsxConfig, tcsService).run();
+      telegramNotifyService.sendMessage("End RSX");
+    } catch (final Exception ex) {
+      out.printf("RSX error: %s%n", ex.getMessage());
+      ex.printStackTrace();
+    }
+  }
+
+  private static void executeDivFlow(
+      final MainConfig mainConfig, final MarketConfig marketConfig, final TCSService tcsService) {
+    telegramNotifyService.sendMessage("Run DivFlow");
+    try {
+      new DivFlow(mainConfig, marketConfig, tcsService).run();
+      telegramNotifyService.sendMessage("End DivFlow");
+    } catch (final Exception ex) {
+      out.printf("DivFlow error: %s%n", ex.getMessage());
+      ex.printStackTrace();
+    }
+  }
+
+  private static void executeIndicatorTrader(final TCSService tcsService) {
+    telegramNotifyService.sendMessage("Run IndicatorTrader");
+    try {
+      new IndicatorTrader(tcsService).run();
+      telegramNotifyService.sendMessage("End IndicatorTrader");
+    } catch (final Exception ex) {
+      out.printf("IndicatorTrader error: %s%n", ex.getMessage());
+      ex.printStackTrace();
+    }
+  }
+
+  private static void executeDataCollector(final TCSService tcsService) {
+    telegramNotifyService.sendMessage("Run DataCollector");
+    try {
+      final DataCollectorConfig dataCollectorConfig = new DataCollectorConfig();
+      new DataCollector(dataCollectorConfig, tcsService).run();
+      telegramNotifyService.sendMessage("End DataCollector");
+    } catch (final Exception ex) {
+      out.printf("DataCollector error: %s%n", ex.getMessage());
+      ex.printStackTrace();
+    }
+  }
+
+  private static void executeLevelTrader(final TCSService tcsService) {
+    telegramNotifyService.sendMessage("Run LevelTrader");
+    try {
+      final LevelTraderConfig levelTraderConfig = new LevelTraderConfig();
+      new LevelTrader(levelTraderConfig, tcsService).run();
+      telegramNotifyService.sendMessage("Stop LevelTrader");
+    } catch (final Exception ex) {
+      out.printf("LevelTrader error: %s%n", ex.getMessage());
+      ex.printStackTrace();
+    }
+  }
+
+  private static void executeUnifiedStrategy(final TCSService tcsService) {
+    telegramNotifyService.sendMessage("Run UnifiedStrategy");
+    try {
+      final UnifiedTraderConfig unifiedTraderConfig = new UnifiedTraderConfig();
+      new UnifiedStrategy(unifiedTraderConfig, tcsService).run();
+      telegramNotifyService.sendMessage("Stop UnifiedStrategy");
+    } catch (final Exception ex) {
+      out.printf("UnifiedStrategy error: %s%n", ex.getMessage());
+      ex.printStackTrace();
+    }
+  }
+
+  private static void executeGenerateModel(final String[] args) {
+    telegramNotifyService.sendMessage("Run GenerateModel");
+    try {
+      new ModelGenerator().runGenerateModel(args);
+    } catch (final Exception ex) {
+      out.printf("GenerateModel error: %s%n", ex.getMessage());
+      ex.printStackTrace();
+    }
+    telegramNotifyService.sendMessage("Stop GenerateModel");
+  }
+
+  private static void executeRegimeAwareStrategyMl(final TCSService tcsService) {
+    telegramNotifyService.sendMessage("Run RegimeAwareStrategyMl");
+    try {
+      final UnifiedTraderConfig unifiedTraderConfig = new UnifiedTraderConfig();
+      new RegimeAwareStrategyMl(unifiedTraderConfig, tcsService).run();
+      telegramNotifyService.sendMessage("Stop RegimeAwareStrategyMl");
+    } catch (final Exception ex) {
+      out.printf("RegimeAwareStrategyMl error: %s%n", ex.getMessage());
+      ex.printStackTrace();
+    }
   }
 
   private static void updateTickerRepository(TCSService tcsService) throws Exception {

@@ -1,4 +1,4 @@
-package com.github.shk0da.GoldenDragon.dictionary;
+package com.github.shk0da.goldendragon.dictionary;
 
 import java.util.HashMap;
 import java.util.Map;

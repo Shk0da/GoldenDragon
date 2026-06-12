@@ -1,10 +1,10 @@
-package com.github.shk0da.GoldenDragon.config;
+package com.github.shk0da.goldendragon.config;
 
 import static java.util.Arrays.stream;
 import static java.util.stream.Collectors.toList;
 
-import com.github.shk0da.GoldenDragon.filters.BadWeatherFilter;
-import com.github.shk0da.GoldenDragon.utils.PropertiesUtils;
+import com.github.shk0da.goldendragon.filters.BadWeatherFilter;
+import com.github.shk0da.goldendragon.utils.PropertiesUtils;
 import java.io.IOException;
 import java.util.HashMap;
 import java.util.List;

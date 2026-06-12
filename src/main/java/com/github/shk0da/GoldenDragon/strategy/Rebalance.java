@@ -1,10 +1,10 @@
-package com.github.shk0da.GoldenDragon.strategy;
+package com.github.shk0da.goldendragon.strategy;
 
-import com.github.shk0da.GoldenDragon.config.MarketConfig;
-import com.github.shk0da.GoldenDragon.config.RebalanceConfig;
-import com.github.shk0da.GoldenDragon.model.PortfolioPosition;
-import com.github.shk0da.GoldenDragon.model.TickerInfo;
-import com.github.shk0da.GoldenDragon.service.TCSService;
+import com.github.shk0da.goldendragon.config.MarketConfig;
+import com.github.shk0da.goldendragon.config.RebalanceConfig;
+import com.github.shk0da.goldendragon.model.PortfolioPosition;
+import com.github.shk0da.goldendragon.model.TickerInfo;
+import com.github.shk0da.goldendragon.service.TCSService;
 import java.util.Map;
 
 /** CRON MOEX: Every Mon at 10:01 MSK */

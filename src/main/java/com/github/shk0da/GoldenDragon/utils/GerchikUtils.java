@@ -1,8 +1,8 @@
-package com.github.shk0da.GoldenDragon.utils;
+package com.github.shk0da.goldendragon.utils;
 
-import static com.github.shk0da.GoldenDragon.utils.PropertiesUtils.loadProperties;
+import static com.github.shk0da.goldendragon.utils.PropertiesUtils.loadProperties;
 
-import com.github.shk0da.GoldenDragon.model.TickerCandle;
+import com.github.shk0da.goldendragon.model.TickerCandle;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;

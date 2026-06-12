@@ -1,7 +1,7 @@
-package com.github.shk0da.GoldenDragon.service;
+package com.github.shk0da.goldendragon.service;
 
-import static com.github.shk0da.GoldenDragon.utils.LoggingUtils.log;
-import static com.github.shk0da.GoldenDragon.utils.LoggingUtils.logError;
+import static com.github.shk0da.goldendragon.utils.LoggingUtils.log;
+import static com.github.shk0da.goldendragon.utils.LoggingUtils.logError;
 import static java.lang.System.out;
 
 import java.io.*;

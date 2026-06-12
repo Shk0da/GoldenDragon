@@ -1,24 +1,24 @@
-package com.github.shk0da.GoldenDragon.strategy;
+package com.github.shk0da.goldendragon.strategy;
 
-import static com.github.shk0da.GoldenDragon.utils.IndicatorsUtil.toDouble;
-import static com.github.shk0da.GoldenDragon.utils.TimeUtils.sleep;
+import static com.github.shk0da.goldendragon.utils.IndicatorsUtil.toDouble;
+import static com.github.shk0da.goldendragon.utils.TimeUtils.sleep;
 import static java.lang.System.out;
 import static java.nio.file.Files.createDirectories;
 import static java.nio.file.Files.deleteIfExists;
 import static java.time.OffsetDateTime.now;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.github.shk0da.GoldenDragon.config.DataCollectorConfig;
-import com.github.shk0da.GoldenDragon.model.TickerCandle;
-import com.github.shk0da.GoldenDragon.model.TickerInfo;
-import com.github.shk0da.GoldenDragon.model.TickerType;
-import com.github.shk0da.GoldenDragon.repository.Repository;
-import com.github.shk0da.GoldenDragon.repository.TickerRepository;
-import com.github.shk0da.GoldenDragon.service.BybitService;
-import com.github.shk0da.GoldenDragon.service.TCSService;
-import com.github.shk0da.GoldenDragon.utils.LevelUtils;
-import com.github.shk0da.GoldenDragon.utils.LevelUtils.Level;
-import com.github.shk0da.GoldenDragon.utils.TickerTypeResolver;
+import com.github.shk0da.goldendragon.config.DataCollectorConfig;
+import com.github.shk0da.goldendragon.model.TickerCandle;
+import com.github.shk0da.goldendragon.model.TickerInfo;
+import com.github.shk0da.goldendragon.model.TickerType;
+import com.github.shk0da.goldendragon.repository.Repository;
+import com.github.shk0da.goldendragon.repository.TickerRepository;
+import com.github.shk0da.goldendragon.service.BybitService;
+import com.github.shk0da.goldendragon.service.TCSService;
+import com.github.shk0da.goldendragon.utils.LevelUtils;
+import com.github.shk0da.goldendragon.utils.LevelUtils.Level;
+import com.github.shk0da.goldendragon.utils.TickerTypeResolver;
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileReader;
