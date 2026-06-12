@@ -14,6 +14,7 @@ import com.github.shk0da.GoldenDragon.model.TradingDecision;
 import com.github.shk0da.GoldenDragon.repository.TickerRepository;
 import com.github.shk0da.GoldenDragon.service.TCSService;
 import com.github.shk0da.GoldenDragon.utils.IndicatorsUtil;
+import com.github.shk0da.GoldenDragon.utils.LoggingUtils;
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileWriter;
@@ -48,6 +49,7 @@ import ru.tinkoff.piapi.contract.v1.HistoricCandle;
 import static com.github.shk0da.GoldenDragon.model.TickerType.FEATURE;
 import static com.github.shk0da.GoldenDragon.model.TickerType.STOCK;
 import static com.github.shk0da.GoldenDragon.service.TelegramNotifyService.telegramNotifyService;
+import static com.github.shk0da.GoldenDragon.utils.LoggingUtils.log;
 import static com.github.shk0da.GoldenDragon.utils.TimeUtils.sleep;
 import static java.lang.Math.abs;
 import static java.lang.Math.max;
@@ -238,10 +240,6 @@ public abstract class BaseStrategy {
     protected final BadWeatherFilter badWeatherFilter;
     protected final MarketRegimeFilter marketRegimeFilter;
     protected final boolean isBacktest;
-
-    protected static final ThreadLocal<SimpleDateFormat> LOG_TIME_FORMAT = ThreadLocal.withInitial(
-            () -> new SimpleDateFormat("dd.MM.yyyy HH:mm:ss.SSS")
-    );
 
     protected static final ThreadLocal<SimpleDateFormat> CANDLE_TIME_FORMAT = ThreadLocal.withInitial(
             () -> new SimpleDateFormat("dd.MM.yyyy HH:mm:ss")
@@ -1162,7 +1160,7 @@ public abstract class BaseStrategy {
         if (silent) {
             return;
         }
-        out.println("[" + LOG_TIME_FORMAT.get().format(new Date()) + "] " + message);
+        LoggingUtils.log(message);
     }
 
     protected static void shutdownExecutor(ExecutorService executor) {

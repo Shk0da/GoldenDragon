@@ -17,13 +17,25 @@ public class DataCollectorConfig {
 
     private final String dataDir;
     private final List<String> instruments;
+    private final List<String> cryptoInstruments;
     private final Boolean replace;
+    private final Integer historyDays;
 
     public DataCollectorConfig() throws IOException {
         final Properties properties = PropertiesUtils.loadProperties();
         dataDir = properties.getProperty("datacollector.dataDir", "data");
         instruments = stream(properties.getProperty("datacollector.instruments").split(",")).collect(toList());
+        cryptoInstruments = loadCryptoInstruments(properties);
         replace = Boolean.valueOf(properties.getProperty("datacollector.replace", "true"));
+        historyDays = Integer.valueOf(properties.getProperty("datacollector.historyDays", "365"));
+    }
+
+    private List<String> loadCryptoInstruments(Properties properties) {
+        String crypto = properties.getProperty("datacollector.crypto", "");
+        if (crypto == null || crypto.trim().isEmpty()) {
+            return List.of();
+        }
+        return stream(crypto.split(",")).map(String::trim).filter(s -> !s.isEmpty()).collect(toList());
     }
 
     public String getDataDir() {
@@ -34,8 +46,16 @@ public class DataCollectorConfig {
         return instruments;
     }
 
+    public List<String> getCryptoInstruments() {
+        return cryptoInstruments;
+    }
+
     public Boolean isReplace() {
         return replace;
+    }
+
+    public Integer getHistoryDays() {
+        return historyDays;
     }
 
     @Override
@@ -43,7 +63,9 @@ public class DataCollectorConfig {
         return "DataCollectorConfig{" +
                 "dataDir='" + dataDir + '\'' +
                 ", instruments=" + instruments +
+                ", cryptoInstruments=" + cryptoInstruments +
                 ", replace=" + replace +
+                ", historyDays=" + historyDays +
                 '}';
     }
 }

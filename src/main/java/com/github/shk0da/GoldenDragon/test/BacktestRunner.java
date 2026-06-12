@@ -1582,11 +1582,19 @@ public class BacktestRunner {
         Properties props = PropertiesUtils.loadProperties();
         Set<String> tickers = new LinkedHashSet<>();
 
+        // Load traditional instruments (stocks, bonds, etc.)
         for (String s : props.getProperty("datacollector.instruments", "").split(",")) {
             String t = s.trim();
             if (!t.isEmpty()) tickers.add(t);
         }
 
+        // Load crypto instruments
+        for (String s : props.getProperty("datacollector.crypto", "").split(",")) {
+            String t = s.trim();
+            if (!t.isEmpty()) tickers.add(t);
+        }
+
+        // Load from unifiedTrader.ticker.* configuration
         for (String key : props.stringPropertyNames()) {
             if (key.startsWith("unifiedTrader.ticker.")) {
                 String[] parts = key.split("\\.");

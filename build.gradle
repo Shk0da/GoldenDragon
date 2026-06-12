@@ -33,6 +33,14 @@ task uberJar(type: Jar) {
     }
 }
 
+task dataCollect(type: JavaExec) {
+    group = 'data'
+    description = 'Collect historical market data for stocks and crypto'
+    main = 'com.github.shk0da.GoldenDragon.strategy.DataCollector'
+    classpath = sourceSets.main.runtimeClasspath
+    workingDir = rootDir
+}
+
 task runBacktest(type: JavaExec) {
     main = 'com.github.shk0da.GoldenDragon.test.BacktestRunner'
     classpath = sourceSets.test.runtimeClasspath
@@ -43,14 +51,6 @@ task runBacktest(type: JavaExec) {
     if (strategyName) {
         args strategyName
     }
-}
-
-task runStrategy(type: JavaExec) {
-    main = 'com.github.shk0da.GoldenDragon.GoldenDragon'
-    classpath = sourceSets.test.runtimeClasspath
-    workingDir = rootDir
-    def strategyName = project.findProperty('strategy') ?: 'RegimeAwareStrategy'
-    args strategyName
 }
 
 task runMlTraining(type: JavaExec) {
@@ -151,4 +151,12 @@ task runUnifiedStrategySmokeTest(type: JavaExec) {
     main = 'com.github.shk0da.GoldenDragon.test.UnifiedStrategySmokeTest'
     classpath = sourceSets.test.runtimeClasspath
     workingDir = rootDir
+}
+
+task runStrategy(type: JavaExec) {
+    main = 'com.github.shk0da.GoldenDragon.GoldenDragon'
+    classpath = sourceSets.test.runtimeClasspath
+    workingDir = rootDir
+    def strategyName = project.findProperty('strategy') ?: 'RegimeAwareStrategy'
+    args strategyName
 }

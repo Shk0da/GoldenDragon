@@ -7,6 +7,7 @@ import com.github.shk0da.GoldenDragon.model.TickerInfo;
 import com.github.shk0da.GoldenDragon.model.TickerType;
 import com.github.shk0da.GoldenDragon.repository.Repository;
 import com.github.shk0da.GoldenDragon.repository.TickerRepository;
+import com.github.shk0da.GoldenDragon.service.BybitService;
 import com.github.shk0da.GoldenDragon.service.TCSService;
 import com.github.shk0da.GoldenDragon.utils.LevelUtils;
 import com.github.shk0da.GoldenDragon.utils.LevelUtils.Level;
@@ -37,6 +38,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
+import java.time.format.DateTimeFormatter;
 import ru.tinkoff.piapi.contract.v1.CandleInterval;
 import ru.tinkoff.piapi.contract.v1.HistoricCandle;
 
@@ -55,18 +57,54 @@ public class DataCollector {
     private static final Repository<TickerInfo.Key, TickerInfo> tickerRepository = TickerRepository.INSTANCE;
 
     private final TCSService tcsService;
+    private final BybitService bybitService;
     private final DataCollectorConfig config;
 
     public DataCollector(DataCollectorConfig config, TCSService tcsService) {
         this.tcsService = tcsService;
+        this.bybitService = new BybitService(config.getDataDir());
         this.config = config;
+    }
+
+    public static void main(String[] args) throws Exception {
+        DataCollectorConfig config = new DataCollectorConfig();
+        
+        // Create BybitService directly for crypto data
+        BybitService bybitService = new BybitService(config.getDataDir());
+        
+        List<String> cryptoTickers = config.getCryptoInstruments();
+        if (cryptoTickers != null && !cryptoTickers.isEmpty()) {
+            out.println("=== Downloading crypto data from Bybit ===");
+            out.println("Crypto instruments: " + String.join(", ", cryptoTickers));
+            
+            LocalDate endDate = LocalDate.now();
+            int historyDays = config.getHistoryDays();
+            LocalDate startDate = LocalDate.now().minusDays(historyDays);
+            
+            // Process all coins in parallel
+            bybitService.downloadAndConvert(cryptoTickers, startDate, endDate);
+            
+            out.println("=== Crypto data download completed ===");
+        } else {
+            out.println("No crypto instruments configured");
+        }
     }
 
     public void run() throws Exception {
         var dataDir = config.getDataDir();
         var tickers = config.getInstruments();
+        var cryptoTickers = config.getCryptoInstruments();
         var isReplace = config.isReplace();
+        var historyDays = config.getHistoryDays();
+        
         createDirectories(Paths.get(dataDir));
+        
+        // Download and convert crypto data from Bybit
+        if (cryptoTickers != null && !cryptoTickers.isEmpty()) {
+            downloadCryptoData(cryptoTickers, historyDays);
+        }
+        
+        // Process traditional instruments (stocks, bonds, etc.)
         for (String name : tickers) {
             try {
                 createDirectories(Paths.get(dataDir + "/" + name));
@@ -80,6 +118,67 @@ public class DataCollector {
         }
     }
 
+    /**
+     * Download and convert crypto data from Bybit.
+     * Checks existing candles and downloads only missing data.
+     * Processes all coins in parallel.
+     */
+    private void downloadCryptoData(List<String> cryptoTickers, int historyDays) throws Exception {
+        out.println("=== Downloading crypto data from Bybit ===");
+        out.println("Crypto instruments: " + String.join(", ", cryptoTickers));
+        
+        LocalDate endDate = LocalDate.now();
+        
+        // Process all coins in parallel
+        bybitService.downloadAndConvert(cryptoTickers, LocalDate.now().minusDays(historyDays), endDate);
+        
+        out.println("=== Crypto data download completed ===");
+    }
+
+    /**
+     * Get start date from existing candles file, or calculate from historyDays if file doesn't exist.
+     */
+    private LocalDate getStartDateFromExistingCandles(String ticker, int historyDays) throws IOException {
+        Path candlesFile = Paths.get(config.getDataDir(), ticker, "candlesHOUR.txt");
+        
+        if (Files.exists(candlesFile)) {
+            // Read last line to get the last candle date
+            try (BufferedReader br = new BufferedReader(new FileReader(candlesFile.toFile()))) {
+                String line = null;
+                String lastLine = null;
+                while ((line = br.readLine()) != null) {
+                    if (!line.trim().isEmpty() && !line.startsWith("Datetime")) {
+                        lastLine = line;
+                    }
+                }
+                
+                if (lastLine != null) {
+                    String[] parts = lastLine.split(",");
+                    if (parts.length > 0) {
+                        // Parse date from format "dd.MM.yyyy HH:mm:ss"
+                        String dateTimeStr = parts[0];
+                        int spaceIdx = dateTimeStr.indexOf(' ');
+                        String datePart = spaceIdx > 0 ? dateTimeStr.substring(0, spaceIdx) : dateTimeStr;
+                        
+                        try {
+                            LocalDate lastCandleDate = LocalDate.parse(datePart, DateTimeFormatter.ofPattern("dd.MM.yyyy"));
+                            out.println("Found existing candles for " + ticker + " until " + lastCandleDate);
+                            
+                            // Start from the day after the last candle
+                            return lastCandleDate.plusDays(1);
+                        } catch (Exception e) {
+                            out.println("Could not parse last candle date: " + e.getMessage());
+                        }
+                    }
+                }
+            }
+        }
+        
+        // No existing candles, use historyDays
+        out.println("No existing candles for " + ticker + ", using historyDays=" + historyDays);
+        return LocalDate.now().minusDays(historyDays);
+    }
+
     public void updateCandlesFile(String name, String dir, CandleInterval period, boolean isReplace) {
         var namePeriod = period.name().replace("CANDLE_INTERVAL_", "");
         var file = dir + "/" + name + "/candles" + namePeriod + ".txt";
@@ -89,9 +188,10 @@ public class DataCollector {
         }
 
         out.println("Create candles '" + namePeriod + "' file: " + name);
+        var historyDays = config.getHistoryDays();
         var lastCandleTime = Date.from(
                 LocalDate.now()
-                        .minusYears(5)
+                        .minusDays(historyDays)
                         .atTime(LocalTime.MIDNIGHT)
                         .atZone(ZoneId.systemDefault())
                         .toInstant()

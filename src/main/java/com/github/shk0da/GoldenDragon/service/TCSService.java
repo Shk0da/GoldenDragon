@@ -64,6 +64,7 @@ import java.util.stream.Collectors;
 
 import static com.github.shk0da.GoldenDragon.dictionary.CurrenciesDictionary.getTickerName;
 import static com.github.shk0da.GoldenDragon.service.TelegramNotifyService.telegramNotifyService;
+import static com.github.shk0da.GoldenDragon.utils.LoggingUtils.log;
 import static com.github.shk0da.GoldenDragon.utils.PrintUtils.printGlassOfPrices;
 import static com.github.shk0da.GoldenDragon.utils.TimeUtils.sleep;
 import static java.lang.Math.max;
@@ -90,8 +91,6 @@ public class TCSService {
     public static final double FUTURES_MARGIN_RATE = 0.40;
     private static final String MARKET_DEPTH_TICKS_HEADER = "time,best_bid,best_ask,mid_price,bids,asks";
     private static final DateTimeFormatter MARKET_DEPTH_TICKS_TIME_FORMATTER = DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm:ss");
-    private static final ThreadLocal<SimpleDateFormat> LOG_TIME_FORMAT =
-            ThreadLocal.withInitial(() -> new SimpleDateFormat("dd.MM.yyyy HH:mm:ss"));
 
     private final MainConfig mainConfig;
     private final MarketConfig marketConfig;
@@ -2411,9 +2410,5 @@ public class TCSService {
 
     private static Double normalizePrice(double price, double priceStep) {
         return Math.round(price / priceStep) * priceStep;
-    }
-
-    private void log(String message) {
-        out.println("[" + LOG_TIME_FORMAT.get().format(new Date()) + "] " + message);
     }
 }

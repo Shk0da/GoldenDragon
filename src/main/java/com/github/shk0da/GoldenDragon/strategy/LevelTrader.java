@@ -4,15 +4,16 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.shk0da.GoldenDragon.config.LevelTraderConfig;
 import com.github.shk0da.GoldenDragon.model.TickerCandle;
 import com.github.shk0da.GoldenDragon.model.TickerInfo;
-import com.github.shk0da.GoldenDragon.model.TickerInfo.Key;
-import com.github.shk0da.GoldenDragon.model.TickerJson;
 import com.github.shk0da.GoldenDragon.model.TickerType;
+import com.github.shk0da.GoldenDragon.model.TickerJson;
 import com.github.shk0da.GoldenDragon.repository.Repository;
 import com.github.shk0da.GoldenDragon.repository.TickerRepository;
 import com.github.shk0da.GoldenDragon.service.TCSService;
 import com.github.shk0da.GoldenDragon.utils.GerchikUtils;
 import com.github.shk0da.GoldenDragon.utils.IndicatorsUtil;
+import com.github.shk0da.GoldenDragon.utils.LoggingUtils;
 import com.github.shk0da.GoldenDragon.utils.TickerTypeResolver;
+
 import java.io.File;
 import java.io.IOException;
 import java.sql.Timestamp;
@@ -21,28 +22,19 @@ import java.text.DecimalFormat;
 import java.text.SimpleDateFormat;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
-import java.util.ArrayList;
-import java.util.Calendar;
-import java.util.Date;
-import java.util.GregorianCalendar;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.TimeUnit;
+import java.util.*;
+import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
+
 import ru.tinkoff.piapi.contract.v1.CandleInterval;
 import ru.tinkoff.piapi.contract.v1.HistoricCandle;
 
-
+import static com.github.shk0da.GoldenDragon.model.TickerInfo.Key;
 import static com.github.shk0da.GoldenDragon.service.TelegramNotifyService.telegramNotifyService;
 import static com.github.shk0da.GoldenDragon.utils.IndicatorsUtil.INDICATORS_SHIFT;
 import static com.github.shk0da.GoldenDragon.utils.IndicatorsUtil.calculateATR;
 import static com.github.shk0da.GoldenDragon.utils.IndicatorsUtil.toDouble;
+import static com.github.shk0da.GoldenDragon.utils.LoggingUtils.log;
 import static com.github.shk0da.GoldenDragon.utils.TimeUtils.sleep;
 import static java.lang.System.out;
 import static java.time.OffsetDateTime.now;
@@ -58,9 +50,6 @@ public class LevelTrader {
     private static final DateFormat dateTimeFormat = new SimpleDateFormat("dd.MM.yyyy HH:mm:ss");
     private static final DateTimeFormatter formatter = DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm:ss");
     private static final Repository<TickerInfo.Key, TickerInfo> tickerRepository = TickerRepository.INSTANCE;
-
-    private static final ThreadLocal<SimpleDateFormat> LOG_TIME_FORMAT =
-            ThreadLocal.withInitial(() -> new SimpleDateFormat("dd.MM.yyyy HH:mm:ss.SSS"));
 
     private static final long COOLDOWN_DURATION_MS = 5 * 60 * 1000L; // 5 минут
     private final Map<String, Long> tickerCooldown = new ConcurrentHashMap<>();
@@ -84,10 +73,6 @@ public class LevelTrader {
         this.slPercent = levelTraderConfig.getSlPercent();
         this.balanceRiskPercent = levelTraderConfig.getBalanceRiskPercent();
         this.averagePositionCost = levelTraderConfig.getAveragePositionCost();
-    }
-
-    private static void log(String message) {
-        out.println("[" + LOG_TIME_FORMAT.get().format(new Date()) + "] " + message);
     }
 
     public static class OrderInfo {
