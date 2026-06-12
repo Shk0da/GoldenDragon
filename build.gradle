@@ -1,4 +1,5 @@
 plugins {
+    id 'pmd'
     id 'java'
     id 'application'
     id 'com.diffplug.spotless' version '6.25.0'
@@ -30,6 +31,16 @@ spotless {
         endWithNewline()
         cleanthat()
     }
+}
+
+pmd {
+    toolVersion = '7.3.0'
+    ignoreFailures = true
+    ruleSets = [
+        'category/java/codestyle.xml',
+        'category/java/design.xml',
+        'category/java/errorprone.xml'
+    ]
 }
 
 task uberJar(type: Jar) {
