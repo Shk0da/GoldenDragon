@@ -1,25 +1,29 @@
 package com.github.shk0da.GoldenDragon.model;
 
 public enum TickerType {
+  BOND,
+  STOCK,
+  ETF,
+  CURRENCY,
+  FEATURE,
+  UNKNOWN;
 
-    BOND, STOCK, ETF, CURRENCY, FEATURE, UNKNOWN;
+  public static final TickerType ALL = null;
 
-    public static final TickerType ALL = null;
-
-    public static TickerType byName(String name) {
-        if (null == name) {
-            return UNKNOWN;
-        }
-        for (TickerType value : values()) {
-            if (value.name().equalsIgnoreCase(name)) {
-                return value;
-            }
-        }
-        return UNKNOWN;
+  public static TickerType byName(String name) {
+    if (null == name) {
+      return UNKNOWN;
     }
-
-    @Override
-    public String toString() {
-        return name();
+    for (TickerType value : values()) {
+      if (value.name().equalsIgnoreCase(name)) {
+        return value;
+      }
     }
+    return UNKNOWN;
+  }
+
+  @Override
+  public String toString() {
+    return name();
+  }
 }

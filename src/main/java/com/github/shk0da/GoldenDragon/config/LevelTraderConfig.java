@@ -1,157 +1,175 @@
 package com.github.shk0da.GoldenDragon.config;
 
+import static java.util.Arrays.stream;
+import static java.util.stream.Collectors.toList;
+
 import com.github.shk0da.GoldenDragon.utils.PropertiesUtils;
 import java.io.IOException;
 import java.util.List;
 import java.util.Properties;
 
-
-import static java.util.Arrays.stream;
-import static java.util.stream.Collectors.toList;
-
 /**
- * Configuration for LevelTrader strategy.
- * Loads settings from properties file for level-based trading with stop-loss and take-profit.
+ * Configuration for LevelTrader strategy. Loads settings from properties file for level-based
+ * trading with stop-loss and take-profit.
  */
 public class LevelTraderConfig {
 
-    private String dataDir;
-    private List<String> stocks;
+  private String dataDir;
+  private List<String> stocks;
 
-    private Boolean slEnabled;
-    private Double slPercent;
-    private Boolean slAuto;
+  private Boolean slEnabled;
+  private Double slPercent;
+  private Boolean slAuto;
 
-    private Boolean tpEnabled;
-    private Double tpPercent;
-    private Boolean tpAuto;
+  private Boolean tpEnabled;
+  private Double tpPercent;
+  private Boolean tpAuto;
 
-    private Double balanceRiskPercent;
-    private Double averagePositionCost;
+  private Double balanceRiskPercent;
+  private Double averagePositionCost;
 
-    public int levelConfirmationTouches;
-    public int confirmationCandles;
+  public int levelConfirmationTouches;
+  public int confirmationCandles;
 
-    public LevelTraderConfig() {
-        final Properties properties;
-        try {
-            properties = PropertiesUtils.loadProperties();
-        } catch (IOException e) {
-            throw new RuntimeException(e);
-        }
-
-        dataDir = properties.getProperty("datacollector.dataDir", "data");
-        stocks = stream(properties.getProperty(
-                "levelTrader.instruments",
-                properties.getProperty("datacollector.instruments")
-        ).split(",")).collect(toList());
-
-        slEnabled = Boolean.valueOf(properties.getProperty("levelTrader.sl.enabled", "true"));
-        slPercent = Double.valueOf(properties.getProperty("levelTrader.sl.percent", "0.3"));
-        slAuto = Boolean.valueOf(properties.getProperty("levelTrader.sl.auto", "false"));
-        tpEnabled = Boolean.valueOf(properties.getProperty("levelTrader.tp.enabled", "true"));
-        tpPercent = Double.valueOf(properties.getProperty("levelTrader.tp.percent", "0.9"));
-        tpAuto = Boolean.valueOf(properties.getProperty("levelTrader.tp.auto", "false"));
-        balanceRiskPercent = Double.valueOf(properties.getProperty("levelTrader.balanceRiskPercent", "30.0"));
-        averagePositionCost = Double.valueOf(properties.getProperty("levelTrader.averagePositionCost", "10000"));
-
-        levelConfirmationTouches = Integer.parseInt(properties.getProperty("levelTrader.levelConfirmationTouches", "3"));
-        confirmationCandles = Integer.parseInt(properties.getProperty("levelTrader.confirmationCandles", "3"));
+  public LevelTraderConfig() {
+    final Properties properties;
+    try {
+      properties = PropertiesUtils.loadProperties();
+    } catch (IOException e) {
+      throw new RuntimeException(e);
     }
 
-    public void setDataDir(String dataDir) {
-        this.dataDir = dataDir;
-    }
+    dataDir = properties.getProperty("datacollector.dataDir", "data");
+    stocks =
+        stream(
+                properties
+                    .getProperty(
+                        "levelTrader.instruments",
+                        properties.getProperty("datacollector.instruments"))
+                    .split(","))
+            .collect(toList());
 
-    public void setStocks(List<String> stocks) {
-        this.stocks = stocks;
-    }
+    slEnabled = Boolean.valueOf(properties.getProperty("levelTrader.sl.enabled", "true"));
+    slPercent = Double.valueOf(properties.getProperty("levelTrader.sl.percent", "0.3"));
+    slAuto = Boolean.valueOf(properties.getProperty("levelTrader.sl.auto", "false"));
+    tpEnabled = Boolean.valueOf(properties.getProperty("levelTrader.tp.enabled", "true"));
+    tpPercent = Double.valueOf(properties.getProperty("levelTrader.tp.percent", "0.9"));
+    tpAuto = Boolean.valueOf(properties.getProperty("levelTrader.tp.auto", "false"));
+    balanceRiskPercent =
+        Double.valueOf(properties.getProperty("levelTrader.balanceRiskPercent", "30.0"));
+    averagePositionCost =
+        Double.valueOf(properties.getProperty("levelTrader.averagePositionCost", "10000"));
 
-    public String getDataDir() {
-        return dataDir;
-    }
+    levelConfirmationTouches =
+        Integer.parseInt(properties.getProperty("levelTrader.levelConfirmationTouches", "3"));
+    confirmationCandles =
+        Integer.parseInt(properties.getProperty("levelTrader.confirmationCandles", "3"));
+  }
 
-    public List<String> getStocks() {
-        return stocks;
-    }
+  public void setDataDir(String dataDir) {
+    this.dataDir = dataDir;
+  }
 
-    public Boolean isSlEnabled() {
-        return slEnabled;
-    }
+  public void setStocks(List<String> stocks) {
+    this.stocks = stocks;
+  }
 
-    public Double getSlPercent() {
-        return slPercent;
-    }
+  public String getDataDir() {
+    return dataDir;
+  }
 
-    public Boolean isSlAuto() {
-        return slAuto;
-    }
+  public List<String> getStocks() {
+    return stocks;
+  }
 
-    public Boolean isTpEnabled() {
-        return tpEnabled;
-    }
+  public Boolean isSlEnabled() {
+    return slEnabled;
+  }
 
-    public Double getTpPercent() {
-        return tpPercent;
-    }
+  public Double getSlPercent() {
+    return slPercent;
+  }
 
-    public Boolean isTpAuto() {
-        return tpAuto;
-    }
+  public Boolean isSlAuto() {
+    return slAuto;
+  }
 
-    public Double getBalanceRiskPercent() {
-        return balanceRiskPercent;
-    }
+  public Boolean isTpEnabled() {
+    return tpEnabled;
+  }
 
-    public Double getAveragePositionCost() {
-        return averagePositionCost;
-    }
+  public Double getTpPercent() {
+    return tpPercent;
+  }
 
-    public void setSlEnabled(Boolean slEnabled) {
-        this.slEnabled = slEnabled;
-    }
+  public Boolean isTpAuto() {
+    return tpAuto;
+  }
 
-    public void setSlPercent(Double slPercent) {
-        this.slPercent = slPercent;
-    }
+  public Double getBalanceRiskPercent() {
+    return balanceRiskPercent;
+  }
 
-    public void setSlAuto(Boolean slAuto) {
-        this.slAuto = slAuto;
-    }
+  public Double getAveragePositionCost() {
+    return averagePositionCost;
+  }
 
-    public void setTpEnabled(Boolean tpEnabled) {
-        this.tpEnabled = tpEnabled;
-    }
+  public void setSlEnabled(Boolean slEnabled) {
+    this.slEnabled = slEnabled;
+  }
 
-    public void setTpPercent(Double tpPercent) {
-        this.tpPercent = tpPercent;
-    }
+  public void setSlPercent(Double slPercent) {
+    this.slPercent = slPercent;
+  }
 
-    public void setTpAuto(Boolean tpAuto) {
-        this.tpAuto = tpAuto;
-    }
+  public void setSlAuto(Boolean slAuto) {
+    this.slAuto = slAuto;
+  }
 
-    public void setBalanceRiskPercent(Double balanceRiskPercent) {
-        this.balanceRiskPercent = balanceRiskPercent;
-    }
+  public void setTpEnabled(Boolean tpEnabled) {
+    this.tpEnabled = tpEnabled;
+  }
 
-    public void setAveragePositionCost(Double averagePositionCost) {
-        this.averagePositionCost = averagePositionCost;
-    }
+  public void setTpPercent(Double tpPercent) {
+    this.tpPercent = tpPercent;
+  }
 
-    @Override
-    public String toString() {
-        return "LevelTraderConfig{" +
-                "dataDir='" + dataDir + '\'' +
-                ", stocks=" + stocks +
-                ", slEnabled=" + slEnabled +
-                ", slPercent=" + slPercent +
-                ", slAuto=" + slAuto +
-                ", tpEnabled=" + tpEnabled +
-                ", tpPercent=" + tpPercent +
-                ", tpAuto=" + tpAuto +
-                ", balanceRiskPercent=" + balanceRiskPercent +
-                ", averagePositionCost=" + averagePositionCost +
-                '}';
-    }
+  public void setTpAuto(Boolean tpAuto) {
+    this.tpAuto = tpAuto;
+  }
+
+  public void setBalanceRiskPercent(Double balanceRiskPercent) {
+    this.balanceRiskPercent = balanceRiskPercent;
+  }
+
+  public void setAveragePositionCost(Double averagePositionCost) {
+    this.averagePositionCost = averagePositionCost;
+  }
+
+  @Override
+  public String toString() {
+    return "LevelTraderConfig{"
+        + "dataDir='"
+        + dataDir
+        + '\''
+        + ", stocks="
+        + stocks
+        + ", slEnabled="
+        + slEnabled
+        + ", slPercent="
+        + slPercent
+        + ", slAuto="
+        + slAuto
+        + ", tpEnabled="
+        + tpEnabled
+        + ", tpPercent="
+        + tpPercent
+        + ", tpAuto="
+        + tpAuto
+        + ", balanceRiskPercent="
+        + balanceRiskPercent
+        + ", averagePositionCost="
+        + averagePositionCost
+        + '}';
+  }
 }
