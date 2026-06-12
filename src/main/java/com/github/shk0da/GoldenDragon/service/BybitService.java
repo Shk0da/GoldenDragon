@@ -128,22 +128,22 @@ public class BybitService {
             // Try to process existing CSV files first instead of re-downloading
             List<Path> existingCsvFiles = findExistingCsvFiles(coinDataDir);
             if (!existingCsvFiles.isEmpty()) {
-                log("Found " + existingCsvFiles.size()
-                        + " existing CSV files for " + coin + ", processing...");
+                log(
+                        "Found "
+                                + existingCsvFiles.size()
+                                + " existing CSV files for "
+                                + coin
+                                + ", processing...");
                 for (Path csvFile : existingCsvFiles) {
                     converter.convertSingleFile(csvFile);
+                    Files.deleteIfExists(csvFile);
                 }
             }
         }
 
         // Download any missing files from Bybit (skips files already on disk)
         BybitDataDownloader downloader =
-                new BybitDataDownloader(
-                        coinDataDir,
-                        coin,
-                        startDate,
-                        endDate,
-                        converter);
+                new BybitDataDownloader(coinDataDir, coin, startDate, endDate, converter);
 
         downloader.downloadAll();
 
@@ -288,6 +288,7 @@ public class BybitService {
 
                                 if (incrementalConverter != null) {
                                     incrementalConverter.convertSingleFile(extractedPath);
+                                    Files.deleteIfExists(extractedPath);
                                 }
 
                                 downloadedCount.incrementAndGet();
