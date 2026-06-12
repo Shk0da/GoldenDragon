@@ -18,8 +18,6 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Collections;
-import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -423,15 +421,20 @@ public class BybitService {
     // ========================================================================
 
     /**
-     * Incremental converter for converting single CSV files to candles. Accumulates ticks and
-     * updates candle files incrementally.
+     * Incremental converter for converting CSV files to candles. Uses memory-efficient accumulators
+     * instead of storing all ticks.
      */
     private static class CandleIncrementalConverter {
 
         private static final DateTimeFormatter OUTPUT_DATE_FORMAT =
                 DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm:ss");
+
+        private static final long INTERVAL_5MIN = 5 * 60 * 1000;
+        private static final long INTERVAL_1H = 60 * 60 * 1000;
+
         private final Path dataDir;
-        private final List<Tick> allTicks = Collections.synchronizedList(new ArrayList<>());
+        private final Map<Long, CandleAccumulator> acc5min = new TreeMap<>();
+        private final Map<Long, CandleAccumulator> acc1h = new TreeMap<>();
         private boolean initialized = false;
 
         CandleIncrementalConverter(String dataDir, String outputDir) {
@@ -440,23 +443,39 @@ public class BybitService {
 
         synchronized void convertSingleFile(Path csvFile) {
             try {
-                List<Tick> ticks = readTickFile(csvFile);
-                allTicks.addAll(ticks);
+                int ticksProcessed = 0;
+                try (BufferedReader reader = Files.newBufferedReader(csvFile)) {
+                    String line = reader.readLine(); // Skip header
+                    if (line == null) return;
 
-                // Sort all ticks by timestamp
-                allTicks.sort(Comparator.comparingLong(t -> t.timestamp));
+                    while ((line = reader.readLine()) != null) {
+                        String[] parts = line.split(",");
+                        if (parts.length >= 5) {
+                            try {
+                                long timestamp = (long) (Double.parseDouble(parts[0]) * 1000);
+                                double price = Double.parseDouble(parts[4]);
+                                double volume = Double.parseDouble(parts[3]);
 
-                // Convert to candles and write
-                if (!allTicks.isEmpty()) {
-                    // Write 5-minute candles
-                    List<Candle> candles5Min = aggregateCandles(allTicks, 5 * 60 * 1000);
-                    writeCandlesFile(dataDir.resolve("candles5_MIN.txt"), candles5Min, true);
+                                long key5min = (timestamp / INTERVAL_5MIN) * INTERVAL_5MIN;
+                                long key1h = (timestamp / INTERVAL_1H) * INTERVAL_1H;
 
-                    // Write 1-hour candles
-                    List<Candle> candles1H = aggregateCandles(allTicks, 60 * 60 * 1000);
-                    writeCandlesFile(dataDir.resolve("candlesHOUR.txt"), candles1H, true);
+                                acc5min.computeIfAbsent(key5min, k -> new CandleAccumulator())
+                                        .add(price, volume);
+                                acc1h.computeIfAbsent(key1h, k -> new CandleAccumulator())
+                                        .add(price, volume);
 
-                    // Write ticker.json only once
+                                ticksProcessed++;
+                            } catch (NumberFormatException e) {
+                                // Skip malformed lines
+                            }
+                        }
+                    }
+                }
+
+                if (ticksProcessed > 0) {
+                    writeCandlesFromAccumulator(dataDir.resolve("candles5_MIN.txt"), acc5min, true);
+                    writeCandlesFromAccumulator(dataDir.resolve("candlesHOUR.txt"), acc1h, true);
+
                     if (!initialized) {
                         writeTickerJson(
                                 dataDir.resolve("ticker.json"), dataDir.getFileName().toString());
@@ -466,66 +485,20 @@ public class BybitService {
                     System.out.println(
                             "Converted "
                                     + csvFile.getFileName()
-                                    + " - Total ticks: "
-                                    + allTicks.size()
+                                    + " - ticks: "
+                                    + ticksProcessed
                                     + ", 5-min candles: "
-                                    + candles5Min.size()
+                                    + acc5min.size()
                                     + ", 1-hour candles: "
-                                    + candles1H.size());
+                                    + acc1h.size());
                 }
             } catch (Exception e) {
                 System.err.println("Error converting file " + csvFile + ": " + e.getMessage());
             }
         }
 
-        private List<Tick> readTickFile(Path csvFile) throws IOException {
-            List<Tick> ticks = new ArrayList<>();
-            try (BufferedReader reader = Files.newBufferedReader(csvFile)) {
-                String line = reader.readLine(); // Skip header
-                if (line == null) return ticks;
-
-                while ((line = reader.readLine()) != null) {
-                    String[] parts = line.split(",");
-                    if (parts.length >= 5) {
-                        try {
-                            long timestamp = (long) (Double.parseDouble(parts[0]) * 1000);
-                            double price = Double.parseDouble(parts[4]);
-                            double volume = Double.parseDouble(parts[3]);
-                            ticks.add(new Tick(timestamp, price, volume));
-                        } catch (NumberFormatException e) {
-                            // Skip malformed lines
-                        }
-                    }
-                }
-            }
-            return ticks;
-        }
-
-        private List<Candle> aggregateCandles(List<Tick> ticks, long intervalMs) {
-            Map<Long, List<Tick>> intervals = new TreeMap<>();
-            for (Tick tick : ticks) {
-                long intervalKey = (tick.timestamp / intervalMs) * intervalMs;
-                intervals.computeIfAbsent(intervalKey, k -> new ArrayList<>()).add(tick);
-            }
-
-            List<Candle> candles = new ArrayList<>();
-            for (Map.Entry<Long, List<Tick>> entry : intervals.entrySet()) {
-                List<Tick> intervalTicks = entry.getValue();
-                if (intervalTicks.isEmpty()) continue;
-
-                double open = intervalTicks.get(0).price;
-                double high = intervalTicks.stream().mapToDouble(t -> t.price).max().orElse(open);
-                double low = intervalTicks.stream().mapToDouble(t -> t.price).min().orElse(open);
-                double close = intervalTicks.get(intervalTicks.size() - 1).price;
-                long volume = (long) intervalTicks.stream().mapToDouble(t -> t.volume).sum();
-
-                candles.add(new Candle(entry.getKey(), open, high, low, close, volume));
-            }
-
-            return candles;
-        }
-
-        private void writeCandlesFile(Path outputFile, List<Candle> candles, boolean writeHeader)
+        private void writeCandlesFromAccumulator(
+                Path outputFile, Map<Long, CandleAccumulator> accumulators, boolean writeHeader)
                 throws IOException {
             try (BufferedWriter writer = Files.newBufferedWriter(outputFile)) {
                 if (writeHeader) {
@@ -533,29 +506,29 @@ public class BybitService {
                     writer.newLine();
                 }
 
-                for (Candle candle : candles) {
+                for (Map.Entry<Long, CandleAccumulator> entry : accumulators.entrySet()) {
                     LocalDateTime dateTime =
                             LocalDateTime.ofEpochSecond(
-                                    candle.timestamp / 1000, 0, java.time.ZoneOffset.UTC);
+                                    entry.getKey() / 1000, 0, java.time.ZoneOffset.UTC);
                     String dateTimeStr = dateTime.format(OUTPUT_DATE_FORMAT);
+                    CandleAccumulator acc = entry.getValue();
 
                     writer.write(
                             String.format(
                                     Locale.US,
                                     "%s,%.2f,%.2f,%.2f,%.2f,%d",
                                     dateTimeStr,
-                                    candle.open,
-                                    candle.high,
-                                    candle.low,
-                                    candle.close,
-                                    candle.volume));
+                                    acc.open,
+                                    acc.high,
+                                    acc.low,
+                                    acc.close,
+                                    acc.volume));
                     writer.newLine();
                 }
             }
         }
 
         private void writeTickerJson(Path outputFile, String tickerName) throws IOException {
-            // Extract ticker name from directory name (e.g., "ETHUSDT" from "/data/ETHUSDT")
             String name =
                     tickerName != null && !tickerName.isEmpty()
                             ? tickerName
@@ -581,40 +554,23 @@ public class BybitService {
             Files.writeString(outputFile, json);
         }
 
-        // Inner classes for Tick and Candle
-        private static class Tick {
-            final long timestamp;
-            final double price;
-            final double volume;
+        private static class CandleAccumulator {
+            double open;
+            double high;
+            double low = Double.MAX_VALUE;
+            double close;
+            long volume;
+            boolean hasTicks;
 
-            Tick(long timestamp, double price, double volume) {
-                this.timestamp = timestamp;
-                this.price = price;
-                this.volume = volume;
-            }
-        }
-
-        private static class Candle {
-            final long timestamp;
-            final double open;
-            final double high;
-            final double low;
-            final double close;
-            final long volume;
-
-            Candle(
-                    long timestamp,
-                    double open,
-                    double high,
-                    double low,
-                    double close,
-                    long volume) {
-                this.timestamp = timestamp;
-                this.open = open;
-                this.high = high;
-                this.low = low;
-                this.close = close;
-                this.volume = volume;
+            void add(double price, double vol) {
+                if (!hasTicks) {
+                    open = price;
+                    hasTicks = true;
+                }
+                if (price > high) high = price;
+                if (price < low) low = price;
+                close = price;
+                volume += vol;
             }
         }
     }
