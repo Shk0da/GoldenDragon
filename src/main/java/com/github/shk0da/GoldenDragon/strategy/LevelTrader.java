@@ -1,5 +1,17 @@
 package com.github.shk0da.goldendragon.strategy;
 
+import static com.github.shk0da.goldendragon.model.TickerInfo.Key;
+import static com.github.shk0da.goldendragon.service.TelegramNotifyService.telegramNotifyService;
+import static com.github.shk0da.goldendragon.utils.IndicatorsUtil.INDICATORS_SHIFT;
+import static com.github.shk0da.goldendragon.utils.IndicatorsUtil.calculateATR;
+import static com.github.shk0da.goldendragon.utils.IndicatorsUtil.toDouble;
+import static com.github.shk0da.goldendragon.utils.LoggingUtils.log;
+import static com.github.shk0da.goldendragon.utils.TimeUtils.sleep;
+import static java.time.OffsetDateTime.now;
+import static java.util.concurrent.CompletableFuture.allOf;
+import static java.util.concurrent.CompletableFuture.runAsync;
+import static ru.tinkoff.piapi.contract.v1.CandleInterval.CANDLE_INTERVAL_5_MIN;
+import static ru.tinkoff.piapi.contract.v1.CandleInterval.CANDLE_INTERVAL_HOUR;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.shk0da.goldendragon.config.LevelTraderConfig;
 import com.github.shk0da.goldendragon.model.TickerCandle;
@@ -36,20 +48,6 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import ru.tinkoff.piapi.contract.v1.CandleInterval;
 import ru.tinkoff.piapi.contract.v1.HistoricCandle;
-
-
-import static com.github.shk0da.goldendragon.model.TickerInfo.Key;
-import static com.github.shk0da.goldendragon.service.TelegramNotifyService.telegramNotifyService;
-import static com.github.shk0da.goldendragon.utils.IndicatorsUtil.INDICATORS_SHIFT;
-import static com.github.shk0da.goldendragon.utils.IndicatorsUtil.calculateATR;
-import static com.github.shk0da.goldendragon.utils.IndicatorsUtil.toDouble;
-import static com.github.shk0da.goldendragon.utils.LoggingUtils.log;
-import static com.github.shk0da.goldendragon.utils.TimeUtils.sleep;
-import static java.time.OffsetDateTime.now;
-import static java.util.concurrent.CompletableFuture.allOf;
-import static java.util.concurrent.CompletableFuture.runAsync;
-import static ru.tinkoff.piapi.contract.v1.CandleInterval.CANDLE_INTERVAL_5_MIN;
-import static ru.tinkoff.piapi.contract.v1.CandleInterval.CANDLE_INTERVAL_HOUR;
 
 public class LevelTrader {
 

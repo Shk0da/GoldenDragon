@@ -8,7 +8,6 @@ import static java.lang.Math.abs;
 import static java.lang.Math.max;
 import static java.util.concurrent.CompletableFuture.allOf;
 import static java.util.concurrent.CompletableFuture.runAsync;
-
 import com.github.shk0da.goldendragon.config.UnifiedTraderConfig;
 import com.github.shk0da.goldendragon.filters.BadWeatherFilter;
 import com.github.shk0da.goldendragon.filters.MarketRegimeFilter;
