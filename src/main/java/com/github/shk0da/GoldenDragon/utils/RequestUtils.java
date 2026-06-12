@@ -14,7 +14,9 @@ public final class RequestUtils {
         do {
             try {
                 response = supplier.get();
-                if (null != response && 200 == response.statusCode()) break;
+                if (null != response && 200 == response.statusCode()) {
+                    break;
+                }
             } catch (Exception ex) {
                 out.println("Error: " + ex.getMessage());
             }

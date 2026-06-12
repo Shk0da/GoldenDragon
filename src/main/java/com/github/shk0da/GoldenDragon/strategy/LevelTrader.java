@@ -12,6 +12,7 @@ import static java.util.concurrent.CompletableFuture.allOf;
 import static java.util.concurrent.CompletableFuture.runAsync;
 import static ru.tinkoff.piapi.contract.v1.CandleInterval.CANDLE_INTERVAL_5_MIN;
 import static ru.tinkoff.piapi.contract.v1.CandleInterval.CANDLE_INTERVAL_HOUR;
+
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.shk0da.goldendragon.config.LevelTraderConfig;
 import com.github.shk0da.goldendragon.model.TickerCandle;

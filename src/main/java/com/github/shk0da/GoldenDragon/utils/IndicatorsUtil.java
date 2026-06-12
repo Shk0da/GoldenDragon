@@ -113,7 +113,7 @@ public class IndicatorsUtil {
         Map<String, List<Indicator>> indicators = new HashMap<>();
 
         // MA Black
-        List<Indicator> MABlack = new ArrayList<>();
+        List<Indicator> maBlack = new ArrayList<>();
         for (int i = MA_BLACK_PERIOD; i < candles.size(); i++) {
             double[] inClose = new double[MA_BLACK_PERIOD];
             int k = 0;
@@ -124,17 +124,17 @@ public class IndicatorsUtil {
                 j++;
             }
             double value = movingAverageBlack(inClose);
-            MABlack.add(
+            maBlack.add(
                     new Indicator(
                             "MABlack",
                             value,
                             LocalDateTime.parse(candles.get(j).getDate(), formatter),
                             candles.get(j).getClose()));
         }
-        indicators.put("MABlack", MABlack);
+        indicators.put("MABlack", maBlack);
 
         // MA White
-        List<Indicator> MAWhite = new ArrayList<>();
+        List<Indicator> maWhite = new ArrayList<>();
         for (int i = MA_WHITE_PERIOD; i < candles.size(); i++) {
             double[] inClose = new double[MA_WHITE_PERIOD];
             int k = 0;
@@ -145,18 +145,18 @@ public class IndicatorsUtil {
                 j++;
             }
             double value = movingAverageWhite(inClose);
-            MAWhite.add(
+            maWhite.add(
                     new Indicator(
                             "MAWhite",
                             value,
                             LocalDateTime.parse(candles.get(j).getDate(), formatter),
                             candles.get(j).getClose()));
         }
-        indicators.put("MAWhite", MAWhite);
+        indicators.put("MAWhite", maWhite);
 
         // MACD
         int chunkMacdSize = MACD_SLOW_PERIOD + SHIFT_SIZE;
-        List<Indicator> MACD = new ArrayList<>();
+        List<Indicator> macd = new ArrayList<>();
         for (int i = chunkMacdSize; i < candles.size(); i++) {
             double[] inClose = new double[chunkMacdSize];
             int k = 0;
@@ -167,17 +167,17 @@ public class IndicatorsUtil {
                 j++;
             }
             double value = macd(inClose);
-            MACD.add(
+            macd.add(
                     new Indicator(
                             "MACD",
                             value,
                             LocalDateTime.parse(candles.get(j).getDate(), formatter),
                             candles.get(j).getClose()));
         }
-        indicators.put("MACD", MACD);
+        indicators.put("MACD", macd);
 
         // RSI
-        List<Indicator> RSI = new ArrayList<>();
+        List<Indicator> rsi = new ArrayList<>();
         int chunkRsiSize = RSI_PERIOD + SHIFT_SIZE;
         for (int i = chunkRsiSize; i < candles.size(); i++) {
             double[] inClose = new double[chunkRsiSize];
@@ -189,17 +189,17 @@ public class IndicatorsUtil {
                 j++;
             }
             double value = rsi(inClose);
-            RSI.add(
+            rsi.add(
                     new Indicator(
                             "RSI",
                             value,
                             LocalDateTime.parse(candles.get(j).getDate(), formatter),
                             candles.get(j).getClose()));
         }
-        indicators.put("RSI", RSI);
+        indicators.put("RSI", rsi);
 
         // OBV
-        List<Indicator> OBV = new ArrayList<>();
+        List<Indicator> obv = new ArrayList<>();
         for (int i = OBV_PERIOD; i < candles.size(); i++) {
             double[] inClose = new double[OBV_PERIOD];
             double[] inVolume = new double[OBV_PERIOD];
@@ -212,17 +212,17 @@ public class IndicatorsUtil {
                 j++;
             }
             double value = obv(inClose, inVolume);
-            OBV.add(
+            obv.add(
                     new Indicator(
                             "OBV",
                             value,
                             LocalDateTime.parse(candles.get(j).getDate(), formatter),
                             candles.get(j).getClose()));
         }
-        indicators.put("OBV", OBV);
+        indicators.put("OBV", obv);
 
         // ADX
-        List<Indicator> ADX = new ArrayList<>();
+        List<Indicator> adx = new ArrayList<>();
         int chunkAdxSize = ADX_PERIOD + SHIFT_SIZE;
         for (int i = chunkAdxSize; i < candles.size(); i++) {
             double[] inClose = new double[chunkAdxSize];
@@ -238,14 +238,14 @@ public class IndicatorsUtil {
                 j++;
             }
             double value = adx(inClose, inLow, inHigh);
-            ADX.add(
+            adx.add(
                     new Indicator(
                             "ADX",
                             value,
                             LocalDateTime.parse(candles.get(j).getDate(), formatter),
                             candles.get(j).getClose()));
         }
-        indicators.put("ADX", ADX);
+        indicators.put("ADX", adx);
 
         return indicators;
     }
@@ -254,7 +254,7 @@ public class IndicatorsUtil {
         Map<String, List<Indicator>> indicators = new HashMap<>();
 
         // MA Black
-        List<Indicator> MABlack = new ArrayList<>();
+        List<Indicator> maBlack = new ArrayList<>();
         for (int i = MA_BLACK_PERIOD; i < candles.size(); i++) {
             double[] inClose = new double[MA_BLACK_PERIOD];
             int k = 0;
@@ -265,7 +265,7 @@ public class IndicatorsUtil {
                 j++;
             }
             double value = movingAverageBlack(inClose);
-            MABlack.add(
+            maBlack.add(
                     new Indicator(
                             "MABlack",
                             value,
@@ -274,10 +274,10 @@ public class IndicatorsUtil {
                                     ZoneId.systemDefault()),
                             toDouble(candles.get(j).getClose())));
         }
-        indicators.put("MABlack", MABlack);
+        indicators.put("MABlack", maBlack);
 
         // MA White
-        List<Indicator> MAWhite = new ArrayList<>();
+        List<Indicator> maWhite = new ArrayList<>();
         for (int i = MA_WHITE_PERIOD; i < candles.size(); i++) {
             double[] inClose = new double[MA_WHITE_PERIOD];
             int k = 0;
@@ -288,7 +288,7 @@ public class IndicatorsUtil {
                 j++;
             }
             double value = movingAverageWhite(inClose);
-            MAWhite.add(
+            maWhite.add(
                     new Indicator(
                             "MAWhite",
                             value,
@@ -297,11 +297,11 @@ public class IndicatorsUtil {
                                     ZoneId.systemDefault()),
                             toDouble(candles.get(j).getClose())));
         }
-        indicators.put("MAWhite", MAWhite);
+        indicators.put("MAWhite", maWhite);
 
         // MACD
         int chunkMacdSize = MACD_SLOW_PERIOD + SHIFT_SIZE;
-        List<Indicator> MACD = new ArrayList<>();
+        List<Indicator> macd = new ArrayList<>();
         for (int i = chunkMacdSize; i < candles.size(); i++) {
             double[] inClose = new double[chunkMacdSize];
             int k = 0;
@@ -312,7 +312,7 @@ public class IndicatorsUtil {
                 j++;
             }
             double value = macd(inClose);
-            MACD.add(
+            macd.add(
                     new Indicator(
                             "MACD",
                             value,
@@ -321,11 +321,11 @@ public class IndicatorsUtil {
                                     ZoneId.systemDefault()),
                             toDouble(candles.get(j).getClose())));
         }
-        indicators.put("MACD", MACD);
+        indicators.put("MACD", macd);
 
         // MACD SIGN
         int chunkMacdSignSize = MACD_SLOW_PERIOD + SHIFT_SIZE;
-        List<Indicator> MACD_SIGN = new ArrayList<>();
+        List<Indicator> macdSign = new ArrayList<>();
         for (int i = chunkMacdSignSize; i < candles.size(); i++) {
             double[] inClose = new double[chunkMacdSignSize];
             int k = 0;
@@ -336,7 +336,7 @@ public class IndicatorsUtil {
                 j++;
             }
             double value = macdSign(inClose);
-            MACD_SIGN.add(
+            macdSign.add(
                     new Indicator(
                             "MACD_SIGN",
                             value,
@@ -345,29 +345,29 @@ public class IndicatorsUtil {
                                     ZoneId.systemDefault()),
                             toDouble(candles.get(j).getClose())));
         }
-        indicators.put("MACD_SIGN", MACD_SIGN);
+        indicators.put("MACD_SIGN", macdSign);
 
         // MACD SMA
         int chunkSmaMacdSize = SMA_PERIOD;
-        List<Indicator> MACD_SMA = new ArrayList<>();
-        for (int i = chunkSmaMacdSize; i < MACD.size(); i++) {
+        List<Indicator> macdSma = new ArrayList<>();
+        for (int i = chunkSmaMacdSize; i < macd.size(); i++) {
             double[] inClose = new double[chunkSmaMacdSize];
             int k = 0;
             int j = i - chunkSmaMacdSize;
             while (k < chunkSmaMacdSize) {
-                inClose[k] = MACD.get(j).getValue();
+                inClose[k] = macd.get(j).getValue();
                 k++;
                 j++;
             }
             double value = sma(inClose);
-            MACD_SMA.add(
+            macdSma.add(
                     new Indicator(
-                            "MACD_SMA", value, MACD.get(j).getDateTime(), MACD.get(j).getValue()));
+                            "MACD_SMA", value, macd.get(j).getDateTime(), macd.get(j).getValue()));
         }
-        indicators.put("MACD_SMA", MACD_SMA);
+        indicators.put("MACD_SMA", macdSma);
 
         // RSI
-        List<Indicator> RSI = new ArrayList<>();
+        List<Indicator> rsi = new ArrayList<>();
         int chunkRsiSize = RSI_PERIOD + SHIFT_SIZE;
         for (int i = chunkRsiSize; i < candles.size(); i++) {
             double[] inClose = new double[chunkRsiSize];
@@ -379,7 +379,7 @@ public class IndicatorsUtil {
                 j++;
             }
             double value = rsi(inClose);
-            RSI.add(
+            rsi.add(
                     new Indicator(
                             "RSI",
                             value,
@@ -388,29 +388,29 @@ public class IndicatorsUtil {
                                     ZoneId.systemDefault()),
                             toDouble(candles.get(j).getClose())));
         }
-        indicators.put("RSI", RSI);
+        indicators.put("RSI", rsi);
 
         // RSI SMA
-        List<Indicator> RSI_SMA = new ArrayList<>();
+        List<Indicator> rsiSma = new ArrayList<>();
         int chunkRsiSmaSize = SMA_PERIOD;
-        for (int i = chunkRsiSmaSize; i < RSI.size(); i++) {
+        for (int i = chunkRsiSmaSize; i < rsi.size(); i++) {
             double[] inClose = new double[chunkRsiSmaSize];
             int k = 0;
             int j = i - chunkRsiSmaSize;
             while (k < chunkRsiSmaSize) {
-                inClose[k] = RSI.get(j).getValue();
+                inClose[k] = rsi.get(j).getValue();
                 k++;
                 j++;
             }
             double value = sma(inClose);
-            RSI_SMA.add(
+            rsiSma.add(
                     new Indicator(
-                            "RSI_SMA", value, RSI.get(j).getDateTime(), RSI.get(j).getValue()));
+                            "RSI_SMA", value, rsi.get(j).getDateTime(), rsi.get(j).getValue()));
         }
-        indicators.put("RSI_SMA", RSI_SMA);
+        indicators.put("RSI_SMA", rsiSma);
 
         // OBV
-        List<Indicator> OBV = new ArrayList<>();
+        List<Indicator> obv = new ArrayList<>();
         for (int i = OBV_PERIOD; i < candles.size(); i++) {
             double[] inClose = new double[OBV_PERIOD];
             double[] inVolume = new double[OBV_PERIOD];
@@ -423,7 +423,7 @@ public class IndicatorsUtil {
                 j++;
             }
             double value = obv(inClose, inVolume);
-            OBV.add(
+            obv.add(
                     new Indicator(
                             "OBV",
                             value,
@@ -432,29 +432,29 @@ public class IndicatorsUtil {
                                     ZoneId.systemDefault()),
                             toDouble(candles.get(j).getClose())));
         }
-        indicators.put("OBV", OBV);
+        indicators.put("OBV", obv);
 
         // OBV SMA
-        List<Indicator> OBV_SMA = new ArrayList<>();
+        List<Indicator> obvSma = new ArrayList<>();
         int chunkObvSmaSize = SMA_PERIOD;
-        for (int i = chunkObvSmaSize; i < OBV.size(); i++) {
+        for (int i = chunkObvSmaSize; i < obv.size(); i++) {
             double[] inClose = new double[chunkObvSmaSize];
             int k = 0;
-            int j = i - chunkRsiSmaSize;
-            while (k < chunkRsiSmaSize) {
-                inClose[k] = OBV.get(j).getValue();
+            int j = i - chunkObvSmaSize;
+            while (k < chunkObvSmaSize) {
+                inClose[k] = obv.get(j).getValue();
                 k++;
                 j++;
             }
             double value = sma(inClose);
-            OBV_SMA.add(
+            obvSma.add(
                     new Indicator(
-                            "OBV_SMA", value, OBV.get(j).getDateTime(), OBV.get(j).getValue()));
+                            "OBV_SMA", value, obv.get(j).getDateTime(), obv.get(j).getValue()));
         }
-        indicators.put("OBV_SMA", OBV_SMA);
+        indicators.put("OBV_SMA", obvSma);
 
         // ADX
-        List<Indicator> ADX = new ArrayList<>();
+        List<Indicator> adx = new ArrayList<>();
         int chunkAdxSize = ADX_PERIOD + SHIFT_SIZE;
         for (int i = chunkAdxSize; i < candles.size(); i++) {
             double[] inClose = new double[chunkAdxSize];
@@ -470,7 +470,7 @@ public class IndicatorsUtil {
                 j++;
             }
             double value = adx(inClose, inLow, inHigh);
-            ADX.add(
+            adx.add(
                     new Indicator(
                             "ADX",
                             value,
@@ -479,7 +479,7 @@ public class IndicatorsUtil {
                                     ZoneId.systemDefault()),
                             toDouble(candles.get(j).getClose())));
         }
-        indicators.put("ADX", ADX);
+        indicators.put("ADX", adx);
 
         return indicators;
     }
@@ -705,7 +705,9 @@ public class IndicatorsUtil {
     public static List<TickerCandle> convertCandles(
             List<TickerCandle> candles, long newTimeFrame, ChronoUnit unit) {
         List<TickerCandle> newCandles = new ArrayList<>();
-        if (candles.isEmpty()) return newCandles;
+        if (candles.isEmpty()) {
+            return newCandles;
+        }
 
         double open = 0.0;
         double high = Double.MIN_VALUE;

@@ -174,7 +174,9 @@ public class LevelUtils {
 
     /** Расчёт среднего объёма за весь период. */
     private double calculateAvgVolume(List<TickerCandle> candles) {
-        if (candles.isEmpty()) return 0;
+        if (candles.isEmpty()) {
+            return 0;
+        }
         double sum = candles.stream().mapToDouble(TickerCandle::getVolume).sum();
         return sum / candles.size();
     }
@@ -194,9 +196,15 @@ public class LevelUtils {
             boolean isLocalMax = true;
 
             for (int j = i - window; j <= i + window; j++) {
-                if (j == i) continue;
-                if (candles.get(j).getLow() <= curr.getLow()) isLocalMin = false;
-                if (candles.get(j).getHigh() >= curr.getHigh()) isLocalMax = false;
+                if (j == i) {
+                    continue;
+                }
+                if (candles.get(j).getLow() <= curr.getLow()) {
+                    isLocalMin = false;
+                }
+                if (candles.get(j).getHigh() >= curr.getHigh()) {
+                    isLocalMax = false;
+                }
             }
 
             // Фильтр по объёму: игнорируем экстремумы с объёмом ниже среднего
@@ -277,7 +285,9 @@ public class LevelUtils {
 
         for (TickerCandle candle : candles) {
             double range = candle.getHigh() - candle.getLow();
-            if (range <= 0) continue;
+            if (range <= 0) {
+                continue;
+            }
 
             double body = Math.abs(candle.getClose() - candle.getOpen());
             double lowerWick = Math.min(candle.getOpen(), candle.getClose()) - candle.getLow();

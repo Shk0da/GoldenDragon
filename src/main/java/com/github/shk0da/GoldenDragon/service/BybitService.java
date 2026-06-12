@@ -2,6 +2,7 @@ package com.github.shk0da.goldendragon.service;
 
 import static com.github.shk0da.goldendragon.utils.LoggingUtils.log;
 import static com.github.shk0da.goldendragon.utils.LoggingUtils.logError;
+
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
 import java.io.IOException;
@@ -24,7 +25,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
 import java.util.zip.GZIPInputStream;
-
 
 /**
  * Service for downloading and converting historical data from Bybit. Integrates with DataCollector

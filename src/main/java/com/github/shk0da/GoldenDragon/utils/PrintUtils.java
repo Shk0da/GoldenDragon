@@ -138,7 +138,9 @@ public final class PrintUtils {
         for (Map.Entry<TickerInfo.Key, PortfolioPosition> entry : sortedPositions.entrySet()) {
             PortfolioPosition currentPosition = entry.getValue();
             PositionInfo positionInfo = portfolioPositions.get(entry.getKey());
-            if (null == positionInfo) continue;
+            if (null == positionInfo) {
+                continue;
+            }
 
             String ticker = currentPosition.getName();
             String shortTicker = ticker.substring(0, min(ticker.length(), 7));
