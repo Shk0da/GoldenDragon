@@ -18,49 +18,51 @@ import java.util.Date;
  */
 public final class SerializationUtils {
 
-  private static final GsonBuilder gsonBuilder = new GsonBuilder();
+    private static final GsonBuilder gsonBuilder = new GsonBuilder();
 
-  static {
-    var tickerInfoToken = new TypeToken<TickerInfo.Key>() {};
-    gsonBuilder.registerTypeAdapter(
-        tickerInfoToken.getType(),
-        (JsonDeserializer<TickerInfo.Key>)
-            (jsonElement, type, jsonDeserializationContext) ->
-                new TickerInfo.Key(jsonElement.getAsString()));
-  }
-
-  public static Date getDateOfContentOnDisk(String name) throws Exception {
-    File content = new File(name);
-    if (!content.exists()) {
-      return new Date(0);
+    static {
+        var tickerInfoToken = new TypeToken<TickerInfo.Key>() {};
+        gsonBuilder.registerTypeAdapter(
+                tickerInfoToken.getType(),
+                (JsonDeserializer<TickerInfo.Key>)
+                        (jsonElement, type, jsonDeserializationContext) ->
+                                new TickerInfo.Key(jsonElement.getAsString()));
     }
 
-    BasicFileAttributes attrs = Files.readAttributes(content.toPath(), BasicFileAttributes.class);
-    return new Date(Math.max(attrs.creationTime().toMillis(), attrs.lastModifiedTime().toMillis()));
-  }
+    public static Date getDateOfContentOnDisk(String name) throws Exception {
+        File content = new File(name);
+        if (!content.exists()) {
+            return new Date(0);
+        }
 
-  public static synchronized <T> T loadDataFromDisk(String name, TypeToken<T> typeToken) {
-    File content = new File(name);
-    if (!content.exists()) {
-      return null;
+        BasicFileAttributes attrs =
+                Files.readAttributes(content.toPath(), BasicFileAttributes.class);
+        return new Date(
+                Math.max(attrs.creationTime().toMillis(), attrs.lastModifiedTime().toMillis()));
     }
 
-    try {
-      JsonObject jsonObject =
-          JsonParser.parseString(Files.readString(content.toPath())).getAsJsonObject();
-      return gsonBuilder.create().fromJson(jsonObject, typeToken.getType());
-    } catch (Exception ex) {
-      throw new RuntimeException(ex);
-    }
-  }
+    public static synchronized <T> T loadDataFromDisk(String name, TypeToken<T> typeToken) {
+        File content = new File(name);
+        if (!content.exists()) {
+            return null;
+        }
 
-  public static <T> void saveDataToDisk(String name, T data) throws IOException {
-    String content = new GsonBuilder().create().toJson(data);
-    File toSave = new File(name);
-    if (!toSave.exists() || (toSave.exists() && toSave.delete())) {
-      if (toSave.createNewFile()) {
-        Files.writeString(toSave.toPath(), content);
-      }
+        try {
+            JsonObject jsonObject =
+                    JsonParser.parseString(Files.readString(content.toPath())).getAsJsonObject();
+            return gsonBuilder.create().fromJson(jsonObject, typeToken.getType());
+        } catch (Exception ex) {
+            throw new RuntimeException(ex);
+        }
     }
-  }
+
+    public static <T> void saveDataToDisk(String name, T data) throws IOException {
+        String content = new GsonBuilder().create().toJson(data);
+        File toSave = new File(name);
+        if (!toSave.exists() || (toSave.exists() && toSave.delete())) {
+            if (toSave.createNewFile()) {
+                Files.writeString(toSave.toPath(), content);
+            }
+        }
+    }
 }

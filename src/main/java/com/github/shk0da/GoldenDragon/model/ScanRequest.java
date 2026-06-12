@@ -4,153 +4,154 @@ import java.util.List;
 
 public class ScanRequest {
 
-  private List<Filter> filter;
-  private Options options;
-  private Symbols symbols;
-  private List<String> columns;
-  private Sort sort;
-  private int[] range = new int[] {0, 100};
+    private List<Filter> filter;
+    private Options options;
+    private Symbols symbols;
+    private List<String> columns;
+    private Sort sort;
+    private int[] range = new int[] {0, 100};
 
-  public ScanRequest() {}
+    public ScanRequest() {}
 
-  public ScanRequest(
-      List<Filter> filter, Options options, List<String> columns, Sort sort, int[] range) {
-    this.filter = filter;
-    this.options = options;
-    this.columns = columns;
-    this.sort = sort;
-    this.range = range;
-  }
-
-  public ScanRequest(List<Filter> filter, Options options, Symbols symbols, List<String> columns) {
-    this.filter = filter;
-    this.options = options;
-    this.symbols = symbols;
-    this.columns = columns;
-  }
-
-  public ScanRequest(
-      List<Filter> filter,
-      Options options,
-      Symbols symbols,
-      List<String> columns,
-      Sort sort,
-      int[] range) {
-    this.filter = filter;
-    this.options = options;
-    this.symbols = symbols;
-    this.columns = columns;
-    this.sort = sort;
-    this.range = range;
-  }
-
-  public static class Filter {
-
-    public String left;
-    public String operation;
-    public Object right;
-
-    public Filter(String left, String operation) {
-      this.left = left;
-      this.operation = operation;
+    public ScanRequest(
+            List<Filter> filter, Options options, List<String> columns, Sort sort, int[] range) {
+        this.filter = filter;
+        this.options = options;
+        this.columns = columns;
+        this.sort = sort;
+        this.range = range;
     }
 
-    public Filter(String left, String operation, Object right) {
-      this.left = left;
-      this.operation = operation;
-      this.right = right;
-    }
-  }
-
-  public static class Options {
-
-    public String lang;
-
-    public Options(String lang) {
-      this.lang = lang;
-    }
-  }
-
-  public static class Symbols {
-
-    public Query query;
-    public List<String> tickers;
-
-    public Symbols(List<String> tickers) {
-      this.tickers = tickers;
+    public ScanRequest(
+            List<Filter> filter, Options options, Symbols symbols, List<String> columns) {
+        this.filter = filter;
+        this.options = options;
+        this.symbols = symbols;
+        this.columns = columns;
     }
 
-    public Symbols(Query query, List<String> tickers) {
-      this.query = query;
-      this.tickers = tickers;
+    public ScanRequest(
+            List<Filter> filter,
+            Options options,
+            Symbols symbols,
+            List<String> columns,
+            Sort sort,
+            int[] range) {
+        this.filter = filter;
+        this.options = options;
+        this.symbols = symbols;
+        this.columns = columns;
+        this.sort = sort;
+        this.range = range;
     }
 
-    public static class Query {
+    public static class Filter {
 
-      public List<String> types;
+        public String left;
+        public String operation;
+        public Object right;
 
-      public Query(List<String> types) {
-        this.types = types;
-      }
+        public Filter(String left, String operation) {
+            this.left = left;
+            this.operation = operation;
+        }
+
+        public Filter(String left, String operation, Object right) {
+            this.left = left;
+            this.operation = operation;
+            this.right = right;
+        }
     }
-  }
 
-  public static class Sort {
+    public static class Options {
 
-    public String sortBy;
-    public String sortOrder;
+        public String lang;
 
-    public Sort(String sortBy, String sortOrder) {
-      this.sortBy = sortBy;
-      this.sortOrder = sortOrder;
+        public Options(String lang) {
+            this.lang = lang;
+        }
     }
-  }
 
-  public List<Filter> getFilter() {
-    return filter;
-  }
+    public static class Symbols {
 
-  public void setFilter(List<Filter> filter) {
-    this.filter = filter;
-  }
+        public Query query;
+        public List<String> tickers;
 
-  public Options getOptions() {
-    return options;
-  }
+        public Symbols(List<String> tickers) {
+            this.tickers = tickers;
+        }
 
-  public void setOptions(Options options) {
-    this.options = options;
-  }
+        public Symbols(Query query, List<String> tickers) {
+            this.query = query;
+            this.tickers = tickers;
+        }
 
-  public Symbols getSymbols() {
-    return symbols;
-  }
+        public static class Query {
 
-  public void setSymbols(Symbols symbols) {
-    this.symbols = symbols;
-  }
+            public List<String> types;
 
-  public List<String> getColumns() {
-    return columns;
-  }
+            public Query(List<String> types) {
+                this.types = types;
+            }
+        }
+    }
 
-  public void setColumns(List<String> columns) {
-    this.columns = columns;
-  }
+    public static class Sort {
 
-  public Sort getSort() {
-    return sort;
-  }
+        public String sortBy;
+        public String sortOrder;
 
-  public void setSort(Sort sort) {
-    this.sort = sort;
-  }
+        public Sort(String sortBy, String sortOrder) {
+            this.sortBy = sortBy;
+            this.sortOrder = sortOrder;
+        }
+    }
 
-  public int[] getRange() {
-    return range;
-  }
+    public List<Filter> getFilter() {
+        return filter;
+    }
 
-  public void setRange(int[] range) {
-    this.range = range;
-  }
+    public void setFilter(List<Filter> filter) {
+        this.filter = filter;
+    }
+
+    public Options getOptions() {
+        return options;
+    }
+
+    public void setOptions(Options options) {
+        this.options = options;
+    }
+
+    public Symbols getSymbols() {
+        return symbols;
+    }
+
+    public void setSymbols(Symbols symbols) {
+        this.symbols = symbols;
+    }
+
+    public List<String> getColumns() {
+        return columns;
+    }
+
+    public void setColumns(List<String> columns) {
+        this.columns = columns;
+    }
+
+    public Sort getSort() {
+        return sort;
+    }
+
+    public void setSort(Sort sort) {
+        this.sort = sort;
+    }
+
+    public int[] getRange() {
+        return range;
+    }
+
+    public void setRange(int[] range) {
+        this.range = range;
+    }
 }

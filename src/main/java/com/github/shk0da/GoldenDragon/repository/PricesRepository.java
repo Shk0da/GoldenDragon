@@ -8,6 +8,6 @@ import java.util.Map;
  * book data by ticker.
  */
 public class PricesRepository
-    extends AbstractRepository<TickerInfo.Key, Map<String, Map<Double, Integer>>> {
-  public static final PricesRepository INSTANCE = new PricesRepository();
+        extends AbstractRepository<TickerInfo.Key, Map<String, Map<Double, Integer>>> {
+    public static final PricesRepository INSTANCE = new PricesRepository();
 }

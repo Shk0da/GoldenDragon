@@ -23,729 +23,774 @@ import java.util.zip.GZIPInputStream;
  */
 public class BybitService {
 
-  private static final String BASE_URL = "https://public.bybit.com/";
-  private static final List<String> KNOWN_DATA_TYPES =
-      Arrays.asList("trading", "spot", "kline_for_metatrader4", "premium_index", "spot_index");
+    private static final String BASE_URL = "https://public.bybit.com/";
+    private static final List<String> KNOWN_DATA_TYPES =
+            Arrays.asList(
+                    "trading", "spot", "kline_for_metatrader4", "premium_index", "spot_index");
 
-  private final String dataDir;
+    private final String dataDir;
 
-  public BybitService(String dataDir) {
-    this.dataDir = dataDir;
-  }
-
-  private static final int COIN_DOWNLOAD_THREADS = 10;
-
-  /**
-   * Download and convert historical data for specified crypto tokens. Downloads and converts
-   * incrementally - converts each file immediately after download. Processes multiple coins in
-   * parallel.
-   *
-   * @param coins List of coin pairs (e.g., BTCUSDT, ETHUSDT)
-   * @param startDate Start date (inclusive)
-   * @param endDate End date (inclusive), null for today
-   * @throws IOException If download or conversion fails
-   */
-  public void downloadAndConvert(List<String> coins, LocalDate startDate, LocalDate endDate)
-      throws IOException {
-    if (coins == null || coins.isEmpty()) {
-      log("No crypto coins configured for download");
-      return;
+    public BybitService(String dataDir) {
+        this.dataDir = dataDir;
     }
 
-    log("=== Starting Bybit data download ===");
-    log("Coins: " + String.join(", ", coins));
-    log("Date range: " + startDate + " to " + (endDate != null ? endDate : "today"));
-    log(
-        "Processing "
-            + coins.size()
-            + " coins in parallel with "
-            + COIN_DOWNLOAD_THREADS
-            + " threads");
+    private static final int COIN_DOWNLOAD_THREADS = 10;
 
-    try {
-      java.util.concurrent.ExecutorService executor =
-          java.util.concurrent.Executors.newFixedThreadPool(COIN_DOWNLOAD_THREADS);
-      java.util.concurrent.CountDownLatch latch =
-          new java.util.concurrent.CountDownLatch(coins.size());
+    /**
+     * Download and convert historical data for specified crypto tokens. Downloads and converts
+     * incrementally - converts each file immediately after download. Processes multiple coins in
+     * parallel.
+     *
+     * @param coins List of coin pairs (e.g., BTCUSDT, ETHUSDT)
+     * @param startDate Start date (inclusive)
+     * @param endDate End date (inclusive), null for today
+     * @throws IOException If download or conversion fails
+     */
+    public void downloadAndConvert(List<String> coins, LocalDate startDate, LocalDate endDate)
+            throws IOException {
+        if (coins == null || coins.isEmpty()) {
+            log("No crypto coins configured for download");
+            return;
+        }
 
-      for (String coin : coins) {
-        log(">>> Submitting task for coin: " + coin);
-        executor.submit(
-            () -> {
-              try {
-                log(">>> Task STARTED for coin: " + coin);
-                downloadAndConvertSingleCoin(coin, startDate, endDate);
-                log(">>> Task COMPLETED for coin: " + coin);
-              } catch (Exception e) {
-                logError("Failed to process coin " + coin, e);
-              } finally {
-                latch.countDown();
-              }
-            });
-      }
+        log("=== Starting Bybit data download ===");
+        log("Coins: " + String.join(", ", coins));
+        log("Date range: " + startDate + " to " + (endDate != null ? endDate : "today"));
+        log(
+                "Processing "
+                        + coins.size()
+                        + " coins in parallel with "
+                        + COIN_DOWNLOAD_THREADS
+                        + " threads");
 
-      log("All coin tasks submitted, waiting for completion...");
-      latch.await();
-      executor.shutdown();
-      log("Executor shutdown complete");
+        try {
+            java.util.concurrent.ExecutorService executor =
+                    java.util.concurrent.Executors.newFixedThreadPool(COIN_DOWNLOAD_THREADS);
+            java.util.concurrent.CountDownLatch latch =
+                    new java.util.concurrent.CountDownLatch(coins.size());
 
-      log("=== Bybit data download completed successfully ===");
-    } catch (Exception e) {
-      logError("Failed to download/convert Bybit data", e);
-      throw new IOException("Bybit data download failed", e);
-    }
-  }
-
-  /** Download and convert a single coin incrementally. */
-  private void downloadAndConvertSingleCoin(String coin, LocalDate startDate, LocalDate endDate)
-      throws Exception {
-    log("Processing coin: " + coin);
-
-    String coinDataDir = Paths.get(dataDir, coin).toString();
-    Files.createDirectories(Paths.get(coinDataDir));
-
-    // Download files one by one and convert immediately
-    BybitDataDownloader downloader =
-        new BybitDataDownloader(
-            coinDataDir,
-            coin,
-            startDate,
-            endDate,
-            new CandleIncrementalConverter(coinDataDir, coinDataDir));
-
-    downloader.downloadAll();
-
-    log("Completed processing coin: " + coin);
-  }
-
-  // ========================================================================
-  // INNER CLASS: BybitDataDownloader
-  // Encapsulated - not visible outside BybitService
-  // ========================================================================
-
-  /** Internal downloader for Bybit historical data. Not exposed outside BybitService. */
-  private static class BybitDataDownloader {
-
-    private static final int DOWNLOAD_THREADS = 5;
-
-    private final String outputDir;
-    private final String targetCoin;
-    private final LocalDate startDate;
-    private final LocalDate endDate;
-    private final CandleIncrementalConverter incrementalConverter;
-
-    BybitDataDownloader(
-        String outputDir,
-        String targetCoin,
-        LocalDate startDate,
-        LocalDate endDate,
-        CandleIncrementalConverter incrementalConverter) {
-      this.outputDir = outputDir;
-      this.targetCoin = targetCoin;
-      this.startDate = startDate;
-      this.endDate = endDate != null ? endDate : LocalDate.now();
-      this.incrementalConverter = incrementalConverter;
-    }
-
-    void downloadAll() throws Exception {
-      System.out.println("Fetching directory: " + BASE_URL + "trading/" + targetCoin + "/");
-
-      String coinUrl = BASE_URL + "trading/" + targetCoin + "/";
-      List<FileToDownload> filesToDownload = collectFilesToDownload(coinUrl);
-
-      System.out.println("Found " + filesToDownload.size() + " files to download");
-      System.out.println(
-          "Starting multi-threaded download with " + DOWNLOAD_THREADS + " threads...");
-
-      downloadFilesMultiThreaded(filesToDownload);
-
-      System.out.println("\n=== Download complete for " + targetCoin + " ===");
-    }
-
-    /** Collect all files to download by traversing directory structure. */
-    private List<FileToDownload> collectFilesToDownload(String dirUrl) throws Exception {
-      List<FileToDownload> files = new ArrayList<>();
-      collectFilesRecursive(dirUrl, outputDir, files);
-      return files;
-    }
-
-    private void collectFilesRecursive(String dirUrl, String localDir, List<FileToDownload> files) {
-      try {
-        String html = fetchUrl(dirUrl);
-        List<String> links = extractLinks(html);
-
-        for (String link : links) {
-          if (link.toLowerCase().endsWith(".csv.gz")) {
-            LocalDate fileDate = extractDateFromFileName(link);
-            if (fileDate != null && !fileDate.isBefore(startDate) && !fileDate.isAfter(endDate)) {
-              String extractedFileName =
-                  link.endsWith(".gz") ? link.substring(0, link.length() - 3) : link;
-              Path extractedPath = Paths.get(localDir, extractedFileName);
-
-              if (!Files.exists(extractedPath)) {
-                files.add(new FileToDownload(dirUrl + link, localDir, link, fileDate));
-              }
+            for (String coin : coins) {
+                log(">>> Submitting task for coin: " + coin);
+                executor.submit(
+                        () -> {
+                            try {
+                                log(">>> Task STARTED for coin: " + coin);
+                                downloadAndConvertSingleCoin(coin, startDate, endDate);
+                                log(">>> Task COMPLETED for coin: " + coin);
+                            } catch (Exception e) {
+                                logError("Failed to process coin " + coin, e);
+                            } finally {
+                                latch.countDown();
+                            }
+                        });
             }
-          }
-        }
 
-        for (String link : links) {
-          if (link.endsWith("/") && !link.equals("../")) {
-            String subdirName = link.replace("/", "");
-            String subdirUrl = dirUrl + link;
-            String subdirPath = Paths.get(localDir, subdirName).toString();
-            Files.createDirectories(Paths.get(subdirPath));
-            collectFilesRecursive(subdirUrl, subdirPath, files);
-          }
+            log("All coin tasks submitted, waiting for completion...");
+            latch.await();
+            executor.shutdown();
+            log("Executor shutdown complete");
+
+            log("=== Bybit data download completed successfully ===");
+        } catch (Exception e) {
+            logError("Failed to download/convert Bybit data", e);
+            throw new IOException("Bybit data download failed", e);
         }
-      } catch (Exception e) {
-        System.err.println("Error collecting files from " + dirUrl + ": " + e.getMessage());
-      }
     }
 
-    /** Download files using multiple threads. */
-    private void downloadFilesMultiThreaded(List<FileToDownload> files) throws Exception {
-      java.util.concurrent.ExecutorService executor =
-          java.util.concurrent.Executors.newFixedThreadPool(DOWNLOAD_THREADS);
-      java.util.concurrent.CountDownLatch latch =
-          new java.util.concurrent.CountDownLatch(files.size());
-      java.util.concurrent.atomic.AtomicInteger downloadedCount =
-          new java.util.concurrent.atomic.AtomicInteger(0);
+    /** Download and convert a single coin incrementally. */
+    private void downloadAndConvertSingleCoin(String coin, LocalDate startDate, LocalDate endDate)
+            throws Exception {
+        log("Processing coin: " + coin);
 
-      for (FileToDownload file : files) {
-        executor.submit(
-            () -> {
-              try {
-                System.out.println(
-                    "Downloading ["
-                        + (downloadedCount.get() + 1)
-                        + "/"
-                        + files.size()
-                        + "]: "
-                        + file.fileName
-                        + " (date: "
-                        + file.date
-                        + ")");
+        String coinDataDir = Paths.get(dataDir, coin).toString();
+        Files.createDirectories(Paths.get(coinDataDir));
 
-                Path extractedPath =
-                    Paths.get(
-                        file.outputDir,
-                        file.fileName.endsWith(".gz")
-                            ? file.fileName.substring(0, file.fileName.length() - 3)
-                            : file.fileName);
+        // Download files one by one and convert immediately
+        BybitDataDownloader downloader =
+                new BybitDataDownloader(
+                        coinDataDir,
+                        coin,
+                        startDate,
+                        endDate,
+                        new CandleIncrementalConverter(coinDataDir, coinDataDir));
 
-                downloadAndExtract(file.url, extractedPath);
-                System.out.println("Successfully downloaded: " + file.fileName);
+        downloader.downloadAll();
 
-                if (incrementalConverter != null) {
-                  incrementalConverter.convertSingleFile(extractedPath);
+        log("Completed processing coin: " + coin);
+    }
+
+    // ========================================================================
+    // INNER CLASS: BybitDataDownloader
+    // Encapsulated - not visible outside BybitService
+    // ========================================================================
+
+    /** Internal downloader for Bybit historical data. Not exposed outside BybitService. */
+    private static class BybitDataDownloader {
+
+        private static final int DOWNLOAD_THREADS = 5;
+
+        private final String outputDir;
+        private final String targetCoin;
+        private final LocalDate startDate;
+        private final LocalDate endDate;
+        private final CandleIncrementalConverter incrementalConverter;
+
+        BybitDataDownloader(
+                String outputDir,
+                String targetCoin,
+                LocalDate startDate,
+                LocalDate endDate,
+                CandleIncrementalConverter incrementalConverter) {
+            this.outputDir = outputDir;
+            this.targetCoin = targetCoin;
+            this.startDate = startDate;
+            this.endDate = endDate != null ? endDate : LocalDate.now();
+            this.incrementalConverter = incrementalConverter;
+        }
+
+        void downloadAll() throws Exception {
+            System.out.println("Fetching directory: " + BASE_URL + "trading/" + targetCoin + "/");
+
+            String coinUrl = BASE_URL + "trading/" + targetCoin + "/";
+            List<FileToDownload> filesToDownload = collectFilesToDownload(coinUrl);
+
+            System.out.println("Found " + filesToDownload.size() + " files to download");
+            System.out.println(
+                    "Starting multi-threaded download with " + DOWNLOAD_THREADS + " threads...");
+
+            downloadFilesMultiThreaded(filesToDownload);
+
+            System.out.println("\n=== Download complete for " + targetCoin + " ===");
+        }
+
+        /** Collect all files to download by traversing directory structure. */
+        private List<FileToDownload> collectFilesToDownload(String dirUrl) throws Exception {
+            List<FileToDownload> files = new ArrayList<>();
+            collectFilesRecursive(dirUrl, outputDir, files);
+            return files;
+        }
+
+        private void collectFilesRecursive(
+                String dirUrl, String localDir, List<FileToDownload> files) {
+            try {
+                String html = fetchUrl(dirUrl);
+                List<String> links = extractLinks(html);
+
+                for (String link : links) {
+                    if (link.toLowerCase().endsWith(".csv.gz")) {
+                        LocalDate fileDate = extractDateFromFileName(link);
+                        if (fileDate != null
+                                && !fileDate.isBefore(startDate)
+                                && !fileDate.isAfter(endDate)) {
+                            String extractedFileName =
+                                    link.endsWith(".gz")
+                                            ? link.substring(0, link.length() - 3)
+                                            : link;
+                            Path extractedPath = Paths.get(localDir, extractedFileName);
+
+                            if (!Files.exists(extractedPath)) {
+                                files.add(
+                                        new FileToDownload(
+                                                dirUrl + link, localDir, link, fileDate));
+                            }
+                        }
+                    }
                 }
 
-                downloadedCount.incrementAndGet();
-              } catch (Exception e) {
-                System.err.println("Failed to download " + file.fileName + ": " + e.getMessage());
-              } finally {
-                latch.countDown();
-              }
-            });
-      }
-
-      latch.await();
-      executor.shutdown();
-    }
-
-    /** Helper class to store file download information. */
-    private static class FileToDownload {
-      final String url;
-      final String outputDir;
-      final String fileName;
-      final LocalDate date;
-
-      FileToDownload(String url, String outputDir, String fileName, LocalDate date) {
-        this.url = url;
-        this.outputDir = outputDir;
-        this.fileName = fileName;
-        this.date = date;
-      }
-    }
-
-    private List<String> fetchDataTypes(String baseUrl) throws Exception {
-      List<String> dataTypes = new ArrayList<>();
-      String html = fetchUrl(baseUrl);
-      List<String> links = extractLinks(html);
-
-      for (String link : links) {
-        if (link.endsWith("/") && !link.equals("../")) {
-          dataTypes.add(link.replace("/", ""));
-        }
-      }
-      return dataTypes;
-    }
-
-    private void downloadAndExtract(String fileUrl, Path extractedPath) throws Exception {
-      Path tempGzPath = Files.createTempFile("bybit_", ".gz");
-
-      try {
-        URL url = new URL(fileUrl);
-        HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-        conn.setRequestMethod("GET");
-        conn.setConnectTimeout(60000); // 60 секунд
-        conn.setReadTimeout(120000); // 120 секунд
-
-        try (InputStream in = conn.getInputStream();
-            OutputStream out = Files.newOutputStream(tempGzPath)) {
-
-          byte[] buffer = new byte[8192];
-          int bytesRead;
-          while ((bytesRead = in.read(buffer)) != -1) {
-            out.write(buffer, 0, bytesRead);
-          }
-        }
-
-        try (GZIPInputStream gzipIn = new GZIPInputStream(Files.newInputStream(tempGzPath));
-            OutputStream out = Files.newOutputStream(extractedPath)) {
-
-          byte[] buffer = new byte[8192];
-          int bytesRead;
-          while ((bytesRead = gzipIn.read(buffer)) != -1) {
-            out.write(buffer, 0, bytesRead);
-          }
-        }
-
-      } finally {
-        Files.deleteIfExists(tempGzPath);
-      }
-    }
-
-    private LocalDate extractDateFromFileName(String fileName) {
-      if (fileName.contains("-") && fileName.contains(".csv")) {
-        int dateStart = fileName.indexOf('-', fileName.indexOf('-') + 1);
-        if (dateStart > 0) {
-          String datePart = fileName.substring(dateStart + 1, fileName.indexOf(".csv"));
-          try {
-            return LocalDate.parse(datePart + "-01", DateTimeFormatter.ISO_LOCAL_DATE);
-          } catch (Exception e) {
-            // Try without day
-          }
-        }
-      }
-
-      for (int i = 0; i < fileName.length() - 10; i++) {
-        if (Character.isDigit(fileName.charAt(i))) {
-          String dateStr = fileName.substring(i, i + 10);
-          try {
-            return LocalDate.parse(dateStr, DateTimeFormatter.ISO_LOCAL_DATE);
-          } catch (Exception e) {
-            // Continue searching
-          }
-        }
-      }
-      return null;
-    }
-
-    private String fetchUrl(String urlString) throws Exception {
-      URL url = new URL(urlString);
-      HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-      conn.setRequestMethod("GET");
-      conn.setConnectTimeout(30000);
-
-      StringBuilder sb = new StringBuilder();
-      try (BufferedReader reader =
-          new BufferedReader(new InputStreamReader(conn.getInputStream()))) {
-        String line;
-        while ((line = reader.readLine()) != null) {
-          sb.append(line).append("\n");
-        }
-      }
-      return sb.toString();
-    }
-
-    private List<String> extractLinks(String html) {
-      List<String> links = new ArrayList<>();
-      int pos = 0;
-      while ((pos = html.indexOf("<a href=\"", pos)) != -1) {
-        int start = pos + 9;
-        int end = html.indexOf("\"", start);
-        if (end != -1) {
-          links.add(html.substring(start, end));
-          pos = end;
-        }
-      }
-      return links;
-    }
-  }
-
-  // ========================================================================
-  // INNER CLASS: CandleConverter
-  // Encapsulated - not visible outside BybitService
-  // ========================================================================
-
-  /**
-   * Internal converter for transforming tick data to candlesticks. Not exposed outside
-   * BybitService.
-   */
-  private static class CandleConverter {
-
-    private static final DateTimeFormatter OUTPUT_DATE_FORMAT =
-        DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm:ss");
-
-    private final Path inputDir;
-    private final Path outputDir;
-
-    CandleConverter(String inputDir, String outputDir) {
-      this.inputDir = Paths.get(inputDir);
-      this.outputDir = Paths.get(outputDir);
-    }
-
-    void convertAll() throws Exception {
-      Files.createDirectories(outputDir);
-
-      List<Tick> allTicks = new ArrayList<>();
-      List<Path> csvFiles =
-          Files.walk(inputDir).filter(p -> p.toString().endsWith(".csv")).toList();
-
-      System.out.println("Found " + csvFiles.size() + " CSV files");
-
-      int fileCount = 0;
-      for (Path csvFile : csvFiles) {
-        fileCount++;
-        if (fileCount % 50 == 0) {
-          System.out.println(
-              "Reading file " + fileCount + "/" + csvFiles.size() + ": " + csvFile.getFileName());
-        }
-        List<Tick> ticks = readTickFile(csvFile);
-        allTicks.addAll(ticks);
-      }
-
-      System.out.println("Total ticks loaded: " + allTicks.size());
-      allTicks.sort(Comparator.comparingLong(t -> t.timestamp));
-
-      System.out.println("Aggregating 5-minute candles...");
-      List<Candle> candles5Min = aggregateCandles(allTicks, 5 * 60 * 1000);
-      Path candles5MinFile = outputDir.resolve("candles5_MIN.txt");
-      writeCandlesFile(candles5MinFile, candles5Min);
-      System.out.println(
-          "Written " + candles5Min.size() + " 5-minute candles to " + candles5MinFile);
-
-      System.out.println("Aggregating 1-hour candles...");
-      List<Candle> candles1H = aggregateCandles(allTicks, 60 * 60 * 1000);
-      Path candles1HFile = outputDir.resolve("candlesHOUR.txt");
-      writeCandlesFile(candles1HFile, candles1H);
-      System.out.println("Written " + candles1H.size() + " 1-hour candles to " + candles1HFile);
-
-      Path tickerFile = outputDir.resolve("ticker.json");
-      writeTickerJson(tickerFile, inputDir.getFileName().toString());
-      System.out.println("Written ticker info to " + tickerFile);
-
-      System.out.println("\n=== Conversion complete ===");
-    }
-
-    private List<Tick> readTickFile(Path csvFile) throws IOException {
-      List<Tick> ticks = new ArrayList<>();
-      try (BufferedReader reader = Files.newBufferedReader(csvFile)) {
-        String line = reader.readLine();
-        if (line == null) return ticks;
-
-        while ((line = reader.readLine()) != null) {
-          String[] parts = line.split(",");
-          if (parts.length >= 5) {
-            try {
-              long timestamp = (long) (Double.parseDouble(parts[0]) * 1000);
-              double price = Double.parseDouble(parts[4]);
-              double volume = Double.parseDouble(parts[3]);
-              ticks.add(new Tick(timestamp, price, volume));
-            } catch (NumberFormatException e) {
-              // Skip malformed lines
+                for (String link : links) {
+                    if (link.endsWith("/") && !link.equals("../")) {
+                        String subdirName = link.replace("/", "");
+                        String subdirUrl = dirUrl + link;
+                        String subdirPath = Paths.get(localDir, subdirName).toString();
+                        Files.createDirectories(Paths.get(subdirPath));
+                        collectFilesRecursive(subdirUrl, subdirPath, files);
+                    }
+                }
+            } catch (Exception e) {
+                System.err.println("Error collecting files from " + dirUrl + ": " + e.getMessage());
             }
-          }
         }
-      }
-      return ticks;
-    }
 
-    private List<Candle> aggregateCandles(List<Tick> ticks, long intervalMs) {
-      if (ticks.isEmpty()) {
-        return new ArrayList<>();
-      }
+        /** Download files using multiple threads. */
+        private void downloadFilesMultiThreaded(List<FileToDownload> files) throws Exception {
+            java.util.concurrent.ExecutorService executor =
+                    java.util.concurrent.Executors.newFixedThreadPool(DOWNLOAD_THREADS);
+            java.util.concurrent.CountDownLatch latch =
+                    new java.util.concurrent.CountDownLatch(files.size());
+            java.util.concurrent.atomic.AtomicInteger downloadedCount =
+                    new java.util.concurrent.atomic.AtomicInteger(0);
 
-      Map<Long, List<Tick>> intervals = new TreeMap<>();
-      for (Tick tick : ticks) {
-        long intervalKey = (tick.timestamp / intervalMs) * intervalMs;
-        intervals.computeIfAbsent(intervalKey, k -> new ArrayList<>()).add(tick);
-      }
+            for (FileToDownload file : files) {
+                executor.submit(
+                        () -> {
+                            try {
+                                System.out.println(
+                                        "Downloading ["
+                                                + (downloadedCount.get() + 1)
+                                                + "/"
+                                                + files.size()
+                                                + "]: "
+                                                + file.fileName
+                                                + " (date: "
+                                                + file.date
+                                                + ")");
 
-      List<Candle> candles = new ArrayList<>();
-      for (Map.Entry<Long, List<Tick>> entry : intervals.entrySet()) {
-        List<Tick> intervalTicks = entry.getValue();
-        if (intervalTicks.isEmpty()) continue;
+                                Path extractedPath =
+                                        Paths.get(
+                                                file.outputDir,
+                                                file.fileName.endsWith(".gz")
+                                                        ? file.fileName.substring(
+                                                                0, file.fileName.length() - 3)
+                                                        : file.fileName);
 
-        double open = intervalTicks.get(0).price;
-        double high = intervalTicks.stream().mapToDouble(t -> t.price).max().orElse(open);
-        double low = intervalTicks.stream().mapToDouble(t -> t.price).min().orElse(open);
-        double close = intervalTicks.get(intervalTicks.size() - 1).price;
-        long volume = (long) intervalTicks.stream().mapToDouble(t -> t.volume).sum();
+                                downloadAndExtract(file.url, extractedPath);
+                                System.out.println("Successfully downloaded: " + file.fileName);
 
-        candles.add(new Candle(entry.getKey(), open, high, low, close, volume));
-      }
+                                if (incrementalConverter != null) {
+                                    incrementalConverter.convertSingleFile(extractedPath);
+                                }
 
-      return candles;
-    }
-
-    private void writeCandlesFile(Path outputFile, List<Candle> candles) throws IOException {
-      try (BufferedWriter writer = Files.newBufferedWriter(outputFile)) {
-        writer.write("Datetime,Open,High,Low,Close,Volume");
-        writer.newLine();
-
-        for (Candle candle : candles) {
-          LocalDateTime dateTime =
-              LocalDateTime.ofEpochSecond(candle.timestamp / 1000, 0, java.time.ZoneOffset.UTC);
-          String dateTimeStr = dateTime.format(OUTPUT_DATE_FORMAT);
-
-          writer.write(
-              String.format(
-                  "%s,%.2f,%.2f,%.2f,%.2f,%d",
-                  dateTimeStr, candle.open, candle.high, candle.low, candle.close, candle.volume));
-          writer.newLine();
-        }
-      }
-    }
-
-    private void writeTickerJson(Path outputFile, String tickerName) throws IOException {
-      String json =
-          String.format(
-              "{\n"
-                  + "  \"ticker\": {\n"
-                  + "    \"figi\": \"%s\",\n"
-                  + "    \"ticker\": \"%s\",\n"
-                  + "    \"isin\": \"\",\n"
-                  + "    \"minPriceIncrement\": 0.01,\n"
-                  + "    \"lot\": 1,\n"
-                  + "    \"currency\": \"USDT\",\n"
-                  + "    \"name\": \"%s\",\n"
-                  + "    \"type\": \"CRYPTO\"\n"
-                  + "  },\n"
-                  + "  \"levels\": []\n"
-                  + "}",
-              tickerName, tickerName, tickerName.replace("USDT", ""));
-      Files.writeString(outputFile, json);
-    }
-
-    private static class Tick {
-      final long timestamp;
-      final double price;
-      final double volume;
-
-      Tick(long timestamp, double price, double volume) {
-        this.timestamp = timestamp;
-        this.price = price;
-        this.volume = volume;
-      }
-    }
-
-    private static class Candle {
-      final long timestamp;
-      final double open;
-      final double high;
-      final double low;
-      final double close;
-      final long volume;
-
-      Candle(long timestamp, double open, double high, double low, double close, long volume) {
-        this.timestamp = timestamp;
-        this.open = open;
-        this.high = high;
-        this.low = low;
-        this.close = close;
-        this.volume = volume;
-      }
-    }
-  }
-
-  // ========================================================================
-  // INNER CLASS: CandleIncrementalConverter
-  // For incremental conversion of single files
-  // ========================================================================
-
-  /**
-   * Incremental converter for converting single CSV files to candles. Accumulates ticks and updates
-   * candle files incrementally.
-   */
-  private static class CandleIncrementalConverter {
-
-    private static final DateTimeFormatter OUTPUT_DATE_FORMAT =
-        DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm:ss");
-    private final Path dataDir;
-    private final List<Tick> allTicks = Collections.synchronizedList(new ArrayList<>());
-    private boolean initialized = false;
-
-    CandleIncrementalConverter(String dataDir, String outputDir) {
-      this.dataDir = Paths.get(dataDir);
-    }
-
-    synchronized void convertSingleFile(Path csvFile) {
-      try {
-        List<Tick> ticks = readTickFile(csvFile);
-        allTicks.addAll(ticks);
-
-        // Sort all ticks by timestamp
-        allTicks.sort(Comparator.comparingLong(t -> t.timestamp));
-
-        // Convert to candles and write
-        if (!allTicks.isEmpty()) {
-          // Write 5-minute candles
-          List<Candle> candles5Min = aggregateCandles(allTicks, 5 * 60 * 1000);
-          writeCandlesFile(dataDir.resolve("candles5_MIN.txt"), candles5Min, false);
-
-          // Write 1-hour candles
-          List<Candle> candles1H = aggregateCandles(allTicks, 60 * 60 * 1000);
-          writeCandlesFile(dataDir.resolve("candlesHOUR.txt"), candles1H, false);
-
-          // Write ticker.json only once
-          if (!initialized) {
-            writeTickerJson(dataDir.resolve("ticker.json"), dataDir.getFileName().toString());
-            initialized = true;
-          }
-
-          System.out.println(
-              "Converted "
-                  + csvFile.getFileName()
-                  + " - Total ticks: "
-                  + allTicks.size()
-                  + ", 5-min candles: "
-                  + candles5Min.size()
-                  + ", 1-hour candles: "
-                  + candles1H.size());
-        }
-      } catch (Exception e) {
-        System.err.println("Error converting file " + csvFile + ": " + e.getMessage());
-      }
-    }
-
-    private List<Tick> readTickFile(Path csvFile) throws IOException {
-      List<Tick> ticks = new ArrayList<>();
-      try (BufferedReader reader = Files.newBufferedReader(csvFile)) {
-        String line = reader.readLine(); // Skip header
-        if (line == null) return ticks;
-
-        while ((line = reader.readLine()) != null) {
-          String[] parts = line.split(",");
-          if (parts.length >= 5) {
-            try {
-              long timestamp = (long) (Double.parseDouble(parts[0]) * 1000);
-              double price = Double.parseDouble(parts[4]);
-              double volume = Double.parseDouble(parts[3]);
-              ticks.add(new Tick(timestamp, price, volume));
-            } catch (NumberFormatException e) {
-              // Skip malformed lines
+                                downloadedCount.incrementAndGet();
+                            } catch (Exception e) {
+                                System.err.println(
+                                        "Failed to download "
+                                                + file.fileName
+                                                + ": "
+                                                + e.getMessage());
+                            } finally {
+                                latch.countDown();
+                            }
+                        });
             }
-          }
-        }
-      }
-      return ticks;
-    }
 
-    private List<Candle> aggregateCandles(List<Tick> ticks, long intervalMs) {
-      Map<Long, List<Tick>> intervals = new TreeMap<>();
-      for (Tick tick : ticks) {
-        long intervalKey = (tick.timestamp / intervalMs) * intervalMs;
-        intervals.computeIfAbsent(intervalKey, k -> new ArrayList<>()).add(tick);
-      }
-
-      List<Candle> candles = new ArrayList<>();
-      for (Map.Entry<Long, List<Tick>> entry : intervals.entrySet()) {
-        List<Tick> intervalTicks = entry.getValue();
-        if (intervalTicks.isEmpty()) continue;
-
-        double open = intervalTicks.get(0).price;
-        double high = intervalTicks.stream().mapToDouble(t -> t.price).max().orElse(open);
-        double low = intervalTicks.stream().mapToDouble(t -> t.price).min().orElse(open);
-        double close = intervalTicks.get(intervalTicks.size() - 1).price;
-        long volume = (long) intervalTicks.stream().mapToDouble(t -> t.volume).sum();
-
-        candles.add(new Candle(entry.getKey(), open, high, low, close, volume));
-      }
-
-      return candles;
-    }
-
-    private void writeCandlesFile(Path outputFile, List<Candle> candles, boolean writeHeader)
-        throws IOException {
-      try (BufferedWriter writer = Files.newBufferedWriter(outputFile)) {
-        if (writeHeader) {
-          writer.write("Datetime,Open,High,Low,Close,Volume");
-          writer.newLine();
+            latch.await();
+            executor.shutdown();
         }
 
-        for (Candle candle : candles) {
-          LocalDateTime dateTime =
-              LocalDateTime.ofEpochSecond(candle.timestamp / 1000, 0, java.time.ZoneOffset.UTC);
-          String dateTimeStr = dateTime.format(OUTPUT_DATE_FORMAT);
+        /** Helper class to store file download information. */
+        private static class FileToDownload {
+            final String url;
+            final String outputDir;
+            final String fileName;
+            final LocalDate date;
 
-          writer.write(
-              String.format(
-                  "%s,%.2f,%.2f,%.2f,%.2f,%d",
-                  dateTimeStr, candle.open, candle.high, candle.low, candle.close, candle.volume));
-          writer.newLine();
+            FileToDownload(String url, String outputDir, String fileName, LocalDate date) {
+                this.url = url;
+                this.outputDir = outputDir;
+                this.fileName = fileName;
+                this.date = date;
+            }
         }
-      }
+
+        private List<String> fetchDataTypes(String baseUrl) throws Exception {
+            List<String> dataTypes = new ArrayList<>();
+            String html = fetchUrl(baseUrl);
+            List<String> links = extractLinks(html);
+
+            for (String link : links) {
+                if (link.endsWith("/") && !link.equals("../")) {
+                    dataTypes.add(link.replace("/", ""));
+                }
+            }
+            return dataTypes;
+        }
+
+        private void downloadAndExtract(String fileUrl, Path extractedPath) throws Exception {
+            Path tempGzPath = Files.createTempFile("bybit_", ".gz");
+
+            try {
+                URL url = new URL(fileUrl);
+                HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+                conn.setRequestMethod("GET");
+                conn.setConnectTimeout(60000); // 60 секунд
+                conn.setReadTimeout(120000); // 120 секунд
+
+                try (InputStream in = conn.getInputStream();
+                        OutputStream out = Files.newOutputStream(tempGzPath)) {
+
+                    byte[] buffer = new byte[8192];
+                    int bytesRead;
+                    while ((bytesRead = in.read(buffer)) != -1) {
+                        out.write(buffer, 0, bytesRead);
+                    }
+                }
+
+                try (GZIPInputStream gzipIn =
+                                new GZIPInputStream(Files.newInputStream(tempGzPath));
+                        OutputStream out = Files.newOutputStream(extractedPath)) {
+
+                    byte[] buffer = new byte[8192];
+                    int bytesRead;
+                    while ((bytesRead = gzipIn.read(buffer)) != -1) {
+                        out.write(buffer, 0, bytesRead);
+                    }
+                }
+
+            } finally {
+                Files.deleteIfExists(tempGzPath);
+            }
+        }
+
+        private LocalDate extractDateFromFileName(String fileName) {
+            if (fileName.contains("-") && fileName.contains(".csv")) {
+                int dateStart = fileName.indexOf('-', fileName.indexOf('-') + 1);
+                if (dateStart > 0) {
+                    String datePart = fileName.substring(dateStart + 1, fileName.indexOf(".csv"));
+                    try {
+                        return LocalDate.parse(datePart + "-01", DateTimeFormatter.ISO_LOCAL_DATE);
+                    } catch (Exception e) {
+                        // Try without day
+                    }
+                }
+            }
+
+            for (int i = 0; i < fileName.length() - 10; i++) {
+                if (Character.isDigit(fileName.charAt(i))) {
+                    String dateStr = fileName.substring(i, i + 10);
+                    try {
+                        return LocalDate.parse(dateStr, DateTimeFormatter.ISO_LOCAL_DATE);
+                    } catch (Exception e) {
+                        // Continue searching
+                    }
+                }
+            }
+            return null;
+        }
+
+        private String fetchUrl(String urlString) throws Exception {
+            URL url = new URL(urlString);
+            HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+            conn.setRequestMethod("GET");
+            conn.setConnectTimeout(30000);
+
+            StringBuilder sb = new StringBuilder();
+            try (BufferedReader reader =
+                    new BufferedReader(new InputStreamReader(conn.getInputStream()))) {
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    sb.append(line).append("\n");
+                }
+            }
+            return sb.toString();
+        }
+
+        private List<String> extractLinks(String html) {
+            List<String> links = new ArrayList<>();
+            int pos = 0;
+            while ((pos = html.indexOf("<a href=\"", pos)) != -1) {
+                int start = pos + 9;
+                int end = html.indexOf("\"", start);
+                if (end != -1) {
+                    links.add(html.substring(start, end));
+                    pos = end;
+                }
+            }
+            return links;
+        }
     }
 
-    private void writeTickerJson(Path outputFile, String tickerName) throws IOException {
-      // Extract ticker name from directory name (e.g., "ETHUSDT" from "/data/ETHUSDT")
-      String name =
-          tickerName != null && !tickerName.isEmpty()
-              ? tickerName
-              : dataDir.getFileName().toString();
-      String displayName = name.replace("USDT", "");
+    // ========================================================================
+    // INNER CLASS: CandleConverter
+    // Encapsulated - not visible outside BybitService
+    // ========================================================================
 
-      String json =
-          String.format(
-              "{\n"
-                  + "  \"ticker\": {\n"
-                  + "    \"figi\": \"%s\",\n"
-                  + "    \"ticker\": \"%s\",\n"
-                  + "    \"isin\": \"\",\n"
-                  + "    \"minPriceIncrement\": 0.01,\n"
-                  + "    \"lot\": 1,\n"
-                  + "    \"currency\": \"USDT\",\n"
-                  + "    \"name\": \"%s\",\n"
-                  + "    \"type\": \"CRYPTO\"\n"
-                  + "  },\n"
-                  + "  \"levels\": []\n"
-                  + "}",
-              name, name, displayName);
-      Files.writeString(outputFile, json);
+    /**
+     * Internal converter for transforming tick data to candlesticks. Not exposed outside
+     * BybitService.
+     */
+    private static class CandleConverter {
+
+        private static final DateTimeFormatter OUTPUT_DATE_FORMAT =
+                DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm:ss");
+
+        private final Path inputDir;
+        private final Path outputDir;
+
+        CandleConverter(String inputDir, String outputDir) {
+            this.inputDir = Paths.get(inputDir);
+            this.outputDir = Paths.get(outputDir);
+        }
+
+        void convertAll() throws Exception {
+            Files.createDirectories(outputDir);
+
+            List<Tick> allTicks = new ArrayList<>();
+            List<Path> csvFiles =
+                    Files.walk(inputDir).filter(p -> p.toString().endsWith(".csv")).toList();
+
+            System.out.println("Found " + csvFiles.size() + " CSV files");
+
+            int fileCount = 0;
+            for (Path csvFile : csvFiles) {
+                fileCount++;
+                if (fileCount % 50 == 0) {
+                    System.out.println(
+                            "Reading file "
+                                    + fileCount
+                                    + "/"
+                                    + csvFiles.size()
+                                    + ": "
+                                    + csvFile.getFileName());
+                }
+                List<Tick> ticks = readTickFile(csvFile);
+                allTicks.addAll(ticks);
+            }
+
+            System.out.println("Total ticks loaded: " + allTicks.size());
+            allTicks.sort(Comparator.comparingLong(t -> t.timestamp));
+
+            System.out.println("Aggregating 5-minute candles...");
+            List<Candle> candles5Min = aggregateCandles(allTicks, 5 * 60 * 1000);
+            Path candles5MinFile = outputDir.resolve("candles5_MIN.txt");
+            writeCandlesFile(candles5MinFile, candles5Min);
+            System.out.println(
+                    "Written " + candles5Min.size() + " 5-minute candles to " + candles5MinFile);
+
+            System.out.println("Aggregating 1-hour candles...");
+            List<Candle> candles1H = aggregateCandles(allTicks, 60 * 60 * 1000);
+            Path candles1HFile = outputDir.resolve("candlesHOUR.txt");
+            writeCandlesFile(candles1HFile, candles1H);
+            System.out.println(
+                    "Written " + candles1H.size() + " 1-hour candles to " + candles1HFile);
+
+            Path tickerFile = outputDir.resolve("ticker.json");
+            writeTickerJson(tickerFile, inputDir.getFileName().toString());
+            System.out.println("Written ticker info to " + tickerFile);
+
+            System.out.println("\n=== Conversion complete ===");
+        }
+
+        private List<Tick> readTickFile(Path csvFile) throws IOException {
+            List<Tick> ticks = new ArrayList<>();
+            try (BufferedReader reader = Files.newBufferedReader(csvFile)) {
+                String line = reader.readLine();
+                if (line == null) return ticks;
+
+                while ((line = reader.readLine()) != null) {
+                    String[] parts = line.split(",");
+                    if (parts.length >= 5) {
+                        try {
+                            long timestamp = (long) (Double.parseDouble(parts[0]) * 1000);
+                            double price = Double.parseDouble(parts[4]);
+                            double volume = Double.parseDouble(parts[3]);
+                            ticks.add(new Tick(timestamp, price, volume));
+                        } catch (NumberFormatException e) {
+                            // Skip malformed lines
+                        }
+                    }
+                }
+            }
+            return ticks;
+        }
+
+        private List<Candle> aggregateCandles(List<Tick> ticks, long intervalMs) {
+            if (ticks.isEmpty()) {
+                return new ArrayList<>();
+            }
+
+            Map<Long, List<Tick>> intervals = new TreeMap<>();
+            for (Tick tick : ticks) {
+                long intervalKey = (tick.timestamp / intervalMs) * intervalMs;
+                intervals.computeIfAbsent(intervalKey, k -> new ArrayList<>()).add(tick);
+            }
+
+            List<Candle> candles = new ArrayList<>();
+            for (Map.Entry<Long, List<Tick>> entry : intervals.entrySet()) {
+                List<Tick> intervalTicks = entry.getValue();
+                if (intervalTicks.isEmpty()) continue;
+
+                double open = intervalTicks.get(0).price;
+                double high = intervalTicks.stream().mapToDouble(t -> t.price).max().orElse(open);
+                double low = intervalTicks.stream().mapToDouble(t -> t.price).min().orElse(open);
+                double close = intervalTicks.get(intervalTicks.size() - 1).price;
+                long volume = (long) intervalTicks.stream().mapToDouble(t -> t.volume).sum();
+
+                candles.add(new Candle(entry.getKey(), open, high, low, close, volume));
+            }
+
+            return candles;
+        }
+
+        private void writeCandlesFile(Path outputFile, List<Candle> candles) throws IOException {
+            try (BufferedWriter writer = Files.newBufferedWriter(outputFile)) {
+                writer.write("Datetime,Open,High,Low,Close,Volume");
+                writer.newLine();
+
+                for (Candle candle : candles) {
+                    LocalDateTime dateTime =
+                            LocalDateTime.ofEpochSecond(
+                                    candle.timestamp / 1000, 0, java.time.ZoneOffset.UTC);
+                    String dateTimeStr = dateTime.format(OUTPUT_DATE_FORMAT);
+
+                    writer.write(
+                            String.format(
+                                    "%s,%.2f,%.2f,%.2f,%.2f,%d",
+                                    dateTimeStr,
+                                    candle.open,
+                                    candle.high,
+                                    candle.low,
+                                    candle.close,
+                                    candle.volume));
+                    writer.newLine();
+                }
+            }
+        }
+
+        private void writeTickerJson(Path outputFile, String tickerName) throws IOException {
+            String json =
+                    String.format(
+                            "{\n"
+                                    + "  \"ticker\": {\n"
+                                    + "    \"figi\": \"%s\",\n"
+                                    + "    \"ticker\": \"%s\",\n"
+                                    + "    \"isin\": \"\",\n"
+                                    + "    \"minPriceIncrement\": 0.01,\n"
+                                    + "    \"lot\": 1,\n"
+                                    + "    \"currency\": \"USDT\",\n"
+                                    + "    \"name\": \"%s\",\n"
+                                    + "    \"type\": \"CRYPTO\"\n"
+                                    + "  },\n"
+                                    + "  \"levels\": []\n"
+                                    + "}",
+                            tickerName, tickerName, tickerName.replace("USDT", ""));
+            Files.writeString(outputFile, json);
+        }
+
+        private static class Tick {
+            final long timestamp;
+            final double price;
+            final double volume;
+
+            Tick(long timestamp, double price, double volume) {
+                this.timestamp = timestamp;
+                this.price = price;
+                this.volume = volume;
+            }
+        }
+
+        private static class Candle {
+            final long timestamp;
+            final double open;
+            final double high;
+            final double low;
+            final double close;
+            final long volume;
+
+            Candle(
+                    long timestamp,
+                    double open,
+                    double high,
+                    double low,
+                    double close,
+                    long volume) {
+                this.timestamp = timestamp;
+                this.open = open;
+                this.high = high;
+                this.low = low;
+                this.close = close;
+                this.volume = volume;
+            }
+        }
     }
 
-    // Inner classes for Tick and Candle
-    private static class Tick {
-      final long timestamp;
-      final double price;
-      final double volume;
+    // ========================================================================
+    // INNER CLASS: CandleIncrementalConverter
+    // For incremental conversion of single files
+    // ========================================================================
 
-      Tick(long timestamp, double price, double volume) {
-        this.timestamp = timestamp;
-        this.price = price;
-        this.volume = volume;
-      }
+    /**
+     * Incremental converter for converting single CSV files to candles. Accumulates ticks and
+     * updates candle files incrementally.
+     */
+    private static class CandleIncrementalConverter {
+
+        private static final DateTimeFormatter OUTPUT_DATE_FORMAT =
+                DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm:ss");
+        private final Path dataDir;
+        private final List<Tick> allTicks = Collections.synchronizedList(new ArrayList<>());
+        private boolean initialized = false;
+
+        CandleIncrementalConverter(String dataDir, String outputDir) {
+            this.dataDir = Paths.get(dataDir);
+        }
+
+        synchronized void convertSingleFile(Path csvFile) {
+            try {
+                List<Tick> ticks = readTickFile(csvFile);
+                allTicks.addAll(ticks);
+
+                // Sort all ticks by timestamp
+                allTicks.sort(Comparator.comparingLong(t -> t.timestamp));
+
+                // Convert to candles and write
+                if (!allTicks.isEmpty()) {
+                    // Write 5-minute candles
+                    List<Candle> candles5Min = aggregateCandles(allTicks, 5 * 60 * 1000);
+                    writeCandlesFile(dataDir.resolve("candles5_MIN.txt"), candles5Min, false);
+
+                    // Write 1-hour candles
+                    List<Candle> candles1H = aggregateCandles(allTicks, 60 * 60 * 1000);
+                    writeCandlesFile(dataDir.resolve("candlesHOUR.txt"), candles1H, false);
+
+                    // Write ticker.json only once
+                    if (!initialized) {
+                        writeTickerJson(
+                                dataDir.resolve("ticker.json"), dataDir.getFileName().toString());
+                        initialized = true;
+                    }
+
+                    System.out.println(
+                            "Converted "
+                                    + csvFile.getFileName()
+                                    + " - Total ticks: "
+                                    + allTicks.size()
+                                    + ", 5-min candles: "
+                                    + candles5Min.size()
+                                    + ", 1-hour candles: "
+                                    + candles1H.size());
+                }
+            } catch (Exception e) {
+                System.err.println("Error converting file " + csvFile + ": " + e.getMessage());
+            }
+        }
+
+        private List<Tick> readTickFile(Path csvFile) throws IOException {
+            List<Tick> ticks = new ArrayList<>();
+            try (BufferedReader reader = Files.newBufferedReader(csvFile)) {
+                String line = reader.readLine(); // Skip header
+                if (line == null) return ticks;
+
+                while ((line = reader.readLine()) != null) {
+                    String[] parts = line.split(",");
+                    if (parts.length >= 5) {
+                        try {
+                            long timestamp = (long) (Double.parseDouble(parts[0]) * 1000);
+                            double price = Double.parseDouble(parts[4]);
+                            double volume = Double.parseDouble(parts[3]);
+                            ticks.add(new Tick(timestamp, price, volume));
+                        } catch (NumberFormatException e) {
+                            // Skip malformed lines
+                        }
+                    }
+                }
+            }
+            return ticks;
+        }
+
+        private List<Candle> aggregateCandles(List<Tick> ticks, long intervalMs) {
+            Map<Long, List<Tick>> intervals = new TreeMap<>();
+            for (Tick tick : ticks) {
+                long intervalKey = (tick.timestamp / intervalMs) * intervalMs;
+                intervals.computeIfAbsent(intervalKey, k -> new ArrayList<>()).add(tick);
+            }
+
+            List<Candle> candles = new ArrayList<>();
+            for (Map.Entry<Long, List<Tick>> entry : intervals.entrySet()) {
+                List<Tick> intervalTicks = entry.getValue();
+                if (intervalTicks.isEmpty()) continue;
+
+                double open = intervalTicks.get(0).price;
+                double high = intervalTicks.stream().mapToDouble(t -> t.price).max().orElse(open);
+                double low = intervalTicks.stream().mapToDouble(t -> t.price).min().orElse(open);
+                double close = intervalTicks.get(intervalTicks.size() - 1).price;
+                long volume = (long) intervalTicks.stream().mapToDouble(t -> t.volume).sum();
+
+                candles.add(new Candle(entry.getKey(), open, high, low, close, volume));
+            }
+
+            return candles;
+        }
+
+        private void writeCandlesFile(Path outputFile, List<Candle> candles, boolean writeHeader)
+                throws IOException {
+            try (BufferedWriter writer = Files.newBufferedWriter(outputFile)) {
+                if (writeHeader) {
+                    writer.write("Datetime,Open,High,Low,Close,Volume");
+                    writer.newLine();
+                }
+
+                for (Candle candle : candles) {
+                    LocalDateTime dateTime =
+                            LocalDateTime.ofEpochSecond(
+                                    candle.timestamp / 1000, 0, java.time.ZoneOffset.UTC);
+                    String dateTimeStr = dateTime.format(OUTPUT_DATE_FORMAT);
+
+                    writer.write(
+                            String.format(
+                                    "%s,%.2f,%.2f,%.2f,%.2f,%d",
+                                    dateTimeStr,
+                                    candle.open,
+                                    candle.high,
+                                    candle.low,
+                                    candle.close,
+                                    candle.volume));
+                    writer.newLine();
+                }
+            }
+        }
+
+        private void writeTickerJson(Path outputFile, String tickerName) throws IOException {
+            // Extract ticker name from directory name (e.g., "ETHUSDT" from "/data/ETHUSDT")
+            String name =
+                    tickerName != null && !tickerName.isEmpty()
+                            ? tickerName
+                            : dataDir.getFileName().toString();
+            String displayName = name.replace("USDT", "");
+
+            String json =
+                    String.format(
+                            "{\n"
+                                    + "  \"ticker\": {\n"
+                                    + "    \"figi\": \"%s\",\n"
+                                    + "    \"ticker\": \"%s\",\n"
+                                    + "    \"isin\": \"\",\n"
+                                    + "    \"minPriceIncrement\": 0.01,\n"
+                                    + "    \"lot\": 1,\n"
+                                    + "    \"currency\": \"USDT\",\n"
+                                    + "    \"name\": \"%s\",\n"
+                                    + "    \"type\": \"CRYPTO\"\n"
+                                    + "  },\n"
+                                    + "  \"levels\": []\n"
+                                    + "}",
+                            name, name, displayName);
+            Files.writeString(outputFile, json);
+        }
+
+        // Inner classes for Tick and Candle
+        private static class Tick {
+            final long timestamp;
+            final double price;
+            final double volume;
+
+            Tick(long timestamp, double price, double volume) {
+                this.timestamp = timestamp;
+                this.price = price;
+                this.volume = volume;
+            }
+        }
+
+        private static class Candle {
+            final long timestamp;
+            final double open;
+            final double high;
+            final double low;
+            final double close;
+            final long volume;
+
+            Candle(
+                    long timestamp,
+                    double open,
+                    double high,
+                    double low,
+                    double close,
+                    long volume) {
+                this.timestamp = timestamp;
+                this.open = open;
+                this.high = high;
+                this.low = low;
+                this.close = close;
+                this.volume = volume;
+            }
+        }
     }
-
-    private static class Candle {
-      final long timestamp;
-      final double open;
-      final double high;
-      final double low;
-      final double close;
-      final long volume;
-
-      Candle(long timestamp, double open, double high, double low, double close, long volume) {
-        this.timestamp = timestamp;
-        this.open = open;
-        this.high = high;
-        this.low = low;
-        this.close = close;
-        this.volume = volume;
-      }
-    }
-  }
 }

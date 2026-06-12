@@ -19,130 +19,143 @@ import java.util.stream.Collectors;
 
 public abstract class Rebalancing {
 
-  private final MarketConfig marketConfig;
-  private final TCSService tcsService;
+    private final MarketConfig marketConfig;
+    private final TCSService tcsService;
 
-  public Rebalancing(MarketConfig marketConfig, TCSService tcsService) {
-    this.marketConfig = marketConfig;
-    this.tcsService = tcsService;
-  }
-
-  public Map<TickerInfo.Key, PortfolioPosition> doRebalance(
-      double totalPortfolioCost,
-      Map<TickerInfo.Key, PortfolioPosition> targetPositions,
-      double positionPercentToDo) {
-    Map<TickerInfo.Key, PortfolioPosition> currentPositions =
-        getCurrentPositions(totalPortfolioCost, targetPositions);
-    Map<TickerInfo.Key, PortfolioPosition> corrections = new HashMap<>();
-    if (null != targetPositions && !targetPositions.isEmpty()) {
-      for (Map.Entry<TickerInfo.Key, PortfolioPosition> targetPosition :
-          targetPositions.entrySet()) {
-        double targetPercent = targetPosition.getValue().getPercent();
-        if (currentPositions.containsKey(targetPosition.getKey())) {
-          var currentPercent = currentPositions.get(targetPosition.getKey()).getPercent();
-          double diff = Math.abs(currentPercent - targetPercent);
-          if (diff >= positionPercentToDo) {
-            targetPercent = currentPercent > targetPercent ? -1 * diff : diff;
-            corrections.put(
-                targetPosition.getKey(),
-                new PortfolioPosition(
-                    targetPosition.getValue().getName(),
-                    targetPosition.getValue().getType(),
-                    targetPercent));
-          }
-        }
-      }
-      for (Map.Entry<TickerInfo.Key, PortfolioPosition> currentPosition :
-          currentPositions.entrySet()) {
-        if (!targetPositions.containsKey(currentPosition.getKey())) {
-          corrections.put(
-              currentPosition.getKey(),
-              new PortfolioPosition(
-                  currentPosition.getValue().getName(),
-                  currentPosition.getValue().getType(),
-                  (-1) * currentPosition.getValue().getPercent()));
-        }
-      }
+    public Rebalancing(MarketConfig marketConfig, TCSService tcsService) {
+        this.marketConfig = marketConfig;
+        this.tcsService = tcsService;
     }
 
-    boolean isPrintResultTable = false;
-    Map<TickerInfo.Key, PortfolioPosition> positionsToSave = new HashMap<>();
-    List<PortfolioPosition> sortedCorrections =
-        corrections.values().stream()
-            .sorted(comparing(PortfolioPosition::getPercent))
-            .collect(Collectors.toList());
-    for (PortfolioPosition correction : sortedCorrections) {
-      out.printf("Correction: %s [%.2f] \n", correction.getName(), correction.getPercent());
-      double cost = Math.abs(totalPortfolioCost / 100 * correction.getPercent());
-      if (correction.getPercent() > 0) {
-        TickerInfo.Key tickerInfoKey =
-            new TickerInfo.Key(correction.getName(), correction.getType());
-        boolean isSuccessfulBuy = tcsService.buy(correction.getName(), correction.getType(), cost);
-        boolean isCurrentPosition = currentPositions.containsKey(tickerInfoKey);
-        if (isSuccessfulBuy || isCurrentPosition) {
-          if (isCurrentPosition) {
-            double currentPercent = currentPositions.get(tickerInfoKey).getPercent();
-            double totalPercent =
-                isSuccessfulBuy ? correction.getPercent() + currentPercent : currentPercent;
-            correction =
-                new PortfolioPosition(correction.getName(), correction.getType(), totalPercent);
-          }
-          positionsToSave.put(tickerInfoKey, correction);
-          isPrintResultTable = true;
+    public Map<TickerInfo.Key, PortfolioPosition> doRebalance(
+            double totalPortfolioCost,
+            Map<TickerInfo.Key, PortfolioPosition> targetPositions,
+            double positionPercentToDo) {
+        Map<TickerInfo.Key, PortfolioPosition> currentPositions =
+                getCurrentPositions(totalPortfolioCost, targetPositions);
+        Map<TickerInfo.Key, PortfolioPosition> corrections = new HashMap<>();
+        if (null != targetPositions && !targetPositions.isEmpty()) {
+            for (Map.Entry<TickerInfo.Key, PortfolioPosition> targetPosition :
+                    targetPositions.entrySet()) {
+                double targetPercent = targetPosition.getValue().getPercent();
+                if (currentPositions.containsKey(targetPosition.getKey())) {
+                    var currentPercent = currentPositions.get(targetPosition.getKey()).getPercent();
+                    double diff = Math.abs(currentPercent - targetPercent);
+                    if (diff >= positionPercentToDo) {
+                        targetPercent = currentPercent > targetPercent ? -1 * diff : diff;
+                        corrections.put(
+                                targetPosition.getKey(),
+                                new PortfolioPosition(
+                                        targetPosition.getValue().getName(),
+                                        targetPosition.getValue().getType(),
+                                        targetPercent));
+                    }
+                }
+            }
+            for (Map.Entry<TickerInfo.Key, PortfolioPosition> currentPosition :
+                    currentPositions.entrySet()) {
+                if (!targetPositions.containsKey(currentPosition.getKey())) {
+                    corrections.put(
+                            currentPosition.getKey(),
+                            new PortfolioPosition(
+                                    currentPosition.getValue().getName(),
+                                    currentPosition.getValue().getType(),
+                                    (-1) * currentPosition.getValue().getPercent()));
+                }
+            }
         }
-      } else {
-        boolean isSuccessfulSell =
-            tcsService.sell(correction.getName(), correction.getType(), cost);
-        if (isSuccessfulSell) {
-          isPrintResultTable = true;
-        } else {
-          positionsToSave.put(
-              new TickerInfo.Key(correction.getName(), correction.getType()), correction);
+
+        boolean isPrintResultTable = false;
+        Map<TickerInfo.Key, PortfolioPosition> positionsToSave = new HashMap<>();
+        List<PortfolioPosition> sortedCorrections =
+                corrections.values().stream()
+                        .sorted(comparing(PortfolioPosition::getPercent))
+                        .collect(Collectors.toList());
+        for (PortfolioPosition correction : sortedCorrections) {
+            out.printf("Correction: %s [%.2f] \n", correction.getName(), correction.getPercent());
+            double cost = Math.abs(totalPortfolioCost / 100 * correction.getPercent());
+            if (correction.getPercent() > 0) {
+                TickerInfo.Key tickerInfoKey =
+                        new TickerInfo.Key(correction.getName(), correction.getType());
+                boolean isSuccessfulBuy =
+                        tcsService.buy(correction.getName(), correction.getType(), cost);
+                boolean isCurrentPosition = currentPositions.containsKey(tickerInfoKey);
+                if (isSuccessfulBuy || isCurrentPosition) {
+                    if (isCurrentPosition) {
+                        double currentPercent = currentPositions.get(tickerInfoKey).getPercent();
+                        double totalPercent =
+                                isSuccessfulBuy
+                                        ? correction.getPercent() + currentPercent
+                                        : currentPercent;
+                        correction =
+                                new PortfolioPosition(
+                                        correction.getName(), correction.getType(), totalPercent);
+                    }
+                    positionsToSave.put(tickerInfoKey, correction);
+                    isPrintResultTable = true;
+                }
+            } else {
+                boolean isSuccessfulSell =
+                        tcsService.sell(correction.getName(), correction.getType(), cost);
+                if (isSuccessfulSell) {
+                    isPrintResultTable = true;
+                } else {
+                    positionsToSave.put(
+                            new TickerInfo.Key(correction.getName(), correction.getType()),
+                            correction);
+                }
+            }
         }
-      }
+
+        if (isPrintResultTable) {
+            out.println();
+            double portfolioCost = tcsService.getAvailableCash();
+            getCurrentPositions(portfolioCost, targetPositions);
+        }
+
+        return positionsToSave;
     }
 
-    if (isPrintResultTable) {
-      out.println();
-      double portfolioCost = tcsService.getAvailableCash();
-      getCurrentPositions(portfolioCost, targetPositions);
-    }
+    private Map<TickerInfo.Key, PortfolioPosition> getCurrentPositions(
+            double totalPortfolioCost, Map<Key, PortfolioPosition> targetPositions) {
+        Map<TickerInfo.Key, PortfolioPosition> currentPositions = new HashMap<>();
+        if (null != targetPositions && !targetPositions.isEmpty()) {
+            Map<PortfolioPosition, Double> portfolioPositionToCost = new HashMap<>();
+            out.println();
+            Map<TickerInfo.Key, PositionInfo> positions =
+                    tcsService.getCurrentPositions(TickerType.ALL);
+            Map<TickerInfo.Key, Double> prices = new HashMap<>();
+            for (Map.Entry<TickerInfo.Key, PositionInfo> position : positions.entrySet()) {
+                if (targetPositions.containsKey(position.getKey())) {
+                    int balance = position.getValue().getBalance();
+                    double price =
+                            tcsService.getPriceInCurrentCurrency(
+                                    position.getKey(), balance, marketConfig.getCurrency());
+                    double cost = balance * price;
+                    totalPortfolioCost += cost;
+                    prices.put(position.getKey(), price);
+                    portfolioPositionToCost.put(targetPositions.get(position.getKey()), cost);
+                }
+            }
 
-    return positionsToSave;
-  }
-
-  private Map<TickerInfo.Key, PortfolioPosition> getCurrentPositions(
-      double totalPortfolioCost, Map<Key, PortfolioPosition> targetPositions) {
-    Map<TickerInfo.Key, PortfolioPosition> currentPositions = new HashMap<>();
-    if (null != targetPositions && !targetPositions.isEmpty()) {
-      Map<PortfolioPosition, Double> portfolioPositionToCost = new HashMap<>();
-      out.println();
-      Map<TickerInfo.Key, PositionInfo> positions = tcsService.getCurrentPositions(TickerType.ALL);
-      Map<TickerInfo.Key, Double> prices = new HashMap<>();
-      for (Map.Entry<TickerInfo.Key, PositionInfo> position : positions.entrySet()) {
-        if (targetPositions.containsKey(position.getKey())) {
-          int balance = position.getValue().getBalance();
-          double price =
-              tcsService.getPriceInCurrentCurrency(
-                  position.getKey(), balance, marketConfig.getCurrency());
-          double cost = balance * price;
-          totalPortfolioCost += cost;
-          prices.put(position.getKey(), price);
-          portfolioPositionToCost.put(targetPositions.get(position.getKey()), cost);
+            for (Map.Entry<PortfolioPosition, Double> position :
+                    portfolioPositionToCost.entrySet()) {
+                PortfolioPosition portfolioPosition = position.getKey();
+                double percent =
+                        round((100 * ((position.getValue()) / totalPortfolioCost)) * 100) / 100.0;
+                currentPositions.put(
+                        new TickerInfo.Key(
+                                portfolioPosition.getName(), portfolioPosition.getType()),
+                        new PortfolioPosition(
+                                portfolioPosition.getName(), portfolioPosition.getType(), percent));
+            }
+            printCurrentPositions(
+                    currentPositions,
+                    positions,
+                    prices,
+                    totalPortfolioCost,
+                    marketConfig.getCurrency());
         }
-      }
-
-      for (Map.Entry<PortfolioPosition, Double> position : portfolioPositionToCost.entrySet()) {
-        PortfolioPosition portfolioPosition = position.getKey();
-        double percent = round((100 * ((position.getValue()) / totalPortfolioCost)) * 100) / 100.0;
-        currentPositions.put(
-            new TickerInfo.Key(portfolioPosition.getName(), portfolioPosition.getType()),
-            new PortfolioPosition(
-                portfolioPosition.getName(), portfolioPosition.getType(), percent));
-      }
-      printCurrentPositions(
-          currentPositions, positions, prices, totalPortfolioCost, marketConfig.getCurrency());
+        return currentPositions;
     }
-    return currentPositions;
-  }
 }

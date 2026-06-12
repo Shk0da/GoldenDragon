@@ -12,14 +12,14 @@ import java.util.Map;
  */
 public class TickerRepository extends AbstractRepository<TickerInfo.Key, TickerInfo> {
 
-  public static final String SERIALIZE_NAME = "tickers.json";
-  public static final TickerRepository INSTANCE = new TickerRepository();
+    public static final String SERIALIZE_NAME = "tickers.json";
+    public static final TickerRepository INSTANCE = new TickerRepository();
 
-  public TickerRepository() {
-    Map<TickerInfo.Key, TickerInfo> dataFromDisk =
-        loadDataFromDisk(SERIALIZE_NAME, new TypeToken<>() {});
-    if (null != dataFromDisk) {
-      this.putAll(dataFromDisk);
+    public TickerRepository() {
+        Map<TickerInfo.Key, TickerInfo> dataFromDisk =
+                loadDataFromDisk(SERIALIZE_NAME, new TypeToken<>() {});
+        if (null != dataFromDisk) {
+            this.putAll(dataFromDisk);
+        }
     }
-  }
 }

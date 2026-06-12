@@ -13,61 +13,63 @@ import java.util.stream.Collectors;
 
 public class RebalanceConfig {
 
-  public static final String SERIALIZE_NAME = "rebalance.json";
+    public static final String SERIALIZE_NAME = "rebalance.json";
 
-  private final double positionPercent;
-  private final List<PortfolioPosition> portfolioPositions = new ArrayList<>();
+    private final double positionPercent;
+    private final List<PortfolioPosition> portfolioPositions = new ArrayList<>();
 
-  public RebalanceConfig() throws Exception {
-    final Properties properties = PropertiesUtils.loadProperties();
+    public RebalanceConfig() throws Exception {
+        final Properties properties = PropertiesUtils.loadProperties();
 
-    double totalPercentage = 0;
-    String portfolioRatio = properties.getProperty("rebalance.portfolio.ratio");
-    for (String item : portfolioRatio.split(";")) {
-      String[] values = item.split(":");
-      String ticker;
-      TickerType type;
-      double percent;
+        double totalPercentage = 0;
+        String portfolioRatio = properties.getProperty("rebalance.portfolio.ratio");
+        for (String item : portfolioRatio.split(";")) {
+            String[] values = item.split(":");
+            String ticker;
+            TickerType type;
+            double percent;
 
-      if (values.length == 3) {
-        // Old format: TYPE:TICKER:PERCENT
-        type = TickerType.valueOf(values[0]);
-        ticker = values[1];
-        percent = Double.parseDouble(values[2]);
-      } else if (values.length == 2) {
-        // New format: TICKER:PERCENT (type resolved automatically)
-        ticker = values[0];
-        percent = Double.parseDouble(values[1]);
-        type = resolveTickerType(ticker);
-      } else {
-        throw new IllegalArgumentException("Invalid portfolio ratio format: " + item);
-      }
+            if (values.length == 3) {
+                // Old format: TYPE:TICKER:PERCENT
+                type = TickerType.valueOf(values[0]);
+                ticker = values[1];
+                percent = Double.parseDouble(values[2]);
+            } else if (values.length == 2) {
+                // New format: TICKER:PERCENT (type resolved automatically)
+                ticker = values[0];
+                percent = Double.parseDouble(values[1]);
+                type = resolveTickerType(ticker);
+            } else {
+                throw new IllegalArgumentException("Invalid portfolio ratio format: " + item);
+            }
 
-      PortfolioPosition portfolioPosition = new PortfolioPosition(ticker, type, percent);
-      this.portfolioPositions.add(portfolioPosition);
-      totalPercentage += portfolioPosition.getPercent();
+            PortfolioPosition portfolioPosition = new PortfolioPosition(ticker, type, percent);
+            this.portfolioPositions.add(portfolioPosition);
+            totalPercentage += portfolioPosition.getPercent();
+        }
+        if (totalPercentage > 100.00) {
+            throw new IllegalArgumentException("rebalance.portfolio > 100%!");
+        }
+
+        positionPercent = Double.parseDouble(properties.getProperty("rebalance.position.percent"));
     }
-    if (totalPercentage > 100.00) {
-      throw new IllegalArgumentException("rebalance.portfolio > 100%!");
+
+    /**
+     * Resolves TickerType by ticker name using TickerTypeResolver utility. Searches through ticker
+     * repository to find the instrument type.
+     */
+    private TickerType resolveTickerType(String ticker) {
+        return TickerTypeResolver.resolve(ticker, TickerType.STOCK);
     }
 
-    positionPercent = Double.parseDouble(properties.getProperty("rebalance.position.percent"));
-  }
+    public Map<TickerInfo.Key, PortfolioPosition> getPortfolioPositions() {
+        return portfolioPositions.stream()
+                .collect(
+                        Collectors.toMap(
+                                it -> new TickerInfo.Key(it.getName(), it.getType()), it -> it));
+    }
 
-  /**
-   * Resolves TickerType by ticker name using TickerTypeResolver utility. Searches through ticker
-   * repository to find the instrument type.
-   */
-  private TickerType resolveTickerType(String ticker) {
-    return TickerTypeResolver.resolve(ticker, TickerType.STOCK);
-  }
-
-  public Map<TickerInfo.Key, PortfolioPosition> getPortfolioPositions() {
-    return portfolioPositions.stream()
-        .collect(Collectors.toMap(it -> new TickerInfo.Key(it.getName(), it.getType()), it -> it));
-  }
-
-  public double getPositionPercent() {
-    return positionPercent;
-  }
+    public double getPositionPercent() {
+        return positionPercent;
+    }
 }

@@ -25,22 +25,29 @@ dependencies {
 spotless {
     java {
         target 'src/**/*.java'
-        googleJavaFormat('1.19.2')
+        googleJavaFormat('1.19.2').aosp()
         removeUnusedImports()
         trimTrailingWhitespace()
         endWithNewline()
         cleanthat()
+        
+        // Ensure line length matches IDEA settings (120 chars)
+        targetExclude '**/generated/**'
+        
+        // Enforce 4 spaces indentation (no tabs)
+        indentWithSpaces(4)
     }
 }
 
 pmd {
     toolVersion = '7.3.0'
     ignoreFailures = true
-    ruleSets = [
-        'category/java/codestyle.xml',
-        'category/java/design.xml',
-        'category/java/errorprone.xml'
-    ]
+    ruleSetFiles = files('config/pmd/pmd.xml')
+    ruleSets = []
+    
+    consoleOutput = true
+    
+    reportsDir = file("$buildDir/reports/pmd")
 }
 
 task uberJar(type: Jar) {

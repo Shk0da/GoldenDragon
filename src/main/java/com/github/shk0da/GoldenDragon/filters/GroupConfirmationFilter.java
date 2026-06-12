@@ -10,25 +10,25 @@ import java.util.Map;
  */
 public class GroupConfirmationFilter {
 
-  private static final int LOOKBACK_BARS = 3;
-  private static final int MIN_PEER_CONFIRMATIONS = 2;
+    private static final int LOOKBACK_BARS = 3;
+    private static final int MIN_PEER_CONFIRMATIONS = 2;
 
-  public static boolean isConfirmed(
-      String ticker, boolean isBuy, Map<String, List<Candle>> peerCandles) {
-    if (peerCandles == null || peerCandles.isEmpty()) return true;
+    public static boolean isConfirmed(
+            String ticker, boolean isBuy, Map<String, List<Candle>> peerCandles) {
+        if (peerCandles == null || peerCandles.isEmpty()) return true;
 
-    int confirmations = 0;
-    for (Map.Entry<String, List<Candle>> entry : peerCandles.entrySet()) {
-      if (entry.getKey().equals(ticker)) continue;
-      List<Candle> candles = entry.getValue();
-      if (candles == null || candles.size() < LOOKBACK_BARS + 1) continue;
+        int confirmations = 0;
+        for (Map.Entry<String, List<Candle>> entry : peerCandles.entrySet()) {
+            if (entry.getKey().equals(ticker)) continue;
+            List<Candle> candles = entry.getValue();
+            if (candles == null || candles.size() < LOOKBACK_BARS + 1) continue;
 
-      boolean peerUp =
-          candles.get(candles.size() - 1).close
-              > candles.get(candles.size() - 1 - LOOKBACK_BARS).close;
-      if (isBuy == peerUp) confirmations++;
+            boolean peerUp =
+                    candles.get(candles.size() - 1).close
+                            > candles.get(candles.size() - 1 - LOOKBACK_BARS).close;
+            if (isBuy == peerUp) confirmations++;
+        }
+
+        return confirmations >= MIN_PEER_CONFIRMATIONS;
     }
-
-    return confirmations >= MIN_PEER_CONFIRMATIONS;
-  }
 }

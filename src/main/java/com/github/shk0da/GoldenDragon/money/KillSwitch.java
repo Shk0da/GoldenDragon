@@ -9,64 +9,64 @@ import java.util.concurrent.atomic.AtomicReference;
  */
 public class KillSwitch {
 
-  private volatile boolean tradingAllowed = true;
-  private final AtomicReference<String> triggerReason = new AtomicReference<>(null);
-  private final AtomicLong triggerTime = new AtomicLong(0);
-  private final double criticalDrawdownPercent;
+    private volatile boolean tradingAllowed = true;
+    private final AtomicReference<String> triggerReason = new AtomicReference<>(null);
+    private final AtomicLong triggerTime = new AtomicLong(0);
+    private final double criticalDrawdownPercent;
 
-  /**
-   * Create kill switch with specified parameters.
-   *
-   * @param criticalDrawdownPercent critical drawdown to halt trading (e.g., 0.10 for 10%)
-   */
-  public KillSwitch(double criticalDrawdownPercent) {
-    this.criticalDrawdownPercent = criticalDrawdownPercent;
-  }
-
-  /**
-   * Check if trading is allowed.
-   *
-   * @return true if trading is allowed, false if kill switch triggered
-   */
-  public boolean isTradingAllowed() {
-    return tradingAllowed;
-  }
-
-  /**
-   * Trigger kill switch.
-   *
-   * @param reason reason for halt
-   */
-  public void trigger(String reason) {
-    tradingAllowed = false;
-    triggerReason.set(reason);
-    triggerTime.set(System.currentTimeMillis());
-  }
-
-  /**
-   * Trigger kill switch on critical drawdown.
-   *
-   * @param currentDrawdown current drawdown as decimal
-   */
-  public void checkDrawdown(double currentDrawdown) {
-    if (currentDrawdown >= criticalDrawdownPercent && tradingAllowed) {
-      trigger("CRITICAL_DD_" + (int) (currentDrawdown * 100) + "%");
+    /**
+     * Create kill switch with specified parameters.
+     *
+     * @param criticalDrawdownPercent critical drawdown to halt trading (e.g., 0.10 for 10%)
+     */
+    public KillSwitch(double criticalDrawdownPercent) {
+        this.criticalDrawdownPercent = criticalDrawdownPercent;
     }
-  }
 
-  /** Reset kill switch and allow trading. */
-  public void reset() {
-    tradingAllowed = true;
-    triggerReason.set(null);
-    triggerTime.set(0);
-  }
+    /**
+     * Check if trading is allowed.
+     *
+     * @return true if trading is allowed, false if kill switch triggered
+     */
+    public boolean isTradingAllowed() {
+        return tradingAllowed;
+    }
 
-  /**
-   * Get last trigger reason.
-   *
-   * @return trigger reason or null if not triggered
-   */
-  public String getTriggerReason() {
-    return triggerReason.get();
-  }
+    /**
+     * Trigger kill switch.
+     *
+     * @param reason reason for halt
+     */
+    public void trigger(String reason) {
+        tradingAllowed = false;
+        triggerReason.set(reason);
+        triggerTime.set(System.currentTimeMillis());
+    }
+
+    /**
+     * Trigger kill switch on critical drawdown.
+     *
+     * @param currentDrawdown current drawdown as decimal
+     */
+    public void checkDrawdown(double currentDrawdown) {
+        if (currentDrawdown >= criticalDrawdownPercent && tradingAllowed) {
+            trigger("CRITICAL_DD_" + (int) (currentDrawdown * 100) + "%");
+        }
+    }
+
+    /** Reset kill switch and allow trading. */
+    public void reset() {
+        tradingAllowed = true;
+        triggerReason.set(null);
+        triggerTime.set(0);
+    }
+
+    /**
+     * Get last trigger reason.
+     *
+     * @return trigger reason or null if not triggered
+     */
+    public String getTriggerReason() {
+        return triggerReason.get();
+    }
 }

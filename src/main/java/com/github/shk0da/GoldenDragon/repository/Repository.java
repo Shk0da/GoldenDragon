@@ -10,15 +10,15 @@ import java.util.Map;
  * @param <T> the type of the stored element
  */
 public interface Repository<ID, T> {
-  T getById(ID id);
+    T getById(ID id);
 
-  T getById(ID id, T defaultValue);
+    T getById(ID id, T defaultValue);
 
-  T insert(ID id, T value);
+    T insert(ID id, T value);
 
-  void putAll(Map<ID, T> values);
+    void putAll(Map<ID, T> values);
 
-  boolean containsKey(ID key);
+    boolean containsKey(ID key);
 
-  Map<ID, T> getAll();
+    Map<ID, T> getAll();
 }

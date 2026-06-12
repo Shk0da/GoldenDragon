@@ -7,5 +7,5 @@ import com.github.shk0da.goldendragon.model.TickerInfo;
  * for ticker-to-FIGI conversion and caching.
  */
 public class FigiRepository extends AbstractRepository<TickerInfo.Key, String> {
-  public static final FigiRepository INSTANCE = new FigiRepository();
+    public static final FigiRepository INSTANCE = new FigiRepository();
 }

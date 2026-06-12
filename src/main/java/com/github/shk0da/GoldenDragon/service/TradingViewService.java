@@ -32,124 +32,125 @@ import java.util.concurrent.ThreadLocalRandom;
 
 public class TradingViewService {
 
-  public static final TradingViewService INSTANCE = new TradingViewService();
+    public static final TradingViewService INSTANCE = new TradingViewService();
 
-  private static final String MOEX_SCAN_URI = "https://scanner.tradingview.com/russia/scan";
+    private static final String MOEX_SCAN_URI = "https://scanner.tradingview.com/russia/scan";
 
-  public List<TickerScan> scanMarket(Market market, int size) {
-    List<Filter> filters = new ArrayList<>();
-    if (Market.MOEX == market) {
-      filters.addAll(
-          List.of(
-              new Filter("debt_to_equity", "nempty"),
-              new Filter("Recommend.All|1W", "nempty"),
-              new Filter("total_debt", "nequal", 0.0),
-              new Filter("type", "in_range", List.of("stock")),
-              new Filter("subtype", "in_range", List.of("common")),
-              new Filter("exchange", "in_range", List.of("MOEX")),
-              new Filter("market_cap_basic", "egreater", 50_000_000),
-              new Filter("Recommend.All|1W", "egreater", 0.4),
-              new Filter("debt_to_equity", "in_range", List.of(-50, 3)),
-              new Filter("total_revenue", "egreater", 0)));
-    }
-    ScanRequest scanRequest =
-        new ScanRequest(
-            filters,
-            new Options("en"),
-            List.of(
-                "name",
-                "description",
-                "total_debt",
-                "debt_to_equity",
-                "type",
-                "subtype",
-                "Recommend.All|1M"),
-            new ScanRequest.Sort("debt_to_equity", "asc"),
-            new int[] {0, size});
-    return scanMarket(market, scanRequest);
-  }
-
-  public List<TickerScan> scanMarket(Market market, Collection<String> symbols) {
-    List<String> tickers = new ArrayList<>(symbols.size() * 2);
-    if (Market.MOEX == market) {
-      tickers.addAll(symbols.stream().map(name -> "MOEX:" + name).collect(toList()));
+    public List<TickerScan> scanMarket(Market market, int size) {
+        List<Filter> filters = new ArrayList<>();
+        if (Market.MOEX == market) {
+            filters.addAll(
+                    List.of(
+                            new Filter("debt_to_equity", "nempty"),
+                            new Filter("Recommend.All|1W", "nempty"),
+                            new Filter("total_debt", "nequal", 0.0),
+                            new Filter("type", "in_range", List.of("stock")),
+                            new Filter("subtype", "in_range", List.of("common")),
+                            new Filter("exchange", "in_range", List.of("MOEX")),
+                            new Filter("market_cap_basic", "egreater", 50_000_000),
+                            new Filter("Recommend.All|1W", "egreater", 0.4),
+                            new Filter("debt_to_equity", "in_range", List.of(-50, 3)),
+                            new Filter("total_revenue", "egreater", 0)));
+        }
+        ScanRequest scanRequest =
+                new ScanRequest(
+                        filters,
+                        new Options("en"),
+                        List.of(
+                                "name",
+                                "description",
+                                "total_debt",
+                                "debt_to_equity",
+                                "type",
+                                "subtype",
+                                "Recommend.All|1M"),
+                        new ScanRequest.Sort("debt_to_equity", "asc"),
+                        new int[] {0, size});
+        return scanMarket(market, scanRequest);
     }
 
-    List<Filter> filters = new ArrayList<>();
-    if (Market.MOEX == market) {
-      filters.add(new Filter("Recommend.All|1M", "egreater", 0.4));
-    }
-    filters.add(new Filter("total_revenue", "egreater", 0));
+    public List<TickerScan> scanMarket(Market market, Collection<String> symbols) {
+        List<String> tickers = new ArrayList<>(symbols.size() * 2);
+        if (Market.MOEX == market) {
+            tickers.addAll(symbols.stream().map(name -> "MOEX:" + name).collect(toList()));
+        }
 
-    ScanRequest scanRequest =
-        new ScanRequest(
-            filters,
-            new Options("en"),
-            new Symbols(tickers),
-            List.of(
-                "name",
-                "description",
-                "total_debt",
-                "debt_to_equity",
-                "type",
-                "subtype",
-                "Recommend.All|1M"));
-    return scanMarket(market, scanRequest);
-  }
+        List<Filter> filters = new ArrayList<>();
+        if (Market.MOEX == market) {
+            filters.add(new Filter("Recommend.All|1M", "egreater", 0.4));
+        }
+        filters.add(new Filter("total_revenue", "egreater", 0));
 
-  public List<TickerScan> scanMarket(Market market, ScanRequest scanRequest) {
-    sleep(ThreadLocalRandom.current().nextInt(800, 1000));
-
-    URI marketUrl = URI.create(MOEX_SCAN_URI);
-    HttpResponse<String> response =
-        requestWithRetry(
-            () -> {
-              String json = new Gson().toJson(scanRequest);
-              HttpRequest request =
-                  HttpRequest.newBuilder()
-                      .uri(marketUrl)
-                      .setHeader(HEADER_USER_AGENT, USER_AGENT)
-                      .POST(HttpRequest.BodyPublishers.ofString(json))
-                      .timeout(Duration.of(10, ChronoUnit.SECONDS))
-                      .build();
-              try {
-                return httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-              } catch (Exception ex) {
-                out.println("Error: " + ex.getMessage());
-                return null;
-              }
-            });
-
-    JsonObject payload = JsonParser.parseString(response.body()).getAsJsonObject();
-    int totalCount = payload.get("totalCount").getAsInt();
-    out.printf("The scan found %s tickers\n", totalCount);
-
-    if (totalCount == 0) {
-      return List.of();
+        ScanRequest scanRequest =
+                new ScanRequest(
+                        filters,
+                        new Options("en"),
+                        new Symbols(tickers),
+                        List.of(
+                                "name",
+                                "description",
+                                "total_debt",
+                                "debt_to_equity",
+                                "type",
+                                "subtype",
+                                "Recommend.All|1M"));
+        return scanMarket(market, scanRequest);
     }
 
-    int resultCount =
-        null != scanRequest.getRange()
-            ? Math.min(scanRequest.getRange()[1], totalCount)
-            : totalCount;
-    List<TickerScan> result = new ArrayList<>(resultCount);
-    JsonArray data = payload.get("data").getAsJsonArray();
-    for (JsonElement item : data) {
-      var obj = item.getAsJsonObject();
-      var values = obj.get("d").getAsJsonArray();
-      var nameWithMarket = obj.get("s").getAsString().split(":");
-      var tickerName = nameWithMarket[1];
-      result.add(
-          new TickerScan(
-              tickerName,
-              values.get(1).getAsString(),
-              values.get(2).getAsLong(),
-              values.get(3).getAsDouble(),
-              values.get(4).getAsString(),
-              values.get(5).getAsString(),
-              values.get(6).getAsDouble(),
-              new Date()));
+    public List<TickerScan> scanMarket(Market market, ScanRequest scanRequest) {
+        sleep(ThreadLocalRandom.current().nextInt(800, 1000));
+
+        URI marketUrl = URI.create(MOEX_SCAN_URI);
+        HttpResponse<String> response =
+                requestWithRetry(
+                        () -> {
+                            String json = new Gson().toJson(scanRequest);
+                            HttpRequest request =
+                                    HttpRequest.newBuilder()
+                                            .uri(marketUrl)
+                                            .setHeader(HEADER_USER_AGENT, USER_AGENT)
+                                            .POST(HttpRequest.BodyPublishers.ofString(json))
+                                            .timeout(Duration.of(10, ChronoUnit.SECONDS))
+                                            .build();
+                            try {
+                                return httpClient.send(
+                                        request, HttpResponse.BodyHandlers.ofString());
+                            } catch (Exception ex) {
+                                out.println("Error: " + ex.getMessage());
+                                return null;
+                            }
+                        });
+
+        JsonObject payload = JsonParser.parseString(response.body()).getAsJsonObject();
+        int totalCount = payload.get("totalCount").getAsInt();
+        out.printf("The scan found %s tickers\n", totalCount);
+
+        if (totalCount == 0) {
+            return List.of();
+        }
+
+        int resultCount =
+                null != scanRequest.getRange()
+                        ? Math.min(scanRequest.getRange()[1], totalCount)
+                        : totalCount;
+        List<TickerScan> result = new ArrayList<>(resultCount);
+        JsonArray data = payload.get("data").getAsJsonArray();
+        for (JsonElement item : data) {
+            var obj = item.getAsJsonObject();
+            var values = obj.get("d").getAsJsonArray();
+            var nameWithMarket = obj.get("s").getAsString().split(":");
+            var tickerName = nameWithMarket[1];
+            result.add(
+                    new TickerScan(
+                            tickerName,
+                            values.get(1).getAsString(),
+                            values.get(2).getAsLong(),
+                            values.get(3).getAsDouble(),
+                            values.get(4).getAsString(),
+                            values.get(5).getAsString(),
+                            values.get(6).getAsDouble(),
+                            new Date()));
+        }
+        return result;
     }
-    return result;
-  }
 }

@@ -19,58 +19,65 @@ import java.util.concurrent.Executors;
 
 public class TelegramNotifyService {
 
-  public static final TelegramNotifyService telegramNotifyService = new TelegramNotifyService();
+    public static final TelegramNotifyService telegramNotifyService = new TelegramNotifyService();
 
-  private static final String TELEGRAM_SEND_MESSAGE_URL =
-      "https://api.telegram.org/bot%s/sendMessage?chat_id=%s&text=%s";
+    private static final String TELEGRAM_SEND_MESSAGE_URL =
+            "https://api.telegram.org/bot%s/sendMessage?chat_id=%s&text=%s";
 
-  private final Boolean enable;
-  private final String botToken;
-  private final String chatId;
-  private final Boolean extended;
+    private final Boolean enable;
+    private final String botToken;
+    private final String chatId;
+    private final Boolean extended;
 
-  private final ExecutorService queue = Executors.newSingleThreadExecutor();
+    private final ExecutorService queue = Executors.newSingleThreadExecutor();
 
-  public TelegramNotifyService() {
-    try {
-      TelegramNotifyConfig telegramNotifyConfig = new TelegramNotifyConfig();
-      this.enable = telegramNotifyConfig.isEnable();
-      this.botToken = telegramNotifyConfig.getBotToken();
-      this.chatId = telegramNotifyConfig.getChatId();
-      this.extended = telegramNotifyConfig.isExtended();
-    } catch (Exception ex) {
-      throw new RuntimeException("Failed instance TelegramNotifyService: " + ex.getMessage());
+    public TelegramNotifyService() {
+        try {
+            TelegramNotifyConfig telegramNotifyConfig = new TelegramNotifyConfig();
+            this.enable = telegramNotifyConfig.isEnable();
+            this.botToken = telegramNotifyConfig.getBotToken();
+            this.chatId = telegramNotifyConfig.getChatId();
+            this.extended = telegramNotifyConfig.isExtended();
+        } catch (Exception ex) {
+            throw new RuntimeException("Failed instance TelegramNotifyService: " + ex.getMessage());
+        }
     }
-  }
 
-  public void sendMessage(String message, Boolean isExtended) {
-    if (isExtended && extended) {
-      sendMessage(message);
+    public void sendMessage(String message, Boolean isExtended) {
+        if (isExtended && extended) {
+            sendMessage(message);
+        }
     }
-  }
 
-  public void sendMessage(String message) {
-    if (!enable) return;
+    public void sendMessage(String message) {
+        if (!enable) return;
 
-    queue.execute(
-        () ->
-            requestWithRetry(
-                () -> {
-                  String text = URLEncoder.encode(message, StandardCharsets.UTF_8);
-                  String uri = String.format(TELEGRAM_SEND_MESSAGE_URL, botToken, chatId, text);
-                  HttpRequest request =
-                      HttpRequest.newBuilder()
-                          .POST(HttpRequest.BodyPublishers.noBody())
-                          .uri(URI.create(uri))
-                          .setHeader(HEADER_USER_AGENT, USER_AGENT)
-                          .timeout(Duration.of(10, ChronoUnit.SECONDS))
-                          .build();
-                  try {
-                    return httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-                  } catch (Exception ex) {
-                    out.println("Error: " + ex.getMessage());
-                    return null;
-                  }
-                }));
-  }
+        queue.execute(
+                () ->
+                        requestWithRetry(
+                                () -> {
+                                    String text =
+                                            URLEncoder.encode(message, StandardCharsets.UTF_8);
+                                    String uri =
+                                            String.format(
+                                                    TELEGRAM_SEND_MESSAGE_URL,
+                                                    botToken,
+                                                    chatId,
+                                                    text);
+                                    HttpRequest request =
+                                            HttpRequest.newBuilder()
+                                                    .POST(HttpRequest.BodyPublishers.noBody())
+                                                    .uri(URI.create(uri))
+                                                    .setHeader(HEADER_USER_AGENT, USER_AGENT)
+                                                    .timeout(Duration.of(10, ChronoUnit.SECONDS))
+                                                    .build();
+                                    try {
+                                        return httpClient.send(
+                                                request, HttpResponse.BodyHandlers.ofString());
+                                    } catch (Exception ex) {
+                                        out.println("Error: " + ex.getMessage());
+                                        return null;
+                                    }
+                                }));
+    }
 }

@@ -1,29 +1,29 @@
 package com.github.shk0da.goldendragon.model;
 
 public enum TickerType {
-  BOND,
-  STOCK,
-  ETF,
-  CURRENCY,
-  FEATURE,
-  UNKNOWN;
+    BOND,
+    STOCK,
+    ETF,
+    CURRENCY,
+    FEATURE,
+    UNKNOWN;
 
-  public static final TickerType ALL = null;
+    public static final TickerType ALL = null;
 
-  public static TickerType byName(String name) {
-    if (null == name) {
-      return UNKNOWN;
+    public static TickerType byName(String name) {
+        if (null == name) {
+            return UNKNOWN;
+        }
+        for (TickerType value : values()) {
+            if (value.name().equalsIgnoreCase(name)) {
+                return value;
+            }
+        }
+        return UNKNOWN;
     }
-    for (TickerType value : values()) {
-      if (value.name().equalsIgnoreCase(name)) {
-        return value;
-      }
-    }
-    return UNKNOWN;
-  }
 
-  @Override
-  public String toString() {
-    return name();
-  }
+    @Override
+    public String toString() {
+        return name();
+    }
 }
