@@ -77,7 +77,7 @@ public class VolatilityAdjustedSizing implements SizingStrategy {
         double qty = riskAmount / stopDistance;
 
         // Cap by max position size (% of capital)
-        double maxQtyBySize = (balance * maxPositionSize) / entry;
+        double maxQtyBySize = balance * maxPositionSize / entry;
         qty = Math.min(qty, maxQtyBySize);
 
         // Cap by available capital (safety check)

@@ -315,7 +315,9 @@ public class TCSService {
      *     <= 0}
      */
     public List<HistoricCandle> getLastCandles(String ticker, TickerType type, int size) {
-        if (size <= 0) return emptyList();
+        if (size <= 0) {
+            return emptyList();
+        }
         TickerInfo.Key key = new TickerInfo.Key(ticker, type);
         String figi = figiByName(key);
         Instant end = Instant.now();
@@ -341,7 +343,9 @@ public class TCSService {
      */
     public List<TickerCandle> getLastCandlesAsTickerCandles(
             String ticker, TickerType type, int count) {
-        if (count <= 0) return emptyList();
+        if (count <= 0) {
+            return emptyList();
+        }
         List<HistoricCandle> candles = getLastCandles(ticker, type, count);
         DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
         return candles.stream()
@@ -381,7 +385,9 @@ public class TCSService {
                             if (count > 0) {
                                 var message = formatTradeLog("Sell", name, count, type, "Market");
                                 log(message);
-                                if (mainConfig.isTestMode()) return;
+                                if (mainConfig.isTestMode()) {
+                                    return;
+                                }
                                 telegramNotifyService.sendMessage(message);
                                 createOrder(new TickerInfo.Key(name, type), 0.0, count, "Sell");
                             }
@@ -390,7 +396,9 @@ public class TCSService {
                                         formatTradeLog(
                                                 "Buy", name, Math.abs(count), type, "Market");
                                 log(message);
-                                if (mainConfig.isTestMode()) return;
+                                if (mainConfig.isTestMode()) {
+                                    return;
+                                }
                                 telegramNotifyService.sendMessage(message);
                                 createOrder(
                                         new TickerInfo.Key(name, type),
@@ -457,7 +465,9 @@ public class TCSService {
         if (count < 0) {
             log(formatTradeLog("Buy", name, Math.abs(count), type, "Market"));
 
-            if (mainConfig.isTestMode()) return true;
+            if (mainConfig.isTestMode()) {
+                return true;
+            }
             return 1 == createOrder(new TickerInfo.Key(name, type), 0.0, Math.abs(count), "Buy");
         }
         return false;
@@ -529,7 +539,9 @@ public class TCSService {
         if (count > 0) {
             log(formatTradeLog("Sell", name, count, type, "Market"));
 
-            if (mainConfig.isTestMode()) return true;
+            if (mainConfig.isTestMode()) {
+                return true;
+            }
             return 1 == createOrder(new TickerInfo.Key(name, type), 0.0, count, "Sell");
         }
         return false;
@@ -738,7 +750,9 @@ public class TCSService {
         for (Map.Entry<Double, Integer> bid : getCurrentPrices(key, false).get("bids").entrySet()) {
             tickerPrice = bid.getKey();
             value = value + bid.getValue();
-            if (value >= (cashToSell / tickerPrice)) break;
+            if (value >= (cashToSell / tickerPrice)) {
+                break;
+            }
         }
 
         if (0.0 == tickerPrice) {
@@ -1098,7 +1112,9 @@ public class TCSService {
         for (Map.Entry<Double, Integer> ask : currentPrices.get("asks").entrySet()) {
             tickerPrice = ask.getKey();
             value = value + ask.getValue();
-            if (value >= (cashToBuy / tickerPrice)) break;
+            if (value >= (cashToBuy / tickerPrice)) {
+                break;
+            }
         }
 
         if (0.0 == tickerPrice) {
@@ -1574,24 +1590,24 @@ public class TCSService {
         if (stopLose > 0.0) {
             double slPrice =
                     ORDER_DIRECTION_BUY == direction
-                            ? (isFullPrice
+                            ? isFullPrice
                                     ? stopLose
-                                    : executedPrice - ((executedPrice / 100) * stopLose))
-                            : (isFullPrice
+                                    : executedPrice - (executedPrice / 100 * stopLose)
+                            : isFullPrice
                                     ? stopLose
-                                    : executedPrice + ((executedPrice / 100) * stopLose));
+                                    : executedPrice + (executedPrice / 100 * stopLose);
             stopLossPrice = normalizePrice(slPrice, tickerInfo.getMinPriceIncrement());
         }
 
         if (takeProfit > 0.0) {
             double tpPrice =
                     ORDER_DIRECTION_BUY == direction
-                            ? (isFullPrice
+                            ? isFullPrice
                                     ? takeProfit
-                                    : executedPrice + ((executedPrice / 100) * takeProfit))
-                            : (isFullPrice
+                                    : executedPrice + executedPrice / 100 * takeProfit
+                            : isFullPrice
                                     ? takeProfit
-                                    : executedPrice - ((executedPrice / 100) * takeProfit));
+                                    : executedPrice - executedPrice / 100 * takeProfit;
             takeProfitPrice = normalizePrice(tpPrice, tickerInfo.getMinPriceIncrement());
         }
 
@@ -2334,8 +2350,12 @@ public class TCSService {
     }
 
     private String getTypeFromTickerType(TickerType tickerType) {
-        if (TickerType.STOCK == tickerType) return "share";
-        if (TickerType.FEATURE == tickerType) return "futures";
+        if (TickerType.STOCK == tickerType) {
+            return "share";
+        }
+        if (TickerType.FEATURE == tickerType) {
+            return "futures";
+        }
         return "";
     }
 
@@ -2735,11 +2755,11 @@ public class TCSService {
         String currencyTicker = getTickerName(currency);
         if (currencyTicker.equals(currency)) {
             return round(
-                            ((price
+                            (price
                                             / getAvailablePrice(
                                                     new TickerInfo.Key(
                                                             getTickerName(basicCurrency),
-                                                            TickerType.CURRENCY))))
+                                                            TickerType.CURRENCY)))
                                     * 1000)
                     / 1000.0;
         }
@@ -2747,7 +2767,7 @@ public class TCSService {
         var key = new TickerInfo.Key(currencyTicker, TickerType.CURRENCY);
         TickerInfo currencyTickerInfo = searchTicker(key);
         if (basicCurrency.equals(currencyTickerInfo.getCurrency())) {
-            return round(((price / getAvailablePrice(key))) * 100000) / 100000.0;
+            return round((price / getAvailablePrice(key)) * 100000) / 100000.0;
         }
         return price;
     }

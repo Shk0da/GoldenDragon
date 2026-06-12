@@ -30,10 +30,10 @@ spotless {
         trimTrailingWhitespace()
         endWithNewline()
         cleanthat()
-        
+
         // Ensure line length matches IDEA settings (120 chars)
         targetExclude '**/generated/**'
-        
+
         // Enforce 4 spaces indentation (no tabs)
         indentWithSpaces(4)
     }
@@ -44,15 +44,15 @@ pmd {
     ignoreFailures = true
     ruleSetFiles = files('config/pmd/pmd.xml')
     ruleSets = []
-    
+
     consoleOutput = true
-    
+
     reportsDir = file("$buildDir/reports/pmd")
 }
 
 task uberJar(type: Jar) {
     manifest {
-        attributes 'Main-Class': 'com.github.shk0da.GoldenDragon.GoldenDragon'
+        attributes 'Main-Class': 'com.github.shk0da.goldendragon.GoldenDragon'
     }
 
     from { sourceSets.main.output }
@@ -66,16 +66,16 @@ task uberJar(type: Jar) {
 task dataCollect(type: JavaExec) {
     group = 'data'
     description = 'Collect historical market data for stocks and crypto'
-    main = 'com.github.shk0da.GoldenDragon.strategy.DataCollector'
+    main = 'com.github.shk0da.goldendragon.strategy.DataCollector'
     classpath = sourceSets.main.runtimeClasspath
     workingDir = rootDir
 }
 
 task runBacktest(type: JavaExec) {
-    main = 'com.github.shk0da.GoldenDragon.test.BacktestRunner'
+    main = 'com.github.shk0da.goldendragon.test.BacktestRunner'
     classpath = sourceSets.test.runtimeClasspath
     workingDir = rootDir
-    
+
     // Support both single strategy and all strategies
     def strategyName = project.findProperty('strategy')
     if (strategyName) {
@@ -84,7 +84,7 @@ task runBacktest(type: JavaExec) {
 }
 
 task runMlTraining(type: JavaExec) {
-    main = 'com.github.shk0da.GoldenDragon.ml.MlModelTrainer'
+    main = 'com.github.shk0da.goldendragon.ml.MlModelTrainer'
     classpath = sourceSets.main.runtimeClasspath
     workingDir = rootDir
 
@@ -115,32 +115,32 @@ task runMlTraining(type: JavaExec) {
 task trainAllTickers {
     group = 'ml'
     description = 'Train per-ticker ML models for all tickers'
-    
+
     doLast {
         def tradesFile = file('ml_strategy/data_pipeline/trades.csv')
         if (!tradesFile.exists()) {
             throw new GradleException('Trades file not found. Run generateModel first.')
         }
-        
+
         // Extract unique tickers from trades.csv
         def tickers = tradesFile.readLines().drop(1).collect { line ->
             def parts = line.split(',')
             return parts.length > 1 ? parts[1].trim() : null
         }.findAll { it != null && !it.isEmpty() }.unique()
-        
+
         println "Found ${tickers.size()} tickers: ${tickers.join(', ')}"
-        
+
         def successful = 0
         def failed = 0
-        
+
         tickers.each { ticker ->
             println "\n=========================================="
             println "Training model for ticker: $ticker"
             println "=========================================="
-            
+
             try {
                 javaexec {
-                    main = 'com.github.shk0da.GoldenDragon.ml.MlModelTrainer'
+                    main = 'com.github.shk0da.goldendragon.ml.MlModelTrainer'
                     classpath = sourceSets.main.runtimeClasspath
                     workingDir = rootDir
                     args '--data', 'ml_strategy/data_pipeline/trades.csv'
@@ -154,7 +154,7 @@ task trainAllTickers {
                 failed++
             }
         }
-        
+
         println "\n=========================================="
         println "Training complete!"
         println "Successful: $successful, Failed: $failed"
@@ -172,19 +172,19 @@ runMlTraining.mustRunAfter runBacktest
 trainAllTickers.mustRunAfter runBacktest
 
 task runTCSServiceSmokeTest(type: JavaExec) {
-    main = 'com.github.shk0da.GoldenDragon.test.TCSServiceSmokeTest'
+    main = 'com.github.shk0da.goldendragon.test.TCSServiceSmokeTest'
     classpath = sourceSets.test.runtimeClasspath
     workingDir = rootDir
 }
 
 task runUnifiedStrategySmokeTest(type: JavaExec) {
-    main = 'com.github.shk0da.GoldenDragon.test.UnifiedStrategySmokeTest'
+    main = 'com.github.shk0da.goldendragon.test.UnifiedStrategySmokeTest'
     classpath = sourceSets.test.runtimeClasspath
     workingDir = rootDir
 }
 
 task runStrategy(type: JavaExec) {
-    main = 'com.github.shk0da.GoldenDragon.GoldenDragon'
+    main = 'com.github.shk0da.goldendragon.GoldenDragon'
     classpath = sourceSets.test.runtimeClasspath
     workingDir = rootDir
     def strategyName = project.findProperty('strategy') ?: 'RegimeAwareStrategy'

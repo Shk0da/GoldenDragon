@@ -60,7 +60,7 @@ public class DiviTicker {
     public Double getPercent() {
         double closePrice = getPrice();
         if (closePrice > 0.0) {
-            return round((getDividend() / (closePrice / 100)) * 100) / 100.0;
+            return round(getDividend() / (closePrice / 100) * 100) / 100.0;
         }
         return parseDouble(percent);
     }
@@ -92,8 +92,12 @@ public class DiviTicker {
 
     @Override
     public boolean equals(Object o) {
-        if (this == o) return true;
-        if (o == null || getClass() != o.getClass()) return false;
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
         DiviTicker that = (DiviTicker) o;
         return Objects.equals(tickerCode, that.tickerCode)
                 && Objects.equals(closeDate, that.closeDate);

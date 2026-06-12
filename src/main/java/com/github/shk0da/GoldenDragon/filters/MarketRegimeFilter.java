@@ -142,8 +142,8 @@ public class MarketRegimeFilter {
             mdSum += (dn > up && dn > 0) ? dn : 0.0;
         }
         double atr = trSum / period;
-        double diPlus = atr > 0 ? (pdSum / period) / atr * 100 : 0.0;
-        double diMinus = atr > 0 ? (mdSum / period) / atr * 100 : 0.0;
+        double diPlus = atr > 0 ? pdSum / period / atr * 100 : 0.0;
+        double diMinus = atr > 0 ? mdSum / period / atr * 100 : 0.0;
         double adx =
                 (diPlus + diMinus) > 0
                         ? Math.abs(diPlus - diMinus) / (diPlus + diMinus) * 100
@@ -152,7 +152,9 @@ public class MarketRegimeFilter {
     }
 
     private double calculateAtr(List<Candle> candles, int period) {
-        if (candles.size() < period + 1) return 0.0;
+        if (candles.size() < period + 1) {
+            return 0.0;
+        }
         double sum = 0.0;
         for (int i = candles.size() - period; i < candles.size(); i++) {
             Candle c = candles.get(i);
@@ -167,7 +169,9 @@ public class MarketRegimeFilter {
 
     private double calculateSmoothedAtr(List<Candle> candles, int period) {
         int count = Math.min(20, candles.size() - period - 1);
-        if (count < 5) return calculateAtr(candles, period);
+        if (count < 5) {
+            return calculateAtr(candles, period);
+        }
         double sum = 0.0;
         int validCount = 0;
         for (int i = 0; i < count; i++) {
@@ -189,7 +193,9 @@ public class MarketRegimeFilter {
     }
 
     private boolean isAtrGrowing(List<Candle> candles, int period, int bars) {
-        if (candles.size() < period + bars + 1) return false;
+        if (candles.size() < period + bars + 1) {
+            return false;
+        }
         double[] atrValues = new double[bars];
         for (int i = 0; i < bars; i++) {
             int end = candles.size() - bars + i + 1;
@@ -205,13 +211,17 @@ public class MarketRegimeFilter {
             atrValues[i] = sum / period;
         }
         for (int i = 1; i < bars; i++) {
-            if (atrValues[i] <= atrValues[i - 1]) return false;
+            if (atrValues[i] <= atrValues[i - 1]) {
+                return false;
+            }
         }
         return true;
     }
 
     private double calculateVolumeRatio(List<Candle> candles, int period) {
-        if (candles.size() < 2) return 0.0;
+        if (candles.size() < 2) {
+            return 0.0;
+        }
         Candle current = candles.get(candles.size() - 1);
         int lookback = Math.min(period, candles.size() - 1);
         long avgVolume = 0;

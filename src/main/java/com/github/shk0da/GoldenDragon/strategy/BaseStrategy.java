@@ -3,7 +3,6 @@ package com.github.shk0da.goldendragon.strategy;
 import static com.github.shk0da.goldendragon.model.TickerType.FEATURE;
 import static com.github.shk0da.goldendragon.model.TickerType.STOCK;
 import static com.github.shk0da.goldendragon.service.TelegramNotifyService.telegramNotifyService;
-import static com.github.shk0da.goldendragon.utils.LoggingUtils.log;
 import static com.github.shk0da.goldendragon.utils.TimeUtils.sleep;
 import static java.lang.Math.abs;
 import static java.lang.Math.max;
@@ -585,15 +584,15 @@ public abstract class BaseStrategy {
         double slPrice =
                 decision.stopLoss != null
                         ? decision.stopLoss
-                        : ("BUY".equals(decision.updatedPosition.direction)
+                        : "BUY".equals(decision.updatedPosition.direction)
                                 ? entryPrice * 0.98
-                                : entryPrice * 1.02);
+                                : entryPrice * 1.02;
         double tpPrice =
                 decision.takeProfit != null
                         ? decision.takeProfit
-                        : ("BUY".equals(decision.updatedPosition.direction)
+                        : "BUY".equals(decision.updatedPosition.direction)
                                 ? entryPrice * 1.04
-                                : entryPrice * 0.96);
+                                : entryPrice * 0.96;
 
         double slPercent = abs(entryPrice - slPrice) / entryPrice * 100;
         double tpPercent = abs(tpPrice - entryPrice) / entryPrice * 100;
@@ -768,7 +767,7 @@ public abstract class BaseStrategy {
             double exitPrice =
                     executedExitPrice != null && executedExitPrice > 0.0
                             ? executedExitPrice
-                            : (decision.entryPrice != null ? decision.entryPrice : 0.0);
+                            : decision.entryPrice != null ? decision.entryPrice : 0.0;
             double pnl = calculatePnlForQuantity(storedPosition, exitPrice, closedQuantity);
             double stopLoss =
                     storedPosition.stopLoss != null ? storedPosition.stopLoss : entryPrice;
@@ -1473,8 +1472,8 @@ public abstract class BaseStrategy {
         int dxStart = period;
 
         if (trS > 0) {
-            double pDI = (pdmS / trS) * 100.0;
-            double mDI = (mdmS / trS) * 100.0;
+            double pDI = pdmS / trS * 100.0;
+            double mDI = mdmS / trS * 100.0;
             double sum = pDI + mDI;
             dx[dxStart] = sum > 0 ? abs(pDI - mDI) / sum * 100.0 : 0.0;
         }
@@ -1485,8 +1484,8 @@ public abstract class BaseStrategy {
             mdmS = mdmS - (mdmS / period) + minusDM[i];
 
             if (trS > 0) {
-                double pDI = (pdmS / trS) * 100.0;
-                double mDI = (mdmS / trS) * 100.0;
+                double pDI = pdmS / trS * 100.0;
+                double mDI = mdmS / trS * 100.0;
                 double sum = pDI + mDI;
                 dx[i] = sum > 0 ? abs(pDI - mDI) / sum * 100.0 : 0.0;
             } else {

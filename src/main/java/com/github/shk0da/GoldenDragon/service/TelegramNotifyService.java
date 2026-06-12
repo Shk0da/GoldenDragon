@@ -50,7 +50,9 @@ public class TelegramNotifyService {
     }
 
     public void sendMessage(String message) {
-        if (!enable) return;
+        if (!enable) {
+            return;
+        }
 
         queue.execute(
                 () ->

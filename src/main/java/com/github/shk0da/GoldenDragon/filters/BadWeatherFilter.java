@@ -130,10 +130,18 @@ public class BadWeatherFilter {
             return false;
         }
 
-        if (isLowActivity(candles, params)) return false;
-        if (isChaoticActivity(candles, currentPrice, params)) return false;
-        if (isPoorLiquidity(candles, currentPrice, params)) return false;
-        if (isTurbulentRegime(candles, params)) return false;
+        if (isLowActivity(candles, params)) {
+            return false;
+        }
+        if (isChaoticActivity(candles, currentPrice, params)) {
+            return false;
+        }
+        if (isPoorLiquidity(candles, currentPrice, params)) {
+            return false;
+        }
+        if (isTurbulentRegime(candles, params)) {
+            return false;
+        }
 
         return true;
     }
@@ -141,7 +149,9 @@ public class BadWeatherFilter {
     /** 1. Too low activity */
     private boolean isLowActivity(List<Candle> candles, Params params) {
         int lookback = Math.min(20, candles.size() - 1);
-        if (lookback < 10) return true;
+        if (lookback < 10) {
+            return true;
+        }
 
         Candle current = candles.get(candles.size() - 1);
 
@@ -172,7 +182,9 @@ public class BadWeatherFilter {
     /** 2. Too chaotic / dangerous activity */
     private boolean isChaoticActivity(List<Candle> candles, double currentPrice, Params params) {
         int lookback = Math.min(20, candles.size() - 1);
-        if (lookback < 10) return false;
+        if (lookback < 10) {
+            return false;
+        }
 
         Candle current = candles.get(candles.size() - 1);
 
@@ -212,7 +224,9 @@ public class BadWeatherFilter {
     /** 3. Poor liquidity */
     private boolean isPoorLiquidity(List<Candle> candles, double currentPrice, Params params) {
         int lookback = Math.min(20, candles.size() - 1);
-        if (lookback < 10) return true;
+        if (lookback < 10) {
+            return true;
+        }
 
         long avgVolume = 0;
         for (int i = candles.size() - lookback; i < candles.size(); i++) {
@@ -236,7 +250,9 @@ public class BadWeatherFilter {
     /** 4. News / turbulent regime */
     private boolean isTurbulentRegime(List<Candle> candles, Params params) {
         int lookback = Math.min(10, candles.size() - 1);
-        if (lookback < 5) return false;
+        if (lookback < 5) {
+            return false;
+        }
 
         double currentAtr = calculateAtr(candles, lookback);
         double prevAvgAtr =
@@ -263,7 +279,9 @@ public class BadWeatherFilter {
 
     /** Calculate ATR for period */
     private double calculateAtr(List<Candle> candles, int period) {
-        if (candles.size() < period + 1) return 0.0;
+        if (candles.size() < period + 1) {
+            return 0.0;
+        }
 
         double sum = 0.0;
         for (int i = candles.size() - period; i < candles.size(); i++) {
@@ -280,7 +298,9 @@ public class BadWeatherFilter {
 
     /** Calculate average ATR for period */
     private double calculateAvgAtr(List<Candle> candles, int period) {
-        if (candles.size() < period + 1) return 0.0;
+        if (candles.size() < period + 1) {
+            return 0.0;
+        }
 
         int lookback = Math.min(period, candles.size() - 1);
         double sum = 0.0;
@@ -326,10 +346,18 @@ public class BadWeatherFilter {
             return "INSUFFICIENT_DATA";
         }
 
-        if (isLowActivity(candles, params)) return "LOW_ACTIVITY";
-        if (isChaoticActivity(candles, currentPrice, params)) return "CHAOTIC_ACTIVITY";
-        if (isPoorLiquidity(candles, currentPrice, params)) return "POOR_LIQUIDITY";
-        if (isTurbulentRegime(candles, params)) return "TURBULENT_REGIME";
+        if (isLowActivity(candles, params)) {
+            return "LOW_ACTIVITY";
+        }
+        if (isChaoticActivity(candles, currentPrice, params)) {
+            return "CHAOTIC_ACTIVITY";
+        }
+        if (isPoorLiquidity(candles, currentPrice, params)) {
+            return "POOR_LIQUIDITY";
+        }
+        if (isTurbulentRegime(candles, params)) {
+            return "TURBULENT_REGIME";
+        }
 
         return null;
     }

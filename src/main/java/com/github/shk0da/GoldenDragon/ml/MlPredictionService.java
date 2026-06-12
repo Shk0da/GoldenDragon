@@ -168,11 +168,21 @@ public class MlPredictionService {
         double prob = predictProbability(ticker, features);
 
         // More aggressive sizing with trained model
-        if (prob < 0.35) return 0.3; // Very low confidence
-        if (prob < 0.45) return 0.5; // Low confidence
-        if (prob < 0.55) return 0.75; // Medium confidence
-        if (prob < 0.65) return 1.0; // Good confidence
-        if (prob < 0.75) return 1.25; // High confidence
+        if (prob < 0.35) {
+            return 0.3; // Very low confidence
+        }
+        if (prob < 0.45) {
+            return 0.5; // Low confidence
+        }
+        if (prob < 0.55) {
+            return 0.75; // Medium confidence
+        }
+        if (prob < 0.65) {
+            return 1.0; // Good confidence
+        }
+        if (prob < 0.75) {
+            return 1.25; // High confidence
+        }
         return 1.5; // Very high confidence
     }
 
@@ -186,9 +196,15 @@ public class MlPredictionService {
         double prob = predictProbability(ticker, features);
 
         // Higher confidence = wider stop
-        if (prob > 0.7) return 3.0;
-        if (prob > 0.6) return 2.5;
-        if (prob > 0.5) return 2.0;
+        if (prob > 0.7) {
+            return 3.0;
+        }
+        if (prob > 0.6) {
+            return 2.5;
+        }
+        if (prob > 0.5) {
+            return 2.0;
+        }
         return 1.5;
     }
 
@@ -278,7 +294,9 @@ public class MlPredictionService {
 
             while ((line = reader.readLine()) != null) {
                 line = line.trim();
-                if (line.isEmpty() || line.startsWith("#")) continue;
+                if (line.isEmpty() || line.startsWith("#")) {
+                    continue;
+                }
 
                 if (line.startsWith("[")) {
                     section = line;

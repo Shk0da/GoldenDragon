@@ -66,8 +66,12 @@ public class TickerCandle {
 
     @Override
     public boolean equals(Object o) {
-        if (this == o) return true;
-        if (o == null || getClass() != o.getClass()) return false;
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
         TickerCandle that = (TickerCandle) o;
         return Objects.equals(symbol, that.symbol) && Objects.equals(date, that.date);
     }

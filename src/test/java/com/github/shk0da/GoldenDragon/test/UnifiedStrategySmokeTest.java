@@ -1,5 +1,8 @@
 package com.github.shk0da.goldendragon.test;
 
+import static com.github.shk0da.goldendragon.model.Market.MOEX;
+import static java.lang.System.out;
+
 import com.github.shk0da.goldendragon.config.MainConfig;
 import com.github.shk0da.goldendragon.config.MarketConfig;
 import com.github.shk0da.goldendragon.config.UnifiedTraderConfig;
@@ -14,10 +17,6 @@ import com.github.shk0da.goldendragon.service.TCSService;
 import com.github.shk0da.goldendragon.strategy.UnifiedStrategy;
 import java.util.ArrayList;
 import java.util.List;
-
-
-import static com.github.shk0da.goldendragon.model.Market.MOEX;
-import static java.lang.System.out;
 
 /**
  * Manual smoke test for UnifiedStrategy execution flow. Uses credentials from

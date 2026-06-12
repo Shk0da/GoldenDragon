@@ -51,6 +51,6 @@ public class PositionSizer {
         }
 
         // Round down to lot step
-        return (rawSize / lotStep) * lotStep;
+        return rawSize / lotStep * lotStep;
     }
 }

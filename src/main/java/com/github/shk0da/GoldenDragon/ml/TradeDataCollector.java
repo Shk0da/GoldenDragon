@@ -342,7 +342,9 @@ public class TradeDataCollector {
     // === Technical Analysis Helpers ===
 
     private double calculateAdx(List<Candle> candles, int period) {
-        if (candles.size() < period * 2) return 0.0;
+        if (candles.size() < period * 2) {
+            return 0.0;
+        }
 
         double trSum = 0, pdSum = 0, mdSum = 0;
         for (int i = candles.size() - period; i < candles.size(); i++) {
@@ -362,8 +364,8 @@ public class TradeDataCollector {
         }
 
         double atr = trSum / period;
-        double diPlus = atr > 0 ? (pdSum / period) / atr * 100 : 0;
-        double diMinus = atr > 0 ? (mdSum / period) / atr * 100 : 0;
+        double diPlus = atr > 0 ? pdSum / period / atr * 100 : 0;
+        double diMinus = atr > 0 ? mdSum / period / atr * 100 : 0;
 
         return (diPlus + diMinus) > 0 ? Math.abs(diPlus - diMinus) / (diPlus + diMinus) * 100 : 0;
     }
@@ -387,14 +389,16 @@ public class TradeDataCollector {
         }
 
         double atr = trSum / period;
-        double diPlus = atr > 0 ? (pdSum / period) / atr * 100 : 0;
-        double diMinus = atr > 0 ? (mdSum / period) / atr * 100 : 0;
+        double diPlus = atr > 0 ? pdSum / period / atr * 100 : 0;
+        double diMinus = atr > 0 ? mdSum / period / atr * 100 : 0;
 
         return new double[] {diPlus, diMinus};
     }
 
     private double calculateAtr(List<Candle> candles, int period) {
-        if (candles.size() < period + 1) return 0.0;
+        if (candles.size() < period + 1) {
+            return 0.0;
+        }
         double sum = 0.0;
         for (int i = candles.size() - period; i < candles.size(); i++) {
             Candle c = candles.get(i);
@@ -408,7 +412,9 @@ public class TradeDataCollector {
     }
 
     private double calculateAverageAtr(List<Candle> candles, int period) {
-        if (candles.size() < period + 1) return 0.0;
+        if (candles.size() < period + 1) {
+            return 0.0;
+        }
         double sum = 0.0;
         for (int i = candles.size() - period; i < candles.size(); i++) {
             sum += calculateAtr(candles.subList(0, i + 1), 14);
@@ -417,7 +423,9 @@ public class TradeDataCollector {
     }
 
     private double calculateRsi(List<Candle> candles, int period) {
-        if (candles.size() < period + 1) return 50.0;
+        if (candles.size() < period + 1) {
+            return 50.0;
+        }
 
         double gains = 0.0, losses = 0.0;
         for (int i = candles.size() - period; i < candles.size(); i++) {
@@ -431,7 +439,9 @@ public class TradeDataCollector {
     }
 
     private double calculateEma(List<Candle> candles, int period) {
-        if (candles.size() < period) return candles.get(candles.size() - 1).close;
+        if (candles.size() < period) {
+            return candles.get(candles.size() - 1).close;
+        }
 
         double multiplier = 2.0 / (period + 1);
         double ema = candles.get(0).close;
@@ -444,7 +454,9 @@ public class TradeDataCollector {
     }
 
     private double calculatePricePosition(List<Candle> candles) {
-        if (candles.isEmpty()) return 0.5;
+        if (candles.isEmpty()) {
+            return 0.5;
+        }
 
         double highest = candles.stream().mapToDouble(c -> c.high).max().orElse(0);
         double lowest = candles.stream().mapToDouble(c -> c.low).min().orElse(0);
@@ -454,7 +466,9 @@ public class TradeDataCollector {
     }
 
     private double calculatePricePositionForEntry(List<Candle> candles, double entryPrice) {
-        if (candles.isEmpty()) return 0.5;
+        if (candles.isEmpty()) {
+            return 0.5;
+        }
 
         double highest = candles.stream().mapToDouble(c -> c.high).max().orElse(0.0);
         double lowest = candles.stream().mapToDouble(c -> c.low).min().orElse(0.0);
@@ -462,7 +476,9 @@ public class TradeDataCollector {
     }
 
     private double calculateVolumeRatio(List<Candle> candles, int period) {
-        if (candles.size() < period + 1) return 1.0;
+        if (candles.size() < period + 1) {
+            return 1.0;
+        }
 
         long currentVolume = candles.get(candles.size() - 1).volume;
         long avgVolume = 0;
@@ -493,7 +509,9 @@ public class TradeDataCollector {
 
     private void loadExistingData() {
         File file = new File(dataFile);
-        if (!file.exists()) return;
+        if (!file.exists()) {
+            return;
+        }
 
         try (BufferedReader reader = new BufferedReader(new FileReader(file))) {
             String line;
@@ -727,9 +745,9 @@ public class TradeDataCollector {
         double takeProfit =
                 isShort
                         ? trade.entryPrice
-                                * (1.0 - (trade.stopDistance / 100.0) * trade.riskRewardRatio)
+                                * (1.0 - trade.stopDistance / 100.0 * trade.riskRewardRatio)
                         : trade.entryPrice
-                                * (1.0 + (trade.stopDistance / 100.0) * trade.riskRewardRatio);
+                                * (1.0 + trade.stopDistance / 100.0 * trade.riskRewardRatio);
 
         return String.format(
                 Locale.US,
@@ -780,9 +798,9 @@ public class TradeDataCollector {
         double takeProfit =
                 isShort
                         ? trade.entryPrice
-                                * (1.0 - (trade.stopDistance / 100.0) * trade.riskRewardRatio)
+                                * (1.0 - trade.stopDistance / 100.0 * trade.riskRewardRatio)
                         : trade.entryPrice
-                                * (1.0 + (trade.stopDistance / 100.0) * trade.riskRewardRatio);
+                                * (1.0 + trade.stopDistance / 100.0 * trade.riskRewardRatio);
         return String.format(
                 Locale.US,
                 "%s|%s|%.6f|%.6f|%.6f",
