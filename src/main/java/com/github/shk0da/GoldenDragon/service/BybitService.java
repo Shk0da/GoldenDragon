@@ -2,6 +2,7 @@ package com.github.shk0da.goldendragon.service;
 
 import static com.github.shk0da.goldendragon.utils.LoggingUtils.log;
 import static com.github.shk0da.goldendragon.utils.LoggingUtils.logError;
+
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
 import java.io.IOException;
