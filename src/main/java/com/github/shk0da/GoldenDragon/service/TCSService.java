@@ -36,7 +36,6 @@ import ru.tinkoff.piapi.core.models.Portfolio;
 import ru.tinkoff.piapi.core.models.Positions;
 import ru.tinkoff.piapi.core.stream.MarketDataSubscriptionService;
 
-import javax.annotation.Nullable;
 import java.io.IOException;
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
@@ -1899,7 +1898,7 @@ public class TCSService {
      * @param tickerType instrument type to filter by, or {@code null} for all positions
      * @return map of ticker key to {@link PositionInfo} for all matching positions
      */
-    public Map<TickerInfo.Key, PositionInfo> getCurrentPositions(@Nullable TickerType tickerType) {
+    public Map<TickerInfo.Key, PositionInfo> getCurrentPositions(TickerType tickerType) {
         sleep(550);
         Map<TickerInfo.Key, PositionInfo> positionInfoList = new HashMap<>();
         String type = getTypeFromTickerType(tickerType);

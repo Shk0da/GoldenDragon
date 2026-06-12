@@ -18,6 +18,11 @@
 4. Simplicity and readability
 5. Minimal changes
 
+## Code Verification
+- Always run `./gradlew check` after making code changes to ensure tests pass
+- Run `./gradlew clean compileJava` to verify compilation before committing
+- Fix any compilation errors or test failures before considering work complete
+
 ## Code Guidelines
 - Use precise and meaningful names.
 - Write small functions with a single responsibility.
@@ -55,6 +60,7 @@
 - Ordinary comments in code: start with lowercase, no period at the end.
 
 ## Commands
+- Verify code changes: `./gradlew check`
 - Run backtest strategies: `./gradlew clean runBacktest`
 - Full build: `./gradlew clean uberJar`
 - Run Strategy: `./gradlew runStrategy -Pstrategy=UnifiedStrategy`
