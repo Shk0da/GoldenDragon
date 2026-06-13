@@ -125,15 +125,6 @@ public class MlModelTrainer {
         List<TradeSample> samples =
                 ticker != null ? filterByTicker(allSamples, ticker) : allSamples;
 
-        System.out.println(
-                "Filtered trades for ticker "
-                        + (ticker != null ? ticker : "ALL")
-                        + ": "
-                        + samples.size()
-                        + " (from "
-                        + allSamples.size()
-                        + " total)");
-
         if (samples.size() < MIN_SAMPLES) {
             throw new IOException(
                     "Not enough data for training "
@@ -200,13 +191,6 @@ public class MlModelTrainer {
                 filtered.add(sample);
             }
         }
-        System.out.println(
-                "Filtered "
-                        + filtered.size()
-                        + " trades for ticker "
-                        + ticker
-                        + " from total "
-                        + samples.size());
         return filtered;
     }
 
@@ -253,8 +237,6 @@ public class MlModelTrainer {
             throw new IOException("Training data not found: " + path);
         }
 
-        System.out.println(
-                "Loading samples from: " + path + " (size: " + file.length() + " bytes)");
         List<TradeSample> samples = new ArrayList<>();
         try (BufferedReader reader = new BufferedReader(new FileReader(file))) {
             String headerLine = reader.readLine();
@@ -288,7 +270,6 @@ public class MlModelTrainer {
             }
         }
 
-        System.out.println("Total samples loaded: " + samples.size());
         samples.sort((a, b) -> a.timestamp.compareTo(b.timestamp));
         return samples;
     }

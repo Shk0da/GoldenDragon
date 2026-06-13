@@ -182,14 +182,6 @@ public class MlAutoTrainingService {
                         modelPath.resolveSibling("trade_classifier_" + ticker + ".tmp");
                 Path finalModel = modelPath.resolveSibling("trade_classifier_" + ticker + ".txt");
 
-                log(
-                        "Auto retraining for ticker "
-                                + ticker
-                                + " started at "
-                                + formatInstant(now)
-                                + ". trades="
-                                + tradeCount);
-
                 MlModelTrainer.TrainingArtifacts artifacts =
                         MlModelTrainer.train(
                                 tradesPath.toString(),
@@ -207,12 +199,6 @@ public class MlAutoTrainingService {
                 lastTradeCountByTicker.put(ticker, tradeCount);
                 lastTrainingByTicker.put(ticker, now);
                 trainedCount++;
-
-                log(
-                        "Auto retraining for ticker "
-                                + ticker
-                                + " finished. threshold="
-                                + artifacts.recommendedThreshold);
             }
 
             if (trainedCount > 0) {
