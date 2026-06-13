@@ -147,6 +147,7 @@ public class UnifiedTraderConfig {
     private String dataDir;
     private List<String> stocks;
     private Double averagePositionCost;
+    private boolean badWeatherFilterEnabled;
     private final Map<String, TickerParams> tickerParams;
     private final Properties properties;
 
@@ -165,6 +166,9 @@ public class UnifiedTraderConfig {
         averagePositionCost =
                 Double.valueOf(
                         properties.getProperty("unifiedTrader.averagePositionCost", "10000"));
+        badWeatherFilterEnabled =
+                Boolean.parseBoolean(
+                        properties.getProperty("unifiedTrader.badWeatherFilter.enabled", "false"));
         this.tickerParams = loadTickerParams(properties);
     }
 
@@ -214,31 +218,64 @@ public class UnifiedTraderConfig {
 
         double lowVolumeThreshold =
                 Double.parseDouble(
-                        properties.getProperty(prefix + "badWeatherLowVolumeThreshold", "0.5"));
+                        properties.getProperty(
+                                prefix + "badWeatherLowVolumeThreshold",
+                                properties.getProperty(
+                                        "unifiedTrader.badWeatherFilter.lowVolumeThreshold",
+                                        "0.5")));
         double lowAtrThreshold =
                 Double.parseDouble(
-                        properties.getProperty(prefix + "badWeatherLowAtrThreshold", "0.7"));
+                        properties.getProperty(
+                                prefix + "badWeatherLowAtrThreshold",
+                                properties.getProperty(
+                                        "unifiedTrader.badWeatherFilter.lowAtrThreshold", "0.7")));
         double minRangePercent =
                 Double.parseDouble(
-                        properties.getProperty(prefix + "badWeatherMinRangePercent", "0.005"));
+                        properties.getProperty(
+                                prefix + "badWeatherMinRangePercent",
+                                properties.getProperty(
+                                        "unifiedTrader.badWeatherFilter.minRangePercent",
+                                        "0.005")));
         double highAtrThreshold =
                 Double.parseDouble(
-                        properties.getProperty(prefix + "badWeatherHighAtrThreshold", "2.0"));
+                        properties.getProperty(
+                                prefix + "badWeatherHighAtrThreshold",
+                                properties.getProperty(
+                                        "unifiedTrader.badWeatherFilter.highAtrThreshold", "2.0")));
         double maxSpreadPercent =
                 Double.parseDouble(
-                        properties.getProperty(prefix + "badWeatherMaxSpreadPercent", "0.01"));
+                        properties.getProperty(
+                                prefix + "badWeatherMaxSpreadPercent",
+                                properties.getProperty(
+                                        "unifiedTrader.badWeatherFilter.maxSpreadPercent",
+                                        "0.01")));
         double maxWickRatio =
                 Double.parseDouble(
-                        properties.getProperty(prefix + "badWeatherMaxWickRatio", "0.4"));
+                        properties.getProperty(
+                                prefix + "badWeatherMaxWickRatio",
+                                properties.getProperty(
+                                        "unifiedTrader.badWeatherFilter.maxWickRatio", "0.4")));
         double panicVolumeThreshold =
                 Double.parseDouble(
-                        properties.getProperty(prefix + "badWeatherPanicVolumeThreshold", "3.0"));
+                        properties.getProperty(
+                                prefix + "badWeatherPanicVolumeThreshold",
+                                properties.getProperty(
+                                        "unifiedTrader.badWeatherFilter.panicVolumeThreshold",
+                                        "3.0")));
         double minAvgDailyVolume =
                 Double.parseDouble(
-                        properties.getProperty(prefix + "badWeatherMinAvgDailyVolume", "100000"));
+                        properties.getProperty(
+                                prefix + "badWeatherMinAvgDailyVolume",
+                                properties.getProperty(
+                                        "unifiedTrader.badWeatherFilter.minAvgDailyVolume",
+                                        "100000")));
         double atrSpikeThreshold =
                 Double.parseDouble(
-                        properties.getProperty(prefix + "badWeatherAtrSpikeThreshold", "2.5"));
+                        properties.getProperty(
+                                prefix + "badWeatherAtrSpikeThreshold",
+                                properties.getProperty(
+                                        "unifiedTrader.badWeatherFilter.atrSpikeThreshold",
+                                        "2.5")));
 
         BadWeatherFilter.Params badWeatherParams =
                 new BadWeatherFilter.Params(
@@ -333,6 +370,10 @@ public class UnifiedTraderConfig {
 
     public Double getAveragePositionCost() {
         return averagePositionCost;
+    }
+
+    public boolean isBadWeatherFilterEnabled() {
+        return badWeatherFilterEnabled;
     }
 
     @Override

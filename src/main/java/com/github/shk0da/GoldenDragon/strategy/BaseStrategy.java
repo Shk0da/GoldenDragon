@@ -273,9 +273,13 @@ public abstract class BaseStrategy {
         this.tcsService = tcsService;
         this.unifiedTraderConfig = unifiedTraderConfig;
         this.isBacktest = isBacktest;
+        boolean bwFilterEnabled =
+                unifiedTraderConfig != null
+                        ? unifiedTraderConfig.isBadWeatherFilterEnabled()
+                        : config.badWeatherFilterEnabled;
         this.badWeatherFilter =
                 new BadWeatherFilter(
-                        config.badWeatherFilterEnabled,
+                        bwFilterEnabled,
                         config.badWeatherLowVolumeThreshold,
                         config.badWeatherLowAtrThreshold,
                         config.badWeatherMinRangePercent,
