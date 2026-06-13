@@ -267,7 +267,8 @@ public class UnifiedTraderConfig {
         boolean tickerMmEnabled =
                 Boolean.parseBoolean(properties.getProperty(prefix + "mmEnabled", "true"));
         String globalLeverage = properties.getProperty("unifiedTrader.leverage", "1");
-        int leverage = Integer.parseInt(properties.getProperty(prefix + "leverage", globalLeverage));
+        int leverage =
+                Integer.parseInt(properties.getProperty(prefix + "leverage", globalLeverage));
 
         return new TickerParams(
                 group,

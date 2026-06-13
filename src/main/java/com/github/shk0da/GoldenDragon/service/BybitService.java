@@ -14,8 +14,10 @@ import java.net.URL;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -143,9 +145,12 @@ public class BybitService {
             converter.loadExistingCandles();
         }
 
-        // Download any missing files from Bybit (skips files already on disk)
+        // Skip re-downloading dates already covered by existing candle files
+        LocalDate existingEndDate = candlesExist ? converter.getLatestCandleDate() : null;
+
         BybitDataDownloader downloader =
-                new BybitDataDownloader(coinDataDir, coin, startDate, endDate, converter);
+                new BybitDataDownloader(
+                        coinDataDir, coin, startDate, endDate, converter, existingEndDate);
 
         downloader.downloadAll();
 
@@ -175,6 +180,7 @@ public class BybitService {
         private final String targetCoin;
         private final LocalDate startDate;
         private final LocalDate endDate;
+        private final LocalDate existingEndDate;
         private final CandleIncrementalConverter incrementalConverter;
 
         BybitDataDownloader(
@@ -182,11 +188,13 @@ public class BybitService {
                 String targetCoin,
                 LocalDate startDate,
                 LocalDate endDate,
-                CandleIncrementalConverter incrementalConverter) {
+                CandleIncrementalConverter incrementalConverter,
+                LocalDate existingEndDate) {
             this.outputDir = outputDir;
             this.targetCoin = targetCoin;
             this.startDate = startDate;
             this.endDate = endDate != null ? endDate : LocalDate.now();
+            this.existingEndDate = existingEndDate;
             this.incrementalConverter = incrementalConverter;
         }
 
@@ -224,6 +232,10 @@ public class BybitService {
                         if (fileDate != null
                                 && !fileDate.isBefore(startDate)
                                 && !fileDate.isAfter(endDate)) {
+                            // Skip dates already covered by existing candle files
+                            if (existingEndDate != null && fileDate.isBefore(existingEndDate)) {
+                                continue;
+                            }
                             String extractedFileName =
                                     link.endsWith(".gz")
                                             ? link.substring(0, link.length() - 3)
@@ -452,6 +464,19 @@ public class BybitService {
             } catch (Exception e) {
                 System.err.println("Error loading existing candles: " + e.getMessage());
             }
+        }
+
+        /** Latest date covered by existing candle accumulators, or null if empty. */
+        synchronized LocalDate getLatestCandleDate() {
+            if (!acc1h.isEmpty()) {
+                long lastTimestamp = ((TreeMap<Long, CandleAccumulator>) acc1h).lastKey();
+                return Instant.ofEpochMilli(lastTimestamp).atZone(ZoneOffset.UTC).toLocalDate();
+            }
+            if (!acc5min.isEmpty()) {
+                long lastTimestamp = ((TreeMap<Long, CandleAccumulator>) acc5min).lastKey();
+                return Instant.ofEpochMilli(lastTimestamp).atZone(ZoneOffset.UTC).toLocalDate();
+            }
+            return null;
         }
 
         private void loadCandlesFile(
