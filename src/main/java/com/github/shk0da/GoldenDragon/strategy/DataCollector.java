@@ -1,6 +1,9 @@
 package com.github.shk0da.goldendragon.strategy;
 
 import static com.github.shk0da.goldendragon.utils.IndicatorsUtil.toDouble;
+import static com.github.shk0da.goldendragon.utils.SerializationUtils.getDateOfContentOnDisk;
+import static com.github.shk0da.goldendragon.utils.SerializationUtils.loadDataFromDisk;
+import static com.github.shk0da.goldendragon.utils.SerializationUtils.saveDataToDisk;
 import static com.github.shk0da.goldendragon.utils.TimeUtils.sleep;
 import static java.lang.System.out;
 import static java.nio.file.Files.createDirectories;
@@ -9,6 +12,9 @@ import static java.time.OffsetDateTime.now;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.shk0da.goldendragon.config.DataCollectorConfig;
+import com.github.shk0da.goldendragon.config.MainConfig;
+import com.github.shk0da.goldendragon.config.MarketConfig;
+import com.github.shk0da.goldendragon.model.Market;
 import com.github.shk0da.goldendragon.model.TickerCandle;
 import com.github.shk0da.goldendragon.model.TickerInfo;
 import com.github.shk0da.goldendragon.model.TickerType;
@@ -19,6 +25,7 @@ import com.github.shk0da.goldendragon.service.TCSService;
 import com.github.shk0da.goldendragon.utils.LevelUtils;
 import com.github.shk0da.goldendragon.utils.LevelUtils.Level;
 import com.github.shk0da.goldendragon.utils.TickerTypeResolver;
+import com.google.gson.reflect.TypeToken;
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileReader;
@@ -45,6 +52,9 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.Callable;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 import ru.tinkoff.piapi.contract.v1.CandleInterval;
 import ru.tinkoff.piapi.contract.v1.HistoricCandle;
@@ -68,25 +78,96 @@ public class DataCollector {
 
     public static void main(String[] args) throws Exception {
         DataCollectorConfig config = new DataCollectorConfig();
+        var dataDir = config.getDataDir();
+        var tickers = config.getInstruments();
+        var cryptoTickers = config.getCryptoInstruments();
+        var isReplace = config.isReplace();
+        var historyDays = config.getHistoryDays();
 
-        // Create BybitService directly for crypto data
-        BybitService bybitService = new BybitService(config.getDataDir());
+        createDirectories(Paths.get(dataDir));
 
-        List<String> cryptoTickers = config.getCryptoInstruments();
+        // Process traditional instruments (stocks, bonds, etc.) via Tinkoff API
+        if (tickers != null && !tickers.isEmpty()) {
+            out.println("=== Downloading instrument data from Tinkoff API ===");
+            out.println("Instruments: " + String.join(", ", tickers));
+
+            MainConfig mainConfig = new MainConfig();
+            MarketConfig marketConfig = MarketConfig.byMarket(Market.MOEX);
+            TCSService tcsService =
+                    new TCSService(
+                            mainConfig.withAccountId(mainConfig.getTcsAccountId()), marketConfig);
+
+            // Update ticker repository (load from disk or fetch from API if empty/stale)
+            refreshTickerRepository(tcsService);
+
+            DataCollector dataCollector = new DataCollector(config, tcsService);
+            for (String name : tickers) {
+                try {
+                    createDirectories(Paths.get(dataDir + "/" + name));
+                    dataCollector.updateCandlesFile(
+                            name, dataDir, CandleInterval.CANDLE_INTERVAL_5_MIN, isReplace);
+                    dataCollector.updateCandlesFile(
+                            name, dataDir, CandleInterval.CANDLE_INTERVAL_HOUR, isReplace);
+                    var levels =
+                            dataCollector.calculatePriceLevels(
+                                    name, dataDir, CandleInterval.CANDLE_INTERVAL_HOUR);
+                    dataCollector.createTickerJson(name, dataDir, levels);
+                } catch (Exception ex) {
+                    out.println(ex.getMessage());
+                }
+            }
+            out.println("=== Instrument data download completed ===");
+        } else {
+            out.println("No instruments configured");
+        }
+
+        // Download and convert crypto data from Bybit
         if (cryptoTickers != null && !cryptoTickers.isEmpty()) {
+            BybitService bybitService = new BybitService(dataDir);
             out.println("=== Downloading crypto data from Bybit ===");
             out.println("Crypto instruments: " + String.join(", ", cryptoTickers));
 
             LocalDate endDate = LocalDate.now();
-            int historyDays = config.getHistoryDays();
             LocalDate startDate = LocalDate.now().minusDays(historyDays);
 
-            // Process all coins in parallel
             bybitService.downloadAndConvert(cryptoTickers, startDate, endDate);
 
             out.println("=== Crypto data download completed ===");
         } else {
             out.println("No crypto instruments configured");
+        }
+    }
+
+    private static void refreshTickerRepository(TCSService tcsService) throws Exception {
+        AtomicReference<Map<TickerInfo.Key, TickerInfo>> tickerRegister =
+                new AtomicReference<>(new HashMap<>());
+
+        Callable<Boolean> isEmpty =
+                () -> {
+                    Map<TickerInfo.Key, TickerInfo> dataFromDisk =
+                            loadDataFromDisk(TickerRepository.SERIALIZE_NAME, new TypeToken<>() {});
+                    if (null == dataFromDisk) {
+                        return true;
+                    }
+                    tickerRegister.set(dataFromDisk);
+                    return null == tickerRegister.get() || tickerRegister.get().isEmpty();
+                };
+
+        Callable<Boolean> isOld =
+                () -> {
+                    Date weekAgo = new Date(System.currentTimeMillis() - TimeUnit.DAYS.toMillis(7));
+                    return getDateOfContentOnDisk(TickerRepository.SERIALIZE_NAME).before(weekAgo);
+                };
+
+        if (isEmpty.call() || isOld.call()) {
+            tickerRepository.putAll(tcsService.getCurrenciesList());
+            tickerRepository.putAll(tcsService.getEtfList());
+            tickerRepository.putAll(tcsService.getStockList());
+            tickerRepository.putAll(tcsService.getBondList());
+            tickerRepository.putAll(tcsService.getFuturesList());
+            saveDataToDisk(TickerRepository.SERIALIZE_NAME, tickerRepository.getAll());
+        } else {
+            tickerRepository.putAll(tickerRegister.get());
         }
     }
 
