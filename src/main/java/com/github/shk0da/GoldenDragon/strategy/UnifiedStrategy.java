@@ -54,7 +54,8 @@ import java.util.concurrent.ConcurrentMap;
  *       ENGULFING, MORNING/EVENING_STAR, THREE_WHITE/BLACK.
  * </ul>
  *
- * Шорт-сигналы в текущей реализации отключены — открываются только BUY-позиции.
+ * Шорт-сигналы открываются только при {@code config.shortsEnabled = true}; иначе обрабатываются
+ * лишь BUY-позиции (reason {@code short_disabled}).
  *
  * <h2>Классификация рыночного режима</h2>
  *
@@ -181,13 +182,10 @@ public class UnifiedStrategy extends BaseStrategy {
                                 config.mmVolatilityBaseAtr,
                                 config.mmVolatilityMinAdjustment,
                                 config.mmVolatilityMaxAdjustment,
-                                0.25 // maxPositionSize: 25% of capital
-                                );
+                                config.mmMaxPositionSize);
             } else {
                 sizingStrategy =
-                        new FixedRiskSizing(
-                                config.mmRiskPercent, 0.25 // maxPositionSize: 25% of capital
-                                );
+                        new FixedRiskSizing(config.mmRiskPercent, config.mmMaxPositionSize);
             }
 
             // Initialize MM components
@@ -357,12 +355,19 @@ public class UnifiedStrategy extends BaseStrategy {
             if (mmEnabled && stopLossManager != null && atr > 0.0) {
                 Double initialRisk = initialRiskPerTicker.get(ticker);
                 if (initialRisk == null) {
-                    initialRisk = ep - (p.stopLoss != null ? p.stopLoss : ep);
+                    double slLevel = p.stopLoss != null ? p.stopLoss : ep;
+                    initialRisk = "SELL".equals(dir) ? slLevel - ep : ep - slLevel;
                     initialRiskPerTicker.put(ticker, initialRisk);
                 }
 
                 Double newStop = stopLossManager.updateStopLoss(p, cur, atr, initialRisk);
-                if (newStop != null && newStop > (p.stopLoss != null ? p.stopLoss : 0.0)) {
+                boolean stopImproved =
+                        newStop != null
+                                && (p.stopLoss == null
+                                        || ("SELL".equals(dir)
+                                                ? newStop < p.stopLoss
+                                                : newStop > p.stopLoss));
+                if (stopImproved) {
                     p =
                             new Position(
                                     p.direction,
@@ -516,23 +521,28 @@ public class UnifiedStrategy extends BaseStrategy {
 
         boolean isBuy =
                 signal.startsWith("TB") || signal.startsWith("FXB") || signal.startsWith("MXB");
-        if (!isBuy) {
+        if (!isBuy && !config.shortsEnabled) {
             return new TradingDecision("HOLD", "short_disabled", 0.0, 0, null, null, null, p);
         }
+
+        String direction = isBuy ? "BUY" : "SELL";
 
         String allocationGroup = tpCfg.allocationGroup;
         if (allocationGroup != null
                 && !allocationGroup.isEmpty()
                 && peerCandles != null
                 && !peerCandles.isEmpty()) {
-            if (!GroupConfirmationFilter.isConfirmed(ticker, true, peerCandles)) {
+            if (!GroupConfirmationFilter.isConfirmed(ticker, isBuy, peerCandles)) {
                 return new TradingDecision(
                         "HOLD", "noGroupConf_" + signal, 0.0, 0, null, null, null, p);
             }
         }
 
-        if (rsi > 72.0) {
+        if (isBuy && rsi > 72.0) {
             return new TradingDecision("HOLD", "rsi_hot", 0.0, 0, null, null, null, p);
+        }
+        if (!isBuy && rsi < 28.0) {
+            return new TradingDecision("HOLD", "rsi_cold", 0.0, 0, null, null, null, p);
         }
 
         double entry = cur.close;
@@ -540,9 +550,16 @@ public class UnifiedStrategy extends BaseStrategy {
             Candle prev1 = minuteCandles.get(minuteCandles.size() - 2);
             Candle prev2 = minuteCandles.get(minuteCandles.size() - 3);
 
-            boolean pullbackBuy = cur.close < prev1.close && cur.close > prev2.low;
-            if (pullbackBuy) {
-                entry = Math.min(cur.open, cur.close);
+            if (isBuy) {
+                boolean pullbackBuy = cur.close < prev1.close && cur.close > prev2.low;
+                if (pullbackBuy) {
+                    entry = Math.min(cur.open, cur.close);
+                }
+            } else {
+                boolean pullbackSell = cur.close > prev1.close && cur.close < prev2.high;
+                if (pullbackSell) {
+                    entry = Math.max(cur.open, cur.close);
+                }
             }
         }
 
@@ -579,10 +596,10 @@ public class UnifiedStrategy extends BaseStrategy {
             return new TradingDecision("HOLD", "dist0", 0.0, 0, null, null, null, p);
         }
 
-        double sl = entry - slDist;
-        double tp = entry + tpDist;
+        double sl = isBuy ? entry - slDist : entry + slDist;
+        double tp = isBuy ? entry + tpDist : entry - tpDist;
         int maxAffordableQty = calculateMaxAffordableQuantity(ticker, balance, entry);
-        int maxAskQty = calculateAvailableAskQuantity(ticker);
+        int maxAskQty = calculateAvailableLiquidity(ticker, isBuy);
 
         if (maxAskQty <= 0) {
             return new TradingDecision("HOLD", "ASK_QTY0", 0.0, 0, null, null, null, p);
@@ -635,7 +652,7 @@ public class UnifiedStrategy extends BaseStrategy {
                 sl,
                 tp,
                 entry,
-                new Position("BUY", entry, sl, tp, qty, 0));
+                new Position(direction, entry, sl, tp, qty, 0));
     }
 
     public String trendSignal(List<Candle> candles) {
@@ -725,7 +742,7 @@ public class UnifiedStrategy extends BaseStrategy {
         return (int) (Math.floor(balance / orderCost) * lot);
     }
 
-    private int calculateAvailableAskQuantity(String ticker) {
+    private int calculateAvailableLiquidity(String ticker, boolean isBuy) {
         if (tcsService == null) {
             return Integer.MAX_VALUE;
         }
@@ -735,19 +752,20 @@ public class UnifiedStrategy extends BaseStrategy {
             return 0;
         }
 
+        String side = isBuy ? "asks" : "bids";
         try {
-            Map<Double, Integer> asks =
+            Map<Double, Integer> levels =
                     tcsService
                             .getCurrentPrices(
                                     new TickerInfo.Key(ticker, tickerInfo.getType()), false)
-                            .get("asks");
-            if (asks == null || asks.isEmpty()) {
+                            .get(side);
+            if (levels == null || levels.isEmpty()) {
                 return 0;
             }
 
-            return asks.values().stream().mapToInt(Integer::intValue).sum();
+            return levels.values().stream().mapToInt(Integer::intValue).sum();
         } catch (Exception ex) {
-            logWithBacktest("Failed to read asks for " + ticker + ": " + ex.getMessage());
+            logWithBacktest("Failed to read " + side + " for " + ticker + ": " + ex.getMessage());
             return 0;
         }
     }

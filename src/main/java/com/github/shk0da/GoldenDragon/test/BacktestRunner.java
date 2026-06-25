@@ -10,6 +10,7 @@ import com.github.shk0da.goldendragon.model.TradingDecision;
 import com.github.shk0da.goldendragon.repository.TickerRepository;
 import com.github.shk0da.goldendragon.service.TCSService;
 import com.github.shk0da.goldendragon.strategy.BaseStrategy;
+import com.github.shk0da.goldendragon.strategy.PrecisionStrategy;
 import com.github.shk0da.goldendragon.strategy.RegimeAwareStrategy;
 import com.github.shk0da.goldendragon.strategy.RegimeAwareStrategyMl;
 import com.github.shk0da.goldendragon.strategy.UnifiedStrategy;
@@ -131,8 +132,9 @@ import org.jfree.data.time.TimeSeriesCollection;
  * <h2>Управление позициями ({@link #applyPortfolioDecision})</h2>
  *
  * <ul>
- *   <li><b>OPEN</b>: только {@code BUY}; проверяется отсутствие открытой позиции и достаточность
- *       кэша с учётом комиссии входа. Кэш уменьшается на {@code positionValue + commission}.
+ *   <li><b>OPEN</b>: {@code BUY} или {@code SELL} (шорт); проверяется отсутствие открытой позиции и
+ *       достаточность кэша с учётом комиссии входа. Кэш уменьшается на {@code positionValue +
+ *       commission} (для шорта это размещаемая маржа).
  *   <li><b>CLOSE</b>: вызывается {@link #closePortfolioPosition} — расчёт PnL с двухсторонней
  *       комиссией ({@code (entryValue + exitValue) × commission}), запись {@link TradeResult},
  *       регистрация результата в стратегии через {@code recordBacktestTradeOutcome}, возврат
@@ -215,7 +217,8 @@ import org.jfree.data.time.TimeSeriesCollection;
  * <h2>Ограничения текущей реализации</h2>
  *
  * <ul>
- *   <li>Поддерживается только long-only торговля (OPEN с {@code BUY}).
+ *   <li>Поддерживаются long и short позиции (OPEN с {@code BUY} / {@code SELL}); для шорта PnL и
+ *       возврат маржи считаются зеркально, без моделирования margin call.
  *   <li>Срабатывание SL/TP внутри минутной свечи зависит от логики стратегии (high/low касание
  *       проверяется в {@code decide}).
  *   <li>Проскальзывание ({@code slippage}) не моделируется — исполнение по {@code close} или {@code
@@ -233,6 +236,8 @@ public class BacktestRunner {
                     return new RegimeAwareStrategy(config, null, new Config(), true);
                 case "RegimeAwareStrategyMl":
                     return new RegimeAwareStrategyMl(config, null, new Config(), true, true, true);
+                case "PrecisionStrategy":
+                    return new PrecisionStrategy(config, null, new Config(), true);
                 default:
                     throw new IllegalArgumentException("Unknown strategy: " + strategyName);
             }
@@ -255,7 +260,7 @@ public class BacktestRunner {
                             Math.max(1, Runtime.getRuntime().availableProcessors() - 1)));
 
     private static final String[] ALL_STRATEGIES = {
-        "UnifiedStrategy", "RegimeAwareStrategy",
+        "UnifiedStrategy", "RegimeAwareStrategy", "PrecisionStrategy",
     };
 
     public static class RawCandle {
@@ -1059,11 +1064,11 @@ public class BacktestRunner {
                 PortfolioPositionState state = entry.getValue();
                 if (state.position.quantity > 0) {
                     totalEquity +=
-                            getRequiredCash(
+                            positionMarketValue(
                                     ticker,
-                                    state.position.quantity,
+                                    state,
                                     lastPriceByTicker.getOrDefault(ticker, state.entryPrice),
-                                    config.getTickerParams(ticker).leverage);
+                                    config);
                 }
             }
             portfolioEquity.add(new EquityPoint(time, totalEquity));
@@ -1095,11 +1100,11 @@ public class BacktestRunner {
             PortfolioPositionState state = entry.getValue();
             if (state.position.quantity > 0) {
                 finalPortfolioValue +=
-                        getRequiredCash(
+                        positionMarketValue(
                                 ticker,
-                                state.position.quantity,
+                                state,
                                 lastPriceByTicker.getOrDefault(ticker, state.entryPrice),
-                                config.getTickerParams(ticker).leverage);
+                                config);
             }
         }
 
@@ -1250,7 +1255,8 @@ public class BacktestRunner {
         switch (decision.action) {
             case "OPEN":
                 if (decision.updatedPosition == null || decision.quantity <= 0) return sharedCash;
-                if (!"BUY".equals(decision.updatedPosition.direction)
+                String openDir = decision.updatedPosition.direction;
+                if ((!"BUY".equals(openDir) && !"SELL".equals(openDir))
                         || state.position.quantity > 0) return sharedCash;
 
                 double openEntry =
@@ -1317,12 +1323,15 @@ public class BacktestRunner {
             UnifiedTraderConfig config) {
         int quantity = state.position.quantity;
         int leverage = config.getTickerParams(ticker).leverage;
+        boolean isShort = "SELL".equals(state.position.direction);
         double exitValue = getRequiredCash(ticker, quantity, exitPrice, leverage);
         double entryValue = getRequiredCash(ticker, quantity, state.entryPrice, leverage);
         double totalCommission = (entryValue + exitValue) * commission;
-        double pnl = exitValue - entryValue - totalCommission;
+        double grossPnl = isShort ? entryValue - exitValue : exitValue - entryValue;
+        double pnl = grossPnl - totalCommission;
+        String dir = isShort ? "SELL" : "BUY";
 
-        trades.add(new TradeResult(ticker, "BUY", state.entryPrice, exitPrice, pnl, reason, time));
+        trades.add(new TradeResult(ticker, dir, state.entryPrice, exitPrice, pnl, reason, time));
         double stopLoss =
                 state.position.stopLoss != null ? state.position.stopLoss : state.entryPrice;
         strategy.recordBacktestTradeOutcome(
@@ -1330,7 +1339,8 @@ public class BacktestRunner {
         state.realizedPnl += pnl;
 
         double exitCommission = exitValue * commission;
-        sharedCash += (exitValue - exitCommission);
+        // return posted margin plus realized gross PnL, net of exit commission
+        sharedCash += (entryValue + grossPnl - exitCommission);
         state.position = new Position();
         state.entryPrice = 0.0;
         return sharedCash;
@@ -1344,15 +1354,36 @@ public class BacktestRunner {
         double unrealizedPnl = 0.0;
         if (state.position.quantity > 0) {
             int leverage = config.getTickerParams(ticker).leverage;
+            boolean isShort = "SELL".equals(state.position.direction);
             double exitValue =
                     getRequiredCash(ticker, state.position.quantity, currentPrice, leverage);
             double entryValue =
                     getRequiredCash(ticker, state.position.quantity, state.entryPrice, leverage);
             double exitCommission = exitValue * commission;
-            unrealizedPnl = exitValue - entryValue - exitCommission;
+            double grossPnl = isShort ? entryValue - exitValue : exitValue - entryValue;
+            unrealizedPnl = grossPnl - exitCommission;
         }
 
         return initialBalance + state.realizedPnl + unrealizedPnl;
+    }
+
+    private double positionMarketValue(
+            String ticker,
+            PortfolioPositionState state,
+            double currentPrice,
+            UnifiedTraderConfig config) {
+        if (state.position.quantity <= 0) {
+            return 0.0;
+        }
+
+        int leverage = config.getTickerParams(ticker).leverage;
+        boolean isShort = "SELL".equals(state.position.direction);
+        double exitValue = getRequiredCash(ticker, state.position.quantity, currentPrice, leverage);
+        double entryValue =
+                getRequiredCash(ticker, state.position.quantity, state.entryPrice, leverage);
+        double grossPnl = isShort ? entryValue - exitValue : exitValue - entryValue;
+        // posted margin (entryValue) plus current gross PnL
+        return entryValue + grossPnl;
     }
 
     private SimulateResult simulateUnifiedLongOnly(

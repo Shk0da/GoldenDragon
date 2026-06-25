@@ -29,6 +29,7 @@ import com.github.shk0da.goldendragon.strategy.DivFlow;
 import com.github.shk0da.goldendragon.strategy.IndicatorTrader;
 import com.github.shk0da.goldendragon.strategy.LevelTrader;
 import com.github.shk0da.goldendragon.strategy.ModelGenerator;
+import com.github.shk0da.goldendragon.strategy.PrecisionStrategy;
 import com.github.shk0da.goldendragon.strategy.RSX;
 import com.github.shk0da.goldendragon.strategy.Rebalance;
 import com.github.shk0da.goldendragon.strategy.RegimeAwareStrategyMl;
@@ -64,6 +65,7 @@ public final class GoldenDragon {
     private static final String STRATEGY_UNIFIED = "UnifiedStrategy";
     private static final String STRATEGY_GENERATE_MODEL = "GenerateModel";
     private static final String STRATEGY_REGIME_AWARE_ML = "RegimeAwareStrategyMl";
+    private static final String STRATEGY_PRECISION = "PrecisionStrategy";
     private static final int DEFAULT_ARG_INDEX = 0;
     private static final int MARKET_ARG_INDEX = 1;
     private static final int ACCOUNT_ARG_INDEX = 2;
@@ -152,6 +154,9 @@ public final class GoldenDragon {
                 break;
             case STRATEGY_REGIME_AWARE_ML:
                 executeRegimeAwareStrategyMl(tcsService);
+                break;
+            case STRATEGY_PRECISION:
+                executePrecisionStrategy(tcsService);
                 break;
             default:
                 out.println("Unknown strategy: " + strategy);
@@ -266,6 +271,18 @@ public final class GoldenDragon {
             telegramNotifyService.sendMessage("Stop RegimeAwareStrategyMl");
         } catch (final Exception ex) {
             out.printf("RegimeAwareStrategyMl error: %s%n", ex.getMessage());
+            ex.printStackTrace();
+        }
+    }
+
+    private static void executePrecisionStrategy(final TCSService tcsService) {
+        telegramNotifyService.sendMessage("Run PrecisionStrategy");
+        try {
+            final UnifiedTraderConfig unifiedTraderConfig = new UnifiedTraderConfig();
+            new PrecisionStrategy(unifiedTraderConfig, tcsService).run();
+            telegramNotifyService.sendMessage("Stop PrecisionStrategy");
+        } catch (final Exception ex) {
+            out.printf("PrecisionStrategy error: %s%n", ex.getMessage());
             ex.printStackTrace();
         }
     }

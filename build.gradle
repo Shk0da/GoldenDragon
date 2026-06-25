@@ -1,5 +1,4 @@
 plugins {
-    id 'pmd'
     id 'java'
     id 'application'
     id 'com.diffplug.spotless' version '6.25.0'
@@ -37,17 +36,6 @@ spotless {
         // Enforce 4 spaces indentation (no tabs)
         indentWithSpaces(4)
     }
-}
-
-pmd {
-    toolVersion = '7.3.0'
-    ignoreFailures = true
-    ruleSetFiles = files('config/pmd/pmd.xml')
-    ruleSets = []
-
-    consoleOutput = true
-
-    reportsDir = file("$buildDir/reports/pmd")
 }
 
 task uberJar(type: Jar) {
