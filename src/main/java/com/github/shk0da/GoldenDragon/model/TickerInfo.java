@@ -1,6 +1,7 @@
 package com.github.shk0da.goldendragon.model;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
+import java.time.Instant;
 import java.util.Objects;
 
 public class TickerInfo {
@@ -60,6 +61,12 @@ public class TickerInfo {
     private String currency;
     private String name;
     private TickerType type;
+    private boolean forQualInvestorFlag;
+    private boolean apiTradeAvailableFlag = true;
+    private boolean normalTradingStatus = true;
+    private String basicAsset;
+    private String assetType;
+    private Instant expirationDate;
 
     public TickerInfo() {}
 
@@ -112,6 +119,54 @@ public class TickerInfo {
 
     public TickerType getType() {
         return type;
+    }
+
+    public boolean isForQualInvestorFlag() {
+        return forQualInvestorFlag;
+    }
+
+    public void setForQualInvestorFlag(boolean forQualInvestorFlag) {
+        this.forQualInvestorFlag = forQualInvestorFlag;
+    }
+
+    public boolean isApiTradeAvailableFlag() {
+        return apiTradeAvailableFlag;
+    }
+
+    public void setApiTradeAvailableFlag(boolean apiTradeAvailableFlag) {
+        this.apiTradeAvailableFlag = apiTradeAvailableFlag;
+    }
+
+    public boolean isNormalTradingStatus() {
+        return normalTradingStatus;
+    }
+
+    public void setNormalTradingStatus(boolean normalTradingStatus) {
+        this.normalTradingStatus = normalTradingStatus;
+    }
+
+    public String getBasicAsset() {
+        return basicAsset;
+    }
+
+    public void setBasicAsset(String basicAsset) {
+        this.basicAsset = basicAsset;
+    }
+
+    public String getAssetType() {
+        return assetType;
+    }
+
+    public void setAssetType(String assetType) {
+        this.assetType = assetType;
+    }
+
+    public Instant getExpirationDate() {
+        return expirationDate;
+    }
+
+    public void setExpirationDate(Instant expirationDate) {
+        this.expirationDate = expirationDate;
     }
 
     @JsonIgnore

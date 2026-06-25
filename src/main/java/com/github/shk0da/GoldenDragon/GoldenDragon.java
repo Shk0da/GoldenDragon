@@ -16,6 +16,7 @@ import com.github.shk0da.goldendragon.config.DataCollectorConfig;
 import com.github.shk0da.goldendragon.config.LevelTraderConfig;
 import com.github.shk0da.goldendragon.config.MainConfig;
 import com.github.shk0da.goldendragon.config.MarketConfig;
+import com.github.shk0da.goldendragon.config.OrderBookScalpConfig;
 import com.github.shk0da.goldendragon.config.RSXConfig;
 import com.github.shk0da.goldendragon.config.RebalanceConfig;
 import com.github.shk0da.goldendragon.config.UnifiedTraderConfig;
@@ -29,6 +30,8 @@ import com.github.shk0da.goldendragon.strategy.DivFlow;
 import com.github.shk0da.goldendragon.strategy.IndicatorTrader;
 import com.github.shk0da.goldendragon.strategy.LevelTrader;
 import com.github.shk0da.goldendragon.strategy.ModelGenerator;
+import com.github.shk0da.goldendragon.strategy.OrderBookOrchestratorStrategy;
+import com.github.shk0da.goldendragon.strategy.OrderBookScalpStrategy;
 import com.github.shk0da.goldendragon.strategy.PrecisionStrategy;
 import com.github.shk0da.goldendragon.strategy.RSX;
 import com.github.shk0da.goldendragon.strategy.Rebalance;
@@ -66,6 +69,8 @@ public final class GoldenDragon {
     private static final String STRATEGY_GENERATE_MODEL = "GenerateModel";
     private static final String STRATEGY_REGIME_AWARE_ML = "RegimeAwareStrategyMl";
     private static final String STRATEGY_PRECISION = "PrecisionStrategy";
+    private static final String STRATEGY_ORDER_BOOK_SCALP = "OrderBookScalpStrategy";
+    private static final String STRATEGY_ORDER_BOOK_ORCHESTRATOR = "OrderBookOrchestratorStrategy";
     private static final int DEFAULT_ARG_INDEX = 0;
     private static final int MARKET_ARG_INDEX = 1;
     private static final int ACCOUNT_ARG_INDEX = 2;
@@ -157,6 +162,12 @@ public final class GoldenDragon {
                 break;
             case STRATEGY_PRECISION:
                 executePrecisionStrategy(tcsService);
+                break;
+            case STRATEGY_ORDER_BOOK_SCALP:
+                executeOrderBookScalpStrategy(mainConfig, tcsService);
+                break;
+            case STRATEGY_ORDER_BOOK_ORCHESTRATOR:
+                executeOrderBookOrchestratorStrategy(mainConfig, tcsService);
                 break;
             default:
                 out.println("Unknown strategy: " + strategy);
@@ -283,6 +294,32 @@ public final class GoldenDragon {
             telegramNotifyService.sendMessage("Stop PrecisionStrategy");
         } catch (final Exception ex) {
             out.printf("PrecisionStrategy error: %s%n", ex.getMessage());
+            ex.printStackTrace();
+        }
+    }
+
+    private static void executeOrderBookScalpStrategy(
+            final MainConfig mainConfig, final TCSService tcsService) {
+        telegramNotifyService.sendMessage("Run OrderBookScalpStrategy");
+        try {
+            OrderBookScalpConfig scalpConfig = new OrderBookScalpConfig();
+            new OrderBookScalpStrategy(tcsService, mainConfig, scalpConfig).run();
+            telegramNotifyService.sendMessage("Stop OrderBookScalpStrategy");
+        } catch (final Exception ex) {
+            out.printf("OrderBookScalpStrategy error: %s%n", ex.getMessage());
+            ex.printStackTrace();
+        }
+    }
+
+    private static void executeOrderBookOrchestratorStrategy(
+            final MainConfig mainConfig, final TCSService tcsService) {
+        telegramNotifyService.sendMessage("Run OrderBookOrchestratorStrategy");
+        try {
+            OrderBookScalpConfig scalpConfig = new OrderBookScalpConfig();
+            new OrderBookOrchestratorStrategy(tcsService, mainConfig, scalpConfig).run();
+            telegramNotifyService.sendMessage("Stop OrderBookOrchestratorStrategy");
+        } catch (final Exception ex) {
+            out.printf("OrderBookOrchestratorStrategy error: %s%n", ex.getMessage());
             ex.printStackTrace();
         }
     }

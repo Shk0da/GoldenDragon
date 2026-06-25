@@ -49,9 +49,11 @@ import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.TreeMap;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 import ru.tinkoff.piapi.contract.v1.Bond;
@@ -67,6 +69,7 @@ import ru.tinkoff.piapi.contract.v1.OrderDirection;
 import ru.tinkoff.piapi.contract.v1.OrderType;
 import ru.tinkoff.piapi.contract.v1.PostOrderResponse;
 import ru.tinkoff.piapi.contract.v1.Quotation;
+import ru.tinkoff.piapi.contract.v1.SecurityTradingStatus;
 import ru.tinkoff.piapi.contract.v1.Share;
 import ru.tinkoff.piapi.contract.v1.StopOrderDirection;
 import ru.tinkoff.piapi.core.InvestApi;
@@ -84,6 +87,7 @@ import ru.tinkoff.piapi.core.stream.MarketDataSubscriptionService;
 public class TCSService {
 
     public static final double FUTURES_MARGIN_RATE = 0.40;
+    private static final int MAX_INSTRUMENTS_PER_MARKET_DATA_STREAM = 250;
     private static final String MARKET_DEPTH_TICKS_HEADER =
             "time,best_bid,best_ask,mid_price,bids,asks";
     private static final DateTimeFormatter MARKET_DEPTH_TICKS_TIME_FORMATTER =
@@ -108,8 +112,11 @@ public class TCSService {
             new ConcurrentHashMap<>();
     private final Map<TickerInfo.Key, CopyOnWriteArrayList<MarketTickListener>>
             marketTickListenersByTicker = new ConcurrentHashMap<>();
-    private final Map<TickerInfo.Key, MarketDataSubscriptionService> marketDataStreamsByTicker =
+    private final Map<String, TickerInfo.Key> marketDataKeyByFigi = new ConcurrentHashMap<>();
+    private final Map<String, MarketDataStreamShard> marketDataShardByFigi =
             new ConcurrentHashMap<>();
+    private final List<MarketDataStreamShard> marketDataStreamShards = new CopyOnWriteArrayList<>();
+    private final AtomicInteger marketDataStreamShardCounter = new AtomicInteger();
     private final Map<String, Object> marketDepthFileLocks = new ConcurrentHashMap<>();
     private volatile Map<TickerInfo.Key, TickerInfo> cachedStockList;
     private volatile Instant cachedStockListAt;
@@ -173,22 +180,23 @@ public class TCSService {
         marketTickListenersByTicker
                 .computeIfAbsent(key, ignored -> new CopyOnWriteArrayList<>())
                 .add(listener);
-        marketDataStreamsByTicker.computeIfAbsent(
-                key,
-                ignored -> {
-                    String streamId = "market-data-" + key.getTicker() + "-" + key.getType().name();
-                    MarketDataSubscriptionService stream =
-                            investApi
-                                    .getMarketDataStreamService()
-                                    .newStream(
-                                            streamId,
-                                            response -> handleMarketDataResponse(key, response),
-                                            throwable -> notifyMarketDataError(key, throwable));
-                    String figi = figiByName(key);
-                    stream.subscribeOrderbook(List.of(figi), depth);
-                    stream.subscribeTrades(List.of(figi));
-                    return stream;
-                });
+
+        String figi = figiByName(key);
+        marketDataKeyByFigi.put(figi, key);
+        if (marketDataShardByFigi.containsKey(figi)) {
+            return;
+        }
+
+        synchronized (marketDataStreamShards) {
+            if (marketDataShardByFigi.containsKey(figi)) {
+                return;
+            }
+            MarketDataStreamShard shard = findOrCreateMarketDataShard(depth);
+            shard.stream.subscribeOrderbook(List.of(figi), depth);
+            shard.stream.subscribeTrades(List.of(figi));
+            shard.figis.add(figi);
+            marketDataShardByFigi.put(figi, shard);
+        }
     }
 
     /**
@@ -210,12 +218,22 @@ public class TCSService {
             return;
         }
         marketTickListenersByTicker.remove(key);
-        MarketDataSubscriptionService stream = marketDataStreamsByTicker.remove(key);
-        if (stream != null) {
-            String figi = figiByName(key);
-            stream.unsubscribeOrderbook(List.of(figi));
-            stream.unsubscribeTrades(List.of(figi));
-            stream.cancel();
+
+        String figi = figiByName(key);
+        marketDataKeyByFigi.remove(figi);
+
+        synchronized (marketDataStreamShards) {
+            MarketDataStreamShard shard = marketDataShardByFigi.remove(figi);
+            if (shard == null) {
+                return;
+            }
+            shard.stream.unsubscribeOrderbook(List.of(figi));
+            shard.stream.unsubscribeTrades(List.of(figi));
+            shard.figis.remove(figi);
+            if (shard.figis.isEmpty()) {
+                shard.stream.cancel();
+                marketDataStreamShards.remove(shard);
+            }
         }
     }
 
@@ -2060,18 +2078,102 @@ public class TCSService {
         log("Loading current features...");
         List<Future> futures = investApi.getInstrumentsService().getTradableFuturesSync();
         return futures.stream()
-                .map(
-                        it ->
-                                new TickerInfo(
-                                        it.getFigi(),
-                                        it.getTicker(),
-                                        it.getBasicAsset(),
-                                        toDouble(it.getMinPriceIncrement()),
-                                        it.getLot(),
-                                        it.getCurrency(),
-                                        it.getName(),
-                                        TickerType.FEATURE.name()))
+                .map(this::toFutureTickerInfo)
                 .collect(Collectors.toMap(TickerInfo::getKey, it -> it, (o, n) -> n));
+    }
+
+    /**
+     * Returns whether the current API token belongs to a qualified investor.
+     *
+     * <p>Uses {@code UsersService/GetInfo} ({@code qual_status}), same as MOEXScripts scanners.
+     */
+    public boolean isQualifiedInvestor() {
+        try {
+            return investApi.getUserService().getInfoSync().getQualStatus();
+        } catch (Exception ex) {
+            log("Failed to load account qualification status: " + ex.getMessage());
+            return false;
+        }
+    }
+
+    /** Returns instrument categories the user passed tests for (futures, derivatives, etc.). */
+    public List<String> getQualifiedForWorkWith() {
+        try {
+            return investApi.getUserService().getInfoSync().getQualifiedForWorkWithList();
+        } catch (Exception ex) {
+            log("Failed to load qualified_for_work_with: " + ex.getMessage());
+            return List.of();
+        }
+    }
+
+    /**
+     * Checks whether the instrument can be traded on the current account via API.
+     *
+     * <p>Filters by {@code api_trade_available_flag}, normal trading status and {@code
+     * for_qual_investor_flag} (same logic as MOEXScripts share scanners).
+     */
+    public boolean isTradableForAccount(TickerInfo info) {
+        if (info == null) {
+            return false;
+        }
+        if (!info.isApiTradeAvailableFlag()) {
+            return false;
+        }
+        if (!info.isNormalTradingStatus()) {
+            return false;
+        }
+        if (info.isForQualInvestorFlag() && !isQualifiedInvestor()) {
+            return false;
+        }
+        return true;
+    }
+
+    public void logAccountTradingEligibility() {
+        boolean qualified = isQualifiedInvestor();
+        List<String> qualifiedFor = getQualifiedForWorkWith();
+        log(
+                "Account trading eligibility: qual_status="
+                        + qualified
+                        + ", qualified_for_work_with="
+                        + qualifiedFor);
+    }
+
+    private TickerInfo toFutureTickerInfo(Future future) {
+        TickerInfo info =
+                new TickerInfo(
+                        future.getFigi(),
+                        future.getTicker(),
+                        future.getBasicAsset(),
+                        toDouble(future.getMinPriceIncrement()),
+                        future.getLot(),
+                        future.getCurrency(),
+                        future.getName(),
+                        TickerType.FEATURE.name());
+        info.setForQualInvestorFlag(future.getForQualInvestorFlag());
+        info.setApiTradeAvailableFlag(future.getApiTradeAvailableFlag());
+        info.setNormalTradingStatus(isNormalTradingStatus(future.getTradingStatus()));
+        info.setBasicAsset(future.getBasicAsset());
+        info.setAssetType(future.getAssetType());
+        if (future.hasExpirationDate()) {
+            info.setExpirationDate(
+                    Instant.ofEpochSecond(
+                            future.getExpirationDate().getSeconds(),
+                            future.getExpirationDate().getNanos()));
+        }
+        return info;
+    }
+
+    private static void copyFutureMetadata(TickerInfo source, TickerInfo target) {
+        target.setForQualInvestorFlag(source.isForQualInvestorFlag());
+        target.setApiTradeAvailableFlag(source.isApiTradeAvailableFlag());
+        target.setNormalTradingStatus(source.isNormalTradingStatus());
+        target.setBasicAsset(source.getBasicAsset());
+        target.setAssetType(source.getAssetType());
+        target.setExpirationDate(source.getExpirationDate());
+    }
+
+    private static boolean isNormalTradingStatus(SecurityTradingStatus status) {
+        return SecurityTradingStatus.SECURITY_TRADING_STATUS_NORMAL_TRADING == status;
     }
 
     /**
@@ -2095,15 +2197,18 @@ public class TCSService {
     private TickerInfo applyTickerLotOverride(TickerInfo tickerInfo) {
         Integer overrideLot = mainConfig.getTickerLotOverrides().get(tickerInfo.getTicker());
         if (overrideLot != null) {
-            return new TickerInfo(
-                    tickerInfo.getFigi(),
-                    tickerInfo.getTicker(),
-                    tickerInfo.getIsin(),
-                    tickerInfo.getMinPriceIncrement(),
-                    overrideLot,
-                    tickerInfo.getCurrency(),
-                    tickerInfo.getName(),
-                    tickerInfo.getType().name());
+            TickerInfo overridden =
+                    new TickerInfo(
+                            tickerInfo.getFigi(),
+                            tickerInfo.getTicker(),
+                            tickerInfo.getIsin(),
+                            tickerInfo.getMinPriceIncrement(),
+                            overrideLot,
+                            tickerInfo.getCurrency(),
+                            tickerInfo.getName(),
+                            tickerInfo.getType().name());
+            copyFutureMetadata(tickerInfo, overridden);
+            return overridden;
         }
         return tickerInfo;
     }
@@ -2562,8 +2667,33 @@ public class TCSService {
         return currentPrices;
     }
 
-    private void handleMarketDataResponse(TickerInfo.Key key, MarketDataResponse response) {
+    private MarketDataStreamShard findOrCreateMarketDataShard(int depth) {
+        for (MarketDataStreamShard shard : marketDataStreamShards) {
+            if (shard.depth == depth
+                    && shard.figis.size() < MAX_INSTRUMENTS_PER_MARKET_DATA_STREAM) {
+                return shard;
+            }
+        }
+        int shardId = marketDataStreamShardCounter.incrementAndGet();
+        MarketDataStreamShard shard =
+                new MarketDataStreamShard(
+                        investApi
+                                .getMarketDataStreamService()
+                                .newStream(
+                                        "market-data-shard-" + shardId,
+                                        this::handleMarketDataResponse,
+                                        this::notifySharedMarketDataError),
+                        depth);
+        marketDataStreamShards.add(shard);
+        return shard;
+    }
+
+    private void handleMarketDataResponse(MarketDataResponse response) {
         if (response.hasOrderbook()) {
+            TickerInfo.Key key = marketDataKeyByFigi.get(response.getOrderbook().getFigi());
+            if (key == null) {
+                return;
+            }
             MarketDepthSnapshot snapshot = toMarketDepthSnapshot(response.getOrderbook());
             marketDepthByTicker.put(key, snapshot);
             pricesRepository.insert(key, toCurrentPrices(snapshot));
@@ -2571,6 +2701,10 @@ public class TCSService {
             notifyOrderBookListeners(key, snapshot);
         }
         if (response.hasTrade()) {
+            TickerInfo.Key key = marketDataKeyByFigi.get(response.getTrade().getFigi());
+            if (key == null) {
+                return;
+            }
             MarketTradeTick trade =
                     new MarketTradeTick(
                             response.getTrade().getFigi(),
@@ -2604,12 +2738,22 @@ public class TCSService {
         listeners.forEach(listener -> listener.onTrade(trade));
     }
 
-    private void notifyMarketDataError(TickerInfo.Key key, Throwable throwable) {
-        List<MarketTickListener> listeners = marketTickListenersByTicker.get(key);
-        if (listeners == null) {
-            return;
+    private void notifySharedMarketDataError(Throwable throwable) {
+        marketTickListenersByTicker
+                .values()
+                .forEach(listeners -> listeners.forEach(listener -> listener.onError(throwable)));
+    }
+
+    private static final class MarketDataStreamShard {
+
+        private final MarketDataSubscriptionService stream;
+        private final int depth;
+        private final Set<String> figis = ConcurrentHashMap.newKeySet();
+
+        private MarketDataStreamShard(MarketDataSubscriptionService stream, int depth) {
+            this.stream = stream;
+            this.depth = depth;
         }
-        listeners.forEach(listener -> listener.onError(throwable));
     }
 
     private void trimRecentTrades(TickerInfo.Key key) {
