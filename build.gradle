@@ -63,6 +63,7 @@ task runBacktest(type: JavaExec) {
     main = 'com.github.shk0da.goldendragon.test.BacktestRunner'
     classpath = sourceSets.test.runtimeClasspath
     workingDir = rootDir
+    jvmArgs '--add-opens', 'java.base/java.time=ALL-UNNAMED'
 
     // Support both single strategy and all strategies
     def strategyName = project.findProperty('strategy')

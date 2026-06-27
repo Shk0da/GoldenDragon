@@ -20,16 +20,20 @@ import java.util.List;
  */
 public class RegimeAwareStrategy extends BaseStrategy {
 
-    // Market regime thresholds - SIMPLIFIED
-    private static final double ADX_TREND_THRESHOLD = 28.0;
-    private static final double ADX_HOT_THRESHOLD = 38.0;
+    // Market regime thresholds - profit-tuned (backtest baseline: ADX trend 28/16)
+    private static final double ADX_TREND_THRESHOLD = 26.0;
+    private static final double ADX_HOT_THRESHOLD = 35.0;
     private static final double ADX_RANGE_THRESHOLD = 16.0;
 
-    // Adaptive position size multipliers
-    private static final double TREND_SIZE_MULT = 1.8;
-    private static final double HOT_TREND_SIZE_MULT = 2.2;
+    // Adaptive position size multipliers - increased in trend regimes for higher profit capture
+    private static final double TREND_SIZE_MULT = 2.1;
+    private static final double HOT_TREND_SIZE_MULT = 2.6;
     private static final double RANGE_SIZE_MULT = 0.55;
-    private static final double NORMAL_SIZE_MULT = 1.1;
+    private static final double NORMAL_SIZE_MULT = 1.3;
+
+    private static final double TREND_GROUP_BONUS = 1.22;
+    private static final double FX_GROUP_MULT = 0.75;
+    private static final double NORMAL_MIN_ADX = 18.0;
 
     // UnifiedStrategy instance
     private final UnifiedStrategy unifiedStrategy;
@@ -60,8 +64,14 @@ public class RegimeAwareStrategy extends BaseStrategy {
         logWithBacktest(
                 "RegimeAwareStrategy v4: Adaptive UnifiedStrategy (TREND:ADX>"
                         + ADX_TREND_THRESHOLD
+                        + ", HOT:ADX>"
+                        + ADX_HOT_THRESHOLD
                         + ", RANGE:ADX<"
                         + ADX_RANGE_THRESHOLD
+                        + ", trendMult="
+                        + TREND_SIZE_MULT
+                        + ", hotMult="
+                        + HOT_TREND_SIZE_MULT
                         + ")");
     }
 
@@ -102,7 +112,7 @@ public class RegimeAwareStrategy extends BaseStrategy {
             return new TradingDecision("HOLD", "RANGE_SKIP_ADX" + (int) adx);
         }
 
-        if (MarketRegime.NORMAL == regime && adx < 20.0) {
+        if (MarketRegime.NORMAL == regime && adx < NORMAL_MIN_ADX) {
             return new TradingDecision("HOLD", "NORMAL_WEAK_ADX" + (int) adx);
         }
 
@@ -123,10 +133,10 @@ public class RegimeAwareStrategy extends BaseStrategy {
         }
 
         if (Group.TREND == tickerGroup) {
-            balanceMultiplier *= 1.15;
+            balanceMultiplier *= TREND_GROUP_BONUS;
         }
         if (Group.FX == tickerGroup) {
-            balanceMultiplier *= 0.75;
+            balanceMultiplier *= FX_GROUP_MULT;
         }
         if (Group.MIXED == tickerGroup && MarketRegime.RANGE == regime) {
             balanceMultiplier *= 0.85;
