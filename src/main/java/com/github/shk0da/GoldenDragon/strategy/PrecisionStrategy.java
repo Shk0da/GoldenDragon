@@ -90,6 +90,7 @@ public class PrecisionStrategy extends BaseStrategy {
                         isBacktest,
                         true,
                         true);
+        this.delegate.setFixedEntryLeverage(1);
 
         logWithBacktest(
                 "PrecisionStrategy: confluence trend-pullback gate (ADX>="
@@ -104,7 +105,7 @@ public class PrecisionStrategy extends BaseStrategy {
                         + (CRITICAL_DRAWDOWN_PERCENT * 100)
                         + "%, maxPos="
                         + (MAX_POSITION_SIZE * 100)
-                        + "%)");
+                        + "%, leverage=1x fixed)");
     }
 
     @Override

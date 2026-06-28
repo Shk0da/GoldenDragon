@@ -70,6 +70,12 @@ task runBacktest(type: JavaExec) {
     if (strategyName) {
         args strategyName
     }
+    if (project.hasProperty('leverage')) {
+        systemProperty 'unifiedTrader.leverage', project.property('leverage')
+    }
+    if (project.hasProperty('backtestMode')) {
+        systemProperty 'backtest.mode', project.property('backtestMode')
+    }
 }
 
 task runMlTraining(type: JavaExec) {

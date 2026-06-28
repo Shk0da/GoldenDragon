@@ -11,6 +11,7 @@ import com.github.shk0da.goldendragon.model.TickerInfo;
 import com.github.shk0da.goldendragon.model.TickerType;
 import com.github.shk0da.goldendragon.model.TradingDecision;
 import com.github.shk0da.goldendragon.money.AdaptiveCapital;
+import com.github.shk0da.goldendragon.money.AdaptiveLeverage;
 import com.github.shk0da.goldendragon.money.FixedRiskSizing;
 import com.github.shk0da.goldendragon.money.KillSwitch;
 import com.github.shk0da.goldendragon.money.PerformanceTracker;
@@ -156,6 +157,9 @@ public class UnifiedStrategy extends BaseStrategy {
     private final PerformanceTracker performanceTracker;
     private final boolean mmEnabled;
 
+    /** When set, overrides config leverage and disables adaptive leverage resolution. */
+    private Integer fixedEntryLeverage;
+
     // Track initial risk per position for R-based calculations
     private final ConcurrentMap<String, Double> initialRiskPerTicker = new ConcurrentHashMap<>();
 
@@ -230,6 +234,10 @@ public class UnifiedStrategy extends BaseStrategy {
         }
     }
 
+    public void setFixedEntryLeverage(int leverage) {
+        this.fixedEntryLeverage = Math.max(1, leverage);
+    }
+
     @Override
     protected String getStrategyName() {
         return "UnifiedStrategy";
@@ -282,7 +290,8 @@ public class UnifiedStrategy extends BaseStrategy {
 
         if (position.quantity > 0 && incrementCandlesHeld) {
             p =
-                    new Position(
+                    copyPosition(
+                            position,
                             position.direction,
                             position.entryPrice,
                             position.stopLoss,
@@ -292,7 +301,8 @@ public class UnifiedStrategy extends BaseStrategy {
                             position.cooldownRemaining);
         } else if (position.quantity > 0) {
             p =
-                    new Position(
+                    copyPosition(
+                            position,
                             position.direction,
                             position.entryPrice,
                             position.stopLoss,
@@ -369,7 +379,8 @@ public class UnifiedStrategy extends BaseStrategy {
                                                 : newStop > p.stopLoss));
                 if (stopImproved) {
                     p =
-                            new Position(
+                            copyPosition(
+                                    p,
                                     p.direction,
                                     p.entryPrice,
                                     newStop,
@@ -392,7 +403,8 @@ public class UnifiedStrategy extends BaseStrategy {
                     double beSl = "BUY".equals(dir) ? ep + atr * 0.08 : ep - atr * 0.08;
                     if ("BUY".equals(dir) && (p.stopLoss != null ? p.stopLoss : 0.0) < beSl) {
                         p =
-                                new Position(
+                                copyPosition(
+                                        p,
                                         p.direction,
                                         p.entryPrice,
                                         beSl,
@@ -407,7 +419,8 @@ public class UnifiedStrategy extends BaseStrategy {
                     double trailSl = cur.close - atr * 0.35;
                     if ("BUY".equals(dir) && trailSl > (p.stopLoss != null ? p.stopLoss : 0.0)) {
                         p =
-                                new Position(
+                                copyPosition(
+                                        p,
                                         p.direction,
                                         p.entryPrice,
                                         trailSl,
@@ -422,7 +435,8 @@ public class UnifiedStrategy extends BaseStrategy {
                     double tightTrail = cur.close - atr * 0.20;
                     if ("BUY".equals(dir) && tightTrail > (p.stopLoss != null ? p.stopLoss : 0.0)) {
                         p =
-                                new Position(
+                                copyPosition(
+                                        p,
                                         p.direction,
                                         p.entryPrice,
                                         tightTrail,
@@ -451,7 +465,8 @@ public class UnifiedStrategy extends BaseStrategy {
                             p.takeProfit,
                             p.quantity,
                             p.candlesHeld,
-                            p.cooldownRemaining - 1));
+                            p.cooldownRemaining - 1,
+                            p.appliedLeverage));
         }
 
         if (p.quantity > 0) {
@@ -598,7 +613,24 @@ public class UnifiedStrategy extends BaseStrategy {
 
         double sl = isBuy ? entry - slDist : entry + slDist;
         double tp = isBuy ? entry + tpDist : entry - tpDist;
-        int maxAffordableQty = calculateMaxAffordableQuantity(ticker, balance, entry);
+
+        int maxLeverage =
+                fixedEntryLeverage != null ? fixedEntryLeverage : Math.max(1, tpCfg.leverage);
+        int effectiveLeverage =
+                fixedEntryLeverage != null
+                        ? fixedEntryLeverage
+                        : resolveEntryLeverage(
+                                maxLeverage,
+                                adx,
+                                dAtr,
+                                avgAtr,
+                                regimeResult.confidence,
+                                strongTrend,
+                                rangeRegime,
+                                signal);
+
+        int maxAffordableQty =
+                calculateMaxAffordableQuantity(ticker, balance, entry, effectiveLeverage);
         int maxAskQty = calculateAvailableLiquidity(ticker, isBuy);
 
         if (maxAskQty <= 0) {
@@ -612,6 +644,9 @@ public class UnifiedStrategy extends BaseStrategy {
             double adjustedBalance = balance * riskMultiplier;
 
             qty = positionSizer.calculateSize(ticker, entry, sl, adjustedBalance, dAtr);
+            if (effectiveLeverage > 1) {
+                qty = (int) Math.min((long) qty * effectiveLeverage, maxAffordableQty);
+            }
             qty = Math.min(qty, Math.min(maxAffordableQty, maxAskQty));
 
             if (qty <= 0) {
@@ -635,10 +670,29 @@ public class UnifiedStrategy extends BaseStrategy {
 
             double maxQty = Math.min(maxAffordableQty, maxAskQty);
             qty = (int) Math.min(Math.max(1, Math.floor(maxRisk / slDist)), maxQty);
+            if (effectiveLeverage > 1) {
+                qty = (int) Math.min((long) qty * effectiveLeverage, maxAffordableQty);
+            }
+            qty = Math.min(qty, (int) maxQty);
 
             if (qty <= 0) {
                 return new TradingDecision("HOLD", "qty0", 0.0, 0, null, null, null, p);
             }
+        }
+
+        if (effectiveLeverage > 1
+                && fixedEntryLeverage == null
+                && unifiedTraderConfig.isAdaptiveLeverageEnabled()) {
+            logWithBacktest(
+                    "Adaptive leverage for "
+                            + ticker
+                            + ": "
+                            + effectiveLeverage
+                            + "x (max "
+                            + maxLeverage
+                            + "x, ADX="
+                            + String.format("%.1f", adx)
+                            + ")");
         }
 
         double tradeConfidence =
@@ -652,7 +706,7 @@ public class UnifiedStrategy extends BaseStrategy {
                 sl,
                 tp,
                 entry,
-                new Position(direction, entry, sl, tp, qty, 0));
+                new Position(direction, entry, sl, tp, qty, 0, 0, effectiveLeverage));
     }
 
     public String trendSignal(List<Candle> candles) {
@@ -704,7 +758,59 @@ public class UnifiedStrategy extends BaseStrategy {
         return null;
     }
 
-    private int calculateMaxAffordableQuantity(String ticker, double balance, double entryPrice) {
+    private int resolveEntryLeverage(
+            int maxLeverage,
+            double adx,
+            double atr,
+            double avgAtr,
+            double regimeConfidence,
+            boolean strongTrend,
+            boolean rangeRegime,
+            String signal) {
+        if (fixedEntryLeverage != null) {
+            return fixedEntryLeverage;
+        }
+        if (maxLeverage <= 1 || !unifiedTraderConfig.isAdaptiveLeverageEnabled()) {
+            return maxLeverage;
+        }
+        double riskMultiplier = mmEnabled ? adaptiveCapital.getRiskMultiplier() : 1.0;
+        return AdaptiveLeverage.resolve(
+                new AdaptiveLeverage.Context(
+                        maxLeverage,
+                        unifiedTraderConfig.getLeverageMin(),
+                        adx,
+                        atr,
+                        avgAtr,
+                        regimeConfidence,
+                        riskMultiplier,
+                        strongTrend,
+                        rangeRegime,
+                        signal));
+    }
+
+    private Position copyPosition(
+            Position src,
+            String direction,
+            Double entryPrice,
+            Double stopLoss,
+            Double takeProfit,
+            int quantity,
+            int candlesHeld,
+            int cooldownRemaining) {
+        int leverage = src != null && src.appliedLeverage > 0 ? src.appliedLeverage : 1;
+        return new Position(
+                direction,
+                entryPrice,
+                stopLoss,
+                takeProfit,
+                quantity,
+                candlesHeld,
+                cooldownRemaining,
+                leverage);
+    }
+
+    private int calculateMaxAffordableQuantity(
+            String ticker, double balance, double entryPrice, int leverage) {
         if (entryPrice <= 0.0 || balance <= 0.0) {
             return 0;
         }
@@ -730,9 +836,9 @@ public class UnifiedStrategy extends BaseStrategy {
         if (TickerType.FEATURE == tickerInfo.getType()) {
             marginMultiplier = TCSService.FUTURES_MARGIN_RATE;
         }
-        int leverage = unifiedTraderConfig.getTickerParams(ticker).leverage;
-        if (leverage > 1) {
-            marginMultiplier /= leverage;
+        int effectiveLeverage = Math.max(1, leverage);
+        if (effectiveLeverage > 1) {
+            marginMultiplier /= effectiveLeverage;
         }
         orderCost *= marginMultiplier;
         if (orderCost <= 0.0) {

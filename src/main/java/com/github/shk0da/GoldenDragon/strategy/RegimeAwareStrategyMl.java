@@ -180,6 +180,10 @@ public class RegimeAwareStrategyMl extends BaseStrategy {
                         + ", PerTickerModels=true");
     }
 
+    public void setFixedEntryLeverage(int leverage) {
+        unifiedStrategy.setFixedEntryLeverage(leverage);
+    }
+
     /**
      * Load per-ticker models from ml_strategy/models/trade_classifier_{TICKER}.txt Falls back to
      * default model if ticker-specific model not found.

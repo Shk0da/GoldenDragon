@@ -10,6 +10,9 @@ public class Position {
     public final int candlesHeld;
     public final int cooldownRemaining;
 
+    /** Leverage applied at entry; used for margin and PnL accounting. */
+    public final int appliedLeverage;
+
     public Position() {
         this(null, null, null, null, 0, 0, 0);
     }
@@ -36,6 +39,26 @@ public class Position {
             int quantity,
             int candlesHeld,
             int cooldownRemaining) {
+        this(
+                direction,
+                entryPrice,
+                stopLoss,
+                takeProfit,
+                quantity,
+                candlesHeld,
+                cooldownRemaining,
+                1);
+    }
+
+    public Position(
+            String direction,
+            Double entryPrice,
+            Double stopLoss,
+            Double takeProfit,
+            int quantity,
+            int candlesHeld,
+            int cooldownRemaining,
+            int appliedLeverage) {
         this.direction = direction;
         this.entryPrice = entryPrice;
         this.stopLoss = stopLoss;
@@ -43,5 +66,6 @@ public class Position {
         this.quantity = quantity;
         this.candlesHeld = candlesHeld;
         this.cooldownRemaining = cooldownRemaining;
+        this.appliedLeverage = Math.max(1, appliedLeverage);
     }
 }
