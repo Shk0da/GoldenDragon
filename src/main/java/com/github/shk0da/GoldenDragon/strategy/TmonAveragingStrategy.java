@@ -9,19 +9,21 @@ import com.github.shk0da.goldendragon.service.TCSService;
 import java.util.List;
 
 /**
- * TMON Averaging Strategy — aggressive dip buying.
+ * TMON Averaging Strategy with dynamic ATR-based step sizing.
  *
- * <p>Buys on ANY downward candle (close < previous close). Continues buying while price keeps
- * dropping. Exits when price recovers above average entry price.
+ * <p>Buys on ANY downward candle (close < previous close). Uses ATR to determine allocation per
+ * step: higher ATR = more aggressive buying (fewer remaining steps). Exits when price recovers
+ * above average entry price.
  *
- * <p>Key idea: TMON@ steadily appreciates (~17%/year). Every dip is a buying opportunity. Scale out
- * when profitable.
+ * <p>Key idea: TMON@ steadily appreciates (~17%/year). Every dip is a buying opportunity. ATR
+ * helps size positions proportionally to current volatility.
  */
 public class TmonAveragingStrategy extends BaseStrategy {
 
     private static final int MAX_ENTRY_STEPS = 5;
     private static final int MAX_EXIT_STEPS = 5;
     private static final double PROFIT_TARGET = 0.005;
+    private static final int ATR_PERIOD = 14;
 
     public enum Phase {
         WAITING,
@@ -37,6 +39,7 @@ public class TmonAveragingStrategy extends BaseStrategy {
     private double avgEntryPrice;
     private int entryStep;
     private int exitStep;
+    private List<Candle> lastCandles;
 
     public TmonAveragingStrategy(UnifiedTraderConfig config, TCSService tcsService) {
         this(config, tcsService, new Config(), false, 1000000.0);
@@ -90,9 +93,11 @@ public class TmonAveragingStrategy extends BaseStrategy {
             Position position,
             double balance,
             boolean incrementCandlesHeld) {
-        if (hourCandles == null || hourCandles.size() < 3) {
+        if (hourCandles == null || hourCandles.size() < ATR_PERIOD + 2) {
             return new TradingDecision("HOLD", "insufficient_history");
         }
+
+        lastCandles = hourCandles;
 
         Candle current = hourCandles.get(hourCandles.size() - 1);
         Candle previous = hourCandles.get(hourCandles.size() - 2);
@@ -170,7 +175,9 @@ public class TmonAveragingStrategy extends BaseStrategy {
     }
 
     private TradingDecision executeBuy(Candle current) {
-        double allocation = cashBalance / (double) (MAX_ENTRY_STEPS - entryStep);
+        int dynamicSteps = computeDynamicSteps(current);
+        int remainingSteps = Math.max(1, dynamicSteps - entryStep);
+        double allocation = cashBalance / (double) remainingSteps;
         int qty = Math.max(1, (int) Math.floor(allocation / current.close));
         double cost = qty * current.close;
 
@@ -186,10 +193,11 @@ public class TmonAveragingStrategy extends BaseStrategy {
         int prevQty = positionQuantity;
         cashBalance -= cost;
         positionQuantity += qty;
-        avgEntryPrice = (avgEntryPrice * prevQty + current.close * qty) / (double) positionQuantity;
+        avgEntryPrice =
+                (avgEntryPrice * prevQty + current.close * qty) / (double) positionQuantity;
         entryStep++;
 
-        logPosition("BUY", qty, current.close);
+        logPosition("BUY", qty, current.close, dynamicSteps);
         return new TradingDecision(
                 "OPEN",
                 "dip_buy",
@@ -214,7 +222,7 @@ public class TmonAveragingStrategy extends BaseStrategy {
             avgEntryPrice = 0;
         }
 
-        logPosition("SELL", qty, current.close);
+        logPosition("SELL", qty, current.close, MAX_EXIT_STEPS);
         return new TradingDecision(
                 "CLOSE",
                 "profit_take",
@@ -226,7 +234,44 @@ public class TmonAveragingStrategy extends BaseStrategy {
                 new Position("SELL", current.close, null, null, qty, 0));
     }
 
-    private void logPosition(String action, int qty, double price) {
+    /**
+     * Compute dynamic number of entry steps based on ATR. Higher ATR = fewer steps = more
+     * aggressive per-step allocation.
+     */
+    private int computeDynamicSteps(Candle current) {
+        double atr = computeAtr(current);
+        double atrRatio = atr / current.close;
+
+        if (atrRatio > 0.002) {
+            return Math.max(2, MAX_ENTRY_STEPS - 2);
+        }
+        if (atrRatio > 0.001) {
+            return Math.max(3, MAX_ENTRY_STEPS - 1);
+        }
+        return MAX_ENTRY_STEPS;
+    }
+
+    private double computeAtr(Candle current) {
+        if (lastCandles == null || lastCandles.size() < 2) {
+            return current.high - current.low;
+        }
+
+        double atr = 0.0;
+        int size = Math.min(ATR_PERIOD + 1, lastCandles.size());
+
+        for (int i = lastCandles.size() - size; i < lastCandles.size(); i++) {
+            Candle c = lastCandles.get(i);
+            double tr =
+                    Math.max(
+                            c.high - c.low,
+                            Math.max(
+                                    Math.abs(c.high - c.close), Math.abs(c.low - c.close)));
+            atr += tr;
+        }
+        return atr / (double) (size - 1);
+    }
+
+    private void logPosition(String action, int qty, double price, int dynamicSteps) {
         log(
                 getStrategyName()
                         + " "
@@ -240,6 +285,8 @@ public class TmonAveragingStrategy extends BaseStrategy {
                         + ", cash="
                         + String.format("%.2f", cashBalance)
                         + ", pos="
-                        + positionQuantity);
+                        + positionQuantity
+                        + ", steps="
+                        + dynamicSteps);
     }
 }
