@@ -13,6 +13,7 @@ import com.github.shk0da.goldendragon.strategy.BaseStrategy;
 import com.github.shk0da.goldendragon.strategy.PrecisionStrategy;
 import com.github.shk0da.goldendragon.strategy.RegimeAwareStrategy;
 import com.github.shk0da.goldendragon.strategy.RegimeAwareStrategyMl;
+import com.github.shk0da.goldendragon.strategy.TmonAveragingStrategy;
 import com.github.shk0da.goldendragon.strategy.UnifiedStrategy;
 import com.github.shk0da.goldendragon.utils.PropertiesUtils;
 import java.io.File;
@@ -238,6 +239,8 @@ public class BacktestRunner {
                     return new RegimeAwareStrategyMl(config, null, new Config(), true, true, true);
                 case "PrecisionStrategy":
                     return new PrecisionStrategy(config, null, new Config(), true);
+                case "TmonAveragingStrategy":
+                    return new TmonAveragingStrategy(config, null, new Config(), true, 1_000_000.0);
                 default:
                     throw new IllegalArgumentException("Unknown strategy: " + strategyName);
             }
@@ -260,7 +263,7 @@ public class BacktestRunner {
                             Math.max(1, Runtime.getRuntime().availableProcessors() - 1)));
 
     private static final String[] ALL_STRATEGIES = {
-        "UnifiedStrategy", "RegimeAwareStrategy", "PrecisionStrategy",
+        "UnifiedStrategy", "RegimeAwareStrategy", "PrecisionStrategy", "TmonAveragingStrategy",
     };
 
     public static class RawCandle {
@@ -289,6 +292,7 @@ public class BacktestRunner {
         public final String dir;
         public final double entry;
         public final double exit;
+        public final int qty;
         public final double pnl;
         public final String reason;
         public final String time;
@@ -298,6 +302,7 @@ public class BacktestRunner {
                 String dir,
                 double entry,
                 double exit,
+                int qty,
                 double pnl,
                 String reason,
                 String time) {
@@ -305,6 +310,7 @@ public class BacktestRunner {
             this.dir = dir;
             this.entry = entry;
             this.exit = exit;
+            this.qty = qty;
             this.pnl = pnl;
             this.reason = reason;
             this.time = time;
@@ -473,7 +479,10 @@ public class BacktestRunner {
     private static final Map<String, StrategyMetrics> strategyMetricsMap = new LinkedHashMap<>();
 
     public static void main(String[] args) throws IOException {
-        BacktestRunner runner = new BacktestRunner();
+        double commission = Double.parseDouble(System.getProperty("backtest.commission", "0.0005"));
+        double monthlyDeposit =
+                Double.parseDouble(System.getProperty("backtest.monthlyDeposit", "0.0"));
+        BacktestRunner runner = new BacktestRunner("data", 1_000_000.0, commission, monthlyDeposit);
         boolean singleStrategyRun = args != null && args.length > 0;
 
         String dataPath = "ml_strategy/data_pipeline/trades.csv";
@@ -514,6 +523,13 @@ public class BacktestRunner {
         List<PeriodDefinition> chartPeriods = getFullYearlyPeriods();
 
         UnifiedTraderConfig config = new UnifiedTraderConfig();
+
+        // TmonAveragingStrategy uses hourly candles on TMON@ — different execution path
+        if ("TmonAveragingStrategy".equals(strategyName)) {
+            runTmonAveraging(tablePeriods, chartPeriods, config);
+            return;
+        }
+
         List<String> loadedTickers = loadTickers();
         List<String> activeTickers = filterEnabledTickers(loadedTickers, config);
         if (!activeTickers.isEmpty()) {
@@ -559,6 +575,164 @@ public class BacktestRunner {
 
         // Generate basic buy & hold chart (16% annual)
         plotBasicBuyAndHoldChart(chartPeriods);
+    }
+
+    private void runTmonAveraging(
+            List<PeriodDefinition> tablePeriods,
+            List<PeriodDefinition> chartPeriods,
+            UnifiedTraderConfig config)
+            throws IOException {
+
+        List<String> periodLabels = new ArrayList<>();
+        Map<String, Map<String, TickerPeriodResult>> allData = new LinkedHashMap<>();
+        Map<String, PortfolioPeriodResult> portfolioData = new LinkedHashMap<>();
+
+        List<String> tmonTickers = Collections.singletonList("TMON@");
+        String fullStart = chartPeriods.get(0).start;
+        String fullEnd = chartPeriods.get(chartPeriods.size() - 1).endExclusive;
+        ExecutionResult continuousResult = executeTmonAveraging(fullStart, fullEnd, config);
+
+        for (PeriodDefinition period : tablePeriods) {
+            periodLabels.add(period.label);
+            ExecutionResult periodResult = splitExecutionByPeriod(continuousResult, period);
+            allData.put(period.label, periodResult.tickerResults);
+            portfolioData.put(period.label, periodResult.portfolioResult);
+        }
+
+        printResults("TmonAveragingStrategy", periodLabels, allData, portfolioData, tmonTickers);
+        collectStrategyMetrics("TmonAveragingStrategy", allData, portfolioData);
+        plotEquityCurveChart("TmonAveragingStrategy", continuousResult.portfolioResult.equityCurve);
+        plotBuyAndHoldTmonChart(chartPeriods);
+    }
+
+    private ExecutionResult executeTmonAveraging(
+            String start, String endExclusive, UnifiedTraderConfig config) throws IOException {
+
+        List<RawCandle> rawCandles = loadCandles("TMON@", start, endExclusive);
+
+        if (rawCandles.isEmpty()) {
+            System.out.println("ERROR: Missing hourly candle data for TMON@.");
+            return new ExecutionResult(
+                    Collections.emptyMap(),
+                    new PortfolioPeriodResult(0.0, 0.0, Collections.emptyList(), 0, 0.0));
+        }
+
+        List<Candle> tmonCandles = new ArrayList<>(rawCandles.size());
+        for (RawCandle c : rawCandles) {
+            tmonCandles.add(new Candle(c.time, c.open, c.high, c.low, c.close, c.volume));
+        }
+
+        System.out.println(
+                "TmonAveragingStrategy: " + tmonCandles.size() + " TMON@ hourly candles");
+        System.out.println(
+                "Monthly deposit: "
+                        + String.format("%.0f", monthlyRebalanceAmount)
+                        + ", commission: 0.0%");
+
+        TmonAveragingStrategy strategy =
+                new TmonAveragingStrategy(config, null, new Config(), true, initialBalance);
+        List<EquityPoint> equityCurve = new ArrayList<>();
+        List<TradeResult> trades = new ArrayList<>();
+
+        int lastDepositMonth = -1;
+        int warmup = MIN_HOURS_REQUIRED;
+        for (int i = 0; i < tmonCandles.size(); i++) {
+            Candle current = tmonCandles.get(i);
+            String datePart =
+                    current.time.contains(" ") ? current.time.split(" ")[0] : current.time;
+
+            if (i < warmup) {
+                equityCurve.add(new EquityPoint(datePart + " 15:45:00", strategy.getCashBalance()));
+                continue;
+            }
+
+            // Monthly deposit on first candle of each month
+            LocalDateTime candleTime = LocalDateTime.parse(current.time, DATE_TIME_FMT);
+            int currentMonth = candleTime.getMonthValue();
+            int currentYear = candleTime.getYear();
+            int monthKey = currentYear * 100 + currentMonth;
+            if (lastDepositMonth == -1) {
+                lastDepositMonth = monthKey;
+            } else if (monthKey != lastDepositMonth && monthlyRebalanceAmount > 0) {
+                strategy.addMonthlyDeposit(monthlyRebalanceAmount);
+                lastDepositMonth = monthKey;
+            }
+
+            List<Candle> history = tmonCandles.subList(0, i + 1);
+            int preQty = strategy.getPositionQuantity();
+            double preEntry = strategy.getAvgEntryPrice();
+
+            strategy.decide("TMON@", history, history, null, strategy.getCashBalance(), false);
+
+            if (preQty > 0 && strategy.getPositionQuantity() < preQty) {
+                int soldQty = preQty - strategy.getPositionQuantity();
+                double pnl = (current.close - preEntry) * soldQty;
+                String reason =
+                        strategy.getPhase() == TmonAveragingStrategy.Phase.EXITED
+                                ? "exit_complete"
+                                : "scale_out";
+                trades.add(
+                        new TradeResult(
+                                "TMON@",
+                                "BUY",
+                                preEntry,
+                                current.close,
+                                soldQty,
+                                pnl,
+                                reason,
+                                datePart));
+            }
+
+            double equity = strategy.getCashBalance();
+            if (strategy.getPositionQuantity() > 0) {
+                equity += strategy.getPositionQuantity() * current.close;
+            }
+            equityCurve.add(new EquityPoint(datePart + " 15:45:00", equity));
+        }
+
+        if (strategy.getPositionQuantity() > 0 && !tmonCandles.isEmpty()) {
+            Candle last = tmonCandles.get(tmonCandles.size() - 1);
+            String lastDate = last.time.contains(" ") ? last.time.split(" ")[0] : last.time;
+            double pnl =
+                    (last.close - strategy.getAvgEntryPrice()) * strategy.getPositionQuantity();
+            trades.add(
+                    new TradeResult(
+                            "TMON@",
+                            "BUY",
+                            strategy.getAvgEntryPrice(),
+                            last.close,
+                            strategy.getPositionQuantity(),
+                            pnl,
+                            "period_end",
+                            lastDate));
+        }
+
+        double finalEquity =
+                equityCurve.isEmpty()
+                        ? initialBalance
+                        : equityCurve.get(equityCurve.size() - 1).equity;
+        double portfolioPnl = finalEquity - initialBalance;
+        double portfolioDd = calcMaxDrawdownByEquity(equityCurve);
+        int totalTrades = trades.size();
+        long winningTrades = trades.stream().filter(t -> t.pnl > 0).count();
+        double portfolioWinRate = totalTrades > 0 ? (double) winningTrades / totalTrades : 0.0;
+
+        Map<String, TickerPeriodResult> tickerResults = new LinkedHashMap<>();
+        tickerResults.put(
+                "TMON@",
+                new TickerPeriodResult(
+                        trades,
+                        equityCurve,
+                        portfolioPnl,
+                        portfolioDd,
+                        initialBalance,
+                        portfolioWinRate));
+
+        PortfolioPeriodResult portfolioResult =
+                new PortfolioPeriodResult(
+                        portfolioPnl, portfolioDd, equityCurve, totalTrades, portfolioWinRate);
+
+        return new ExecutionResult(tickerResults, portfolioResult);
     }
 
     private ExecutionResult splitExecutionByPeriod(ExecutionResult full, PeriodDefinition period) {
@@ -620,7 +794,14 @@ public class BacktestRunner {
 
     private boolean isTimeInPeriod(String time, PeriodDefinition period) {
         try {
-            LocalDate date = LocalDateTime.parse(time, DATE_TIME_FMT).toLocalDate();
+            LocalDate date;
+            try {
+                date = LocalDateTime.parse(time, DATE_TIME_FMT).toLocalDate();
+            } catch (Exception e) {
+                // try date-only format (dd.MM.yyyy)
+                String datePart = time.contains(" ") ? time.split(" ")[0] : time;
+                date = LocalDate.parse(datePart, DATE_FMT);
+            }
             LocalDate start = LocalDate.parse(period.start);
             LocalDate end = LocalDate.parse(period.endExclusive);
             return !date.isBefore(start) && !date.isAfter(end);
@@ -640,7 +821,14 @@ public class BacktestRunner {
         Double lastInPeriod = null;
         for (EquityPoint point : equityCurve) {
             try {
-                LocalDate date = LocalDateTime.parse(point.time, DATE_TIME_FMT).toLocalDate();
+                LocalDate date;
+                try {
+                    date = LocalDateTime.parse(point.time, DATE_TIME_FMT).toLocalDate();
+                } catch (Exception e) {
+                    String datePart =
+                            point.time.contains(" ") ? point.time.split(" ")[0] : point.time;
+                    date = LocalDate.parse(datePart, DATE_FMT);
+                }
                 if (date.isBefore(start)) {
                     equityBefore = point.equity;
                 } else if (!date.isAfter(end)) {
@@ -763,7 +951,6 @@ public class BacktestRunner {
     private void plotBasicBuyAndHoldChart(List<PeriodDefinition> periods) {
         TimeSeries basicSeries = new TimeSeries("Buy & Hold (16% annual)");
 
-        // Monthly return rate: (1 + 0.16)^(1/12) - 1 ≈ 1.24%
         double annualReturn = 0.16;
         double monthlyReturn = Math.pow(1 + annualReturn, 1.0 / 12.0) - 1.0;
 
@@ -774,7 +961,6 @@ public class BacktestRunner {
         int lastRebalanceMonth = -1;
         int lastRebalanceYear = -1;
 
-        // Add starting point
         try {
             Day startDay =
                     new Day(
@@ -787,23 +973,20 @@ public class BacktestRunner {
             // Skip
         }
 
-        // Add monthly points with rebalancing until today
         while (!currentDate.isAfter(today)) {
             currentDate = currentDate.plusMonths(1);
             if (currentDate.isAfter(today)) {
                 break;
             }
 
-            // Monthly rebalance: add funds on the first day of each month
             int currentMonth = currentDate.getMonthValue();
             int currentYear = currentDate.getYear();
             if (currentMonth != lastRebalanceMonth || currentYear != lastRebalanceYear) {
-                capital += monthlyRebalanceAmount;
+                capital += 100_000;
                 lastRebalanceMonth = currentMonth;
                 lastRebalanceYear = currentYear;
             }
 
-            // Apply monthly return on the capital (including new deposits)
             capital *= (1 + monthlyReturn);
 
             try {
@@ -815,7 +998,7 @@ public class BacktestRunner {
                                                 .toInstant()));
                 basicSeries.add(day, capital);
             } catch (Exception e) {
-                // Skip invalid dates
+                // Skip
             }
         }
 
@@ -828,10 +1011,9 @@ public class BacktestRunner {
 
         JFreeChart chart =
                 ChartFactory.createTimeSeriesChart(
-                        "Buy & Hold Strategy (16% Annual + Monthly Rebalance)",
+                        "Buy & Hold Strategy (16% Annual + 100K RUB/month)",
                         "Date", "Capital (RUB)", dataset, true, true, false);
 
-        // Customize date axis to show months
         XYPlot plot = (XYPlot) chart.getPlot();
         DateAxis dateAxis = (DateAxis) plot.getDomainAxis();
         dateAxis.setDateFormatOverride(new SimpleDateFormat("yyyy-MM"));
@@ -839,17 +1021,203 @@ public class BacktestRunner {
         try {
             Path imagesDir = Paths.get("ml_strategy/images");
             Files.createDirectories(imagesDir);
-
-            String fileName = "Basic.png";
-            Path outputPath = imagesDir.resolve(fileName);
-
+            Path outputPath = imagesDir.resolve("Basic.png");
             try (FileOutputStream out = new FileOutputStream(outputPath.toFile())) {
                 ChartUtilities.writeChartAsPNG(out, chart, 1200, 600);
             }
-
             System.out.println("Basic buy & hold chart saved to: " + outputPath.toAbsolutePath());
         } catch (Exception e) {
             System.out.println("Failed to save basic chart: " + e.getMessage());
+        }
+
+        plotBuyAndHoldQQQChart(periods);
+    }
+
+    private void plotBuyAndHoldQQQChart(List<PeriodDefinition> periods) {
+        List<Candle> qqqCandles = loadDailyCandles("QQQ");
+        List<Candle> usdrubCandles = loadDailyCandles("USDRUB");
+        if (qqqCandles.isEmpty()) {
+            System.out.println("No QQQ data for Buy & Hold chart.");
+            return;
+        }
+        if (usdrubCandles.isEmpty()) {
+            System.out.println("No USDRUB data for Buy & Hold chart.");
+            return;
+        }
+
+        Map<String, Double> usdrubRates = new HashMap<>();
+        for (Candle c : usdrubCandles) {
+            String datePart = c.time.contains(" ") ? c.time.split(" ")[0] : c.time;
+            usdrubRates.put(datePart, c.close);
+        }
+
+        TimeSeries qqqSeries = new TimeSeries("Buy & Hold QQQ + 100K RUB/month");
+
+        double cashUsd = initialBalance / usdrubRates.values().iterator().next();
+        int shares = 0;
+        double avgPrice = 0;
+        int lastRebalanceMonth = -1;
+
+        LocalDate startDate = LocalDate.parse(periods.get(0).start);
+        LocalDate today = LocalDate.now();
+
+        for (Candle candle : qqqCandles) {
+            String datePart = candle.time.contains(" ") ? candle.time.split(" ")[0] : candle.time;
+            LocalDate candleDate;
+            try {
+                candleDate = LocalDate.parse(datePart, DATE_FMT);
+            } catch (Exception e) {
+                continue;
+            }
+
+            if (candleDate.isBefore(startDate) || candleDate.isAfter(today)) {
+                continue;
+            }
+
+            double usdrub = usdrubRates.getOrDefault(datePart, 80.0);
+            int currentMonth = candleDate.getMonthValue();
+            if (currentMonth != lastRebalanceMonth) {
+                double depositUsd = 100_000 / usdrub;
+                cashUsd += depositUsd;
+                int buyQty = (int) Math.floor(cashUsd / candle.close);
+                if (buyQty > 0) {
+                    double cost = buyQty * candle.close;
+                    double totalCost = avgPrice * shares + cost;
+                    shares += buyQty;
+                    cashUsd -= cost;
+                    avgPrice = shares > 0 ? totalCost / shares : 0;
+                }
+                lastRebalanceMonth = currentMonth;
+            }
+
+            double equityUsd = cashUsd + shares * candle.close;
+            double equityRub = equityUsd * usdrub;
+            try {
+                Day day =
+                        new Day(
+                                java.util.Date.from(
+                                        candleDate
+                                                .atStartOfDay(java.time.ZoneId.systemDefault())
+                                                .toInstant()));
+                qqqSeries.addOrUpdate(day, equityRub);
+            } catch (Exception e) {
+                // Skip
+            }
+        }
+
+        if (qqqSeries.getItemCount() == 0) {
+            System.out.println("No equity data for QQQ Buy & Hold chart");
+            return;
+        }
+
+        TimeSeriesCollection dataset = new TimeSeriesCollection(qqqSeries);
+
+        JFreeChart chart =
+                ChartFactory.createTimeSeriesChart(
+                        "Buy & Hold QQQ + 100K RUB/month",
+                        "Date",
+                        "Capital (RUB)",
+                        dataset,
+                        true,
+                        true,
+                        false);
+
+        XYPlot plot = (XYPlot) chart.getPlot();
+        DateAxis dateAxis = (DateAxis) plot.getDomainAxis();
+        dateAxis.setDateFormatOverride(new SimpleDateFormat("yyyy-MM"));
+
+        try {
+            Path imagesDir = Paths.get("ml_strategy/images");
+            Files.createDirectories(imagesDir);
+            Path outputPath = imagesDir.resolve("BasicQQQ.png");
+            try (FileOutputStream out = new FileOutputStream(outputPath.toFile())) {
+                ChartUtilities.writeChartAsPNG(out, chart, 1200, 600);
+            }
+            System.out.println("Buy & Hold QQQ chart saved to: " + outputPath.toAbsolutePath());
+        } catch (Exception e) {
+            System.out.println("Failed to save QQQ chart: " + e.getMessage());
+        }
+    }
+
+    private void plotBuyAndHoldTmonChart(List<PeriodDefinition> periods) {
+        String fullStart = periods.get(0).start;
+        String fullEnd = periods.get(periods.size() - 1).endExclusive;
+        List<RawCandle> rawCandles = loadCandles("TMON@", fullStart, fullEnd);
+        if (rawCandles.isEmpty()) {
+            System.out.println("No TMON@ data for buy & hold chart");
+            return;
+        }
+
+        double capital = initialBalance;
+        double totalShares = 0.0;
+        double avgBuyPrice = 0.0;
+        int lastDepositMonth = -1;
+
+        TimeSeries tmonSeries = new TimeSeries("Buy & Hold TMON@");
+
+        for (RawCandle c : rawCandles) {
+            LocalDateTime candleTime = c.dateTime;
+            int monthKey = candleTime.getYear() * 100 + candleTime.getMonthValue();
+
+            if (lastDepositMonth == -1) {
+                lastDepositMonth = monthKey;
+            } else if (monthKey != lastDepositMonth && monthlyRebalanceAmount > 0) {
+                capital += monthlyRebalanceAmount;
+                lastDepositMonth = monthKey;
+            }
+
+            if (totalShares == 0 && capital > c.close) {
+                totalShares = Math.floor(capital / c.close);
+                double cost = totalShares * c.close;
+                capital -= cost;
+                avgBuyPrice = c.close;
+            }
+
+            double equity = capital + totalShares * c.close;
+            try {
+                Day day =
+                        new Day(
+                                java.util.Date.from(
+                                        candleTime
+                                                .toLocalDate()
+                                                .atStartOfDay(java.time.ZoneId.systemDefault())
+                                                .toInstant()));
+                tmonSeries.add(day, equity);
+            } catch (Exception e) {
+                // skip duplicate
+            }
+        }
+
+        if (tmonSeries.getItemCount() == 0) {
+            return;
+        }
+
+        TimeSeriesCollection dataset = new TimeSeriesCollection(tmonSeries);
+
+        JFreeChart chart =
+                ChartFactory.createTimeSeriesChart(
+                        "Buy & Hold TMON@ + 100K RUB/month",
+                        "Date",
+                        "Capital (RUB)",
+                        dataset,
+                        true,
+                        true,
+                        false);
+
+        XYPlot plot = (XYPlot) chart.getPlot();
+        DateAxis dateAxis = (DateAxis) plot.getDomainAxis();
+        dateAxis.setDateFormatOverride(new SimpleDateFormat("yyyy-MM"));
+
+        try {
+            Path imagesDir = Paths.get("ml_strategy/images");
+            Files.createDirectories(imagesDir);
+            Path outputPath = imagesDir.resolve("BasicTMON.png");
+            try (FileOutputStream out = new FileOutputStream(outputPath.toFile())) {
+                ChartUtilities.writeChartAsPNG(out, chart, 1200, 600);
+            }
+            System.out.println("Buy & Hold TMON@ chart saved to: " + outputPath.toAbsolutePath());
+        } catch (Exception e) {
+            System.out.println("Failed to save TMON@ chart: " + e.getMessage());
         }
     }
 
@@ -1262,6 +1630,106 @@ public class BacktestRunner {
         return new ExecutionResult(tickerResults, portfolioResult);
     }
 
+    private List<Candle> loadDailyCandles(String ticker) {
+        File file = new File(dataDir, ticker + "/candlesDAY.txt");
+        if (!file.exists()) {
+            return Collections.emptyList();
+        }
+        try {
+            List<String> lines = Files.readAllLines(file.toPath());
+            List<Candle> candles = new ArrayList<>();
+            for (int i = 1; i < lines.size(); i++) {
+                String line = lines.get(i).trim();
+                if (line.isEmpty()) {
+                    continue;
+                }
+                try {
+                    String[] parts = line.split(",");
+                    if (parts.length < 6) {
+                        continue;
+                    }
+                    candles.add(
+                            new Candle(
+                                    parts[0].trim(),
+                                    Double.parseDouble(parts[1]),
+                                    Double.parseDouble(parts[2]),
+                                    Double.parseDouble(parts[3]),
+                                    Double.parseDouble(parts[4]),
+                                    Long.parseLong(parts[5])));
+                } catch (Exception ignored) {
+                }
+            }
+            candles.sort(
+                    Comparator.comparing(
+                            c -> {
+                                try {
+                                    return LocalDateTime.parse(c.time, DATE_TIME_FMT);
+                                } catch (Exception e) {
+                                    return LocalDateTime.MIN;
+                                }
+                            }));
+            return candles;
+        } catch (IOException e) {
+            return Collections.emptyList();
+        }
+    }
+
+    private List<String> findCommonDailyDates(
+            List<Candle> qqq, List<Candle> tqqq, List<Candle> sqqq) {
+        Set<String> qqqDates = extractDailyDates(qqq);
+        Set<String> tqqqDates = extractDailyDates(tqqq);
+        Set<String> sqqqDates = extractDailyDates(sqqq);
+
+        List<String> common = new ArrayList<>();
+        for (String date : qqqDates) {
+            if (tqqqDates.contains(date) && sqqqDates.contains(date)) {
+                common.add(date);
+            }
+        }
+        common.sort(
+                Comparator.comparing(
+                        d -> {
+                            try {
+                                return LocalDate.parse(d, DATE_FMT);
+                            } catch (Exception e) {
+                                return LocalDate.MIN;
+                            }
+                        }));
+        return common;
+    }
+
+    private Set<String> extractDailyDates(List<Candle> candles) {
+        Set<String> dates = new LinkedHashSet<>();
+        for (Candle c : candles) {
+            String datePart = c.time.contains(" ") ? c.time.split(" ")[0] : c.time;
+            dates.add(datePart);
+        }
+        return dates;
+    }
+
+    private List<Candle> getDailyCandlesUpToDate(
+            List<Candle> candles, List<String> commonDates, int count) {
+        List<Candle> result = new ArrayList<>();
+        Set<String> dateSet = new LinkedHashSet<>(commonDates.subList(0, count));
+        for (Candle c : candles) {
+            String datePart = c.time.contains(" ") ? c.time.split(" ")[0] : c.time;
+            if (dateSet.contains(datePart)) {
+                result.add(c);
+            }
+        }
+        return result;
+    }
+
+    private Candle getDailyCandleAtDate(List<Candle> candles, String date) {
+        for (Candle c : candles) {
+            String datePart = c.time.contains(" ") ? c.time.split(" ")[0] : c.time;
+            if (date.equals(datePart)) {
+                return c;
+            }
+        }
+        return null;
+    }
+
     private List<MarketDataLoadResult> loadMarketDataParallel(
             List<String> tickers, UnifiedTraderConfig config, String start, String endExclusive)
             throws IOException {
@@ -1456,7 +1924,16 @@ public class BacktestRunner {
         double pnl = grossPnl - roundTripCommission;
         String dir = isShort ? "SELL" : "BUY";
 
-        trades.add(new TradeResult(ticker, dir, state.entryPrice, exitPrice, pnl, reason, time));
+        trades.add(
+                new TradeResult(
+                        ticker,
+                        dir,
+                        state.entryPrice,
+                        exitPrice,
+                        state.position.quantity,
+                        pnl,
+                        reason,
+                        time));
         double stopLoss =
                 state.position.stopLoss != null ? state.position.stopLoss : state.entryPrice;
         strategy.recordBacktestTradeOutcome(
@@ -1580,6 +2057,7 @@ public class BacktestRunner {
                                     "BUY",
                                     entryPrice,
                                     exitPrice,
+                                    q,
                                     pnl,
                                     "eod_close",
                                     current.time));
@@ -1707,6 +2185,7 @@ public class BacktestRunner {
                                         "BUY",
                                         entryPrice,
                                         exitPrice,
+                                        q,
                                         pnl,
                                         decision.reason,
                                         current.time));
@@ -1750,6 +2229,7 @@ public class BacktestRunner {
                             "BUY",
                             entryPrice,
                             lastPrice,
+                            q,
                             pnl,
                             "period_end",
                             wrappedMin.get(wrappedMin.size() - 1).time));

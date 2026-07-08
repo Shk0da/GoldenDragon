@@ -78,6 +78,16 @@ task runBacktest(type: JavaExec) {
     }
 }
 
+task runTmonBacktest(type: JavaExec) {
+    main = 'com.github.shk0da.goldendragon.test.BacktestRunner'
+    classpath = sourceSets.main.runtimeClasspath
+    workingDir = rootDir
+    jvmArgs '--add-opens', 'java.base/java.time=ALL-UNNAMED'
+    systemProperty 'backtest.commission', '0.0'
+    systemProperty 'backtest.monthlyDeposit', '100000'
+    args 'TmonAveragingStrategy'
+}
+
 task runMlTraining(type: JavaExec) {
     main = 'com.github.shk0da.goldendragon.ml.MlModelTrainer'
     classpath = sourceSets.main.runtimeClasspath
