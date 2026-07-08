@@ -33,6 +33,7 @@ import com.github.shk0da.goldendragon.strategy.ModelGenerator;
 import com.github.shk0da.goldendragon.strategy.OrderBookOrchestratorStrategy;
 import com.github.shk0da.goldendragon.strategy.OrderBookScalpStrategy;
 import com.github.shk0da.goldendragon.strategy.PrecisionStrategy;
+import com.github.shk0da.goldendragon.strategy.TmonAveragingStrategy;
 import com.github.shk0da.goldendragon.strategy.RSX;
 import com.github.shk0da.goldendragon.strategy.Rebalance;
 import com.github.shk0da.goldendragon.strategy.RegimeAwareStrategyMl;
@@ -71,6 +72,7 @@ public final class GoldenDragon {
     private static final String STRATEGY_PRECISION = "PrecisionStrategy";
     private static final String STRATEGY_ORDER_BOOK_SCALP = "OrderBookScalpStrategy";
     private static final String STRATEGY_ORDER_BOOK_ORCHESTRATOR = "OrderBookOrchestratorStrategy";
+    private static final String STRATEGY_TMON_AVERAGING = "TmonAveragingStrategy";
     private static final int DEFAULT_ARG_INDEX = 0;
     private static final int MARKET_ARG_INDEX = 1;
     private static final int ACCOUNT_ARG_INDEX = 2;
@@ -168,6 +170,9 @@ public final class GoldenDragon {
                 break;
             case STRATEGY_ORDER_BOOK_ORCHESTRATOR:
                 executeOrderBookOrchestratorStrategy(mainConfig, tcsService);
+                break;
+            case STRATEGY_TMON_AVERAGING:
+                executeTmonAveragingStrategy(tcsService);
                 break;
             default:
                 out.println("Unknown strategy: " + strategy);
@@ -294,6 +299,18 @@ public final class GoldenDragon {
             telegramNotifyService.sendMessage("Stop PrecisionStrategy");
         } catch (final Exception ex) {
             out.printf("PrecisionStrategy error: %s%n", ex.getMessage());
+            ex.printStackTrace();
+        }
+    }
+
+    private static void executeTmonAveragingStrategy(final TCSService tcsService) {
+        telegramNotifyService.sendMessage("Run TmonAveragingStrategy");
+        try {
+            final UnifiedTraderConfig unifiedTraderConfig = new UnifiedTraderConfig();
+            new TmonAveragingStrategy(unifiedTraderConfig, tcsService).run();
+            telegramNotifyService.sendMessage("Stop TmonAveragingStrategy");
+        } catch (final Exception ex) {
+            out.printf("TmonAveragingStrategy error: %s%n", ex.getMessage());
             ex.printStackTrace();
         }
     }
