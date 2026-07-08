@@ -15,8 +15,8 @@ import java.util.List;
  * step: higher ATR = more aggressive buying (fewer remaining steps). Exits when price recovers
  * above average entry price.
  *
- * <p>Key idea: TMON@ steadily appreciates (~17%/year). Every dip is a buying opportunity. ATR
- * helps size positions proportionally to current volatility.
+ * <p>Key idea: TMON@ steadily appreciates (~17%/year). Every dip is a buying opportunity. ATR helps
+ * size positions proportionally to current volatility.
  */
 public class TmonAveragingStrategy extends BaseStrategy {
 
@@ -193,8 +193,7 @@ public class TmonAveragingStrategy extends BaseStrategy {
         int prevQty = positionQuantity;
         cashBalance -= cost;
         positionQuantity += qty;
-        avgEntryPrice =
-                (avgEntryPrice * prevQty + current.close * qty) / (double) positionQuantity;
+        avgEntryPrice = (avgEntryPrice * prevQty + current.close * qty) / (double) positionQuantity;
         entryStep++;
 
         logPosition("BUY", qty, current.close, dynamicSteps);
@@ -264,8 +263,7 @@ public class TmonAveragingStrategy extends BaseStrategy {
             double tr =
                     Math.max(
                             c.high - c.low,
-                            Math.max(
-                                    Math.abs(c.high - c.close), Math.abs(c.low - c.close)));
+                            Math.max(Math.abs(c.high - c.close), Math.abs(c.low - c.close)));
             atr += tr;
         }
         return atr / (double) (size - 1);

@@ -974,7 +974,11 @@ public abstract class BaseStrategy {
 
     protected TickerInfo findTickerInfo(String name) {
         return TickerRepository.INSTANCE.getAll().values().stream()
-                .filter(t -> t.getType() == TickerType.STOCK || t.getType() == TickerType.FEATURE)
+                .filter(
+                        t ->
+                                t.getType() == TickerType.STOCK
+                                        || t.getType() == TickerType.FEATURE
+                                        || t.getType() == TickerType.ETF)
                 .filter(
                         t ->
                                 t.getName().equalsIgnoreCase(name)
