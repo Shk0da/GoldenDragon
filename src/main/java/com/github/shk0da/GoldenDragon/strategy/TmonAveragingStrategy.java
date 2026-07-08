@@ -147,7 +147,7 @@ public class TmonAveragingStrategy extends BaseStrategy {
     }
 
     private TradingDecision handleHolding(Candle current, boolean hasProfit) {
-        if (hasProfit) {
+        if (hasProfit && positionQuantity > 0) {
             phase = Phase.SCALING_OUT;
             exitStep = 0;
             return executeSell(current);
@@ -175,6 +175,10 @@ public class TmonAveragingStrategy extends BaseStrategy {
     }
 
     private TradingDecision executeBuy(Candle current) {
+        if (cashBalance < current.close) {
+            return new TradingDecision("HOLD", "insufficient_cash");
+        }
+
         int dynamicSteps = computeDynamicSteps(current);
         int remainingSteps = Math.max(1, dynamicSteps - entryStep);
         double allocation = cashBalance / (double) remainingSteps;
@@ -186,7 +190,7 @@ public class TmonAveragingStrategy extends BaseStrategy {
             cost = qty * current.close;
         }
 
-        if (qty <= 0 || cost <= 0) {
+        if (qty <= 0 || cost <= 0 || cost > cashBalance) {
             return new TradingDecision("HOLD", "insufficient_cash");
         }
 
@@ -209,6 +213,10 @@ public class TmonAveragingStrategy extends BaseStrategy {
     }
 
     private TradingDecision executeSell(Candle current) {
+        if (positionQuantity <= 0) {
+            return new TradingDecision("HOLD", "no_position");
+        }
+
         int qty = Math.max(1, positionQuantity / (MAX_EXIT_STEPS - exitStep));
         qty = Math.min(qty, positionQuantity);
         double proceeds = qty * current.close;
