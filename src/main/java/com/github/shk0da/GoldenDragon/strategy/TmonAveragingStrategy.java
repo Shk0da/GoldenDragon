@@ -1,12 +1,19 @@
 package com.github.shk0da.goldendragon.strategy;
 
+import static com.github.shk0da.goldendragon.service.TelegramNotifyService.telegramNotifyService;
+
+import com.github.shk0da.goldendragon.config.TmonAveragingConfig;
 import com.github.shk0da.goldendragon.config.UnifiedTraderConfig;
 import com.github.shk0da.goldendragon.model.Candle;
 import com.github.shk0da.goldendragon.model.Config;
 import com.github.shk0da.goldendragon.model.Position;
+import com.github.shk0da.goldendragon.model.TickerInfo;
 import com.github.shk0da.goldendragon.model.TradingDecision;
 import com.github.shk0da.goldendragon.service.TCSService;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 /**
  * TMON Averaging Strategy with dynamic ATR-based step sizing.
@@ -17,21 +24,13 @@ import java.util.List;
  *
  * <p>Key idea: TMON@ steadily appreciates (~17%/year). Every dip is a buying opportunity. ATR helps
  * size positions proportionally to current volatility.
+ *
+ * <p>Uses its own {@link TmonAveragingConfig} — does not depend on {@code UnifiedTraderConfig} for
+ * ticker selection or trading logic.
  */
 public class TmonAveragingStrategy extends BaseStrategy {
 
-    private static final int MAX_ENTRY_STEPS = 5;
-    private static final int MAX_EXIT_STEPS = 5;
-    private static final double PROFIT_TARGET = 0.005;
-    private static final int ATR_PERIOD = 14;
-
-    public enum Phase {
-        WAITING,
-        SCALING_IN,
-        HOLDING,
-        SCALING_OUT,
-        EXITED
-    }
+    private final TmonAveragingConfig tmonConfig;
 
     private Phase phase = Phase.WAITING;
     private double cashBalance;
@@ -40,6 +39,14 @@ public class TmonAveragingStrategy extends BaseStrategy {
     private int entryStep;
     private int exitStep;
     private List<Candle> lastCandles;
+
+    public enum Phase {
+        WAITING,
+        SCALING_IN,
+        HOLDING,
+        SCALING_OUT,
+        EXITED
+    }
 
     public TmonAveragingStrategy(UnifiedTraderConfig config, TCSService tcsService) {
         this(config, tcsService, new Config(), false, 1000000.0);
@@ -52,6 +59,18 @@ public class TmonAveragingStrategy extends BaseStrategy {
             boolean isBacktest,
             double initialCash) {
         super(config, tcsService, backtestConfig, isBacktest);
+        this.tmonConfig = new TmonAveragingConfig();
+        this.cashBalance = initialCash;
+    }
+
+    public TmonAveragingStrategy(
+            TmonAveragingConfig tmonConfig,
+            TCSService tcsService,
+            Config backtestConfig,
+            boolean isBacktest,
+            double initialCash) {
+        super(null, tcsService, backtestConfig, isBacktest);
+        this.tmonConfig = tmonConfig;
         this.cashBalance = initialCash;
     }
 
@@ -86,6 +105,106 @@ public class TmonAveragingStrategy extends BaseStrategy {
     }
 
     @Override
+    public void run() {
+        if (tcsService == null) {
+            log(getStrategyName() + " stopped: tcsService is null.");
+            return;
+        }
+
+        var initPortfolioCost = safeGetTotalPortfolioCost();
+        var infoMessage =
+                getStrategyName()
+                        + " started. Ticker: "
+                        + TmonAveragingConfig.TICKER
+                        + ", Total Portfolio Cost: "
+                        + initPortfolioCost;
+        telegramNotifyService.sendMessage(infoMessage);
+        log(infoMessage);
+
+        if (!tmonConfig.isEnabled()) {
+            log(getStrategyName() + " disabled in config.");
+            return;
+        }
+
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            CompletableFuture<Void> candleUpdater =
+                    CompletableFuture.runAsync(
+                            () -> {
+                                while (isWorkingHours()) {
+                                    com.github.shk0da.goldendragon.utils.TimeUtils.sleep(60_000);
+                                }
+                            },
+                            executor);
+
+            CompletableFuture<Void> trader =
+                    CompletableFuture.runAsync(
+                            () -> {
+                                while (isWorkingHours()) {
+                                    try {
+                                        processTmonTicker();
+                                    } catch (Exception ex) {
+                                        log(getStrategyName() + " error: " + ex.getMessage());
+                                    }
+                                    com.github.shk0da.goldendragon.utils.TimeUtils.sleep(30_000);
+                                }
+                            },
+                            executor);
+
+            CompletableFuture.allOf(candleUpdater, trader).join();
+        } finally {
+            shutdownExecutor(executor);
+
+            var endPortfolioCost = safeGetTotalPortfolioCost();
+            var message = getStrategyName() + " stopped. Total Portfolio Cost: " + endPortfolioCost;
+            telegramNotifyService.sendMessage(message);
+            log(message);
+        }
+    }
+
+    private void processTmonTicker() {
+        TickerInfo tickerInfo = findTickerInfo(TmonAveragingConfig.TICKER);
+        if (tickerInfo == null) {
+            log("Ticker " + TmonAveragingConfig.TICKER + " not found in repository.");
+            return;
+        }
+
+        String figi = tickerInfo.getFigi();
+        var now = java.time.OffsetDateTime.now();
+        String dataDir = tmonConfig.getDataDir();
+
+        List<Candle> hourCandles =
+                loadOrRefreshCandles(
+                        TmonAveragingConfig.TICKER,
+                        figi,
+                        dataDir,
+                        now,
+                        ru.tinkoff.piapi.contract.v1.CandleInterval.CANDLE_INTERVAL_HOUR);
+        if (hourCandles == null || hourCandles.isEmpty()) {
+            log("No hourly candles for " + TmonAveragingConfig.TICKER + ", skipping.");
+            return;
+        }
+
+        Position storedPosition =
+                positionStore.getOrDefault(TmonAveragingConfig.TICKER, new Position());
+
+        TradingDecision decision =
+                decide(
+                        TmonAveragingConfig.TICKER,
+                        hourCandles,
+                        null,
+                        storedPosition,
+                        cashBalance,
+                        false);
+
+        if ("OPEN".equals(decision.action)) {
+            openPosition(TmonAveragingConfig.TICKER, tickerInfo, hourCandles, decision);
+        } else if ("CLOSE".equals(decision.action)) {
+            closePosition(TmonAveragingConfig.TICKER, tickerInfo, storedPosition, decision);
+        }
+    }
+
+    @Override
     public TradingDecision decide(
             String ticker,
             List<Candle> hourCandles,
@@ -93,7 +212,8 @@ public class TmonAveragingStrategy extends BaseStrategy {
             Position position,
             double balance,
             boolean incrementCandlesHeld) {
-        if (hourCandles == null || hourCandles.size() < ATR_PERIOD + 2) {
+        int atrPeriod = tmonConfig.getAtrPeriod();
+        if (hourCandles == null || hourCandles.size() < atrPeriod + 2) {
             return new TradingDecision("HOLD", "insufficient_history");
         }
 
@@ -106,7 +226,7 @@ public class TmonAveragingStrategy extends BaseStrategy {
         boolean hasProfit =
                 positionQuantity > 0
                         && avgEntryPrice > 0
-                        && current.close > avgEntryPrice * (1 + PROFIT_TARGET);
+                        && current.close > avgEntryPrice * (1 + tmonConfig.getProfitTarget());
 
         switch (phase) {
             case WAITING:
@@ -134,11 +254,12 @@ public class TmonAveragingStrategy extends BaseStrategy {
     }
 
     private TradingDecision handleScalingIn(Candle current, boolean isDip) {
-        if (isDip && entryStep < MAX_ENTRY_STEPS && cashBalance > current.close) {
+        int maxEntrySteps = tmonConfig.getMaxEntrySteps();
+        if (isDip && entryStep < maxEntrySteps && cashBalance > current.close) {
             return executeBuy(current);
         }
 
-        if (entryStep >= MAX_ENTRY_STEPS || cashBalance <= current.close) {
+        if (entryStep >= maxEntrySteps || cashBalance <= current.close) {
             phase = Phase.HOLDING;
             return new TradingDecision("HOLD", "holding");
         }
@@ -156,7 +277,8 @@ public class TmonAveragingStrategy extends BaseStrategy {
     }
 
     private TradingDecision handleScalingOut(Candle current) {
-        if (exitStep < MAX_EXIT_STEPS && positionQuantity > 0) {
+        int maxExitSteps = tmonConfig.getMaxExitSteps();
+        if (exitStep < maxExitSteps && positionQuantity > 0) {
             return executeSell(current);
         }
 
@@ -217,7 +339,8 @@ public class TmonAveragingStrategy extends BaseStrategy {
             return new TradingDecision("HOLD", "no_position");
         }
 
-        int qty = Math.max(1, positionQuantity / (MAX_EXIT_STEPS - exitStep));
+        int maxExitSteps = tmonConfig.getMaxExitSteps();
+        int qty = Math.max(1, positionQuantity / (maxExitSteps - exitStep));
         qty = Math.min(qty, positionQuantity);
         double proceeds = qty * current.close;
         cashBalance += proceeds;
@@ -229,7 +352,7 @@ public class TmonAveragingStrategy extends BaseStrategy {
             avgEntryPrice = 0;
         }
 
-        logPosition("SELL", qty, current.close, MAX_EXIT_STEPS);
+        logPosition("SELL", qty, current.close, maxExitSteps);
         return new TradingDecision(
                 "CLOSE",
                 "profit_take",
@@ -241,30 +364,28 @@ public class TmonAveragingStrategy extends BaseStrategy {
                 new Position("SELL", current.close, null, null, qty, 0));
     }
 
-    /**
-     * Compute dynamic number of entry steps based on ATR. Higher ATR = fewer steps = more
-     * aggressive per-step allocation.
-     */
     private int computeDynamicSteps(Candle current) {
         double atr = computeAtr(current);
         double atrRatio = atr / current.close;
+        int maxEntrySteps = tmonConfig.getMaxEntrySteps();
 
         if (atrRatio > 0.002) {
-            return Math.max(2, MAX_ENTRY_STEPS - 2);
+            return Math.max(2, maxEntrySteps - 2);
         }
         if (atrRatio > 0.001) {
-            return Math.max(3, MAX_ENTRY_STEPS - 1);
+            return Math.max(3, maxEntrySteps - 1);
         }
-        return MAX_ENTRY_STEPS;
+        return maxEntrySteps;
     }
 
     private double computeAtr(Candle current) {
+        int atrPeriod = tmonConfig.getAtrPeriod();
         if (lastCandles == null || lastCandles.size() < 2) {
             return current.high - current.low;
         }
 
         double atr = 0.0;
-        int size = Math.min(ATR_PERIOD + 1, lastCandles.size());
+        int size = Math.min(atrPeriod + 1, lastCandles.size());
 
         for (int i = lastCandles.size() - size; i < lastCandles.size(); i++) {
             Candle c = lastCandles.get(i);

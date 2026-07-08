@@ -19,7 +19,9 @@ import com.github.shk0da.goldendragon.config.MarketConfig;
 import com.github.shk0da.goldendragon.config.OrderBookScalpConfig;
 import com.github.shk0da.goldendragon.config.RSXConfig;
 import com.github.shk0da.goldendragon.config.RebalanceConfig;
+import com.github.shk0da.goldendragon.config.TmonAveragingConfig;
 import com.github.shk0da.goldendragon.config.UnifiedTraderConfig;
+import com.github.shk0da.goldendragon.model.Config;
 import com.github.shk0da.goldendragon.model.Market;
 import com.github.shk0da.goldendragon.model.TickerInfo;
 import com.github.shk0da.goldendragon.repository.Repository;
@@ -306,8 +308,8 @@ public final class GoldenDragon {
     private static void executeTmonAveragingStrategy(final TCSService tcsService) {
         telegramNotifyService.sendMessage("Run TmonAveragingStrategy");
         try {
-            final UnifiedTraderConfig unifiedTraderConfig = new UnifiedTraderConfig();
-            new TmonAveragingStrategy(unifiedTraderConfig, tcsService).run();
+            new TmonAveragingStrategy(new TmonAveragingConfig(), tcsService, new Config(), false, 0)
+                    .run();
             telegramNotifyService.sendMessage("Stop TmonAveragingStrategy");
         } catch (final Exception ex) {
             out.printf("TmonAveragingStrategy error: %s%n", ex.getMessage());

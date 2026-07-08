@@ -1,5 +1,6 @@
 package com.github.shk0da.goldendragon.test;
 
+import com.github.shk0da.goldendragon.config.TmonAveragingConfig;
 import com.github.shk0da.goldendragon.config.UnifiedTraderConfig;
 import com.github.shk0da.goldendragon.model.Candle;
 import com.github.shk0da.goldendragon.model.Config;
@@ -240,7 +241,8 @@ public class BacktestRunner {
                 case "PrecisionStrategy":
                     return new PrecisionStrategy(config, null, new Config(), true);
                 case "TmonAveragingStrategy":
-                    return new TmonAveragingStrategy(config, null, new Config(), true, 1_000_000.0);
+                    return new TmonAveragingStrategy(
+                            new TmonAveragingConfig(), null, new Config(), true, 1_000_000.0);
                 default:
                     throw new IllegalArgumentException("Unknown strategy: " + strategyName);
             }
@@ -630,7 +632,8 @@ public class BacktestRunner {
                         + ", commission: 0.0%");
 
         TmonAveragingStrategy strategy =
-                new TmonAveragingStrategy(config, null, new Config(), true, initialBalance);
+                new TmonAveragingStrategy(
+                        new TmonAveragingConfig(), null, new Config(), true, initialBalance);
         List<EquityPoint> equityCurve = new ArrayList<>();
         List<TradeResult> trades = new ArrayList<>();
 
