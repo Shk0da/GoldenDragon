@@ -667,6 +667,18 @@ public abstract class BaseStrategy {
 
             double executedEntryPrice =
                     executedPosition.entryPrice != null ? executedPosition.entryPrice : entryPrice;
+            double slInfo =
+                    executedPosition.stopLoss != null
+                            ? abs(executedEntryPrice - executedPosition.stopLoss)
+                                    / executedEntryPrice
+                                    * 100
+                            : 0.0;
+            double tpInfo =
+                    executedPosition.takeProfit != null
+                            ? abs(executedPosition.takeProfit - executedEntryPrice)
+                                    / executedEntryPrice
+                                    * 100
+                            : 0.0;
             telegramNotifyService.sendMessage(
                     getStrategyName()
                             + " "
@@ -678,18 +690,10 @@ public abstract class BaseStrategy {
                             + ", entry="
                             + executedEntryPrice
                             + ", SL="
-                            + String.format(
-                                    "%.2f",
-                                    abs(executedEntryPrice - executedPosition.stopLoss)
-                                            / executedEntryPrice
-                                            * 100)
+                            + String.format("%.2f", slInfo)
                             + "%"
                             + ", TP="
-                            + String.format(
-                                    "%.2f",
-                                    abs(executedPosition.takeProfit - executedEntryPrice)
-                                            / executedEntryPrice
-                                            * 100)
+                            + String.format("%.2f", tpInfo)
                             + "%");
         } catch (Exception ex) {
             log(
@@ -1614,9 +1618,16 @@ public abstract class BaseStrategy {
             return new HashMap<>();
         }
 
+        boolean tmonCashParking =
+                weights.containsKey("TMON@") && unifiedTraderConfig.isTmonCashParkingEnabled();
+
         Map<String, Double> allocation = new HashMap<>();
         for (Map.Entry<String, Double> e : weights.entrySet()) {
-            allocation.put(e.getKey(), totalCash * (e.getValue() / totalWeight));
+            if (tmonCashParking && "TMON@".equals(e.getKey())) {
+                allocation.put(e.getKey(), totalCash);
+            } else if (!tmonCashParking) {
+                allocation.put(e.getKey(), totalCash * (e.getValue() / totalWeight));
+            }
         }
 
         return allocation;
