@@ -904,6 +904,11 @@ public class UnifiedStrategy extends BaseStrategy {
             return TickerRepository.INSTANCE.getById(stockKey);
         }
 
+        TickerInfo.Key etfKey = new TickerInfo.Key(ticker, TickerType.ETF);
+        if (TickerRepository.INSTANCE.containsKey(etfKey)) {
+            return TickerRepository.INSTANCE.getById(etfKey);
+        }
+
         TickerInfo.Key futureKey = new TickerInfo.Key(ticker, TickerType.FEATURE);
         if (TickerRepository.INSTANCE.containsKey(futureKey)) {
             return TickerRepository.INSTANCE.getById(futureKey);
@@ -916,7 +921,11 @@ public class UnifiedStrategy extends BaseStrategy {
                 try {
                     return tcsService.searchTicker(stockKey);
                 } catch (Exception ignoredToo) {
-                    return null;
+                    try {
+                        return tcsService.searchTicker(etfKey);
+                    } catch (Exception ignoredThree) {
+                        return null;
+                    }
                 }
             }
         }
@@ -1159,8 +1168,11 @@ public class UnifiedStrategy extends BaseStrategy {
             if (safeCash > 0.0 && currentPrice > 0.0) {
                 logWithBacktest("TMON@: buying with idle cash " + String.format("%.2f", safeCash));
                 TickerInfo tickerInfo = resolveTickerInfo("TMON@");
-                int lot =
-                        tickerInfo != null && tickerInfo.getLot() != null ? tickerInfo.getLot() : 1;
+                if (tickerInfo == null) {
+                    logWithBacktest("TMON@: ticker info not found, skipping buy");
+                    return new TradingDecision("HOLD", "tmon_ticker_not_found");
+                }
+                int lot = tickerInfo.getLot() != null ? tickerInfo.getLot() : 1;
                 int buyQty =
                         tcsService != null
                                 ? tcsService.calculateTradeCount(
