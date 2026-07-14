@@ -148,6 +148,11 @@ public class UnifiedStrategy extends BaseStrategy {
     private static final double MARKET_ORDER_CASH_BUFFER_PERCENT = 0.001;
     private static final double MARKET_ORDER_CASH_BUFFER_MIN = 10.0;
 
+    // Minimum votes required for a trend signal (out of 6 indicators)
+    private static final int TREND_SIGNAL_MIN_VOTES = 5;
+    // Skip entries after this many consecutive losses
+    private static final int LOSS_STREAK_SKIP_THRESHOLD = 2;
+
     // Money Management components
     private final RiskManager riskManager;
     private final PositionSizer positionSizer;
@@ -162,6 +167,9 @@ public class UnifiedStrategy extends BaseStrategy {
 
     // Track initial risk per position for R-based calculations
     private final ConcurrentMap<String, Double> initialRiskPerTicker = new ConcurrentHashMap<>();
+
+    // Track consecutive losses per ticker for entry cooldown
+    private final ConcurrentMap<String, Integer> consecutiveLossTracker = new ConcurrentHashMap<>();
 
     public UnifiedStrategy(UnifiedTraderConfig unifiedTraderConfig, TCSService tcsService) {
         this(unifiedTraderConfig, tcsService, new Config(), false);
@@ -558,10 +566,17 @@ public class UnifiedStrategy extends BaseStrategy {
             }
         }
 
-        if (isBuy && rsi > 72.0) {
+        // Skip entry after consecutive losses
+        int lossStreak = consecutiveLossTracker.getOrDefault(ticker, 0);
+        if (lossStreak >= LOSS_STREAK_SKIP_THRESHOLD) {
+            return new TradingDecision(
+                    "HOLD", "loss_streak_" + lossStreak, 0.0, 0, null, null, null, p);
+        }
+
+        if (isBuy && rsi > 70.0) {
             return new TradingDecision("HOLD", "rsi_hot", 0.0, 0, null, null, null, p);
         }
-        if (!isBuy && rsi < 28.0) {
+        if (!isBuy && rsi < 30.0) {
             return new TradingDecision("HOLD", "rsi_cold", 0.0, 0, null, null, null, p);
         }
 
@@ -757,8 +772,10 @@ public class UnifiedStrategy extends BaseStrategy {
         if (p > emaF && emaF > emaS) bs++;
         if (p < emaF && emaF < emaS) ss++;
 
-        if (bs >= 4 && uptrend) return "TB_" + bs + "_" + (int) adx + "_" + (int) rsi;
-        if (ss >= 4 && dnTrend) return "TS_" + ss + "_" + (int) adx + "_" + (int) rsi;
+        if (bs >= TREND_SIGNAL_MIN_VOTES && uptrend)
+            return "TB_" + bs + "_" + (int) adx + "_" + (int) rsi;
+        if (ss >= TREND_SIGNAL_MIN_VOTES && dnTrend)
+            return "TS_" + ss + "_" + (int) adx + "_" + (int) rsi;
 
         return null;
     }
@@ -1060,6 +1077,7 @@ public class UnifiedStrategy extends BaseStrategy {
             }
             adaptiveCapital.reset();
             initialRiskPerTicker.clear();
+            consecutiveLossTracker.clear();
             logWithBacktest("MM: Daily reset completed");
         }
     }
@@ -1090,6 +1108,14 @@ public class UnifiedStrategy extends BaseStrategy {
                 killSwitch.checkDrawdown(performanceTracker.getCurrentDrawdown());
             }
             initialRiskPerTicker.remove(ticker);
+
+            // Track consecutive losses per ticker
+            if (pnl < 0) {
+                consecutiveLossTracker.merge(ticker, 1, Integer::sum);
+            } else {
+                consecutiveLossTracker.remove(ticker);
+            }
+
             logWithBacktest(
                     "MM: Registered trade for "
                             + ticker
