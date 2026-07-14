@@ -585,21 +585,28 @@ public abstract class BaseStrategy {
         int lotSize = ticker.getLot() != null ? Math.max(1, ticker.getLot()) : 1;
         double positionValue = qty * entryPrice * lotSize;
 
-        double slPrice =
-                decision.stopLoss != null
-                        ? decision.stopLoss
-                        : "BUY".equals(decision.updatedPosition.direction)
-                                ? entryPrice * 0.98
-                                : entryPrice * 1.02;
-        double tpPrice =
-                decision.takeProfit != null
-                        ? decision.takeProfit
-                        : "BUY".equals(decision.updatedPosition.direction)
-                                ? entryPrice * 1.04
-                                : entryPrice * 0.96;
-
-        double slPercent = abs(entryPrice - slPrice) / entryPrice * 100;
-        double tpPercent = abs(tpPrice - entryPrice) / entryPrice * 100;
+        boolean isTmonCashParking = "TMON@".equals(name);
+        double slPercent;
+        double tpPercent;
+        if (isTmonCashParking) {
+            slPercent = 0.0;
+            tpPercent = 0.0;
+        } else {
+            double slPrice =
+                    decision.stopLoss != null
+                            ? decision.stopLoss
+                            : "BUY".equals(decision.updatedPosition.direction)
+                                    ? entryPrice * 0.98
+                                    : entryPrice * 1.02;
+            double tpPrice =
+                    decision.takeProfit != null
+                            ? decision.takeProfit
+                            : "BUY".equals(decision.updatedPosition.direction)
+                                    ? entryPrice * 1.04
+                                    : entryPrice * 0.96;
+            slPercent = abs(entryPrice - slPrice) / entryPrice * 100;
+            tpPercent = abs(tpPrice - entryPrice) / entryPrice * 100;
+        }
 
         log(
                 "Opening "

@@ -1158,39 +1158,30 @@ public class UnifiedStrategy extends BaseStrategy {
         }
 
         if (!hasActiveNonTmonPositions() && balance > 0.0) {
-            double safeCash =
-                    Math.max(
-                            0.0,
-                            balance
-                                    - Math.max(
-                                            MARKET_ORDER_CASH_BUFFER_MIN,
-                                            balance * MARKET_ORDER_CASH_BUFFER_PERCENT));
-            if (safeCash > 0.0 && currentPrice > 0.0) {
-                logWithBacktest("TMON@: buying with idle cash " + String.format("%.2f", safeCash));
-                TickerInfo tickerInfo = resolveTickerInfo("TMON@");
-                if (tickerInfo == null) {
-                    logWithBacktest("TMON@: ticker info not found, skipping buy");
-                    return new TradingDecision("HOLD", "tmon_ticker_not_found");
-                }
-                int lot = tickerInfo.getLot() != null ? tickerInfo.getLot() : 1;
-                int buyQty =
-                        tcsService != null
-                                ? tcsService.calculateTradeCount(
-                                        new TickerInfo.Key("TMON@", tickerInfo.getType()),
-                                        safeCash,
-                                        currentPrice)
-                                : (int) (Math.floor(safeCash / (currentPrice * lot)) * lot);
-                if (buyQty > 0) {
-                    return new TradingDecision(
-                            "OPEN",
-                            "tmon_cash_parking",
-                            1.0,
-                            buyQty,
-                            null,
-                            null,
-                            null,
-                            new Position("BUY", null, null, null, buyQty, 0, 0, 1));
-                }
+            TickerInfo tickerInfo = resolveTickerInfo("TMON@");
+            if (tickerInfo == null) {
+                logWithBacktest("TMON@: ticker info not found, skipping buy");
+                return new TradingDecision("HOLD", "tmon_ticker_not_found");
+            }
+            int lot = tickerInfo.getLot() != null ? tickerInfo.getLot() : 1;
+            double costPerLot = currentPrice * lot;
+            int buyQty = costPerLot > 0.0 ? (int) Math.floor(balance / costPerLot) * lot : 0;
+            if (buyQty > 0) {
+                double totalCost = buyQty * currentPrice;
+                logWithBacktest(
+                        "TMON@: buying "
+                                + buyQty
+                                + " with idle cash "
+                                + String.format("%.2f", totalCost));
+                return new TradingDecision(
+                        "OPEN",
+                        "tmon_cash_parking",
+                        1.0,
+                        buyQty,
+                        null,
+                        null,
+                        null,
+                        new Position("BUY", null, null, null, buyQty, 0, 0, 1));
             }
         }
 
