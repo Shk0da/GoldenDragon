@@ -288,6 +288,11 @@ public class UnifiedStrategy extends BaseStrategy {
         Position p = position;
         Group grp = Group.valueOf(unifiedTraderConfig.getTickerGroup(ticker));
 
+        // TMON@ Cash Parking: idle cash goes to TMON@, sell TMON@ when other positions need cash
+        if ("TMON@".equals(ticker) && unifiedTraderConfig.isTmonCashParkingEnabled()) {
+            return decideTmonCashParking(balance, p, cur.close);
+        }
+
         if (position.quantity > 0 && incrementCandlesHeld) {
             p =
                     copyPosition(
@@ -1093,6 +1098,65 @@ public class UnifiedStrategy extends BaseStrategy {
                             + ", consecutiveLosses="
                             + (riskManager != null ? riskManager.getConsecutiveLosses() : 0));
         }
+    }
+
+    /**
+     * TMON@ cash parking logic: when no positions on other tickers, buy TMON@ with available cash;
+     * when other positions need cash, sell TMON@ first.
+     */
+    private TradingDecision decideTmonCashParking(
+            double balance, Position position, double currentPrice) {
+        if (position.quantity > 0) {
+            if (hasActiveNonTmonPositions()) {
+                logWithBacktest("TMON@: selling to free cash for other positions");
+                return new TradingDecision(
+                        "CLOSE",
+                        "tmon_sell_for_cash",
+                        0.0,
+                        position.quantity,
+                        null,
+                        null,
+                        null,
+                        new Position(config.cooldownCandles));
+            }
+            return new TradingDecision("HOLD", "tmon_parked", 0.0, 0, null, null, null, position);
+        }
+
+        if (!hasActiveNonTmonPositions() && balance > 0.0) {
+            double safeCash =
+                    Math.max(
+                            0.0,
+                            balance
+                                    - Math.max(
+                                            MARKET_ORDER_CASH_BUFFER_MIN,
+                                            balance * MARKET_ORDER_CASH_BUFFER_PERCENT));
+            if (safeCash > 0.0 && currentPrice > 0.0) {
+                logWithBacktest("TMON@: buying with idle cash " + String.format("%.2f", safeCash));
+                TickerInfo tickerInfo = resolveTickerInfo("TMON@");
+                int lot =
+                        tickerInfo != null && tickerInfo.getLot() != null ? tickerInfo.getLot() : 1;
+                int buyQty =
+                        tcsService != null
+                                ? tcsService.calculateTradeCount(
+                                        new TickerInfo.Key("TMON@", tickerInfo.getType()),
+                                        safeCash,
+                                        currentPrice)
+                                : (int) (Math.floor(safeCash / (currentPrice * lot)) * lot);
+                if (buyQty > 0) {
+                    return new TradingDecision(
+                            "OPEN",
+                            "tmon_cash_parking",
+                            1.0,
+                            buyQty,
+                            null,
+                            null,
+                            null,
+                            new Position("BUY", null, null, null, buyQty, 0, 0, 1));
+                }
+            }
+        }
+
+        return new TradingDecision("HOLD", "tmon_no_action");
     }
 
     @Override

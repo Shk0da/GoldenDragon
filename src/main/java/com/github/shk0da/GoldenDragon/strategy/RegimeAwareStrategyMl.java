@@ -465,7 +465,10 @@ public class RegimeAwareStrategyMl extends BaseStrategy {
     }
 
     private double entryPrice(TradingDecision decision) {
-        return decision.updatedPosition.entryPrice;
+        if (decision.updatedPosition != null && decision.updatedPosition.entryPrice != null) {
+            return decision.updatedPosition.entryPrice;
+        }
+        return decision.entryPrice != null ? decision.entryPrice : 0.0;
     }
 
     private LocalDateTime parseCandleTime(String time) {

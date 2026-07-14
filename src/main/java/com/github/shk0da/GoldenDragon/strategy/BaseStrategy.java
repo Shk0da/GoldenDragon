@@ -960,6 +960,32 @@ public abstract class BaseStrategy {
         return new Position(config.cooldownCandles);
     }
 
+    /**
+     * Checks if there are any active positions on tickers other than TMON@. Used by TMON@ cash
+     * parking logic to determine whether TMON@ should be sold (to free cash for other positions) or
+     * bought (when idle).
+     */
+    protected boolean hasActiveNonTmonPositions() {
+        for (Map.Entry<String, Position> entry : positionStore.entrySet()) {
+            if ("TMON@".equals(entry.getKey())) {
+                continue;
+            }
+            if (entry.getValue().quantity > 0) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Allows external code (e.g., BacktestRunner) to set a position into this strategy's position
+     * store. Used for TMON@ cash parking where the TMON@ strategy needs to see positions held by
+     * other tickers.
+     */
+    public void setPosition(String ticker, Position position) {
+        positionStore.put(ticker, position);
+    }
+
     protected Double safeGetTotalPortfolioCost() {
         if (tcsService == null) {
             return 0.0;

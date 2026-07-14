@@ -249,6 +249,8 @@ public class BacktestRunner {
         }
     }
 
+    private static final String TMON_TICKER = "TMON@";
+
     private static final DateTimeFormatter DATE_FMT = DateTimeFormatter.ofPattern("dd.MM.yyyy");
     private static final DateTimeFormatter DATE_TIME_FMT =
             DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm:ss");
@@ -1511,6 +1513,11 @@ public class BacktestRunner {
                     List<Candle> hourHistory = marketData.hourCandles.subList(0, state.hourIdx + 1);
                     List<Candle> minHistory = marketData.minuteCandles.subList(0, idx + 1);
 
+                    // TMON@ Cash Parking: sync non-TMON positions into TMON@ strategy
+                    if (TMON_TICKER.equals(ticker) && config.isTmonCashParkingEnabled()) {
+                        syncNonTmonPositionsToStrategy(strategies.get(TMON_TICKER), positionStates);
+                    }
+
                     Map<String, List<Candle>> currentPeerCandles =
                             buildCurrentPeerCandles(
                                     ticker,
@@ -1830,6 +1837,29 @@ public class BacktestRunner {
         return new ArrayList<>(timeline);
     }
 
+    /**
+     * Syncs non-TMON positions from portfolio state into the TMON@ strategy's positionStore, so
+     * that TMON@ cash parking logic can see positions held by other tickers.
+     */
+    private void syncNonTmonPositionsToStrategy(
+            BaseStrategy tmonStrategy, Map<String, PortfolioPositionState> positionStates) {
+        for (Map.Entry<String, PortfolioPositionState> entry : positionStates.entrySet()) {
+            String ticker = entry.getKey();
+            if (TMON_TICKER.equals(ticker)) {
+                continue;
+            }
+            PortfolioPositionState state = entry.getValue();
+            tmonStrategy.setPosition(ticker, state.position);
+        }
+    }
+
+    private double getEffectiveCommission(String ticker) {
+        if (TMON_TICKER.equals(ticker)) {
+            return 0.0;
+        }
+        return commission;
+    }
+
     private double applyPortfolioDecision(
             String ticker,
             BaseStrategy strategy,
@@ -1861,7 +1891,7 @@ public class BacktestRunner {
                 int leverage = resolvePositionLeverage(decision.updatedPosition, config, ticker);
                 double entryMargin = getRequiredMargin(ticker, openQty, openEntry, leverage);
                 double entryNotional = getNotionalValue(openQty, openEntry);
-                double entryCommission = entryNotional * commission;
+                double entryCommission = entryNotional * getEffectiveCommission(ticker);
                 if (entryMargin + entryCommission > sharedCash) {
                     return sharedCash;
                 }
@@ -1923,7 +1953,8 @@ public class BacktestRunner {
         double entryNotional = getNotionalValue(quantity, state.entryPrice);
         double exitNotional = getNotionalValue(quantity, exitPrice);
         double grossPnl = calculateGrossPnl(entryNotional, exitNotional, isShort);
-        double roundTripCommission = (entryNotional + exitNotional) * commission;
+        double roundTripCommission =
+                (entryNotional + exitNotional) * getEffectiveCommission(ticker);
         double pnl = grossPnl - roundTripCommission;
         String dir = isShort ? "SELL" : "BUY";
 
@@ -1943,7 +1974,7 @@ public class BacktestRunner {
                 ticker, pnl, state.entryPrice, stopLoss, state.position.quantity);
         state.realizedPnl += pnl;
 
-        double exitCommission = exitNotional * commission;
+        double exitCommission = exitNotional * getEffectiveCommission(ticker);
         // return posted margin plus notional PnL; entry commission was paid at open
         sharedCash += (entryMargin + grossPnl - exitCommission);
         state.position = new Position();
@@ -1963,7 +1994,7 @@ public class BacktestRunner {
             double entryNotional = getNotionalValue(state.position.quantity, state.entryPrice);
             double markNotional = getNotionalValue(state.position.quantity, currentPrice);
             double grossPnl = calculateGrossPnl(entryNotional, markNotional, isShort);
-            double exitCommission = markNotional * commission;
+            double exitCommission = markNotional * getEffectiveCommission(ticker);
             unrealizedPnl = grossPnl - exitCommission;
         }
 

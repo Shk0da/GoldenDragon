@@ -150,6 +150,7 @@ public class UnifiedTraderConfig {
     private boolean badWeatherFilterEnabled;
     private final int leverageMin;
     private final boolean adaptiveLeverageEnabled;
+    private final boolean tmonCashParkingEnabled;
     private final Map<String, TickerParams> tickerParams;
     private final Properties properties;
 
@@ -175,6 +176,9 @@ public class UnifiedTraderConfig {
         adaptiveLeverageEnabled =
                 Boolean.parseBoolean(
                         properties.getProperty("unifiedTrader.adaptiveLeverage.enabled", "true"));
+        tmonCashParkingEnabled =
+                Boolean.parseBoolean(
+                        properties.getProperty("unifiedTrader.tmonCashParking.enabled", "false"));
         this.tickerParams = loadTickerParams(properties);
     }
 
@@ -391,6 +395,10 @@ public class UnifiedTraderConfig {
 
     public boolean isAdaptiveLeverageEnabled() {
         return adaptiveLeverageEnabled;
+    }
+
+    public boolean isTmonCashParkingEnabled() {
+        return tmonCashParkingEnabled;
     }
 
     @Override
