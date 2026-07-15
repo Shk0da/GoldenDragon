@@ -17,6 +17,15 @@ import com.github.shk0da.goldendragon.strategy.RegimeAwareStrategyMl;
 import com.github.shk0da.goldendragon.strategy.TmonAveragingStrategy;
 import com.github.shk0da.goldendragon.strategy.UnifiedStrategy;
 import com.github.shk0da.goldendragon.utils.PropertiesUtils;
+import org.jfree.chart.ChartFactory;
+import org.jfree.chart.ChartUtilities;
+import org.jfree.chart.JFreeChart;
+import org.jfree.chart.axis.DateAxis;
+import org.jfree.chart.plot.XYPlot;
+import org.jfree.data.time.Day;
+import org.jfree.data.time.TimeSeries;
+import org.jfree.data.time.TimeSeriesCollection;
+
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
@@ -45,14 +54,6 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
-import org.jfree.chart.ChartFactory;
-import org.jfree.chart.ChartUtilities;
-import org.jfree.chart.JFreeChart;
-import org.jfree.chart.axis.DateAxis;
-import org.jfree.chart.plot.XYPlot;
-import org.jfree.data.time.Day;
-import org.jfree.data.time.TimeSeries;
-import org.jfree.data.time.TimeSeriesCollection;
 
 /**
  * Движок бэктестинга торговых стратегий на исторических данных.
@@ -1994,8 +1995,11 @@ public class BacktestRunner {
             double entryNotional = getNotionalValue(state.position.quantity, state.entryPrice);
             double markNotional = getNotionalValue(state.position.quantity, currentPrice);
             double grossPnl = calculateGrossPnl(entryNotional, markNotional, isShort);
+            double entryCommission = entryNotional * getEffectiveCommission(ticker);
             double exitCommission = markNotional * getEffectiveCommission(ticker);
-            unrealizedPnl = grossPnl - exitCommission;
+            // Subtract both entry and exit commission so that equity curve is continuous
+            // at position closure (realizedPnl already includes both commissions).
+            unrealizedPnl = grossPnl - entryCommission - exitCommission;
         }
 
         return initialBalance + state.realizedPnl + unrealizedPnl;

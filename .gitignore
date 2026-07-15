@@ -96,3 +96,4 @@ tickers.json
 /.vscode/
 /.github/
 .mimocode
+/.codegraph/

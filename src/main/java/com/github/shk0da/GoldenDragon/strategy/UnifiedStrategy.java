@@ -22,6 +22,7 @@ import com.github.shk0da.goldendragon.money.StopLossManager;
 import com.github.shk0da.goldendragon.money.VolatilityAdjustedSizing;
 import com.github.shk0da.goldendragon.repository.TickerRepository;
 import com.github.shk0da.goldendragon.service.TCSService;
+
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -411,10 +412,14 @@ public class UnifiedStrategy extends BaseStrategy {
                 // Legacy trailing logic (fallback if MM disabled)
                 double pnlAtr = pnlAbs / atr;
                 double trMult = grp == Group.FX ? 0.7 : grp == Group.MIXED ? 0.9 : 1.0;
+                boolean isBuyPos = "BUY".equals(dir);
 
                 if (pnlAtr >= 0.5 * trMult) {
-                    double beSl = "BUY".equals(dir) ? ep + atr * 0.08 : ep - atr * 0.08;
-                    if ("BUY".equals(dir) && (p.stopLoss != null ? p.stopLoss : 0.0) < beSl) {
+                    // Breakeven: move SL to entry + small buffer
+                    double beSl = isBuyPos ? ep + atr * 0.08 : ep - atr * 0.08;
+                    double currentSl =
+                            p.stopLoss != null ? p.stopLoss : (isBuyPos ? 0.0 : Double.MAX_VALUE);
+                    if (isBuyPos ? currentSl < beSl : currentSl > beSl) {
                         p =
                                 copyPosition(
                                         p,
@@ -429,8 +434,11 @@ public class UnifiedStrategy extends BaseStrategy {
                 }
 
                 if (pnlAtr >= 1.0 * trMult) {
-                    double trailSl = cur.close - atr * 0.35;
-                    if ("BUY".equals(dir) && trailSl > (p.stopLoss != null ? p.stopLoss : 0.0)) {
+                    // Trailing: follow price with ATR buffer
+                    double trailSl = isBuyPos ? cur.close - atr * 0.35 : cur.close + atr * 0.35;
+                    double currentSl =
+                            p.stopLoss != null ? p.stopLoss : (isBuyPos ? 0.0 : Double.MAX_VALUE);
+                    if (isBuyPos ? trailSl > currentSl : trailSl < currentSl) {
                         p =
                                 copyPosition(
                                         p,
@@ -445,8 +453,11 @@ public class UnifiedStrategy extends BaseStrategy {
                 }
 
                 if (pnlAtr >= 1.8 * trMult) {
-                    double tightTrail = cur.close - atr * 0.20;
-                    if ("BUY".equals(dir) && tightTrail > (p.stopLoss != null ? p.stopLoss : 0.0)) {
+                    // Tight trailing: lock in more profit
+                    double tightTrail = isBuyPos ? cur.close - atr * 0.20 : cur.close + atr * 0.20;
+                    double currentSl =
+                            p.stopLoss != null ? p.stopLoss : (isBuyPos ? 0.0 : Double.MAX_VALUE);
+                    if (isBuyPos ? tightTrail > currentSl : tightTrail < currentSl) {
                         p =
                                 copyPosition(
                                         p,
@@ -573,11 +584,15 @@ public class UnifiedStrategy extends BaseStrategy {
                     "HOLD", "loss_streak_" + lossStreak, 0.0, 0, null, null, null, p);
         }
 
-        if (isBuy && rsi > 70.0) {
-            return new TradingDecision("HOLD", "rsi_hot", 0.0, 0, null, null, null, p);
-        }
-        if (!isBuy && rsi < 30.0) {
-            return new TradingDecision("HOLD", "rsi_cold", 0.0, 0, null, null, null, p);
+        // RSI overheating filter: only block in weak trends (ADX < 25)
+        // In strong trends, RSI can remain overbought/oversold for extended periods
+        if (adx < 25.0) {
+            if (isBuy && rsi > 70.0) {
+                return new TradingDecision("HOLD", "rsi_hot", 0.0, 0, null, null, null, p);
+            }
+            if (!isBuy && rsi < 30.0) {
+                return new TradingDecision("HOLD", "rsi_cold", 0.0, 0, null, null, null, p);
+            }
         }
 
         double entry = cur.close;
@@ -747,8 +762,8 @@ public class UnifiedStrategy extends BaseStrategy {
         boolean trendOk = adx >= Math.max(config.adxMin, 18.0);
         boolean candleUp = cur.close > cur.open && cur.close > emaF;
         boolean candleDn = cur.close < cur.open && cur.close < emaF;
-        boolean momentumUp = rsi >= 45.0 && rsi <= 68.0;
-        boolean momentumDn = rsi >= 32.0 && rsi <= 55.0;
+        boolean momentumUp = rsi >= 40.0 && rsi <= 70.0;
+        boolean momentumDn = rsi >= 30.0 && rsi <= 60.0;
 
         int bs = 0, ss = 0;
 
@@ -1064,10 +1079,30 @@ public class UnifiedStrategy extends BaseStrategy {
             return "ENGULFING_SELL";
         if (c.close > c.open && p1.close > p1.open && p2.close > p2.open) return "THREE_WHITE";
         if (c.close < c.open && p1.close < p1.open && p2.close < p2.open) return "THREE_BLACK";
-        if (c.close > c.open && p1.close < p1.open && lowerShadow > body * 1.5)
+
+        // MORNING STAR: 3-candle reversal pattern
+        // p2: bearish candle, p1: small body (gap down preferred), c: bullish candle closing above
+        // p1 midpoint
+        double p1Body = Math.abs(p1.close - p1.open);
+        double p2Body = Math.abs(p2.close - p2.open);
+        if (c.close > c.open // 3rd candle: bullish
+                && p2.close < p2.open // 1st candle: bearish
+                && p1Body < p2Body * 0.5 // 2nd candle: small body (< 50% of 1st)
+                && c.close > (p2.open + p2.close) / 2 // 3rd candle closes above midpoint of 1st
+                && p1.close < p2.close) { // 2nd candle gaps down from 1st
             return "MORNING_STAR";
-        if (c.close < c.open && p1.close > p1.open && upperShadow > body * 1.5)
+        }
+
+        // EVENING STAR: 3-candle reversal pattern
+        // p2: bullish candle, p1: small body (gap up preferred), c: bearish candle closing below p1
+        // midpoint
+        if (c.close < c.open // 3rd candle: bearish
+                && p2.close > p2.open // 1st candle: bullish
+                && p1Body < p2Body * 0.5 // 2nd candle: small body (< 50% of 1st)
+                && c.close < (p2.open + p2.close) / 2 // 3rd candle closes below midpoint of 1st
+                && p1.close > p2.close) { // 2nd candle gaps up from 1st
             return "EVENING_STAR";
+        }
 
         return "NONE";
     }
@@ -1086,7 +1121,13 @@ public class UnifiedStrategy extends BaseStrategy {
             }
             adaptiveCapital.reset();
             initialRiskPerTicker.clear();
-            consecutiveLossTracker.clear();
+
+            // Decay consecutive loss tracker: reduce by 1 instead of clearing
+            // This prevents re-entry too quickly after a losing streak while
+            // allowing gradual recovery
+            consecutiveLossTracker.replaceAll((ticker, count) -> Math.max(0, count - 1));
+            consecutiveLossTracker.entrySet().removeIf(e -> e.getValue() <= 0);
+
             logWithBacktest("MM: Daily reset completed");
         }
     }
