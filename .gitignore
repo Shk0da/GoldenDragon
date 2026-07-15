@@ -95,3 +95,4 @@ tickers.json
 /ml_strategy/reports/
 /.vscode/
 /.github/
+.mimocode

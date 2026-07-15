@@ -52,6 +52,8 @@ public class Config {
     public final int mmWinsToRestore;
     public final double mmRiskReductionFactor;
     public final double mmCriticalDrawdownPercent;
+    public final double mmMaxPositionSize;
+    public final boolean shortsEnabled;
 
     public Config() {
         this.emaTrend = 24;
@@ -103,6 +105,8 @@ public class Config {
         this.mmWinsToRestore = 5;
         this.mmRiskReductionFactor = 0.5;
         this.mmCriticalDrawdownPercent = 0.10;
+        this.mmMaxPositionSize = 0.25;
+        this.shortsEnabled = false;
     }
 
     public Config(
@@ -164,6 +168,8 @@ public class Config {
         this.mmWinsToRestore = 5;
         this.mmRiskReductionFactor = 0.5;
         this.mmCriticalDrawdownPercent = 0.10;
+        this.mmMaxPositionSize = 0.25;
+        this.shortsEnabled = false;
     }
 
     /** Create Config with Money Management parameters. */
@@ -185,7 +191,9 @@ public class Config {
             int mmLossesToReduce,
             int mmWinsToRestore,
             double mmRiskReductionFactor,
-            double mmCriticalDrawdownPercent) {
+            double mmCriticalDrawdownPercent,
+            double mmMaxPositionSize,
+            boolean shortsEnabled) {
         // Default values for existing fields
         this.emaTrend = 24;
         this.emaFast = 3;
@@ -233,5 +241,7 @@ public class Config {
         this.mmWinsToRestore = mmWinsToRestore;
         this.mmRiskReductionFactor = mmRiskReductionFactor;
         this.mmCriticalDrawdownPercent = mmCriticalDrawdownPercent;
+        this.mmMaxPositionSize = mmMaxPositionSize;
+        this.shortsEnabled = shortsEnabled;
     }
 }

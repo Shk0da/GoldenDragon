@@ -1,5 +1,6 @@
 package com.github.shk0da.goldendragon.test;
 
+import com.github.shk0da.goldendragon.config.TmonAveragingConfig;
 import com.github.shk0da.goldendragon.config.UnifiedTraderConfig;
 import com.github.shk0da.goldendragon.model.Candle;
 import com.github.shk0da.goldendragon.model.Config;
@@ -10,8 +11,10 @@ import com.github.shk0da.goldendragon.model.TradingDecision;
 import com.github.shk0da.goldendragon.repository.TickerRepository;
 import com.github.shk0da.goldendragon.service.TCSService;
 import com.github.shk0da.goldendragon.strategy.BaseStrategy;
+import com.github.shk0da.goldendragon.strategy.PrecisionStrategy;
 import com.github.shk0da.goldendragon.strategy.RegimeAwareStrategy;
 import com.github.shk0da.goldendragon.strategy.RegimeAwareStrategyMl;
+import com.github.shk0da.goldendragon.strategy.TmonAveragingStrategy;
 import com.github.shk0da.goldendragon.strategy.UnifiedStrategy;
 import com.github.shk0da.goldendragon.utils.PropertiesUtils;
 import java.io.File;
@@ -131,8 +134,9 @@ import org.jfree.data.time.TimeSeriesCollection;
  * <h2>Управление позициями ({@link #applyPortfolioDecision})</h2>
  *
  * <ul>
- *   <li><b>OPEN</b>: только {@code BUY}; проверяется отсутствие открытой позиции и достаточность
- *       кэша с учётом комиссии входа. Кэш уменьшается на {@code positionValue + commission}.
+ *   <li><b>OPEN</b>: {@code BUY} или {@code SELL} (шорт); проверяется отсутствие открытой позиции и
+ *       достаточность кэша с учётом комиссии входа. Кэш уменьшается на {@code positionValue +
+ *       commission} (для шорта это размещаемая маржа).
  *   <li><b>CLOSE</b>: вызывается {@link #closePortfolioPosition} — расчёт PnL с двухсторонней
  *       комиссией ({@code (entryValue + exitValue) × commission}), запись {@link TradeResult},
  *       регистрация результата в стратегии через {@code recordBacktestTradeOutcome}, возврат
@@ -215,7 +219,8 @@ import org.jfree.data.time.TimeSeriesCollection;
  * <h2>Ограничения текущей реализации</h2>
  *
  * <ul>
- *   <li>Поддерживается только long-only торговля (OPEN с {@code BUY}).
+ *   <li>Поддерживаются long и short позиции (OPEN с {@code BUY} / {@code SELL}); для шорта PnL и
+ *       возврат маржи считаются зеркально, без моделирования margin call.
  *   <li>Срабатывание SL/TP внутри минутной свечи зависит от логики стратегии (high/low касание
  *       проверяется в {@code decide}).
  *   <li>Проскальзывание ({@code slippage}) не моделируется — исполнение по {@code close} или {@code
@@ -233,11 +238,18 @@ public class BacktestRunner {
                     return new RegimeAwareStrategy(config, null, new Config(), true);
                 case "RegimeAwareStrategyMl":
                     return new RegimeAwareStrategyMl(config, null, new Config(), true, true, true);
+                case "PrecisionStrategy":
+                    return new PrecisionStrategy(config, null, new Config(), true);
+                case "TmonAveragingStrategy":
+                    return new TmonAveragingStrategy(
+                            new TmonAveragingConfig(), null, new Config(), true, 1_000_000.0);
                 default:
                     throw new IllegalArgumentException("Unknown strategy: " + strategyName);
             }
         }
     }
+
+    private static final String TMON_TICKER = "TMON@";
 
     private static final DateTimeFormatter DATE_FMT = DateTimeFormatter.ofPattern("dd.MM.yyyy");
     private static final DateTimeFormatter DATE_TIME_FMT =
@@ -255,7 +267,7 @@ public class BacktestRunner {
                             Math.max(1, Runtime.getRuntime().availableProcessors() - 1)));
 
     private static final String[] ALL_STRATEGIES = {
-        "UnifiedStrategy", "RegimeAwareStrategy",
+        "UnifiedStrategy", "RegimeAwareStrategy", "PrecisionStrategy", "TmonAveragingStrategy",
     };
 
     public static class RawCandle {
@@ -284,6 +296,7 @@ public class BacktestRunner {
         public final String dir;
         public final double entry;
         public final double exit;
+        public final int qty;
         public final double pnl;
         public final String reason;
         public final String time;
@@ -293,6 +306,7 @@ public class BacktestRunner {
                 String dir,
                 double entry,
                 double exit,
+                int qty,
                 double pnl,
                 String reason,
                 String time) {
@@ -300,6 +314,7 @@ public class BacktestRunner {
             this.dir = dir;
             this.entry = entry;
             this.exit = exit;
+            this.qty = qty;
             this.pnl = pnl;
             this.reason = reason;
             this.time = time;
@@ -468,7 +483,10 @@ public class BacktestRunner {
     private static final Map<String, StrategyMetrics> strategyMetricsMap = new LinkedHashMap<>();
 
     public static void main(String[] args) throws IOException {
-        BacktestRunner runner = new BacktestRunner();
+        double commission = Double.parseDouble(System.getProperty("backtest.commission", "0.0005"));
+        double monthlyDeposit =
+                Double.parseDouble(System.getProperty("backtest.monthlyDeposit", "0.0"));
+        BacktestRunner runner = new BacktestRunner("data", 1_000_000.0, commission, monthlyDeposit);
         boolean singleStrategyRun = args != null && args.length > 0;
 
         String dataPath = "ml_strategy/data_pipeline/trades.csv";
@@ -505,30 +523,51 @@ public class BacktestRunner {
     }
 
     public void run(String strategyName) throws IOException {
-        List<PeriodDefinition> periods = getPeriods();
+        List<PeriodDefinition> tablePeriods = getPeriods();
+        List<PeriodDefinition> chartPeriods = getFullYearlyPeriods();
 
         UnifiedTraderConfig config = new UnifiedTraderConfig();
+
+        // TmonAveragingStrategy uses hourly candles on TMON@ — different execution path
+        if ("TmonAveragingStrategy".equals(strategyName)) {
+            runTmonAveraging(tablePeriods, chartPeriods, config);
+            return;
+        }
+
         List<String> loadedTickers = loadTickers();
         List<String> activeTickers = filterEnabledTickers(loadedTickers, config);
+        if (!activeTickers.isEmpty()) {
+            if ("PrecisionStrategy".equals(strategyName)) {
+                System.out.println("Backtest leverage: 1x fixed (PrecisionStrategy override)");
+            } else {
+                int maxLeverage = config.getTickerParams(activeTickers.get(0)).leverage;
+                if (config.isAdaptiveLeverageEnabled() && maxLeverage > 1) {
+                    System.out.println(
+                            "Backtest leverage: adaptive (max "
+                                    + maxLeverage
+                                    + "x, min "
+                                    + config.getLeverageMin()
+                                    + "x)");
+                } else {
+                    System.out.println("Backtest leverage: " + maxLeverage + "x");
+                }
+            }
+        }
 
         List<String> periodLabels = new ArrayList<>();
         Map<String, Map<String, TickerPeriodResult>> allData = new LinkedHashMap<>();
         Map<String, PortfolioPeriodResult> portfolioData = new LinkedHashMap<>();
 
-        for (PeriodDefinition period : periods) {
-            String start = period.start;
-            String endExclusive = period.endExclusive;
-            String label = period.label;
+        String fullStart = chartPeriods.get(0).start;
+        String fullEnd = chartPeriods.get(chartPeriods.size() - 1).endExclusive;
+        ExecutionResult continuousResult =
+                execute(strategyName, fullStart, fullEnd, activeTickers, config);
 
-            periodLabels.add(label);
-
-            ExecutionResult executionResult =
-                    execute(strategyName, start, endExclusive, activeTickers, config);
-            Map<String, TickerPeriodResult> tickerResults = executionResult.tickerResults;
-            allData.put(label, tickerResults);
-
-            PortfolioPeriodResult portfolioResult = executionResult.portfolioResult;
-            portfolioData.put(label, portfolioResult);
+        for (PeriodDefinition period : tablePeriods) {
+            periodLabels.add(period.label);
+            ExecutionResult periodResult = splitExecutionByPeriod(continuousResult, period);
+            allData.put(period.label, periodResult.tickerResults);
+            portfolioData.put(period.label, periodResult.portfolioResult);
         }
 
         printResults(strategyName, periodLabels, allData, portfolioData, activeTickers);
@@ -536,60 +575,303 @@ public class BacktestRunner {
         // Collect metrics for comparison
         collectStrategyMetrics(strategyName, allData, portfolioData);
 
-        // Generate equity curve chart
-        plotEquityCurveChart(strategyName, portfolioData);
+        plotEquityCurveChart(strategyName, continuousResult.portfolioResult.equityCurve);
 
         // Generate basic buy & hold chart (16% annual)
-        plotBasicBuyAndHoldChart(periods);
+        plotBasicBuyAndHoldChart(chartPeriods);
+    }
+
+    private void runTmonAveraging(
+            List<PeriodDefinition> tablePeriods,
+            List<PeriodDefinition> chartPeriods,
+            UnifiedTraderConfig config)
+            throws IOException {
+
+        List<String> periodLabels = new ArrayList<>();
+        Map<String, Map<String, TickerPeriodResult>> allData = new LinkedHashMap<>();
+        Map<String, PortfolioPeriodResult> portfolioData = new LinkedHashMap<>();
+
+        List<String> tmonTickers = Collections.singletonList("TMON@");
+        String fullStart = chartPeriods.get(0).start;
+        String fullEnd = chartPeriods.get(chartPeriods.size() - 1).endExclusive;
+        ExecutionResult continuousResult = executeTmonAveraging(fullStart, fullEnd, config);
+
+        for (PeriodDefinition period : tablePeriods) {
+            periodLabels.add(period.label);
+            ExecutionResult periodResult = splitExecutionByPeriod(continuousResult, period);
+            allData.put(period.label, periodResult.tickerResults);
+            portfolioData.put(period.label, periodResult.portfolioResult);
+        }
+
+        printResults("TmonAveragingStrategy", periodLabels, allData, portfolioData, tmonTickers);
+        collectStrategyMetrics("TmonAveragingStrategy", allData, portfolioData);
+        plotEquityCurveChart("TmonAveragingStrategy", continuousResult.portfolioResult.equityCurve);
+        plotBuyAndHoldTmonChart(chartPeriods);
+    }
+
+    private ExecutionResult executeTmonAveraging(
+            String start, String endExclusive, UnifiedTraderConfig config) throws IOException {
+
+        List<RawCandle> rawCandles = loadCandles("TMON@", start, endExclusive);
+
+        if (rawCandles.isEmpty()) {
+            System.out.println("ERROR: Missing hourly candle data for TMON@.");
+            return new ExecutionResult(
+                    Collections.emptyMap(),
+                    new PortfolioPeriodResult(0.0, 0.0, Collections.emptyList(), 0, 0.0));
+        }
+
+        List<Candle> tmonCandles = new ArrayList<>(rawCandles.size());
+        for (RawCandle c : rawCandles) {
+            tmonCandles.add(new Candle(c.time, c.open, c.high, c.low, c.close, c.volume));
+        }
+
+        System.out.println(
+                "TmonAveragingStrategy: " + tmonCandles.size() + " TMON@ hourly candles");
+        System.out.println(
+                "Monthly deposit: "
+                        + String.format("%.0f", monthlyRebalanceAmount)
+                        + ", commission: 0.0%");
+
+        TmonAveragingStrategy strategy =
+                new TmonAveragingStrategy(
+                        new TmonAveragingConfig(), null, new Config(), true, initialBalance);
+        List<EquityPoint> equityCurve = new ArrayList<>();
+        List<TradeResult> trades = new ArrayList<>();
+
+        int lastDepositMonth = -1;
+        int warmup = MIN_HOURS_REQUIRED;
+        for (int i = 0; i < tmonCandles.size(); i++) {
+            Candle current = tmonCandles.get(i);
+            String datePart =
+                    current.time.contains(" ") ? current.time.split(" ")[0] : current.time;
+
+            if (i < warmup) {
+                equityCurve.add(new EquityPoint(datePart + " 15:45:00", strategy.getCashBalance()));
+                continue;
+            }
+
+            // Monthly deposit on first candle of each month
+            LocalDateTime candleTime = LocalDateTime.parse(current.time, DATE_TIME_FMT);
+            int currentMonth = candleTime.getMonthValue();
+            int currentYear = candleTime.getYear();
+            int monthKey = currentYear * 100 + currentMonth;
+            if (lastDepositMonth == -1) {
+                lastDepositMonth = monthKey;
+            } else if (monthKey != lastDepositMonth && monthlyRebalanceAmount > 0) {
+                strategy.addMonthlyDeposit(monthlyRebalanceAmount);
+                lastDepositMonth = monthKey;
+            }
+
+            List<Candle> history = tmonCandles.subList(0, i + 1);
+            int preQty = strategy.getPositionQuantity();
+            double preEntry = strategy.getAvgEntryPrice();
+
+            strategy.decide("TMON@", history, history, null, strategy.getCashBalance(), false);
+
+            if (preQty > 0 && strategy.getPositionQuantity() < preQty) {
+                int soldQty = preQty - strategy.getPositionQuantity();
+                double pnl = (current.close - preEntry) * soldQty;
+                String reason =
+                        strategy.getPhase() == TmonAveragingStrategy.Phase.EXITED
+                                ? "exit_complete"
+                                : "scale_out";
+                trades.add(
+                        new TradeResult(
+                                "TMON@",
+                                "BUY",
+                                preEntry,
+                                current.close,
+                                soldQty,
+                                pnl,
+                                reason,
+                                datePart));
+            }
+
+            double equity = strategy.getCashBalance();
+            if (strategy.getPositionQuantity() > 0) {
+                equity += strategy.getPositionQuantity() * current.close;
+            }
+            equityCurve.add(new EquityPoint(datePart + " 15:45:00", equity));
+        }
+
+        if (strategy.getPositionQuantity() > 0 && !tmonCandles.isEmpty()) {
+            Candle last = tmonCandles.get(tmonCandles.size() - 1);
+            String lastDate = last.time.contains(" ") ? last.time.split(" ")[0] : last.time;
+            double pnl =
+                    (last.close - strategy.getAvgEntryPrice()) * strategy.getPositionQuantity();
+            trades.add(
+                    new TradeResult(
+                            "TMON@",
+                            "BUY",
+                            strategy.getAvgEntryPrice(),
+                            last.close,
+                            strategy.getPositionQuantity(),
+                            pnl,
+                            "period_end",
+                            lastDate));
+        }
+
+        double finalEquity =
+                equityCurve.isEmpty()
+                        ? initialBalance
+                        : equityCurve.get(equityCurve.size() - 1).equity;
+        double portfolioPnl = finalEquity - initialBalance;
+        double portfolioDd = calcMaxDrawdownByEquity(equityCurve);
+        int totalTrades = trades.size();
+        long winningTrades = trades.stream().filter(t -> t.pnl > 0).count();
+        double portfolioWinRate = totalTrades > 0 ? (double) winningTrades / totalTrades : 0.0;
+
+        Map<String, TickerPeriodResult> tickerResults = new LinkedHashMap<>();
+        tickerResults.put(
+                "TMON@",
+                new TickerPeriodResult(
+                        trades,
+                        equityCurve,
+                        portfolioPnl,
+                        portfolioDd,
+                        initialBalance,
+                        portfolioWinRate));
+
+        PortfolioPeriodResult portfolioResult =
+                new PortfolioPeriodResult(
+                        portfolioPnl, portfolioDd, equityCurve, totalTrades, portfolioWinRate);
+
+        return new ExecutionResult(tickerResults, portfolioResult);
+    }
+
+    private ExecutionResult splitExecutionByPeriod(ExecutionResult full, PeriodDefinition period) {
+        Map<String, TickerPeriodResult> tickerResults = new LinkedHashMap<>();
+        int totalTrades = 0;
+        int winningTrades = 0;
+
+        for (Map.Entry<String, TickerPeriodResult> entry : full.tickerResults.entrySet()) {
+            List<TradeResult> trades = filterTradesByPeriod(entry.getValue().trades, period);
+            List<EquityPoint> equity = filterEquityByPeriod(entry.getValue().equityCurve, period);
+            double pnl = trades.stream().mapToDouble(t -> t.pnl).sum();
+            double dd = calcMaxDrawdownByEquity(equity);
+            double winRate = calculateWinRate(trades);
+            totalTrades += trades.size();
+            winningTrades += (int) trades.stream().filter(t -> t.pnl > 0.0).count();
+            tickerResults.put(
+                    entry.getKey(),
+                    new TickerPeriodResult(trades, equity, pnl, dd, initialBalance, winRate));
+        }
+
+        List<EquityPoint> portfolioEquity =
+                filterEquityByPeriod(full.portfolioResult.equityCurve, period);
+        double portfolioPnl = computePeriodPnlFromEquity(full.portfolioResult.equityCurve, period);
+        double portfolioDd = calcMaxDrawdownByEquity(portfolioEquity);
+        double portfolioWinRate = totalTrades > 0 ? (double) winningTrades / totalTrades : 0.0;
+        PortfolioPeriodResult portfolioResult =
+                new PortfolioPeriodResult(
+                        portfolioPnl, portfolioDd, portfolioEquity, totalTrades, portfolioWinRate);
+        return new ExecutionResult(tickerResults, portfolioResult);
+    }
+
+    private List<TradeResult> filterTradesByPeriod(
+            List<TradeResult> trades, PeriodDefinition period) {
+        if (trades == null || trades.isEmpty()) {
+            return Collections.emptyList();
+        }
+        List<TradeResult> filtered = new ArrayList<>();
+        for (TradeResult trade : trades) {
+            if (isTimeInPeriod(trade.time, period)) {
+                filtered.add(trade);
+            }
+        }
+        return filtered;
+    }
+
+    private List<EquityPoint> filterEquityByPeriod(
+            List<EquityPoint> equityCurve, PeriodDefinition period) {
+        if (equityCurve == null || equityCurve.isEmpty()) {
+            return Collections.emptyList();
+        }
+        List<EquityPoint> filtered = new ArrayList<>();
+        for (EquityPoint point : equityCurve) {
+            if (isTimeInPeriod(point.time, period)) {
+                filtered.add(point);
+            }
+        }
+        return filtered;
+    }
+
+    private boolean isTimeInPeriod(String time, PeriodDefinition period) {
+        try {
+            LocalDate date;
+            try {
+                date = LocalDateTime.parse(time, DATE_TIME_FMT).toLocalDate();
+            } catch (Exception e) {
+                // try date-only format (dd.MM.yyyy)
+                String datePart = time.contains(" ") ? time.split(" ")[0] : time;
+                date = LocalDate.parse(datePart, DATE_FMT);
+            }
+            LocalDate start = LocalDate.parse(period.start);
+            LocalDate end = LocalDate.parse(period.endExclusive);
+            return !date.isBefore(start) && !date.isAfter(end);
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    private double computePeriodPnlFromEquity(
+            List<EquityPoint> equityCurve, PeriodDefinition period) {
+        if (equityCurve == null || equityCurve.isEmpty()) {
+            return 0.0;
+        }
+        LocalDate start = LocalDate.parse(period.start);
+        LocalDate end = LocalDate.parse(period.endExclusive);
+        Double equityBefore = null;
+        Double lastInPeriod = null;
+        for (EquityPoint point : equityCurve) {
+            try {
+                LocalDate date;
+                try {
+                    date = LocalDateTime.parse(point.time, DATE_TIME_FMT).toLocalDate();
+                } catch (Exception e) {
+                    String datePart =
+                            point.time.contains(" ") ? point.time.split(" ")[0] : point.time;
+                    date = LocalDate.parse(datePart, DATE_FMT);
+                }
+                if (date.isBefore(start)) {
+                    equityBefore = point.equity;
+                } else if (!date.isAfter(end)) {
+                    lastInPeriod = point.equity;
+                }
+            } catch (Exception ignored) {
+                // skip malformed timestamps
+            }
+        }
+        if (lastInPeriod == null) {
+            return 0.0;
+        }
+        double startEquity = equityBefore != null ? equityBefore : initialBalance;
+        return lastInPeriod - startEquity;
     }
 
     /**
      * Generates and saves equity curve chart for the backtest.
      *
      * @param strategyName strategy name used for file naming
-     * @param portfolioData map of period label to portfolio result with equity curve
+     * @param equityCurve portfolio equity points for the full backtest range
      */
-    private void plotEquityCurveChart(
-            String strategyName, Map<String, PortfolioPeriodResult> portfolioData) {
+    private void plotEquityCurveChart(String strategyName, List<EquityPoint> equityCurve) {
         TimeSeries series = new TimeSeries("Capital");
 
-        // Calculate cumulative offset for each period
-        List<Double> periodOffsets = new ArrayList<>();
-        double cumulativeOffset = 0;
-
-        for (Map.Entry<String, PortfolioPeriodResult> entry : portfolioData.entrySet()) {
-            periodOffsets.add(cumulativeOffset);
-            PortfolioPeriodResult result = entry.getValue();
-            if (!result.equityCurve.isEmpty()) {
-                double periodPnl =
-                        result.equityCurve.get(result.equityCurve.size() - 1).equity
-                                - initialBalance;
-                cumulativeOffset += periodPnl;
-            }
-        }
-
-        // Add all points with their period offsets
-        int periodIndex = 0;
-        for (Map.Entry<String, PortfolioPeriodResult> entry : portfolioData.entrySet()) {
-            PortfolioPeriodResult result = entry.getValue();
-            double offset = periodOffsets.get(periodIndex++);
-
-            for (EquityPoint point : result.equityCurve) {
-                try {
-                    LocalDateTime localDateTime =
-                            LocalDateTime.parse(
-                                    point.time, DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm:ss"));
-                    Day day =
-                            new Day(
-                                    java.util.Date.from(
-                                            localDateTime
-                                                    .atZone(java.time.ZoneId.systemDefault())
-                                                    .toInstant()));
-                    double capital = point.equity + offset;
-                    series.add(day, capital);
-                } catch (Exception e) {
-                    // Skip invalid dates
-                }
+        List<EquityPoint> sampled = downsampleEquityDaily(equityCurve);
+        for (EquityPoint point : sampled) {
+            try {
+                LocalDateTime localDateTime = LocalDateTime.parse(point.time, DATE_TIME_FMT);
+                Day day =
+                        new Day(
+                                java.util.Date.from(
+                                        localDateTime
+                                                .atZone(java.time.ZoneId.systemDefault())
+                                                .toInstant()));
+                series.addOrUpdate(day, point.equity);
+            } catch (Exception e) {
+                // Skip invalid dates
             }
         }
 
@@ -615,6 +897,22 @@ public class BacktestRunner {
         DateAxis dateAxis = (DateAxis) plot.getDomainAxis();
         dateAxis.setDateFormatOverride(new SimpleDateFormat("yyyy-MM"));
 
+        org.jfree.chart.axis.NumberAxis rangeAxis =
+                (org.jfree.chart.axis.NumberAxis) plot.getRangeAxis();
+        if (series.getItemCount() > 0) {
+            double minEquity = Double.MAX_VALUE;
+            double maxEquity = Double.MIN_VALUE;
+            for (int i = 0; i < series.getItemCount(); i++) {
+                double value = series.getValue(i).doubleValue();
+                minEquity = Math.min(minEquity, value);
+                maxEquity = Math.max(maxEquity, value);
+            }
+            if (maxEquity - minEquity < 1.0) {
+                double padding = Math.max(50_000.0, maxEquity * 0.05);
+                rangeAxis.setRange(minEquity - padding, maxEquity + padding);
+            }
+        }
+
         try {
             Path imagesDir = Paths.get("ml_strategy/images");
             Files.createDirectories(imagesDir);
@@ -632,6 +930,24 @@ public class BacktestRunner {
         }
     }
 
+    /** Keep last equity point per calendar day to avoid minute-level staircase rendering. */
+    private List<EquityPoint> downsampleEquityDaily(List<EquityPoint> equityCurve) {
+        if (equityCurve == null || equityCurve.isEmpty()) {
+            return Collections.emptyList();
+        }
+        Map<java.time.LocalDate, EquityPoint> lastByDay = new LinkedHashMap<>();
+        for (EquityPoint point : equityCurve) {
+            try {
+                java.time.LocalDate day =
+                        LocalDateTime.parse(point.time, DATE_TIME_FMT).toLocalDate();
+                lastByDay.put(day, point);
+            } catch (Exception ignored) {
+                // skip malformed timestamps
+            }
+        }
+        return new ArrayList<>(lastByDay.values());
+    }
+
     /**
      * Generates and saves basic buy & hold strategy chart (16% annual return).
      *
@@ -640,7 +956,6 @@ public class BacktestRunner {
     private void plotBasicBuyAndHoldChart(List<PeriodDefinition> periods) {
         TimeSeries basicSeries = new TimeSeries("Buy & Hold (16% annual)");
 
-        // Monthly return rate: (1 + 0.16)^(1/12) - 1 ≈ 1.24%
         double annualReturn = 0.16;
         double monthlyReturn = Math.pow(1 + annualReturn, 1.0 / 12.0) - 1.0;
 
@@ -651,7 +966,6 @@ public class BacktestRunner {
         int lastRebalanceMonth = -1;
         int lastRebalanceYear = -1;
 
-        // Add starting point
         try {
             Day startDay =
                     new Day(
@@ -664,23 +978,20 @@ public class BacktestRunner {
             // Skip
         }
 
-        // Add monthly points with rebalancing until today
         while (!currentDate.isAfter(today)) {
             currentDate = currentDate.plusMonths(1);
             if (currentDate.isAfter(today)) {
                 break;
             }
 
-            // Monthly rebalance: add funds on the first day of each month
             int currentMonth = currentDate.getMonthValue();
             int currentYear = currentDate.getYear();
             if (currentMonth != lastRebalanceMonth || currentYear != lastRebalanceYear) {
-                capital += monthlyRebalanceAmount;
+                capital += 100_000;
                 lastRebalanceMonth = currentMonth;
                 lastRebalanceYear = currentYear;
             }
 
-            // Apply monthly return on the capital (including new deposits)
             capital *= (1 + monthlyReturn);
 
             try {
@@ -692,7 +1003,7 @@ public class BacktestRunner {
                                                 .toInstant()));
                 basicSeries.add(day, capital);
             } catch (Exception e) {
-                // Skip invalid dates
+                // Skip
             }
         }
 
@@ -705,10 +1016,9 @@ public class BacktestRunner {
 
         JFreeChart chart =
                 ChartFactory.createTimeSeriesChart(
-                        "Buy & Hold Strategy (16% Annual + Monthly Rebalance)",
+                        "Buy & Hold Strategy (16% Annual + 100K RUB/month)",
                         "Date", "Capital (RUB)", dataset, true, true, false);
 
-        // Customize date axis to show months
         XYPlot plot = (XYPlot) chart.getPlot();
         DateAxis dateAxis = (DateAxis) plot.getDomainAxis();
         dateAxis.setDateFormatOverride(new SimpleDateFormat("yyyy-MM"));
@@ -716,17 +1026,203 @@ public class BacktestRunner {
         try {
             Path imagesDir = Paths.get("ml_strategy/images");
             Files.createDirectories(imagesDir);
-
-            String fileName = "Basic.png";
-            Path outputPath = imagesDir.resolve(fileName);
-
+            Path outputPath = imagesDir.resolve("Basic.png");
             try (FileOutputStream out = new FileOutputStream(outputPath.toFile())) {
                 ChartUtilities.writeChartAsPNG(out, chart, 1200, 600);
             }
-
             System.out.println("Basic buy & hold chart saved to: " + outputPath.toAbsolutePath());
         } catch (Exception e) {
             System.out.println("Failed to save basic chart: " + e.getMessage());
+        }
+
+        plotBuyAndHoldQQQChart(periods);
+    }
+
+    private void plotBuyAndHoldQQQChart(List<PeriodDefinition> periods) {
+        List<Candle> qqqCandles = loadDailyCandles("QQQ");
+        List<Candle> usdrubCandles = loadDailyCandles("USDRUB");
+        if (qqqCandles.isEmpty()) {
+            System.out.println("No QQQ data for Buy & Hold chart.");
+            return;
+        }
+        if (usdrubCandles.isEmpty()) {
+            System.out.println("No USDRUB data for Buy & Hold chart.");
+            return;
+        }
+
+        Map<String, Double> usdrubRates = new HashMap<>();
+        for (Candle c : usdrubCandles) {
+            String datePart = c.time.contains(" ") ? c.time.split(" ")[0] : c.time;
+            usdrubRates.put(datePart, c.close);
+        }
+
+        TimeSeries qqqSeries = new TimeSeries("Buy & Hold QQQ + 100K RUB/month");
+
+        double cashUsd = initialBalance / usdrubRates.values().iterator().next();
+        int shares = 0;
+        double avgPrice = 0;
+        int lastRebalanceMonth = -1;
+
+        LocalDate startDate = LocalDate.parse(periods.get(0).start);
+        LocalDate today = LocalDate.now();
+
+        for (Candle candle : qqqCandles) {
+            String datePart = candle.time.contains(" ") ? candle.time.split(" ")[0] : candle.time;
+            LocalDate candleDate;
+            try {
+                candleDate = LocalDate.parse(datePart, DATE_FMT);
+            } catch (Exception e) {
+                continue;
+            }
+
+            if (candleDate.isBefore(startDate) || candleDate.isAfter(today)) {
+                continue;
+            }
+
+            double usdrub = usdrubRates.getOrDefault(datePart, 80.0);
+            int currentMonth = candleDate.getMonthValue();
+            if (currentMonth != lastRebalanceMonth) {
+                double depositUsd = 100_000 / usdrub;
+                cashUsd += depositUsd;
+                int buyQty = (int) Math.floor(cashUsd / candle.close);
+                if (buyQty > 0) {
+                    double cost = buyQty * candle.close;
+                    double totalCost = avgPrice * shares + cost;
+                    shares += buyQty;
+                    cashUsd -= cost;
+                    avgPrice = shares > 0 ? totalCost / shares : 0;
+                }
+                lastRebalanceMonth = currentMonth;
+            }
+
+            double equityUsd = cashUsd + shares * candle.close;
+            double equityRub = equityUsd * usdrub;
+            try {
+                Day day =
+                        new Day(
+                                java.util.Date.from(
+                                        candleDate
+                                                .atStartOfDay(java.time.ZoneId.systemDefault())
+                                                .toInstant()));
+                qqqSeries.addOrUpdate(day, equityRub);
+            } catch (Exception e) {
+                // Skip
+            }
+        }
+
+        if (qqqSeries.getItemCount() == 0) {
+            System.out.println("No equity data for QQQ Buy & Hold chart");
+            return;
+        }
+
+        TimeSeriesCollection dataset = new TimeSeriesCollection(qqqSeries);
+
+        JFreeChart chart =
+                ChartFactory.createTimeSeriesChart(
+                        "Buy & Hold QQQ + 100K RUB/month",
+                        "Date",
+                        "Capital (RUB)",
+                        dataset,
+                        true,
+                        true,
+                        false);
+
+        XYPlot plot = (XYPlot) chart.getPlot();
+        DateAxis dateAxis = (DateAxis) plot.getDomainAxis();
+        dateAxis.setDateFormatOverride(new SimpleDateFormat("yyyy-MM"));
+
+        try {
+            Path imagesDir = Paths.get("ml_strategy/images");
+            Files.createDirectories(imagesDir);
+            Path outputPath = imagesDir.resolve("BasicQQQ.png");
+            try (FileOutputStream out = new FileOutputStream(outputPath.toFile())) {
+                ChartUtilities.writeChartAsPNG(out, chart, 1200, 600);
+            }
+            System.out.println("Buy & Hold QQQ chart saved to: " + outputPath.toAbsolutePath());
+        } catch (Exception e) {
+            System.out.println("Failed to save QQQ chart: " + e.getMessage());
+        }
+    }
+
+    private void plotBuyAndHoldTmonChart(List<PeriodDefinition> periods) {
+        String fullStart = periods.get(0).start;
+        String fullEnd = periods.get(periods.size() - 1).endExclusive;
+        List<RawCandle> rawCandles = loadCandles("TMON@", fullStart, fullEnd);
+        if (rawCandles.isEmpty()) {
+            System.out.println("No TMON@ data for buy & hold chart");
+            return;
+        }
+
+        double capital = initialBalance;
+        double totalShares = 0.0;
+        double avgBuyPrice = 0.0;
+        int lastDepositMonth = -1;
+
+        TimeSeries tmonSeries = new TimeSeries("Buy & Hold TMON@");
+
+        for (RawCandle c : rawCandles) {
+            LocalDateTime candleTime = c.dateTime;
+            int monthKey = candleTime.getYear() * 100 + candleTime.getMonthValue();
+
+            if (lastDepositMonth == -1) {
+                lastDepositMonth = monthKey;
+            } else if (monthKey != lastDepositMonth && monthlyRebalanceAmount > 0) {
+                capital += monthlyRebalanceAmount;
+                lastDepositMonth = monthKey;
+            }
+
+            if (totalShares == 0 && capital > c.close) {
+                totalShares = Math.floor(capital / c.close);
+                double cost = totalShares * c.close;
+                capital -= cost;
+                avgBuyPrice = c.close;
+            }
+
+            double equity = capital + totalShares * c.close;
+            try {
+                Day day =
+                        new Day(
+                                java.util.Date.from(
+                                        candleTime
+                                                .toLocalDate()
+                                                .atStartOfDay(java.time.ZoneId.systemDefault())
+                                                .toInstant()));
+                tmonSeries.add(day, equity);
+            } catch (Exception e) {
+                // skip duplicate
+            }
+        }
+
+        if (tmonSeries.getItemCount() == 0) {
+            return;
+        }
+
+        TimeSeriesCollection dataset = new TimeSeriesCollection(tmonSeries);
+
+        JFreeChart chart =
+                ChartFactory.createTimeSeriesChart(
+                        "Buy & Hold TMON@ + 100K RUB/month",
+                        "Date",
+                        "Capital (RUB)",
+                        dataset,
+                        true,
+                        true,
+                        false);
+
+        XYPlot plot = (XYPlot) chart.getPlot();
+        DateAxis dateAxis = (DateAxis) plot.getDomainAxis();
+        dateAxis.setDateFormatOverride(new SimpleDateFormat("yyyy-MM"));
+
+        try {
+            Path imagesDir = Paths.get("ml_strategy/images");
+            Files.createDirectories(imagesDir);
+            Path outputPath = imagesDir.resolve("BasicTMON.png");
+            try (FileOutputStream out = new FileOutputStream(outputPath.toFile())) {
+                ChartUtilities.writeChartAsPNG(out, chart, 1200, 600);
+            }
+            System.out.println("Buy & Hold TMON@ chart saved to: " + outputPath.toAbsolutePath());
+        } catch (Exception e) {
+            System.out.println("Failed to save TMON@ chart: " + e.getMessage());
         }
     }
 
@@ -749,7 +1245,12 @@ public class BacktestRunner {
             return periods;
         }
 
-        // Last 5 years (yearly periods)
+        return getFullYearlyPeriods();
+    }
+
+    /** Full 5-year yearly periods used for equity curve chart regardless of backtest.mode. */
+    private List<PeriodDefinition> getFullYearlyPeriods() {
+        java.time.LocalDate today = java.time.LocalDate.now();
         List<PeriodDefinition> periods = new ArrayList<>();
         int currentYear = today.getYear();
 
@@ -863,7 +1364,7 @@ public class BacktestRunner {
                             " %6s %5s %4d %5.1f",
                             formatCompactPnL(totalPnl / count),
                             formatCompactDD((totalDd / count) * 100.0),
-                            totalTrades / count,
+                            totalTrades,
                             (totalWr / count) * 100.0));
         }
         for (int i = 1; i < periodLabels.size(); i++) {
@@ -1012,6 +1513,11 @@ public class BacktestRunner {
                     List<Candle> hourHistory = marketData.hourCandles.subList(0, state.hourIdx + 1);
                     List<Candle> minHistory = marketData.minuteCandles.subList(0, idx + 1);
 
+                    // TMON@ Cash Parking: sync non-TMON positions into TMON@ strategy
+                    if (TMON_TICKER.equals(ticker) && config.isTmonCashParkingEnabled()) {
+                        syncNonTmonPositionsToStrategy(strategies.get(TMON_TICKER), positionStates);
+                    }
+
                     Map<String, List<Candle>> currentPeerCandles =
                             buildCurrentPeerCandles(
                                     ticker,
@@ -1059,11 +1565,11 @@ public class BacktestRunner {
                 PortfolioPositionState state = entry.getValue();
                 if (state.position.quantity > 0) {
                     totalEquity +=
-                            getRequiredCash(
+                            positionMarketValue(
                                     ticker,
-                                    state.position.quantity,
+                                    state,
                                     lastPriceByTicker.getOrDefault(ticker, state.entryPrice),
-                                    config.getTickerParams(ticker).leverage);
+                                    config);
                 }
             }
             portfolioEquity.add(new EquityPoint(time, totalEquity));
@@ -1095,11 +1601,11 @@ public class BacktestRunner {
             PortfolioPositionState state = entry.getValue();
             if (state.position.quantity > 0) {
                 finalPortfolioValue +=
-                        getRequiredCash(
+                        positionMarketValue(
                                 ticker,
-                                state.position.quantity,
+                                state,
                                 lastPriceByTicker.getOrDefault(ticker, state.entryPrice),
-                                config.getTickerParams(ticker).leverage);
+                                config);
             }
         }
 
@@ -1132,6 +1638,106 @@ public class BacktestRunner {
                         portfolioPnl, portfolioDd, portfolioEquity, totalTrades, portfolioWinRate);
 
         return new ExecutionResult(tickerResults, portfolioResult);
+    }
+
+    private List<Candle> loadDailyCandles(String ticker) {
+        File file = new File(dataDir, ticker + "/candlesDAY.txt");
+        if (!file.exists()) {
+            return Collections.emptyList();
+        }
+        try {
+            List<String> lines = Files.readAllLines(file.toPath());
+            List<Candle> candles = new ArrayList<>();
+            for (int i = 1; i < lines.size(); i++) {
+                String line = lines.get(i).trim();
+                if (line.isEmpty()) {
+                    continue;
+                }
+                try {
+                    String[] parts = line.split(",");
+                    if (parts.length < 6) {
+                        continue;
+                    }
+                    candles.add(
+                            new Candle(
+                                    parts[0].trim(),
+                                    Double.parseDouble(parts[1]),
+                                    Double.parseDouble(parts[2]),
+                                    Double.parseDouble(parts[3]),
+                                    Double.parseDouble(parts[4]),
+                                    Long.parseLong(parts[5])));
+                } catch (Exception ignored) {
+                }
+            }
+            candles.sort(
+                    Comparator.comparing(
+                            c -> {
+                                try {
+                                    return LocalDateTime.parse(c.time, DATE_TIME_FMT);
+                                } catch (Exception e) {
+                                    return LocalDateTime.MIN;
+                                }
+                            }));
+            return candles;
+        } catch (IOException e) {
+            return Collections.emptyList();
+        }
+    }
+
+    private List<String> findCommonDailyDates(
+            List<Candle> qqq, List<Candle> tqqq, List<Candle> sqqq) {
+        Set<String> qqqDates = extractDailyDates(qqq);
+        Set<String> tqqqDates = extractDailyDates(tqqq);
+        Set<String> sqqqDates = extractDailyDates(sqqq);
+
+        List<String> common = new ArrayList<>();
+        for (String date : qqqDates) {
+            if (tqqqDates.contains(date) && sqqqDates.contains(date)) {
+                common.add(date);
+            }
+        }
+        common.sort(
+                Comparator.comparing(
+                        d -> {
+                            try {
+                                return LocalDate.parse(d, DATE_FMT);
+                            } catch (Exception e) {
+                                return LocalDate.MIN;
+                            }
+                        }));
+        return common;
+    }
+
+    private Set<String> extractDailyDates(List<Candle> candles) {
+        Set<String> dates = new LinkedHashSet<>();
+        for (Candle c : candles) {
+            String datePart = c.time.contains(" ") ? c.time.split(" ")[0] : c.time;
+            dates.add(datePart);
+        }
+        return dates;
+    }
+
+    private List<Candle> getDailyCandlesUpToDate(
+            List<Candle> candles, List<String> commonDates, int count) {
+        List<Candle> result = new ArrayList<>();
+        Set<String> dateSet = new LinkedHashSet<>(commonDates.subList(0, count));
+        for (Candle c : candles) {
+            String datePart = c.time.contains(" ") ? c.time.split(" ")[0] : c.time;
+            if (dateSet.contains(datePart)) {
+                result.add(c);
+            }
+        }
+        return result;
+    }
+
+    private Candle getDailyCandleAtDate(List<Candle> candles, String date) {
+        for (Candle c : candles) {
+            String datePart = c.time.contains(" ") ? c.time.split(" ")[0] : c.time;
+            if (date.equals(datePart)) {
+                return c;
+            }
+        }
+        return null;
     }
 
     private List<MarketDataLoadResult> loadMarketDataParallel(
@@ -1231,6 +1837,29 @@ public class BacktestRunner {
         return new ArrayList<>(timeline);
     }
 
+    /**
+     * Syncs non-TMON positions from portfolio state into the TMON@ strategy's positionStore, so
+     * that TMON@ cash parking logic can see positions held by other tickers.
+     */
+    private void syncNonTmonPositionsToStrategy(
+            BaseStrategy tmonStrategy, Map<String, PortfolioPositionState> positionStates) {
+        for (Map.Entry<String, PortfolioPositionState> entry : positionStates.entrySet()) {
+            String ticker = entry.getKey();
+            if (TMON_TICKER.equals(ticker)) {
+                continue;
+            }
+            PortfolioPositionState state = entry.getValue();
+            tmonStrategy.setPosition(ticker, state.position);
+        }
+    }
+
+    private double getEffectiveCommission(String ticker) {
+        if (TMON_TICKER.equals(ticker)) {
+            return 0.0;
+        }
+        return commission;
+    }
+
     private double applyPortfolioDecision(
             String ticker,
             BaseStrategy strategy,
@@ -1250,7 +1879,8 @@ public class BacktestRunner {
         switch (decision.action) {
             case "OPEN":
                 if (decision.updatedPosition == null || decision.quantity <= 0) return sharedCash;
-                if (!"BUY".equals(decision.updatedPosition.direction)
+                String openDir = decision.updatedPosition.direction;
+                if ((!"BUY".equals(openDir) && !"SELL".equals(openDir))
                         || state.position.quantity > 0) return sharedCash;
 
                 double openEntry =
@@ -1258,14 +1888,15 @@ public class BacktestRunner {
                                 ? decision.updatedPosition.entryPrice
                                 : current.close;
                 int openQty = decision.quantity;
-                int leverage = config.getTickerParams(ticker).leverage;
-                double positionValue = getRequiredCash(ticker, openQty, openEntry, leverage);
-                double entryCommission = positionValue * commission;
-                if (positionValue + entryCommission > sharedCash) {
+                int leverage = resolvePositionLeverage(decision.updatedPosition, config, ticker);
+                double entryMargin = getRequiredMargin(ticker, openQty, openEntry, leverage);
+                double entryNotional = getNotionalValue(openQty, openEntry);
+                double entryCommission = entryNotional * getEffectiveCommission(ticker);
+                if (entryMargin + entryCommission > sharedCash) {
                     return sharedCash;
                 }
 
-                sharedCash -= (positionValue + entryCommission);
+                sharedCash -= (entryMargin + entryCommission);
                 state.position = decision.updatedPosition;
                 state.entryPrice = openEntry;
                 // Use minute candles for accurate timestamp (5-min precision instead of hourly)
@@ -1316,21 +1947,36 @@ public class BacktestRunner {
             List<TradeResult> trades,
             UnifiedTraderConfig config) {
         int quantity = state.position.quantity;
-        int leverage = config.getTickerParams(ticker).leverage;
-        double exitValue = getRequiredCash(ticker, quantity, exitPrice, leverage);
-        double entryValue = getRequiredCash(ticker, quantity, state.entryPrice, leverage);
-        double totalCommission = (entryValue + exitValue) * commission;
-        double pnl = exitValue - entryValue - totalCommission;
+        int leverage = resolvePositionLeverage(state.position, config, ticker);
+        boolean isShort = "SELL".equals(state.position.direction);
+        double entryMargin = getRequiredMargin(ticker, quantity, state.entryPrice, leverage);
+        double entryNotional = getNotionalValue(quantity, state.entryPrice);
+        double exitNotional = getNotionalValue(quantity, exitPrice);
+        double grossPnl = calculateGrossPnl(entryNotional, exitNotional, isShort);
+        double roundTripCommission =
+                (entryNotional + exitNotional) * getEffectiveCommission(ticker);
+        double pnl = grossPnl - roundTripCommission;
+        String dir = isShort ? "SELL" : "BUY";
 
-        trades.add(new TradeResult(ticker, "BUY", state.entryPrice, exitPrice, pnl, reason, time));
+        trades.add(
+                new TradeResult(
+                        ticker,
+                        dir,
+                        state.entryPrice,
+                        exitPrice,
+                        state.position.quantity,
+                        pnl,
+                        reason,
+                        time));
         double stopLoss =
                 state.position.stopLoss != null ? state.position.stopLoss : state.entryPrice;
         strategy.recordBacktestTradeOutcome(
                 ticker, pnl, state.entryPrice, stopLoss, state.position.quantity);
         state.realizedPnl += pnl;
 
-        double exitCommission = exitValue * commission;
-        sharedCash += (exitValue - exitCommission);
+        double exitCommission = exitNotional * getEffectiveCommission(ticker);
+        // return posted margin plus notional PnL; entry commission was paid at open
+        sharedCash += (entryMargin + grossPnl - exitCommission);
         state.position = new Position();
         state.entryPrice = 0.0;
         return sharedCash;
@@ -1343,16 +1989,35 @@ public class BacktestRunner {
             UnifiedTraderConfig config) {
         double unrealizedPnl = 0.0;
         if (state.position.quantity > 0) {
-            int leverage = config.getTickerParams(ticker).leverage;
-            double exitValue =
-                    getRequiredCash(ticker, state.position.quantity, currentPrice, leverage);
-            double entryValue =
-                    getRequiredCash(ticker, state.position.quantity, state.entryPrice, leverage);
-            double exitCommission = exitValue * commission;
-            unrealizedPnl = exitValue - entryValue - exitCommission;
+            int leverage = resolvePositionLeverage(state.position, config, ticker);
+            boolean isShort = "SELL".equals(state.position.direction);
+            double entryNotional = getNotionalValue(state.position.quantity, state.entryPrice);
+            double markNotional = getNotionalValue(state.position.quantity, currentPrice);
+            double grossPnl = calculateGrossPnl(entryNotional, markNotional, isShort);
+            double exitCommission = markNotional * getEffectiveCommission(ticker);
+            unrealizedPnl = grossPnl - exitCommission;
         }
 
         return initialBalance + state.realizedPnl + unrealizedPnl;
+    }
+
+    private double positionMarketValue(
+            String ticker,
+            PortfolioPositionState state,
+            double currentPrice,
+            UnifiedTraderConfig config) {
+        if (state.position.quantity <= 0) {
+            return 0.0;
+        }
+
+        int leverage = resolvePositionLeverage(state.position, config, ticker);
+        boolean isShort = "SELL".equals(state.position.direction);
+        double entryMargin =
+                getRequiredMargin(ticker, state.position.quantity, state.entryPrice, leverage);
+        double entryNotional = getNotionalValue(state.position.quantity, state.entryPrice);
+        double markNotional = getNotionalValue(state.position.quantity, currentPrice);
+        double grossPnl = calculateGrossPnl(entryNotional, markNotional, isShort);
+        return entryMargin + grossPnl;
     }
 
     private SimulateResult simulateUnifiedLongOnly(
@@ -1413,11 +2078,12 @@ public class BacktestRunner {
 
                     double exitPrice = current.close;
                     int q = pos.quantity;
-
-                    double exitValue = getRequiredCash(ticker, q, exitPrice);
-                    double entryValue = getRequiredCash(ticker, q, entryPrice);
-                    double totalCommission = (entryValue + exitValue) * commission;
-                    double pnl = exitValue - entryValue - totalCommission;
+                    int leverage = resolvePositionLeverage(pos, strategyConfig, ticker);
+                    double entryMargin = getRequiredMargin(ticker, q, entryPrice, leverage);
+                    double entryNotional = getNotionalValue(q, entryPrice);
+                    double exitNotional = getNotionalValue(q, exitPrice);
+                    double grossPnl = calculateGrossPnl(entryNotional, exitNotional, false);
+                    double pnl = grossPnl - (entryNotional + exitNotional) * commission;
 
                     trades.add(
                             new TradeResult(
@@ -1425,12 +2091,12 @@ public class BacktestRunner {
                                     "BUY",
                                     entryPrice,
                                     exitPrice,
+                                    q,
                                     pnl,
                                     "eod_close",
                                     current.time));
 
-                    double exitCommission = exitValue * commission;
-                    cash += (exitValue - exitCommission);
+                    cash += (entryMargin + grossPnl - exitNotional * commission);
                     pos = new Position();
                     entryPrice = 0.0;
                     lastEodCloseDate = minDt.toLocalDate();
@@ -1438,7 +2104,15 @@ public class BacktestRunner {
 
                 double offHoursEquity = cash;
                 if (pos.quantity > 0) {
-                    offHoursEquity += getRequiredCash(ticker, pos.quantity, current.close);
+                    int leverage = resolvePositionLeverage(pos, strategyConfig, ticker);
+                    double entryMargin =
+                            getRequiredMargin(ticker, pos.quantity, entryPrice, leverage);
+                    double grossPnl =
+                            calculateGrossPnl(
+                                    getNotionalValue(pos.quantity, entryPrice),
+                                    getNotionalValue(pos.quantity, current.close),
+                                    false);
+                    offHoursEquity += entryMargin + grossPnl;
                 }
                 equityCurve.add(new EquityPoint(current.time, offHoursEquity));
                 continue;
@@ -1452,7 +2126,14 @@ public class BacktestRunner {
 
             double equity = cash;
             if (pos.quantity > 0) {
-                equity += getRequiredCash(ticker, pos.quantity, current.close);
+                int leverage = resolvePositionLeverage(pos, strategyConfig, ticker);
+                double entryMargin = getRequiredMargin(ticker, pos.quantity, entryPrice, leverage);
+                double grossPnl =
+                        calculateGrossPnl(
+                                getNotionalValue(pos.quantity, entryPrice),
+                                getNotionalValue(pos.quantity, current.close),
+                                false);
+                equity += entryMargin + grossPnl;
             }
             equityCurve.add(new EquityPoint(current.time, equity));
 
@@ -1484,64 +2165,76 @@ public class BacktestRunner {
 
             switch (decision.action) {
                 case "OPEN":
-                    if (decision.updatedPosition == null || decision.quantity <= 0) break;
-                    if (!"BUY".equals(decision.updatedPosition.direction)) break;
-                    if (pos.quantity > 0) break;
+                    {
+                        if (decision.updatedPosition == null || decision.quantity <= 0) break;
+                        if (!"BUY".equals(decision.updatedPosition.direction)) break;
+                        if (pos.quantity > 0) break;
 
-                    double openEntry =
-                            decision.updatedPosition.entryPrice != null
-                                    ? decision.updatedPosition.entryPrice
-                                    : current.close;
+                        double openEntry =
+                                decision.updatedPosition.entryPrice != null
+                                        ? decision.updatedPosition.entryPrice
+                                        : current.close;
 
-                    int openQty = decision.quantity;
-                    double positionValue = getRequiredCash(ticker, openQty, openEntry);
-                    double entryCommission = positionValue * commission;
+                        int openQty = decision.quantity;
+                        int leverage =
+                                resolvePositionLeverage(
+                                        decision.updatedPosition, strategyConfig, ticker);
+                        double openMargin = getRequiredMargin(ticker, openQty, openEntry, leverage);
+                        double openNotional = getNotionalValue(openQty, openEntry);
+                        double openCommission = openNotional * commission;
 
-                    if (positionValue + entryCommission > cash) break;
+                        if (openMargin + openCommission > cash) break;
 
-                    cash -= (positionValue + entryCommission);
-                    pos = decision.updatedPosition;
-                    entryPrice = openEntry;
-                    // Use minute candles for accurate timestamp (5-min precision instead of hourly)
-                    strategy.recordBacktestTradeEntry(ticker, minHistory, decision);
-                    break;
-
-                case "CLOSE":
-                    if (pos.quantity <= 0) {
-                        pos = decision.updatedPosition != null ? decision.updatedPosition : pos;
+                        cash -= (openMargin + openCommission);
+                        pos = decision.updatedPosition;
+                        entryPrice = openEntry;
+                        // Use minute candles for accurate timestamp (5-min precision instead of
+                        // hourly)
+                        strategy.recordBacktestTradeEntry(ticker, minHistory, decision);
                         break;
                     }
 
-                    double exitPrice =
-                            decision.entryPrice != null ? decision.entryPrice : current.close;
-                    int q = pos.quantity;
+                case "CLOSE":
+                    {
+                        if (pos.quantity <= 0) {
+                            pos = decision.updatedPosition != null ? decision.updatedPosition : pos;
+                            break;
+                        }
 
-                    double exitValue = getRequiredCash(ticker, q, exitPrice);
-                    double entryValue = getRequiredCash(ticker, q, entryPrice);
-                    double totalCommission = (entryValue + exitValue) * commission;
-                    double pnl = exitValue - entryValue - totalCommission;
+                        double exitPrice =
+                                decision.entryPrice != null ? decision.entryPrice : current.close;
+                        int q = pos.quantity;
+                        int leverage = resolvePositionLeverage(pos, strategyConfig, ticker);
+                        double closeEntryMargin =
+                                getRequiredMargin(ticker, q, entryPrice, leverage);
+                        double closeEntryNotional = getNotionalValue(q, entryPrice);
+                        double exitNotional = getNotionalValue(q, exitPrice);
+                        double grossPnl =
+                                calculateGrossPnl(closeEntryNotional, exitNotional, false);
+                        double pnl = grossPnl - (closeEntryNotional + exitNotional) * commission;
 
-                    trades.add(
-                            new TradeResult(
-                                    ticker,
-                                    "BUY",
-                                    entryPrice,
-                                    exitPrice,
-                                    pnl,
-                                    decision.reason,
-                                    current.time));
-                    double stopLoss = pos.stopLoss != null ? pos.stopLoss : entryPrice;
-                    strategy.recordBacktestTradeOutcome(ticker, pnl, entryPrice, stopLoss, q);
+                        trades.add(
+                                new TradeResult(
+                                        ticker,
+                                        "BUY",
+                                        entryPrice,
+                                        exitPrice,
+                                        q,
+                                        pnl,
+                                        decision.reason,
+                                        current.time));
+                        double stopLoss = pos.stopLoss != null ? pos.stopLoss : entryPrice;
+                        strategy.recordBacktestTradeOutcome(ticker, pnl, entryPrice, stopLoss, q);
 
-                    double exitCommission = exitValue * commission;
-                    cash += (exitValue - exitCommission);
+                        cash += (closeEntryMargin + grossPnl - exitNotional * commission);
 
-                    pos =
-                            decision.updatedPosition != null
-                                    ? decision.updatedPosition
-                                    : new Position();
-                    entryPrice = 0.0;
-                    break;
+                        pos =
+                                decision.updatedPosition != null
+                                        ? decision.updatedPosition
+                                        : new Position();
+                        entryPrice = 0.0;
+                        break;
+                    }
 
                 case "HOLD":
                     if (decision.updatedPosition != null) {
@@ -1557,10 +2250,12 @@ public class BacktestRunner {
         if (pos.quantity > 0 && !wrappedMin.isEmpty()) {
             double lastPrice = wrappedMin.get(wrappedMin.size() - 1).close;
             int q = pos.quantity;
-            double exitValue = getRequiredCash(ticker, q, lastPrice);
-            double entryValue = getRequiredCash(ticker, q, entryPrice);
-            double totalCommission = (entryValue + exitValue) * commission;
-            double pnl = exitValue - entryValue - totalCommission;
+            int leverage = resolvePositionLeverage(pos, strategyConfig, ticker);
+            double entryMargin = getRequiredMargin(ticker, q, entryPrice, leverage);
+            double entryNotional = getNotionalValue(q, entryPrice);
+            double exitNotional = getNotionalValue(q, lastPrice);
+            double grossPnl = calculateGrossPnl(entryNotional, exitNotional, false);
+            double pnl = grossPnl - (entryNotional + exitNotional) * commission;
 
             trades.add(
                     new TradeResult(
@@ -1568,39 +2263,65 @@ public class BacktestRunner {
                             "BUY",
                             entryPrice,
                             lastPrice,
+                            q,
                             pnl,
                             "period_end",
                             wrappedMin.get(wrappedMin.size() - 1).time));
             double stopLoss = pos.stopLoss != null ? pos.stopLoss : entryPrice;
             strategy.recordBacktestTradeOutcome(ticker, pnl, entryPrice, stopLoss, q);
 
-            double exitCommission = exitValue * commission;
-            finalBalance += (exitValue - exitCommission);
+            finalBalance += (entryMargin + grossPnl - exitNotional * commission);
         }
 
         return new SimulateResult(trades, equityCurve, finalBalance);
     }
 
-    // Legacy overload: no leverage (default 1x)
-    private double getRequiredCash(String ticker, int quantity, double price) {
-        return getRequiredCash(ticker, quantity, price, 1);
+    private int resolvePositionLeverage(
+            Position position, UnifiedTraderConfig config, String ticker) {
+        if (position != null && position.quantity > 0) {
+            return Math.max(1, position.appliedLeverage);
+        }
+        return Math.max(1, config.getTickerParams(ticker).leverage);
     }
 
-    private double getRequiredCash(String ticker, int quantity, double price, int leverage) {
+    // Legacy overload: no leverage (default 1x)
+    private double getRequiredCash(String ticker, int quantity, double price) {
+        return getRequiredMargin(ticker, quantity, price, 1);
+    }
+
+    private double getRequiredMargin(String ticker, int quantity, double price, int leverage) {
         if (quantity <= 0 || price <= 0.0) {
             return 0.0;
         }
+        return getNotionalValue(quantity, price) * getMarginMultiplier(ticker, leverage);
+    }
 
-        TickerInfo tickerInfo = resolveTickerInfo(ticker);
-        double fullValue = quantity * price;
+    private double getNotionalValue(int quantity, double price) {
+        if (quantity <= 0 || price <= 0.0) {
+            return 0.0;
+        }
+        return quantity * price;
+    }
+
+    private double getMarginMultiplier(String ticker, int leverage) {
         double marginMultiplier = 1.0;
+        TickerInfo tickerInfo = resolveTickerInfo(ticker);
         if (tickerInfo != null && TickerType.FEATURE == tickerInfo.getType()) {
             marginMultiplier = TCSService.FUTURES_MARGIN_RATE;
         }
         if (leverage > 1) {
             marginMultiplier /= leverage;
         }
-        return fullValue * marginMultiplier;
+        return marginMultiplier;
+    }
+
+    private static double calculateGrossPnl(
+            double entryNotional, double exitNotional, boolean isShort) {
+        return isShort ? entryNotional - exitNotional : exitNotional - entryNotional;
+    }
+
+    private double getRequiredCash(String ticker, int quantity, double price, int leverage) {
+        return getRequiredMargin(ticker, quantity, price, leverage);
     }
 
     private TickerInfo resolveTickerInfo(String ticker) {

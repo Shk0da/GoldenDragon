@@ -108,6 +108,10 @@ public class DataCollector {
                             name, dataDir, CandleInterval.CANDLE_INTERVAL_5_MIN, isReplace);
                     dataCollector.updateCandlesFile(
                             name, dataDir, CandleInterval.CANDLE_INTERVAL_HOUR, isReplace);
+                    if (name.contains("@")) {
+                        dataCollector.updateCandlesFile(
+                                name, dataDir, CandleInterval.CANDLE_INTERVAL_DAY, isReplace);
+                    }
                     var levels =
                             dataCollector.calculatePriceLevels(
                                     name, dataDir, CandleInterval.CANDLE_INTERVAL_HOUR);
@@ -191,6 +195,9 @@ public class DataCollector {
                 createDirectories(Paths.get(dataDir + "/" + name));
                 updateCandlesFile(name, dataDir, CandleInterval.CANDLE_INTERVAL_5_MIN, isReplace);
                 updateCandlesFile(name, dataDir, CandleInterval.CANDLE_INTERVAL_HOUR, isReplace);
+                if (name.contains("@")) {
+                    updateCandlesFile(name, dataDir, CandleInterval.CANDLE_INTERVAL_DAY, isReplace);
+                }
                 var levels =
                         calculatePriceLevels(name, dataDir, CandleInterval.CANDLE_INTERVAL_HOUR);
                 createTickerJson(name, dataDir, levels);

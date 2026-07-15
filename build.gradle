@@ -1,5 +1,4 @@
 plugins {
-    id 'pmd'
     id 'java'
     id 'application'
     id 'com.diffplug.spotless' version '6.25.0'
@@ -39,17 +38,6 @@ spotless {
     }
 }
 
-pmd {
-    toolVersion = '7.3.0'
-    ignoreFailures = true
-    ruleSetFiles = files('config/pmd/pmd.xml')
-    ruleSets = []
-
-    consoleOutput = true
-
-    reportsDir = file("$buildDir/reports/pmd")
-}
-
 task uberJar(type: Jar) {
     manifest {
         attributes 'Main-Class': 'com.github.shk0da.goldendragon.GoldenDragon'
@@ -75,12 +63,29 @@ task runBacktest(type: JavaExec) {
     main = 'com.github.shk0da.goldendragon.test.BacktestRunner'
     classpath = sourceSets.test.runtimeClasspath
     workingDir = rootDir
+    jvmArgs '--add-opens', 'java.base/java.time=ALL-UNNAMED'
 
     // Support both single strategy and all strategies
     def strategyName = project.findProperty('strategy')
     if (strategyName) {
         args strategyName
     }
+    if (project.hasProperty('leverage')) {
+        systemProperty 'unifiedTrader.leverage', project.property('leverage')
+    }
+    if (project.hasProperty('backtestMode')) {
+        systemProperty 'backtest.mode', project.property('backtestMode')
+    }
+}
+
+task runTmonBacktest(type: JavaExec) {
+    main = 'com.github.shk0da.goldendragon.test.BacktestRunner'
+    classpath = sourceSets.main.runtimeClasspath
+    workingDir = rootDir
+    jvmArgs '--add-opens', 'java.base/java.time=ALL-UNNAMED'
+    systemProperty 'backtest.commission', '0.0'
+    systemProperty 'backtest.monthlyDeposit', '100000'
+    args 'TmonAveragingStrategy'
 }
 
 task runMlTraining(type: JavaExec) {
@@ -187,6 +192,7 @@ task runStrategy(type: JavaExec) {
     main = 'com.github.shk0da.goldendragon.GoldenDragon'
     classpath = sourceSets.test.runtimeClasspath
     workingDir = rootDir
+    jvmArgs '--add-opens', 'java.base/java.time=ALL-UNNAMED'
     def strategyName = project.findProperty('strategy') ?: 'RegimeAwareStrategy'
     args strategyName
 }

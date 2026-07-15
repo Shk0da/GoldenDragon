@@ -148,6 +148,9 @@ public class UnifiedTraderConfig {
     private List<String> stocks;
     private Double averagePositionCost;
     private boolean badWeatherFilterEnabled;
+    private final int leverageMin;
+    private final boolean adaptiveLeverageEnabled;
+    private final boolean tmonCashParkingEnabled;
     private final Map<String, TickerParams> tickerParams;
     private final Properties properties;
 
@@ -169,6 +172,13 @@ public class UnifiedTraderConfig {
         badWeatherFilterEnabled =
                 Boolean.parseBoolean(
                         properties.getProperty("unifiedTrader.badWeatherFilter.enabled", "false"));
+        leverageMin = Integer.parseInt(properties.getProperty("unifiedTrader.leverage.min", "1"));
+        adaptiveLeverageEnabled =
+                Boolean.parseBoolean(
+                        properties.getProperty("unifiedTrader.adaptiveLeverage.enabled", "true"));
+        tmonCashParkingEnabled =
+                Boolean.parseBoolean(
+                        properties.getProperty("unifiedTrader.tmonCashParking.enabled", "false"));
         this.tickerParams = loadTickerParams(properties);
     }
 
@@ -303,7 +313,10 @@ public class UnifiedTraderConfig {
                 Double.parseDouble(properties.getProperty(prefix + "mmTrailingMultiplier", "1.0"));
         boolean tickerMmEnabled =
                 Boolean.parseBoolean(properties.getProperty(prefix + "mmEnabled", "true"));
-        String globalLeverage = properties.getProperty("unifiedTrader.leverage", "1");
+        String globalLeverage =
+                System.getProperty(
+                        "unifiedTrader.leverage",
+                        properties.getProperty("unifiedTrader.leverage", "1"));
         int leverage =
                 Integer.parseInt(properties.getProperty(prefix + "leverage", globalLeverage));
 
@@ -374,6 +387,18 @@ public class UnifiedTraderConfig {
 
     public boolean isBadWeatherFilterEnabled() {
         return badWeatherFilterEnabled;
+    }
+
+    public int getLeverageMin() {
+        return leverageMin;
+    }
+
+    public boolean isAdaptiveLeverageEnabled() {
+        return adaptiveLeverageEnabled;
+    }
+
+    public boolean isTmonCashParkingEnabled() {
+        return tmonCashParkingEnabled;
     }
 
     @Override

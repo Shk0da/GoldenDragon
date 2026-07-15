@@ -3,33 +3,31 @@ package com.github.shk0da.goldendragon.strategy;
 import com.github.shk0da.goldendragon.config.UnifiedTraderConfig;
 import com.github.shk0da.goldendragon.model.Candle;
 import com.github.shk0da.goldendragon.model.Config;
-import com.github.shk0da.goldendragon.model.Group;
 import com.github.shk0da.goldendragon.model.Position;
 import com.github.shk0da.goldendragon.model.TradingDecision;
 import com.github.shk0da.goldendragon.service.TCSService;
 import java.util.List;
 
 /**
- * Regime-aware strategy v4 - SIMPLIFIED APPROACH
+ * Regime-aware strategy - filters trades based on market regime.
  *
- * <p>Instead of switching between strategies, uses UnifiedStrategy with adaptive parameters: -
- * Strong trends (ADX > 30): Increase position size, wider stops - Ranges (ADX < 15): Reduce
- * position size, tighter stops - Normal (ADX 15-30): Standard parameters
+ * <p>Detects market regime via ADX:
  *
- * <p>This avoids the complexity and overhead of managing multiple strategies.
+ * <ul>
+ *   <li>TREND (ADX > 26): Allow trend signals
+ *   <li>NORMAL (ADX 18-26): Allow only strong signals, skip FX
+ *   <li>RANGE (ADX < 16): Skip all entries
+ * </ul>
+ *
+ * <p>UnifiedStrategy handles all signal generation and position sizing.
  */
 public class RegimeAwareStrategy extends BaseStrategy {
 
-    // Market regime thresholds - SIMPLIFIED
-    private static final double ADX_TREND_THRESHOLD = 28.0;
-    private static final double ADX_HOT_THRESHOLD = 38.0;
+    // Market regime thresholds
+    private static final double ADX_TREND_THRESHOLD = 26.0;
+    private static final double ADX_HOT_THRESHOLD = 35.0;
     private static final double ADX_RANGE_THRESHOLD = 16.0;
-
-    // Adaptive position size multipliers
-    private static final double TREND_SIZE_MULT = 1.8;
-    private static final double HOT_TREND_SIZE_MULT = 2.2;
-    private static final double RANGE_SIZE_MULT = 0.55;
-    private static final double NORMAL_SIZE_MULT = 1.1;
+    private static final double NORMAL_MIN_ADX = 18.0;
 
     // UnifiedStrategy instance
     private final UnifiedStrategy unifiedStrategy;
@@ -58,7 +56,7 @@ public class RegimeAwareStrategy extends BaseStrategy {
                 new UnifiedStrategy(unifiedTraderConfig, tcsService, config, isBacktest);
 
         logWithBacktest(
-                "RegimeAwareStrategy v4: Adaptive UnifiedStrategy (TREND:ADX>"
+                "RegimeAwareStrategy: Regime filter (TREND:ADX>"
                         + ADX_TREND_THRESHOLD
                         + ", RANGE:ADX<"
                         + ADX_RANGE_THRESHOLD
@@ -102,47 +100,18 @@ public class RegimeAwareStrategy extends BaseStrategy {
             return new TradingDecision("HOLD", "RANGE_SKIP_ADX" + (int) adx);
         }
 
-        if (MarketRegime.NORMAL == regime && adx < 20.0) {
+        if (MarketRegime.NORMAL == regime && adx < NORMAL_MIN_ADX) {
             return new TradingDecision("HOLD", "NORMAL_WEAK_ADX" + (int) adx);
         }
 
-        // Calculate adaptive balance multiplier
-        Group tickerGroup = Group.valueOf(unifiedTraderConfig.getTickerGroup(ticker));
-        double balanceMultiplier;
-        switch (regime) {
-            case TREND:
-                balanceMultiplier =
-                        adx >= ADX_HOT_THRESHOLD ? HOT_TREND_SIZE_MULT : TREND_SIZE_MULT;
-                break;
-            case RANGE:
-                balanceMultiplier = RANGE_SIZE_MULT;
-                break;
-            default:
-                balanceMultiplier = NORMAL_SIZE_MULT;
-                break;
-        }
-
-        if (Group.TREND == tickerGroup) {
-            balanceMultiplier *= 1.15;
-        }
-        if (Group.FX == tickerGroup) {
-            balanceMultiplier *= 0.75;
-        }
-        if (Group.MIXED == tickerGroup && MarketRegime.RANGE == regime) {
-            balanceMultiplier *= 0.85;
-        }
-
-        // Adjust balance for UnifiedStrategy
-        double adjustedBalance = balance * balanceMultiplier;
-
-        // Call UnifiedStrategy with adjusted balance
+        // Call UnifiedStrategy with actual balance (no artificial size multiplier)
         TradingDecision decision =
                 unifiedStrategy.decide(
                         ticker,
                         hourCandles,
                         minuteCandles,
                         position,
-                        adjustedBalance,
+                        balance,
                         incrementCandlesHeld);
 
         if ("OPEN".equals(decision.action) && decision.reason != null) {

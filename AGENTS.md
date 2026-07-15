@@ -22,7 +22,6 @@
 - Always run `./gradlew check` after making code changes to ensure tests pass
 - Run `./gradlew clean compileJava` to verify compilation before committing
 - Run `./gradlew spotlessCheck` to verify code formatting matches IDEA style
-- Run `./gradlew pmdMain` to verify code quality rules
 - Fix any compilation errors or test failures before considering work complete
 
 ## Code Guidelines

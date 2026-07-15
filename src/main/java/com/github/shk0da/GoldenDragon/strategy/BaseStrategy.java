@@ -585,21 +585,28 @@ public abstract class BaseStrategy {
         int lotSize = ticker.getLot() != null ? Math.max(1, ticker.getLot()) : 1;
         double positionValue = qty * entryPrice * lotSize;
 
-        double slPrice =
-                decision.stopLoss != null
-                        ? decision.stopLoss
-                        : "BUY".equals(decision.updatedPosition.direction)
-                                ? entryPrice * 0.98
-                                : entryPrice * 1.02;
-        double tpPrice =
-                decision.takeProfit != null
-                        ? decision.takeProfit
-                        : "BUY".equals(decision.updatedPosition.direction)
-                                ? entryPrice * 1.04
-                                : entryPrice * 0.96;
-
-        double slPercent = abs(entryPrice - slPrice) / entryPrice * 100;
-        double tpPercent = abs(tpPrice - entryPrice) / entryPrice * 100;
+        boolean isTmonCashParking = "TMON@".equals(name);
+        double slPercent;
+        double tpPercent;
+        if (isTmonCashParking) {
+            slPercent = 0.0;
+            tpPercent = 0.0;
+        } else {
+            double slPrice =
+                    decision.stopLoss != null
+                            ? decision.stopLoss
+                            : "BUY".equals(decision.updatedPosition.direction)
+                                    ? entryPrice * 0.98
+                                    : entryPrice * 1.02;
+            double tpPrice =
+                    decision.takeProfit != null
+                            ? decision.takeProfit
+                            : "BUY".equals(decision.updatedPosition.direction)
+                                    ? entryPrice * 1.04
+                                    : entryPrice * 0.96;
+            slPercent = abs(entryPrice - slPrice) / entryPrice * 100;
+            tpPercent = abs(tpPrice - entryPrice) / entryPrice * 100;
+        }
 
         log(
                 "Opening "
@@ -660,6 +667,18 @@ public abstract class BaseStrategy {
 
             double executedEntryPrice =
                     executedPosition.entryPrice != null ? executedPosition.entryPrice : entryPrice;
+            double slInfo =
+                    executedPosition.stopLoss != null
+                            ? abs(executedEntryPrice - executedPosition.stopLoss)
+                                    / executedEntryPrice
+                                    * 100
+                            : 0.0;
+            double tpInfo =
+                    executedPosition.takeProfit != null
+                            ? abs(executedPosition.takeProfit - executedEntryPrice)
+                                    / executedEntryPrice
+                                    * 100
+                            : 0.0;
             telegramNotifyService.sendMessage(
                     getStrategyName()
                             + " "
@@ -671,18 +690,10 @@ public abstract class BaseStrategy {
                             + ", entry="
                             + executedEntryPrice
                             + ", SL="
-                            + String.format(
-                                    "%.2f",
-                                    abs(executedEntryPrice - executedPosition.stopLoss)
-                                            / executedEntryPrice
-                                            * 100)
+                            + String.format("%.2f", slInfo)
                             + "%"
                             + ", TP="
-                            + String.format(
-                                    "%.2f",
-                                    abs(executedPosition.takeProfit - executedEntryPrice)
-                                            / executedEntryPrice
-                                            * 100)
+                            + String.format("%.2f", tpInfo)
                             + "%");
         } catch (Exception ex) {
             log(
@@ -960,6 +971,32 @@ public abstract class BaseStrategy {
         return new Position(config.cooldownCandles);
     }
 
+    /**
+     * Checks if there are any active positions on tickers other than TMON@. Used by TMON@ cash
+     * parking logic to determine whether TMON@ should be sold (to free cash for other positions) or
+     * bought (when idle).
+     */
+    protected boolean hasActiveNonTmonPositions() {
+        for (Map.Entry<String, Position> entry : positionStore.entrySet()) {
+            if ("TMON@".equals(entry.getKey())) {
+                continue;
+            }
+            if (entry.getValue().quantity > 0) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Allows external code (e.g., BacktestRunner) to set a position into this strategy's position
+     * store. Used for TMON@ cash parking where the TMON@ strategy needs to see positions held by
+     * other tickers.
+     */
+    public void setPosition(String ticker, Position position) {
+        positionStore.put(ticker, position);
+    }
+
     protected Double safeGetTotalPortfolioCost() {
         if (tcsService == null) {
             return 0.0;
@@ -974,7 +1011,11 @@ public abstract class BaseStrategy {
 
     protected TickerInfo findTickerInfo(String name) {
         return TickerRepository.INSTANCE.getAll().values().stream()
-                .filter(t -> t.getType() == TickerType.STOCK || t.getType() == TickerType.FEATURE)
+                .filter(
+                        t ->
+                                t.getType() == TickerType.STOCK
+                                        || t.getType() == TickerType.FEATURE
+                                        || t.getType() == TickerType.ETF)
                 .filter(
                         t ->
                                 t.getName().equalsIgnoreCase(name)
@@ -1577,9 +1618,16 @@ public abstract class BaseStrategy {
             return new HashMap<>();
         }
 
+        boolean tmonCashParking =
+                weights.containsKey("TMON@") && unifiedTraderConfig.isTmonCashParkingEnabled();
+
         Map<String, Double> allocation = new HashMap<>();
         for (Map.Entry<String, Double> e : weights.entrySet()) {
-            allocation.put(e.getKey(), totalCash * (e.getValue() / totalWeight));
+            if (tmonCashParking && "TMON@".equals(e.getKey())) {
+                allocation.put(e.getKey(), totalCash);
+            } else if (!tmonCashParking) {
+                allocation.put(e.getKey(), totalCash * (e.getValue() / totalWeight));
+            }
         }
 
         return allocation;

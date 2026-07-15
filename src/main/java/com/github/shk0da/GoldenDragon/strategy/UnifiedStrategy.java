@@ -11,6 +11,7 @@ import com.github.shk0da.goldendragon.model.TickerInfo;
 import com.github.shk0da.goldendragon.model.TickerType;
 import com.github.shk0da.goldendragon.model.TradingDecision;
 import com.github.shk0da.goldendragon.money.AdaptiveCapital;
+import com.github.shk0da.goldendragon.money.AdaptiveLeverage;
 import com.github.shk0da.goldendragon.money.FixedRiskSizing;
 import com.github.shk0da.goldendragon.money.KillSwitch;
 import com.github.shk0da.goldendragon.money.PerformanceTracker;
@@ -54,7 +55,8 @@ import java.util.concurrent.ConcurrentMap;
  *       ENGULFING, MORNING/EVENING_STAR, THREE_WHITE/BLACK.
  * </ul>
  *
- * Шорт-сигналы в текущей реализации отключены — открываются только BUY-позиции.
+ * Шорт-сигналы открываются только при {@code config.shortsEnabled = true}; иначе обрабатываются
+ * лишь BUY-позиции (reason {@code short_disabled}).
  *
  * <h2>Классификация рыночного режима</h2>
  *
@@ -146,6 +148,11 @@ public class UnifiedStrategy extends BaseStrategy {
     private static final double MARKET_ORDER_CASH_BUFFER_PERCENT = 0.001;
     private static final double MARKET_ORDER_CASH_BUFFER_MIN = 10.0;
 
+    // Minimum votes required for a trend signal (out of 6 indicators)
+    private static final int TREND_SIGNAL_MIN_VOTES = 5;
+    // Skip entries after this many consecutive losses
+    private static final int LOSS_STREAK_SKIP_THRESHOLD = 2;
+
     // Money Management components
     private final RiskManager riskManager;
     private final PositionSizer positionSizer;
@@ -155,8 +162,14 @@ public class UnifiedStrategy extends BaseStrategy {
     private final PerformanceTracker performanceTracker;
     private final boolean mmEnabled;
 
+    /** When set, overrides config leverage and disables adaptive leverage resolution. */
+    private Integer fixedEntryLeverage;
+
     // Track initial risk per position for R-based calculations
     private final ConcurrentMap<String, Double> initialRiskPerTicker = new ConcurrentHashMap<>();
+
+    // Track consecutive losses per ticker for entry cooldown
+    private final ConcurrentMap<String, Integer> consecutiveLossTracker = new ConcurrentHashMap<>();
 
     public UnifiedStrategy(UnifiedTraderConfig unifiedTraderConfig, TCSService tcsService) {
         this(unifiedTraderConfig, tcsService, new Config(), false);
@@ -181,13 +194,10 @@ public class UnifiedStrategy extends BaseStrategy {
                                 config.mmVolatilityBaseAtr,
                                 config.mmVolatilityMinAdjustment,
                                 config.mmVolatilityMaxAdjustment,
-                                0.25 // maxPositionSize: 25% of capital
-                                );
+                                config.mmMaxPositionSize);
             } else {
                 sizingStrategy =
-                        new FixedRiskSizing(
-                                config.mmRiskPercent, 0.25 // maxPositionSize: 25% of capital
-                                );
+                        new FixedRiskSizing(config.mmRiskPercent, config.mmMaxPositionSize);
             }
 
             // Initialize MM components
@@ -230,6 +240,10 @@ public class UnifiedStrategy extends BaseStrategy {
             this.performanceTracker = null;
             logWithBacktest("Money Management disabled");
         }
+    }
+
+    public void setFixedEntryLeverage(int leverage) {
+        this.fixedEntryLeverage = Math.max(1, leverage);
     }
 
     @Override
@@ -282,9 +296,15 @@ public class UnifiedStrategy extends BaseStrategy {
         Position p = position;
         Group grp = Group.valueOf(unifiedTraderConfig.getTickerGroup(ticker));
 
+        // TMON@ Cash Parking: idle cash goes to TMON@, sell TMON@ when other positions need cash
+        if ("TMON@".equals(ticker) && unifiedTraderConfig.isTmonCashParkingEnabled()) {
+            return decideTmonCashParking(balance, p, cur.close);
+        }
+
         if (position.quantity > 0 && incrementCandlesHeld) {
             p =
-                    new Position(
+                    copyPosition(
+                            position,
                             position.direction,
                             position.entryPrice,
                             position.stopLoss,
@@ -294,7 +314,8 @@ public class UnifiedStrategy extends BaseStrategy {
                             position.cooldownRemaining);
         } else if (position.quantity > 0) {
             p =
-                    new Position(
+                    copyPosition(
+                            position,
                             position.direction,
                             position.entryPrice,
                             position.stopLoss,
@@ -357,14 +378,22 @@ public class UnifiedStrategy extends BaseStrategy {
             if (mmEnabled && stopLossManager != null && atr > 0.0) {
                 Double initialRisk = initialRiskPerTicker.get(ticker);
                 if (initialRisk == null) {
-                    initialRisk = ep - (p.stopLoss != null ? p.stopLoss : ep);
+                    double slLevel = p.stopLoss != null ? p.stopLoss : ep;
+                    initialRisk = "SELL".equals(dir) ? slLevel - ep : ep - slLevel;
                     initialRiskPerTicker.put(ticker, initialRisk);
                 }
 
                 Double newStop = stopLossManager.updateStopLoss(p, cur, atr, initialRisk);
-                if (newStop != null && newStop > (p.stopLoss != null ? p.stopLoss : 0.0)) {
+                boolean stopImproved =
+                        newStop != null
+                                && (p.stopLoss == null
+                                        || ("SELL".equals(dir)
+                                                ? newStop < p.stopLoss
+                                                : newStop > p.stopLoss));
+                if (stopImproved) {
                     p =
-                            new Position(
+                            copyPosition(
+                                    p,
                                     p.direction,
                                     p.entryPrice,
                                     newStop,
@@ -387,7 +416,8 @@ public class UnifiedStrategy extends BaseStrategy {
                     double beSl = "BUY".equals(dir) ? ep + atr * 0.08 : ep - atr * 0.08;
                     if ("BUY".equals(dir) && (p.stopLoss != null ? p.stopLoss : 0.0) < beSl) {
                         p =
-                                new Position(
+                                copyPosition(
+                                        p,
                                         p.direction,
                                         p.entryPrice,
                                         beSl,
@@ -402,7 +432,8 @@ public class UnifiedStrategy extends BaseStrategy {
                     double trailSl = cur.close - atr * 0.35;
                     if ("BUY".equals(dir) && trailSl > (p.stopLoss != null ? p.stopLoss : 0.0)) {
                         p =
-                                new Position(
+                                copyPosition(
+                                        p,
                                         p.direction,
                                         p.entryPrice,
                                         trailSl,
@@ -417,7 +448,8 @@ public class UnifiedStrategy extends BaseStrategy {
                     double tightTrail = cur.close - atr * 0.20;
                     if ("BUY".equals(dir) && tightTrail > (p.stopLoss != null ? p.stopLoss : 0.0)) {
                         p =
-                                new Position(
+                                copyPosition(
+                                        p,
                                         p.direction,
                                         p.entryPrice,
                                         tightTrail,
@@ -446,7 +478,8 @@ public class UnifiedStrategy extends BaseStrategy {
                             p.takeProfit,
                             p.quantity,
                             p.candlesHeld,
-                            p.cooldownRemaining - 1));
+                            p.cooldownRemaining - 1,
+                            p.appliedLeverage));
         }
 
         if (p.quantity > 0) {
@@ -516,23 +549,35 @@ public class UnifiedStrategy extends BaseStrategy {
 
         boolean isBuy =
                 signal.startsWith("TB") || signal.startsWith("FXB") || signal.startsWith("MXB");
-        if (!isBuy) {
+        if (!isBuy && !config.shortsEnabled) {
             return new TradingDecision("HOLD", "short_disabled", 0.0, 0, null, null, null, p);
         }
+
+        String direction = isBuy ? "BUY" : "SELL";
 
         String allocationGroup = tpCfg.allocationGroup;
         if (allocationGroup != null
                 && !allocationGroup.isEmpty()
                 && peerCandles != null
                 && !peerCandles.isEmpty()) {
-            if (!GroupConfirmationFilter.isConfirmed(ticker, true, peerCandles)) {
+            if (!GroupConfirmationFilter.isConfirmed(ticker, isBuy, peerCandles)) {
                 return new TradingDecision(
                         "HOLD", "noGroupConf_" + signal, 0.0, 0, null, null, null, p);
             }
         }
 
-        if (rsi > 72.0) {
+        // Skip entry after consecutive losses
+        int lossStreak = consecutiveLossTracker.getOrDefault(ticker, 0);
+        if (lossStreak >= LOSS_STREAK_SKIP_THRESHOLD) {
+            return new TradingDecision(
+                    "HOLD", "loss_streak_" + lossStreak, 0.0, 0, null, null, null, p);
+        }
+
+        if (isBuy && rsi > 70.0) {
             return new TradingDecision("HOLD", "rsi_hot", 0.0, 0, null, null, null, p);
+        }
+        if (!isBuy && rsi < 30.0) {
+            return new TradingDecision("HOLD", "rsi_cold", 0.0, 0, null, null, null, p);
         }
 
         double entry = cur.close;
@@ -540,9 +585,16 @@ public class UnifiedStrategy extends BaseStrategy {
             Candle prev1 = minuteCandles.get(minuteCandles.size() - 2);
             Candle prev2 = minuteCandles.get(minuteCandles.size() - 3);
 
-            boolean pullbackBuy = cur.close < prev1.close && cur.close > prev2.low;
-            if (pullbackBuy) {
-                entry = Math.min(cur.open, cur.close);
+            if (isBuy) {
+                boolean pullbackBuy = cur.close < prev1.close && cur.close > prev2.low;
+                if (pullbackBuy) {
+                    entry = Math.min(cur.open, cur.close);
+                }
+            } else {
+                boolean pullbackSell = cur.close > prev1.close && cur.close < prev2.high;
+                if (pullbackSell) {
+                    entry = Math.max(cur.open, cur.close);
+                }
             }
         }
 
@@ -579,10 +631,27 @@ public class UnifiedStrategy extends BaseStrategy {
             return new TradingDecision("HOLD", "dist0", 0.0, 0, null, null, null, p);
         }
 
-        double sl = entry - slDist;
-        double tp = entry + tpDist;
-        int maxAffordableQty = calculateMaxAffordableQuantity(ticker, balance, entry);
-        int maxAskQty = calculateAvailableAskQuantity(ticker);
+        double sl = isBuy ? entry - slDist : entry + slDist;
+        double tp = isBuy ? entry + tpDist : entry - tpDist;
+
+        int maxLeverage =
+                fixedEntryLeverage != null ? fixedEntryLeverage : Math.max(1, tpCfg.leverage);
+        int effectiveLeverage =
+                fixedEntryLeverage != null
+                        ? fixedEntryLeverage
+                        : resolveEntryLeverage(
+                                maxLeverage,
+                                adx,
+                                dAtr,
+                                avgAtr,
+                                regimeResult.confidence,
+                                strongTrend,
+                                rangeRegime,
+                                signal);
+
+        int maxAffordableQty =
+                calculateMaxAffordableQuantity(ticker, balance, entry, effectiveLeverage);
+        int maxAskQty = calculateAvailableLiquidity(ticker, isBuy);
 
         if (maxAskQty <= 0) {
             return new TradingDecision("HOLD", "ASK_QTY0", 0.0, 0, null, null, null, p);
@@ -595,6 +664,9 @@ public class UnifiedStrategy extends BaseStrategy {
             double adjustedBalance = balance * riskMultiplier;
 
             qty = positionSizer.calculateSize(ticker, entry, sl, adjustedBalance, dAtr);
+            if (effectiveLeverage > 1) {
+                qty = (int) Math.min((long) qty * effectiveLeverage, maxAffordableQty);
+            }
             qty = Math.min(qty, Math.min(maxAffordableQty, maxAskQty));
 
             if (qty <= 0) {
@@ -618,10 +690,29 @@ public class UnifiedStrategy extends BaseStrategy {
 
             double maxQty = Math.min(maxAffordableQty, maxAskQty);
             qty = (int) Math.min(Math.max(1, Math.floor(maxRisk / slDist)), maxQty);
+            if (effectiveLeverage > 1) {
+                qty = (int) Math.min((long) qty * effectiveLeverage, maxAffordableQty);
+            }
+            qty = Math.min(qty, (int) maxQty);
 
             if (qty <= 0) {
                 return new TradingDecision("HOLD", "qty0", 0.0, 0, null, null, null, p);
             }
+        }
+
+        if (effectiveLeverage > 1
+                && fixedEntryLeverage == null
+                && unifiedTraderConfig.isAdaptiveLeverageEnabled()) {
+            logWithBacktest(
+                    "Adaptive leverage for "
+                            + ticker
+                            + ": "
+                            + effectiveLeverage
+                            + "x (max "
+                            + maxLeverage
+                            + "x, ADX="
+                            + String.format("%.1f", adx)
+                            + ")");
         }
 
         double tradeConfidence =
@@ -635,7 +726,7 @@ public class UnifiedStrategy extends BaseStrategy {
                 sl,
                 tp,
                 entry,
-                new Position("BUY", entry, sl, tp, qty, 0));
+                new Position(direction, entry, sl, tp, qty, 0, 0, effectiveLeverage));
     }
 
     public String trendSignal(List<Candle> candles) {
@@ -681,13 +772,67 @@ public class UnifiedStrategy extends BaseStrategy {
         if (p > emaF && emaF > emaS) bs++;
         if (p < emaF && emaF < emaS) ss++;
 
-        if (bs >= 4 && uptrend) return "TB_" + bs + "_" + (int) adx + "_" + (int) rsi;
-        if (ss >= 4 && dnTrend) return "TS_" + ss + "_" + (int) adx + "_" + (int) rsi;
+        if (bs >= TREND_SIGNAL_MIN_VOTES && uptrend)
+            return "TB_" + bs + "_" + (int) adx + "_" + (int) rsi;
+        if (ss >= TREND_SIGNAL_MIN_VOTES && dnTrend)
+            return "TS_" + ss + "_" + (int) adx + "_" + (int) rsi;
 
         return null;
     }
 
-    private int calculateMaxAffordableQuantity(String ticker, double balance, double entryPrice) {
+    private int resolveEntryLeverage(
+            int maxLeverage,
+            double adx,
+            double atr,
+            double avgAtr,
+            double regimeConfidence,
+            boolean strongTrend,
+            boolean rangeRegime,
+            String signal) {
+        if (fixedEntryLeverage != null) {
+            return fixedEntryLeverage;
+        }
+        if (maxLeverage <= 1 || !unifiedTraderConfig.isAdaptiveLeverageEnabled()) {
+            return maxLeverage;
+        }
+        double riskMultiplier = mmEnabled ? adaptiveCapital.getRiskMultiplier() : 1.0;
+        return AdaptiveLeverage.resolve(
+                new AdaptiveLeverage.Context(
+                        maxLeverage,
+                        unifiedTraderConfig.getLeverageMin(),
+                        adx,
+                        atr,
+                        avgAtr,
+                        regimeConfidence,
+                        riskMultiplier,
+                        strongTrend,
+                        rangeRegime,
+                        signal));
+    }
+
+    private Position copyPosition(
+            Position src,
+            String direction,
+            Double entryPrice,
+            Double stopLoss,
+            Double takeProfit,
+            int quantity,
+            int candlesHeld,
+            int cooldownRemaining) {
+        int leverage = src != null && src.appliedLeverage > 0 ? src.appliedLeverage : 1;
+        return new Position(
+                direction,
+                entryPrice,
+                stopLoss,
+                takeProfit,
+                quantity,
+                candlesHeld,
+                cooldownRemaining,
+                leverage);
+    }
+
+    private int calculateMaxAffordableQuantity(
+            String ticker, double balance, double entryPrice, int leverage) {
         if (entryPrice <= 0.0 || balance <= 0.0) {
             return 0;
         }
@@ -713,9 +858,9 @@ public class UnifiedStrategy extends BaseStrategy {
         if (TickerType.FEATURE == tickerInfo.getType()) {
             marginMultiplier = TCSService.FUTURES_MARGIN_RATE;
         }
-        int leverage = unifiedTraderConfig.getTickerParams(ticker).leverage;
-        if (leverage > 1) {
-            marginMultiplier /= leverage;
+        int effectiveLeverage = Math.max(1, leverage);
+        if (effectiveLeverage > 1) {
+            marginMultiplier /= effectiveLeverage;
         }
         orderCost *= marginMultiplier;
         if (orderCost <= 0.0) {
@@ -725,7 +870,7 @@ public class UnifiedStrategy extends BaseStrategy {
         return (int) (Math.floor(balance / orderCost) * lot);
     }
 
-    private int calculateAvailableAskQuantity(String ticker) {
+    private int calculateAvailableLiquidity(String ticker, boolean isBuy) {
         if (tcsService == null) {
             return Integer.MAX_VALUE;
         }
@@ -735,19 +880,20 @@ public class UnifiedStrategy extends BaseStrategy {
             return 0;
         }
 
+        String side = isBuy ? "asks" : "bids";
         try {
-            Map<Double, Integer> asks =
+            Map<Double, Integer> levels =
                     tcsService
                             .getCurrentPrices(
                                     new TickerInfo.Key(ticker, tickerInfo.getType()), false)
-                            .get("asks");
-            if (asks == null || asks.isEmpty()) {
+                            .get(side);
+            if (levels == null || levels.isEmpty()) {
                 return 0;
             }
 
-            return asks.values().stream().mapToInt(Integer::intValue).sum();
+            return levels.values().stream().mapToInt(Integer::intValue).sum();
         } catch (Exception ex) {
-            logWithBacktest("Failed to read asks for " + ticker + ": " + ex.getMessage());
+            logWithBacktest("Failed to read " + side + " for " + ticker + ": " + ex.getMessage());
             return 0;
         }
     }
@@ -756,6 +902,11 @@ public class UnifiedStrategy extends BaseStrategy {
         TickerInfo.Key stockKey = new TickerInfo.Key(ticker, TickerType.STOCK);
         if (TickerRepository.INSTANCE.containsKey(stockKey)) {
             return TickerRepository.INSTANCE.getById(stockKey);
+        }
+
+        TickerInfo.Key etfKey = new TickerInfo.Key(ticker, TickerType.ETF);
+        if (TickerRepository.INSTANCE.containsKey(etfKey)) {
+            return TickerRepository.INSTANCE.getById(etfKey);
         }
 
         TickerInfo.Key futureKey = new TickerInfo.Key(ticker, TickerType.FEATURE);
@@ -770,7 +921,11 @@ public class UnifiedStrategy extends BaseStrategy {
                 try {
                     return tcsService.searchTicker(stockKey);
                 } catch (Exception ignoredToo) {
-                    return null;
+                    try {
+                        return tcsService.searchTicker(etfKey);
+                    } catch (Exception ignoredThree) {
+                        return null;
+                    }
                 }
             }
         }
@@ -931,6 +1086,7 @@ public class UnifiedStrategy extends BaseStrategy {
             }
             adaptiveCapital.reset();
             initialRiskPerTicker.clear();
+            consecutiveLossTracker.clear();
             logWithBacktest("MM: Daily reset completed");
         }
     }
@@ -961,6 +1117,14 @@ public class UnifiedStrategy extends BaseStrategy {
                 killSwitch.checkDrawdown(performanceTracker.getCurrentDrawdown());
             }
             initialRiskPerTicker.remove(ticker);
+
+            // Track consecutive losses per ticker
+            if (pnl < 0) {
+                consecutiveLossTracker.merge(ticker, 1, Integer::sum);
+            } else {
+                consecutiveLossTracker.remove(ticker);
+            }
+
             logWithBacktest(
                     "MM: Registered trade for "
                             + ticker
@@ -969,6 +1133,59 @@ public class UnifiedStrategy extends BaseStrategy {
                             + ", consecutiveLosses="
                             + (riskManager != null ? riskManager.getConsecutiveLosses() : 0));
         }
+    }
+
+    /**
+     * TMON@ cash parking logic: when no positions on other tickers, buy TMON@ with available cash;
+     * when other positions need cash, sell TMON@ first.
+     */
+    private TradingDecision decideTmonCashParking(
+            double balance, Position position, double currentPrice) {
+        if (position.quantity > 0) {
+            if (hasActiveNonTmonPositions()) {
+                logWithBacktest("TMON@: selling to free cash for other positions");
+                return new TradingDecision(
+                        "CLOSE",
+                        "tmon_sell_for_cash",
+                        0.0,
+                        position.quantity,
+                        null,
+                        null,
+                        null,
+                        new Position(config.cooldownCandles));
+            }
+            return new TradingDecision("HOLD", "tmon_parked", 0.0, 0, null, null, null, position);
+        }
+
+        if (!hasActiveNonTmonPositions() && balance > 0.0) {
+            TickerInfo tickerInfo = resolveTickerInfo("TMON@");
+            if (tickerInfo == null) {
+                logWithBacktest("TMON@: ticker info not found, skipping buy");
+                return new TradingDecision("HOLD", "tmon_ticker_not_found");
+            }
+            int lot = tickerInfo.getLot() != null ? tickerInfo.getLot() : 1;
+            double costPerLot = currentPrice * lot;
+            int buyQty = costPerLot > 0.0 ? (int) Math.floor(balance / costPerLot) * lot : 0;
+            if (buyQty > 0) {
+                double totalCost = buyQty * currentPrice;
+                logWithBacktest(
+                        "TMON@: buying "
+                                + buyQty
+                                + " with idle cash "
+                                + String.format("%.2f", totalCost));
+                return new TradingDecision(
+                        "OPEN",
+                        "tmon_cash_parking",
+                        1.0,
+                        buyQty,
+                        null,
+                        null,
+                        null,
+                        new Position("BUY", null, null, null, buyQty, 0, 0, 1));
+            }
+        }
+
+        return new TradingDecision("HOLD", "tmon_no_action");
     }
 
     @Override
