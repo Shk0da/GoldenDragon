@@ -256,6 +256,7 @@ public class BacktestRunner {
     private static final DateTimeFormatter DATE_TIME_FMT =
             DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm:ss");
 
+    private static final double MIN_SHARPE_RATIO = 0.0;
     private static final int MIN_HOURS_REQUIRED = 60;
     private static final LocalTime WORK_START_TIME = LocalTime.of(10, 0);
     private static final LocalTime EOD_CLOSE_TIME = LocalTime.of(21, 0);
@@ -537,6 +538,12 @@ public class BacktestRunner {
 
         List<String> loadedTickers = loadTickers();
         List<String> activeTickers = filterEnabledTickers(loadedTickers, config);
+
+        // filter out tickers with worst Sharpe Ratio
+        String fullStart = chartPeriods.get(0).start;
+        String fullEnd = chartPeriods.get(chartPeriods.size() - 1).endExclusive;
+        activeTickers = filterBySharpe(activeTickers, fullStart, fullEnd);
+
         if (!activeTickers.isEmpty()) {
             if ("PrecisionStrategy".equals(strategyName)) {
                 System.out.println("Backtest leverage: 1x fixed (PrecisionStrategy override)");
@@ -559,8 +566,6 @@ public class BacktestRunner {
         Map<String, Map<String, TickerPeriodResult>> allData = new LinkedHashMap<>();
         Map<String, PortfolioPeriodResult> portfolioData = new LinkedHashMap<>();
 
-        String fullStart = chartPeriods.get(0).start;
-        String fullEnd = chartPeriods.get(chartPeriods.size() - 1).endExclusive;
         ExecutionResult continuousResult =
                 execute(strategyName, fullStart, fullEnd, activeTickers, config);
 
@@ -2500,6 +2505,98 @@ public class BacktestRunner {
             }
         }
         return result;
+    }
+
+    private double calculateSharpeRatio(String ticker, String startDate, String endDate) {
+        List<RawCandle> candles = loadCandles(ticker, startDate, endDate);
+        if (candles.size() < 2) {
+            return Double.NEGATIVE_INFINITY;
+        }
+
+        // group by day, take last close per day
+        Map<LocalDate, Double> dailyClose = new LinkedHashMap<>();
+        for (RawCandle c : candles) {
+            LocalDate day = c.dateTime.toLocalDate();
+            dailyClose.put(day, c.close);
+        }
+
+        List<Double> closes = new ArrayList<>(dailyClose.values());
+        if (closes.size() < 2) {
+            return Double.NEGATIVE_INFINITY;
+        }
+
+        // daily returns
+        List<Double> returns = new ArrayList<>();
+        for (int i = 1; i < closes.size(); i++) {
+            double prev = closes.get(i - 1);
+            if (prev != 0) {
+                returns.add((closes.get(i) - prev) / prev);
+            }
+        }
+
+        if (returns.isEmpty()) {
+            return Double.NEGATIVE_INFINITY;
+        }
+
+        double mean = returns.stream().mapToDouble(Double::doubleValue).average().orElse(0.0);
+        double variance =
+                returns.stream().mapToDouble(r -> (r - mean) * (r - mean)).average().orElse(0.0);
+        double std = Math.sqrt(variance);
+
+        if (std == 0) {
+            return mean > 0 ? Double.POSITIVE_INFINITY : Double.NEGATIVE_INFINITY;
+        }
+
+        // annualized Sharpe (252 trading days)
+        return (mean / std) * Math.sqrt(252);
+    }
+
+    private List<String> filterBySharpe(List<String> tickers, String startDate, String endDate) {
+        System.out.println("Filtering tickers by Sharpe Ratio (min=" + MIN_SHARPE_RATIO + ")...");
+
+        Map<String, Double> sharpes = new LinkedHashMap<>();
+        for (String ticker : tickers) {
+            try {
+                double sharpe = calculateSharpeRatio(ticker, startDate, endDate);
+                sharpes.put(ticker, sharpe);
+            } catch (Exception ex) {
+                System.out.println(
+                        "  " + ticker + ": failed to calculate Sharpe (" + ex.getMessage() + ")");
+                sharpes.put(ticker, Double.NEGATIVE_INFINITY);
+            }
+        }
+
+        // print all Sharpe values sorted
+        sharpes.entrySet().stream()
+                .sorted(Map.Entry.<String, Double>comparingByValue().reversed())
+                .forEach(
+                        e ->
+                                System.out.printf(
+                                        "  %-10s Sharpe: %+.2f%n", e.getKey(), e.getValue()));
+
+        List<String> filtered = new ArrayList<>();
+        List<String> removed = new ArrayList<>();
+        for (String ticker : tickers) {
+            double sharpe = sharpes.getOrDefault(ticker, Double.NEGATIVE_INFINITY);
+            if (Double.isFinite(sharpe) && sharpe >= MIN_SHARPE_RATIO) {
+                filtered.add(ticker);
+            } else {
+                removed.add(ticker);
+            }
+        }
+
+        if (!removed.isEmpty()) {
+            System.out.println(
+                    "Removed "
+                            + removed.size()
+                            + " tickers with Sharpe < "
+                            + MIN_SHARPE_RATIO
+                            + ": "
+                            + removed);
+        }
+        System.out.println("Kept " + filtered.size() + " tickers after Sharpe filter: " + filtered);
+
+        return filtered;
     }
 
     private int upperBound(List<LocalDateTime> times, LocalDateTime target) {
