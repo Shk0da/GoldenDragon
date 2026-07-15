@@ -1,14 +1,5 @@
 package com.github.shk0da.goldendragon.strategy;
 
-import static com.github.shk0da.goldendragon.model.TickerType.FEATURE;
-import static com.github.shk0da.goldendragon.model.TickerType.STOCK;
-import static com.github.shk0da.goldendragon.service.TelegramNotifyService.telegramNotifyService;
-import static com.github.shk0da.goldendragon.utils.TimeUtils.sleep;
-import static java.lang.Math.abs;
-import static java.lang.Math.max;
-import static java.util.concurrent.CompletableFuture.allOf;
-import static java.util.concurrent.CompletableFuture.runAsync;
-
 import com.github.shk0da.goldendragon.config.UnifiedTraderConfig;
 import com.github.shk0da.goldendragon.filters.BadWeatherFilter;
 import com.github.shk0da.goldendragon.filters.MarketRegimeFilter;
@@ -24,6 +15,9 @@ import com.github.shk0da.goldendragon.repository.TickerRepository;
 import com.github.shk0da.goldendragon.service.TCSService;
 import com.github.shk0da.goldendragon.utils.IndicatorsUtil;
 import com.github.shk0da.goldendragon.utils.LoggingUtils;
+import ru.tinkoff.piapi.contract.v1.CandleInterval;
+import ru.tinkoff.piapi.contract.v1.HistoricCandle;
+
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileWriter;
@@ -51,8 +45,15 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
-import ru.tinkoff.piapi.contract.v1.CandleInterval;
-import ru.tinkoff.piapi.contract.v1.HistoricCandle;
+
+import static com.github.shk0da.goldendragon.model.TickerType.FEATURE;
+import static com.github.shk0da.goldendragon.model.TickerType.STOCK;
+import static com.github.shk0da.goldendragon.service.TelegramNotifyService.telegramNotifyService;
+import static com.github.shk0da.goldendragon.utils.TimeUtils.sleep;
+import static java.lang.Math.abs;
+import static java.lang.Math.max;
+import static java.util.concurrent.CompletableFuture.allOf;
+import static java.util.concurrent.CompletableFuture.runAsync;
 
 /**
  * Base abstract trading strategy class implementing common execution lifecycle, position
@@ -322,6 +323,13 @@ public abstract class BaseStrategy {
                 log("Failed to load config for ticker " + ticker + ": " + ex.getMessage());
             }
         }
+
+        log(
+                getStrategyName()
+                        + ": active instruments ("
+                        + activeTickers.size()
+                        + "): "
+                        + activeTickers);
 
         if (activeTickers.isEmpty()) {
             log("No active tickers found. " + getStrategyName() + " stopped.");
