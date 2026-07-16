@@ -257,7 +257,8 @@ public final class OrderBookTradingEngine implements MarketTickListener {
 
         if (config.isShortsEnabled() && runtime.openPosition == null) {
             for (OrderBookSignal signal : signals) {
-                OrderBookEntryDecision decision = signal.evaluateEntryShort(context, runtime.ticker);
+                OrderBookEntryDecision decision =
+                        signal.evaluateEntryShort(context, runtime.ticker);
                 if (!decision.isEnter()) {
                     continue;
                 }
@@ -300,7 +301,10 @@ public final class OrderBookTradingEngine implements MarketTickListener {
         boolean inGracePeriod = heldSeconds < config.getEntryGraceSeconds();
 
         if (!inGracePeriod) {
-            boolean tpHit = isLong ? currentPrice >= position.takeProfitPrice : currentPrice <= position.takeProfitPrice;
+            boolean tpHit =
+                    isLong
+                            ? currentPrice >= position.takeProfitPrice
+                            : currentPrice <= position.takeProfitPrice;
             if (tpHit) {
                 closeOpenPosition(runtime, "take_profit", paper);
                 return;
@@ -312,20 +316,31 @@ public final class OrderBookTradingEngine implements MarketTickListener {
         }
 
         if (config.isTrailingEnabled() && position.spreadAtEntry > 0) {
-            double profit = isLong ? currentPrice - position.entryPrice : position.entryPrice - currentPrice;
-            double activationThreshold = config.getTrailingActivationSpreads() * position.spreadAtEntry;
+            double profit =
+                    isLong
+                            ? currentPrice - position.entryPrice
+                            : position.entryPrice - currentPrice;
+            double activationThreshold =
+                    config.getTrailingActivationSpreads() * position.spreadAtEntry;
             if (profit >= activationThreshold) {
-                double newSl = isLong
-                        ? currentPrice - config.getTrailingStepSpreads() * position.spreadAtEntry
-                        : currentPrice + config.getTrailingStepSpreads() * position.spreadAtEntry;
-                boolean slImproved = isLong ? newSl > position.stopLossPrice : newSl < position.stopLossPrice;
+                double newSl =
+                        isLong
+                                ? currentPrice
+                                        - config.getTrailingStepSpreads() * position.spreadAtEntry
+                                : currentPrice
+                                        + config.getTrailingStepSpreads() * position.spreadAtEntry;
+                boolean slImproved =
+                        isLong ? newSl > position.stopLossPrice : newSl < position.stopLossPrice;
                 if (slImproved) {
                     position.stopLossPrice = newSl;
                 }
             }
         }
 
-        boolean slHit = isLong ? currentPrice <= position.stopLossPrice : currentPrice >= position.stopLossPrice;
+        boolean slHit =
+                isLong
+                        ? currentPrice <= position.stopLossPrice
+                        : currentPrice >= position.stopLossPrice;
         if (slHit) {
             closeOpenPosition(runtime, "stop_loss", paper);
             return;

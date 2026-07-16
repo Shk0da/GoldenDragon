@@ -42,14 +42,16 @@ public final class MicropriceDriftSignal implements OrderBookSignal {
     }
 
     @Override
-    public OrderBookEntryDecision evaluateEntryShort(OrderBookMarketContext context, String ticker) {
+    public OrderBookEntryDecision evaluateEntryShort(
+            OrderBookMarketContext context, String ticker) {
         double edgeThreshold = config.getEdgeSpreadFraction() * EDGE_FRACTION * context.getSpread();
         if (context.getMicroEdge() < -edgeThreshold && context.getObi() < -MIN_OBI) {
             int persistence = persistenceByTicker.merge(ticker + "_short", 1, Integer::sum);
             if (persistence >= config.getPersistenceTicks()) {
                 return OrderBookEntryDecision.enter(
                         String.format(
-                                "SHORT edge=%.5f obi=%.2f", context.getMicroEdge(), context.getObi()));
+                                "SHORT edge=%.5f obi=%.2f",
+                                context.getMicroEdge(), context.getObi()));
             }
             return OrderBookEntryDecision.none();
         }

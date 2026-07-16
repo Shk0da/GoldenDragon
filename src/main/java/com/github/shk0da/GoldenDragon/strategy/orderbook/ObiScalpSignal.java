@@ -41,7 +41,8 @@ public final class ObiScalpSignal implements OrderBookSignal {
     }
 
     @Override
-    public OrderBookEntryDecision evaluateEntryShort(OrderBookMarketContext context, String ticker) {
+    public OrderBookEntryDecision evaluateEntryShort(
+            OrderBookMarketContext context, String ticker) {
         if (context.getObi() < -config.getObiThreshold()
                 && context.getMicroEdge() < -config.getEdgeSpreadFraction() * context.getSpread()
                 && context.getTradeDelta() <= -config.getMinTradeFlow()) {

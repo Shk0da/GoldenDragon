@@ -323,11 +323,11 @@ public class BacktestRunner {
         }
     }
 
-    private static class EquityPoint {
-        final String time;
-        final double equity;
+    public static class EquityPoint {
+        public final String time;
+        public final double equity;
 
-        EquityPoint(String time, double equity) {
+        public EquityPoint(String time, double equity) {
             this.time = time;
             this.equity = equity;
         }
@@ -400,14 +400,14 @@ public class BacktestRunner {
         LocalDate lastEodCloseDate = null;
     }
 
-    private static class PortfolioPeriodResult {
-        final double pnl;
-        final double dd;
-        final List<EquityPoint> equityCurve;
-        final int totalTrades;
-        final double winRate;
+    public static class PortfolioPeriodResult {
+        public final double pnl;
+        public final double dd;
+        public final List<EquityPoint> equityCurve;
+        public final int totalTrades;
+        public final double winRate;
 
-        PortfolioPeriodResult(
+        public PortfolioPeriodResult(
                 double pnl,
                 double dd,
                 List<EquityPoint> equityCurve,
@@ -581,6 +581,9 @@ public class BacktestRunner {
         // Collect metrics for comparison
         collectStrategyMetrics(strategyName, allData, portfolioData);
 
+        // Run BacktestExpert evaluation
+        runBacktestExpertEvaluation(strategyName, allData, portfolioData);
+
         plotEquityCurveChart(strategyName, continuousResult.portfolioResult.equityCurve);
 
         // Generate basic buy & hold chart (16% annual)
@@ -611,6 +614,10 @@ public class BacktestRunner {
 
         printResults("TmonAveragingStrategy", periodLabels, allData, portfolioData, tmonTickers);
         collectStrategyMetrics("TmonAveragingStrategy", allData, portfolioData);
+
+        // Run BacktestExpert evaluation
+        runBacktestExpertEvaluation("TmonAveragingStrategy", allData, portfolioData);
+
         plotEquityCurveChart("TmonAveragingStrategy", continuousResult.portfolioResult.equityCurve);
         plotBuyAndHoldTmonChart(chartPeriods);
     }
@@ -2964,5 +2971,39 @@ public class BacktestRunner {
         double pfScore = Math.min(m.profitFactor, 3.0) * 10.0 * 0.1; // 10% weight (cap at 3.0)
 
         return winRateScore + ddScore + sharpeScore + pfScore;
+    }
+
+    /** Collect all trades from period data for BacktestExpert evaluation. */
+    private List<TradeResult> collectAllTrades(
+            Map<String, Map<String, TickerPeriodResult>> allData) {
+        List<TradeResult> allTrades = new ArrayList<>();
+        for (Map<String, TickerPeriodResult> tickerResults : allData.values()) {
+            for (TickerPeriodResult result : tickerResults.values()) {
+                allTrades.addAll(result.trades);
+            }
+        }
+        // Sort by time for sequential analysis
+        allTrades.sort(Comparator.comparing(t -> t.time));
+        return allTrades;
+    }
+
+    /** Run BacktestExpert evaluation and print report. */
+    private void runBacktestExpertEvaluation(
+            String strategyName,
+            Map<String, Map<String, TickerPeriodResult>> allData,
+            Map<String, PortfolioPeriodResult> portfolioData) {
+
+        List<TradeResult> allTrades = collectAllTrades(allData);
+        if (allTrades.isEmpty()) {
+            System.out.println("\nBacktestExpert: No trades to evaluate for " + strategyName);
+            return;
+        }
+
+        double commissionRate = 0.0005; // 0.05% per side, 0.1% round-trip
+        BacktestExpertEvaluator.EvaluationResult result =
+                BacktestExpertEvaluator.evaluate(
+                        allTrades, portfolioData, initialBalance, commissionRate);
+
+        BacktestExpertEvaluator.printEvaluationReport(result, strategyName);
     }
 }

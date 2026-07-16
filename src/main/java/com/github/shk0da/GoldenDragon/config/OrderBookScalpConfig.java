@@ -130,8 +130,7 @@ public class OrderBookScalpConfig {
                         properties.getProperty("orderBookScalp.trailingEnabled", "true"));
         this.trailingActivationSpreads =
                 Double.parseDouble(
-                        properties.getProperty(
-                                "orderBookScalp.trailingActivationSpreads", "1.0"));
+                        properties.getProperty("orderBookScalp.trailingActivationSpreads", "1.0"));
         this.trailingStepSpreads =
                 Double.parseDouble(
                         properties.getProperty("orderBookScalp.trailingStepSpreads", "0.5"));

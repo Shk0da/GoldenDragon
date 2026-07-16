@@ -42,14 +42,16 @@ public final class TradeFlowScalpSignal implements OrderBookSignal {
     }
 
     @Override
-    public OrderBookEntryDecision evaluateEntryShort(OrderBookMarketContext context, String ticker) {
+    public OrderBookEntryDecision evaluateEntryShort(
+            OrderBookMarketContext context, String ticker) {
         double flowThreshold = config.getMinTradeFlow() * FLOW_MULTIPLIER;
         if (context.getTradeDelta() <= -flowThreshold && context.getObi() < -MIN_OBI) {
             int persistence = persistenceByTicker.merge(ticker + "_short", 1, Integer::sum);
             if (persistence >= Math.max(2, config.getPersistenceTicks() - 2)) {
                 return OrderBookEntryDecision.enter(
                         String.format(
-                                "SHORT flow=%.0f obi=%.2f", context.getTradeDelta(), context.getObi()));
+                                "SHORT flow=%.0f obi=%.2f",
+                                context.getTradeDelta(), context.getObi()));
             }
             return OrderBookEntryDecision.none();
         }
