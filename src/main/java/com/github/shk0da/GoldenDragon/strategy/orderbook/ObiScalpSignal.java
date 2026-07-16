@@ -1,6 +1,7 @@
 package com.github.shk0da.goldendragon.strategy.orderbook;
 
 import com.github.shk0da.goldendragon.config.OrderBookScalpConfig;
+
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -40,6 +41,24 @@ public final class ObiScalpSignal implements OrderBookSignal {
     }
 
     @Override
+    public OrderBookEntryDecision evaluateEntryShort(OrderBookMarketContext context, String ticker) {
+        if (context.getObi() < -config.getObiThreshold()
+                && context.getMicroEdge() < -config.getEdgeSpreadFraction() * context.getSpread()
+                && context.getTradeDelta() <= -config.getMinTradeFlow()) {
+            int persistence = persistenceByTicker.merge(ticker + "_short", 1, Integer::sum);
+            if (persistence >= config.getPersistenceTicks()) {
+                return OrderBookEntryDecision.enter(
+                        String.format(
+                                "SHORT OBI=%.2f edge=%.5f flow=%.0f",
+                                context.getObi(), context.getMicroEdge(), context.getTradeDelta()));
+            }
+            return OrderBookEntryDecision.none();
+        }
+        persistenceByTicker.put(ticker + "_short", 0);
+        return OrderBookEntryDecision.none();
+    }
+
+    @Override
     public String evaluateExit(
             OrderBookMarketContext context, OrderBookPositionView position, String ticker) {
         if (context.getObi() < config.getObiExitThreshold()) {
@@ -51,5 +70,6 @@ public final class ObiScalpSignal implements OrderBookSignal {
     @Override
     public void reset(String ticker) {
         persistenceByTicker.put(ticker, 0);
+        persistenceByTicker.put(ticker + "_short", 0);
     }
 }

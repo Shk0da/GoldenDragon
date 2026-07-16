@@ -1,10 +1,5 @@
 package com.github.shk0da.goldendragon.strategy.orderbook;
 
-import static com.github.shk0da.goldendragon.service.TelegramNotifyService.telegramNotifyService;
-import static com.github.shk0da.goldendragon.utils.TimeUtils.sleep;
-import static java.util.stream.Collectors.toList;
-import static java.util.stream.Collectors.toSet;
-
 import com.github.shk0da.goldendragon.config.MainConfig;
 import com.github.shk0da.goldendragon.config.OrderBookScalpConfig;
 import com.github.shk0da.goldendragon.model.MarketDepthSnapshot;
@@ -12,10 +7,13 @@ import com.github.shk0da.goldendragon.model.MarketTickListener;
 import com.github.shk0da.goldendragon.model.MarketTradeTick;
 import com.github.shk0da.goldendragon.model.TickerInfo;
 import com.github.shk0da.goldendragon.model.TickerType;
+import com.github.shk0da.goldendragon.money.KillSwitch;
+import com.github.shk0da.goldendragon.money.RiskManager;
 import com.github.shk0da.goldendragon.service.TCSService;
 import com.github.shk0da.goldendragon.strategy.OrderBookScalpScreener;
 import com.github.shk0da.goldendragon.utils.LoggingUtils;
 import com.github.shk0da.goldendragon.utils.TickerTypeResolver;
+
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalTime;
@@ -27,6 +25,11 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+
+import static com.github.shk0da.goldendragon.service.TelegramNotifyService.telegramNotifyService;
+import static com.github.shk0da.goldendragon.utils.TimeUtils.sleep;
+import static java.util.stream.Collectors.toList;
+import static java.util.stream.Collectors.toSet;
 
 /**
  * Shared order-book trading engine: subscriptions, screening, position management and execution.
@@ -50,8 +53,11 @@ public final class OrderBookTradingEngine implements MarketTickListener {
     private final Map<String, TickerRuntime> runtimesByTicker = new ConcurrentHashMap<>();
     private final Map<String, TickerRuntime> runtimesByFigi = new ConcurrentHashMap<>();
     private final TradeStats tradeStats = new TradeStats();
+    private final KillSwitch killSwitch;
+    private final RiskManager riskManager;
     private volatile long lastStreamErrorLogMs;
     private volatile long nextRescreenMs;
+    private volatile double initialEquity;
 
     public OrderBookTradingEngine(
             TCSService tcsService,
@@ -68,6 +74,17 @@ public final class OrderBookTradingEngine implements MarketTickListener {
             this.signalsById.put(signal.id(), signal);
         }
         this.strategyName = strategyName;
+        if (config.isRiskManagementEnabled()) {
+            this.killSwitch = new KillSwitch(config.getCriticalDrawdownPercent());
+            this.riskManager =
+                    new RiskManager(
+                            config.getRiskPerTradePercent(),
+                            config.getMaxDailyLossPercent(),
+                            config.getMaxConsecutiveLosses());
+        } else {
+            this.killSwitch = null;
+            this.riskManager = null;
+        }
     }
 
     public void run() {
@@ -211,6 +228,14 @@ public final class OrderBookTradingEngine implements MarketTickListener {
             return;
         }
 
+        if (riskManager != null && !riskManager.canTrade(initialEquity + tradeStats.netPnl)) {
+            return;
+        }
+
+        if (killSwitch != null && !killSwitch.isTradingAllowed()) {
+            return;
+        }
+
         for (OrderBookSignal signal : signals) {
             OrderBookEntryDecision decision = signal.evaluateEntry(context, runtime.ticker);
             if (!decision.isEnter()) {
@@ -224,8 +249,31 @@ public final class OrderBookTradingEngine implements MarketTickListener {
                     signal.id(),
                     decision.getDescription(),
                     paper);
-            signal.reset(runtime.ticker);
+            for (OrderBookSignal s : signals) {
+                s.reset(runtime.ticker);
+            }
             break;
+        }
+
+        if (config.isShortsEnabled() && runtime.openPosition == null) {
+            for (OrderBookSignal signal : signals) {
+                OrderBookEntryDecision decision = signal.evaluateEntryShort(context, runtime.ticker);
+                if (!decision.isEnter()) {
+                    continue;
+                }
+                openShort(
+                        runtime,
+                        bestBid,
+                        bestAsk,
+                        spread,
+                        signal.id(),
+                        decision.getDescription(),
+                        paper);
+                for (OrderBookSignal s : signals) {
+                    s.reset(runtime.ticker);
+                }
+                break;
+            }
         }
     }
 
@@ -240,6 +288,9 @@ public final class OrderBookTradingEngine implements MarketTickListener {
             return;
         }
 
+        boolean isLong = "LONG".equals(position.direction);
+        double currentPrice = isLong ? bestBid : context.getBestAsk();
+
         long heldSeconds = Duration.between(position.entryTime, Instant.now()).getSeconds();
         if (heldSeconds >= config.getMaxHoldSeconds()) {
             closeOpenPosition(runtime, "time_stop", paper);
@@ -248,17 +299,60 @@ public final class OrderBookTradingEngine implements MarketTickListener {
 
         boolean inGracePeriod = heldSeconds < config.getEntryGraceSeconds();
 
-        if (!inGracePeriod && bestBid >= position.takeProfitPrice) {
-            closeOpenPosition(runtime, "take_profit", paper);
+        if (!inGracePeriod) {
+            boolean tpHit = isLong ? currentPrice >= position.takeProfitPrice : currentPrice <= position.takeProfitPrice;
+            if (tpHit) {
+                closeOpenPosition(runtime, "take_profit", paper);
+                return;
+            }
+        }
+
+        if (inGracePeriod) {
             return;
         }
 
-        if (!inGracePeriod && bestBid <= position.stopLossPrice) {
+        if (config.isTrailingEnabled() && position.spreadAtEntry > 0) {
+            double profit = isLong ? currentPrice - position.entryPrice : position.entryPrice - currentPrice;
+            double activationThreshold = config.getTrailingActivationSpreads() * position.spreadAtEntry;
+            if (profit >= activationThreshold) {
+                double newSl = isLong
+                        ? currentPrice - config.getTrailingStepSpreads() * position.spreadAtEntry
+                        : currentPrice + config.getTrailingStepSpreads() * position.spreadAtEntry;
+                boolean slImproved = isLong ? newSl > position.stopLossPrice : newSl < position.stopLossPrice;
+                if (slImproved) {
+                    position.stopLossPrice = newSl;
+                }
+            }
+        }
+
+        boolean slHit = isLong ? currentPrice <= position.stopLossPrice : currentPrice >= position.stopLossPrice;
+        if (slHit) {
             closeOpenPosition(runtime, "stop_loss", paper);
             return;
         }
 
-        if (inGracePeriod) {
+        if (isLong && context.getMicroEdge() < 0) {
+            closeOpenPosition(runtime, "microprice_reversal", paper);
+            return;
+        }
+
+        if (!isLong && context.getMicroEdge() > 0) {
+            closeOpenPosition(runtime, "microprice_reversal", paper);
+            return;
+        }
+
+        if (isLong && context.getTradeDelta() < -config.getMinTradeFlow()) {
+            closeOpenPosition(runtime, "flow_reversal", paper);
+            return;
+        }
+
+        if (!isLong && context.getTradeDelta() > config.getMinTradeFlow()) {
+            closeOpenPosition(runtime, "flow_reversal", paper);
+            return;
+        }
+
+        if (context.getSpreadBps() > config.getMaxSpreadBps() * 1.5) {
+            closeOpenPosition(runtime, "spread_widen", paper);
             return;
         }
 
@@ -311,6 +405,7 @@ public final class OrderBookTradingEngine implements MarketTickListener {
             runtime.openPosition =
                     new OpenPosition(
                             signalId,
+                            "LONG",
                             entryAsk,
                             spread,
                             Instant.now(),
@@ -359,6 +454,7 @@ public final class OrderBookTradingEngine implements MarketTickListener {
         runtime.openPosition =
                 new OpenPosition(
                         signalId,
+                        "LONG",
                         executedEntry,
                         spread,
                         Instant.now(),
@@ -383,6 +479,84 @@ public final class OrderBookTradingEngine implements MarketTickListener {
                         + executedBracket.slPrice);
     }
 
+    private void openShort(
+            TickerRuntime runtime,
+            double entryBid,
+            double entryAsk,
+            double spread,
+            String signalId,
+            String signalDescription,
+            boolean paper) {
+        if (!tcsService.isTradableForAccount(runtime.tickerInfo)) {
+            log("Skip SHORT " + runtime.ticker + ": not tradable for current account");
+            return;
+        }
+
+        int units = tcsService.calculateTradeCount(runtime.key, config.getPositionCash(), entryBid);
+        if (units <= 0) {
+            log("Skip SHORT " + runtime.ticker + ": insufficient cash for one lot");
+            return;
+        }
+
+        int lot = Math.max(1, runtime.lot);
+        BracketPrices bracket = buildBracketPricesShort(entryBid, entryAsk, spread);
+
+        log(
+                "SHORT signal ["
+                        + signalId
+                        + "] "
+                        + runtime.ticker
+                        + ": "
+                        + signalDescription
+                        + ", entryBid="
+                        + entryBid);
+
+        if (paper) {
+            double entryValue = units * entryBid * lot;
+            runtime.openPosition =
+                    new OpenPosition(
+                            signalId,
+                            "SHORT",
+                            entryBid,
+                            spread,
+                            Instant.now(),
+                            bracket.tpPrice,
+                            bracket.slPrice,
+                            units,
+                            lot,
+                            entryValue,
+                            entryValue * config.getCommissionRate());
+            runtime.cooldownUntilMs =
+                    System.currentTimeMillis() + config.getCooldownSeconds() * 1000L;
+            log(
+                    "PAPER SHORT ["
+                            + signalId
+                            + "] "
+                            + runtime.ticker
+                            + " entry="
+                            + entryBid
+                            + " units="
+                            + units
+                            + " tp="
+                            + bracket.tpPrice
+                            + " sl="
+                            + bracket.slPrice);
+            return;
+        }
+
+        // For real trading, short selling requires margin account
+        log("SHORT not supported in real mode yet: " + runtime.ticker);
+    }
+
+    private BracketPrices buildBracketPricesShort(double entryBid, double entryAsk, double spread) {
+        double minTpDistance = entryBid * config.getCommissionRate() * 2.0 * TP_COMMISSION_SAFETY;
+        double tpDistance = Math.max(spread * config.getTakeProfitSpreads(), minTpDistance);
+        double slDistance = spread * config.getStopLossSpreads();
+        double tpPrice = Math.max(0.0, entryBid - tpDistance);
+        double slPrice = entryAsk + slDistance;
+        return new BracketPrices(tpPrice, slPrice, tpDistance);
+    }
+
     private void closeOpenPosition(TickerRuntime runtime, String reason, boolean paper) {
         OpenPosition position = runtime.openPosition;
         if (position == null) {
@@ -392,12 +566,25 @@ public final class OrderBookTradingEngine implements MarketTickListener {
         if (paper) {
             Map<String, Map<Double, Integer>> book =
                     tcsService.getCurrentPrices(runtime.key, false);
-            double exitBid = resolveBestBid(book, position.entryPrice);
-            double exitValue = position.units * exitBid * position.lot;
-            double grossPnl = (exitBid - position.entryPrice) * position.units * position.lot;
+            boolean isLong = "LONG".equals(position.direction);
+            double grossPnl;
+            double exitPrice;
+            if (isLong) {
+                double fallback = position.entryPrice - position.spreadAtEntry;
+                exitPrice = resolveBestBid(book, fallback);
+                grossPnl = (exitPrice - position.entryPrice) * position.units * position.lot;
+            } else {
+                double fallback = position.entryPrice + position.spreadAtEntry;
+                exitPrice = resolveBestAsk(book, fallback);
+                grossPnl = (position.entryPrice - exitPrice) * position.units * position.lot;
+            }
+            double exitValue = position.units * exitPrice * position.lot;
             double commission = (position.entryValue + exitValue) * config.getCommissionRate();
             double netPnl = grossPnl - commission;
             tradeStats.record(netPnl);
+            if (riskManager != null) {
+                riskManager.registerTrade(netPnl);
+            }
             log(
                     "PAPER CLOSE ["
                             + position.signalId
@@ -408,7 +595,7 @@ public final class OrderBookTradingEngine implements MarketTickListener {
                             + " entry="
                             + position.entryPrice
                             + " exit="
-                            + exitBid
+                            + exitPrice
                             + " gross="
                             + String.format("%.2f", grossPnl)
                             + " commission="
@@ -436,6 +623,9 @@ public final class OrderBookTradingEngine implements MarketTickListener {
         double exitCommission = result.getCommission();
         double netPnl = grossPnl - position.entryCommission - exitCommission;
         tradeStats.record(netPnl);
+        if (riskManager != null) {
+            riskManager.registerTrade(netPnl);
+        }
         runtime.openPosition = null;
         runtime.cooldownUntilMs = System.currentTimeMillis() + config.getCooldownSeconds() * 1000L;
         telegramNotifyService.sendMessage(
@@ -558,6 +748,16 @@ public final class OrderBookTradingEngine implements MarketTickListener {
                 .orElse(fallback);
     }
 
+    private double resolveBestAsk(Map<String, Map<Double, Integer>> book, double fallback) {
+        if (book == null || !book.containsKey("asks") || book.get("asks").isEmpty()) {
+            return fallback;
+        }
+        return book.get("asks").keySet().stream()
+                .mapToDouble(Double::doubleValue)
+                .min()
+                .orElse(fallback);
+    }
+
     private double calculateTradeDelta(TickerInfo.Key key) {
         List<MarketTradeTick> trades =
                 tcsService.getRecentTrades(
@@ -677,11 +877,12 @@ public final class OrderBookTradingEngine implements MarketTickListener {
     private static final class OpenPosition implements OrderBookPositionView {
 
         final String signalId;
+        final String direction;
         final double entryPrice;
         final double spreadAtEntry;
         final Instant entryTime;
         final double takeProfitPrice;
-        final double stopLossPrice;
+        volatile double stopLossPrice;
         final int units;
         final int lot;
         final double entryValue;
@@ -689,6 +890,7 @@ public final class OrderBookTradingEngine implements MarketTickListener {
 
         OpenPosition(
                 String signalId,
+                String direction,
                 double entryPrice,
                 double spreadAtEntry,
                 Instant entryTime,
@@ -699,6 +901,7 @@ public final class OrderBookTradingEngine implements MarketTickListener {
                 double entryValue,
                 double entryCommission) {
             this.signalId = signalId;
+            this.direction = direction;
             this.entryPrice = entryPrice;
             this.spreadAtEntry = spreadAtEntry;
             this.entryTime = entryTime;
@@ -713,6 +916,10 @@ public final class OrderBookTradingEngine implements MarketTickListener {
         @Override
         public String getSignalId() {
             return signalId;
+        }
+
+        public String getDirection() {
+            return direction;
         }
 
         @Override
@@ -753,8 +960,8 @@ public final class OrderBookTradingEngine implements MarketTickListener {
         final String figi;
         final int lot;
         final TickerInfo tickerInfo;
-        long cooldownUntilMs;
-        OpenPosition openPosition;
+        volatile long cooldownUntilMs;
+        volatile OpenPosition openPosition;
 
         TickerRuntime(
                 String ticker, TickerInfo.Key key, String figi, int lot, TickerInfo tickerInfo) {

@@ -12,6 +12,10 @@ public interface OrderBookSignal {
 
     OrderBookEntryDecision evaluateEntry(OrderBookMarketContext context, String ticker);
 
+    default OrderBookEntryDecision evaluateEntryShort(OrderBookMarketContext context, String ticker) {
+        return OrderBookEntryDecision.none();
+    }
+
     String evaluateExit(
             OrderBookMarketContext context, OrderBookPositionView position, String ticker);
 

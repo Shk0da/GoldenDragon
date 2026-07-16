@@ -1,12 +1,13 @@
 package com.github.shk0da.goldendragon.config;
 
-import static java.util.Arrays.stream;
-import static java.util.stream.Collectors.toList;
-
 import com.github.shk0da.goldendragon.utils.PropertiesUtils;
+
 import java.io.IOException;
 import java.util.List;
 import java.util.Properties;
+
+import static java.util.Arrays.stream;
+import static java.util.stream.Collectors.toList;
 
 /** Configuration for order-book scalping strategy (OFIS). */
 public class OrderBookScalpConfig {
@@ -37,6 +38,15 @@ public class OrderBookScalpConfig {
     private final int screeningBookLevels;
     private final int screeningNearestContracts;
     private final List<String> enabledSignals;
+    private final boolean trailingEnabled;
+    private final double trailingActivationSpreads;
+    private final double trailingStepSpreads;
+    private final boolean shortsEnabled;
+    private final boolean riskManagementEnabled;
+    private final double riskPerTradePercent;
+    private final double maxDailyLossPercent;
+    private final int maxConsecutiveLosses;
+    private final double criticalDrawdownPercent;
 
     public OrderBookScalpConfig() {
         final Properties properties;
@@ -115,6 +125,34 @@ public class OrderBookScalpConfig {
                         .map(String::trim)
                         .filter(s -> !s.isEmpty())
                         .collect(toList());
+        this.trailingEnabled =
+                Boolean.parseBoolean(
+                        properties.getProperty("orderBookScalp.trailingEnabled", "true"));
+        this.trailingActivationSpreads =
+                Double.parseDouble(
+                        properties.getProperty(
+                                "orderBookScalp.trailingActivationSpreads", "1.0"));
+        this.trailingStepSpreads =
+                Double.parseDouble(
+                        properties.getProperty("orderBookScalp.trailingStepSpreads", "0.5"));
+        this.shortsEnabled =
+                Boolean.parseBoolean(
+                        properties.getProperty("orderBookScalp.shortsEnabled", "false"));
+        this.riskManagementEnabled =
+                Boolean.parseBoolean(
+                        properties.getProperty("orderBookScalp.riskManagementEnabled", "true"));
+        this.riskPerTradePercent =
+                Double.parseDouble(
+                        properties.getProperty("orderBookScalp.riskPerTradePercent", "0.01"));
+        this.maxDailyLossPercent =
+                Double.parseDouble(
+                        properties.getProperty("orderBookScalp.maxDailyLossPercent", "0.03"));
+        this.maxConsecutiveLosses =
+                Integer.parseInt(
+                        properties.getProperty("orderBookScalp.maxConsecutiveLosses", "3"));
+        this.criticalDrawdownPercent =
+                Double.parseDouble(
+                        properties.getProperty("orderBookScalp.criticalDrawdownPercent", "0.10"));
     }
 
     public List<String> getInstruments() {
@@ -219,5 +257,41 @@ public class OrderBookScalpConfig {
 
     public List<String> getEnabledSignals() {
         return enabledSignals;
+    }
+
+    public boolean isTrailingEnabled() {
+        return trailingEnabled;
+    }
+
+    public double getTrailingActivationSpreads() {
+        return trailingActivationSpreads;
+    }
+
+    public double getTrailingStepSpreads() {
+        return trailingStepSpreads;
+    }
+
+    public boolean isShortsEnabled() {
+        return shortsEnabled;
+    }
+
+    public boolean isRiskManagementEnabled() {
+        return riskManagementEnabled;
+    }
+
+    public double getRiskPerTradePercent() {
+        return riskPerTradePercent;
+    }
+
+    public double getMaxDailyLossPercent() {
+        return maxDailyLossPercent;
+    }
+
+    public int getMaxConsecutiveLosses() {
+        return maxConsecutiveLosses;
+    }
+
+    public double getCriticalDrawdownPercent() {
+        return criticalDrawdownPercent;
     }
 }

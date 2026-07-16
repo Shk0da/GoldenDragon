@@ -1,6 +1,7 @@
 package com.github.shk0da.goldendragon.strategy.orderbook;
 
 import com.github.shk0da.goldendragon.config.OrderBookScalpConfig;
+
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -41,6 +42,22 @@ public final class MicropriceDriftSignal implements OrderBookSignal {
     }
 
     @Override
+    public OrderBookEntryDecision evaluateEntryShort(OrderBookMarketContext context, String ticker) {
+        double edgeThreshold = config.getEdgeSpreadFraction() * EDGE_FRACTION * context.getSpread();
+        if (context.getMicroEdge() < -edgeThreshold && context.getObi() < -MIN_OBI) {
+            int persistence = persistenceByTicker.merge(ticker + "_short", 1, Integer::sum);
+            if (persistence >= config.getPersistenceTicks()) {
+                return OrderBookEntryDecision.enter(
+                        String.format(
+                                "SHORT edge=%.5f obi=%.2f", context.getMicroEdge(), context.getObi()));
+            }
+            return OrderBookEntryDecision.none();
+        }
+        persistenceByTicker.put(ticker + "_short", 0);
+        return OrderBookEntryDecision.none();
+    }
+
+    @Override
     public String evaluateExit(
             OrderBookMarketContext context, OrderBookPositionView position, String ticker) {
         if (context.getMicroEdge() < 0.0) {
@@ -52,5 +69,6 @@ public final class MicropriceDriftSignal implements OrderBookSignal {
     @Override
     public void reset(String ticker) {
         persistenceByTicker.put(ticker, 0);
+        persistenceByTicker.put(ticker + "_short", 0);
     }
 }
