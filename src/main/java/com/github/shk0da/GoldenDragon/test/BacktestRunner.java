@@ -456,14 +456,15 @@ public class BacktestRunner {
     private final String dataDir;
     private final double initialBalance;
     private final double commission;
+    private final double slippage;
     private final double monthlyRebalanceAmount;
 
     public BacktestRunner() {
-        this("data", 1_000_000.0, 0.0005, 0.0);
+        this("data", 1_000_000.0, 0.0005, 0.0005, 0.0);
     }
 
     public BacktestRunner(String dataDir, double initialBalance, double commission) {
-        this(dataDir, initialBalance, commission, 0.0);
+        this(dataDir, initialBalance, commission, 0.0005, 0.0);
     }
 
     public BacktestRunner(
@@ -471,9 +472,19 @@ public class BacktestRunner {
             double initialBalance,
             double commission,
             double monthlyRebalanceAmount) {
+        this(dataDir, initialBalance, commission, 0.0005, monthlyRebalanceAmount);
+    }
+
+    public BacktestRunner(
+            String dataDir,
+            double initialBalance,
+            double commission,
+            double slippage,
+            double monthlyRebalanceAmount) {
         this.dataDir = dataDir;
         this.initialBalance = initialBalance;
         this.commission = commission;
+        this.slippage = slippage;
         this.monthlyRebalanceAmount = monthlyRebalanceAmount;
     }
 
@@ -1559,7 +1570,8 @@ public class BacktestRunner {
                                     minHistory,
                                     sharedCash,
                                     tradesByTicker.get(ticker),
-                                    config);
+                                    config,
+                                    positionStates);
                 }
 
                 state.lastSeenHourIdx = state.hourIdx;
@@ -1878,7 +1890,8 @@ public class BacktestRunner {
             List<Candle> minHistory,
             double sharedCash,
             List<TradeResult> trades,
-            UnifiedTraderConfig config) {
+            UnifiedTraderConfig config,
+            Map<String, PortfolioPositionState> positionStates) {
         if (decision == null) {
             return sharedCash;
         }
@@ -1894,12 +1907,37 @@ public class BacktestRunner {
                         decision.updatedPosition.entryPrice != null
                                 ? decision.updatedPosition.entryPrice
                                 : current.close;
+                // apply slippage to entry price
+                if ("BUY".equals(openDir)) {
+                    openEntry *= (1.0 + slippage);
+                } else {
+                    openEntry *= (1.0 - slippage);
+                }
                 int openQty = decision.quantity;
                 int leverage = resolvePositionLeverage(decision.updatedPosition, config, ticker);
                 double entryMargin = getRequiredMargin(ticker, openQty, openEntry, leverage);
                 double entryNotional = getNotionalValue(openQty, openEntry);
                 double entryCommission = entryNotional * getEffectiveCommission(ticker);
                 if (entryMargin + entryCommission > sharedCash) {
+                    return sharedCash;
+                }
+
+                // check portfolio-level max exposure (80% of equity)
+                double totalMarginUsed = entryMargin;
+                for (Map.Entry<String, PortfolioPositionState> pe : positionStates.entrySet()) {
+                    PortfolioPositionState ps = pe.getValue();
+                    if (ps.position.quantity > 0 && !pe.getKey().equals(ticker)) {
+                        int psLeverage = resolvePositionLeverage(ps.position, config, pe.getKey());
+                        totalMarginUsed +=
+                                getRequiredMargin(
+                                        pe.getKey(),
+                                        ps.position.quantity,
+                                        ps.entryPrice,
+                                        psLeverage);
+                    }
+                }
+                double currentEquity = sharedCash + totalMarginUsed;
+                if (currentEquity > 0 && totalMarginUsed / currentEquity > 0.80) {
                     return sharedCash;
                 }
 
@@ -1956,9 +1994,11 @@ public class BacktestRunner {
         int quantity = state.position.quantity;
         int leverage = resolvePositionLeverage(state.position, config, ticker);
         boolean isShort = "SELL".equals(state.position.direction);
+        // apply slippage to exit price
+        double slippedExit = isShort ? exitPrice * (1.0 + slippage) : exitPrice * (1.0 - slippage);
         double entryMargin = getRequiredMargin(ticker, quantity, state.entryPrice, leverage);
         double entryNotional = getNotionalValue(quantity, state.entryPrice);
-        double exitNotional = getNotionalValue(quantity, exitPrice);
+        double exitNotional = getNotionalValue(quantity, slippedExit);
         double grossPnl = calculateGrossPnl(entryNotional, exitNotional, isShort);
         double roundTripCommission =
                 (entryNotional + exitNotional) * getEffectiveCommission(ticker);
@@ -1970,7 +2010,7 @@ public class BacktestRunner {
                         ticker,
                         dir,
                         state.entryPrice,
-                        exitPrice,
+                        slippedExit,
                         state.position.quantity,
                         pnl,
                         reason,
@@ -2878,6 +2918,7 @@ public class BacktestRunner {
             Map<String, PortfolioPeriodResult> portfolioData) {
 
         List<TradeResult> allTrades = collectAllTrades(allData);
+        allTrades.removeIf(t -> Math.abs(t.pnl) < 0.01);
         if (allTrades.isEmpty()) {
             System.out.println("\nBacktestExpert: No trades to evaluate for " + strategyName);
             return;
