@@ -1,13 +1,12 @@
 package com.github.shk0da.goldendragon.config;
 
-import com.github.shk0da.goldendragon.utils.PropertiesUtils;
+import static java.util.Arrays.stream;
+import static java.util.stream.Collectors.toList;
 
+import com.github.shk0da.goldendragon.utils.PropertiesUtils;
 import java.io.IOException;
 import java.util.List;
 import java.util.Properties;
-
-import static java.util.Arrays.stream;
-import static java.util.stream.Collectors.toList;
 
 /** Configuration for order-book scalping strategy (OFIS). */
 public class OrderBookScalpConfig {

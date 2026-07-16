@@ -22,7 +22,6 @@ import com.github.shk0da.goldendragon.money.StopLossManager;
 import com.github.shk0da.goldendragon.money.VolatilityAdjustedSizing;
 import com.github.shk0da.goldendragon.repository.TickerRepository;
 import com.github.shk0da.goldendragon.service.TCSService;
-
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;

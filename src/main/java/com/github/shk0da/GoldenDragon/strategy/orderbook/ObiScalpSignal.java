@@ -1,7 +1,6 @@
 package com.github.shk0da.goldendragon.strategy.orderbook;
 
 import com.github.shk0da.goldendragon.config.OrderBookScalpConfig;
-
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 

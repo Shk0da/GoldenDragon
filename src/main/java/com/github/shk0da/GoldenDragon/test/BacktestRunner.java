@@ -17,15 +17,6 @@ import com.github.shk0da.goldendragon.strategy.RegimeAwareStrategyMl;
 import com.github.shk0da.goldendragon.strategy.TmonAveragingStrategy;
 import com.github.shk0da.goldendragon.strategy.UnifiedStrategy;
 import com.github.shk0da.goldendragon.utils.PropertiesUtils;
-import org.jfree.chart.ChartFactory;
-import org.jfree.chart.ChartUtilities;
-import org.jfree.chart.JFreeChart;
-import org.jfree.chart.axis.DateAxis;
-import org.jfree.chart.plot.XYPlot;
-import org.jfree.data.time.Day;
-import org.jfree.data.time.TimeSeries;
-import org.jfree.data.time.TimeSeriesCollection;
-
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
@@ -54,6 +45,14 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import org.jfree.chart.ChartFactory;
+import org.jfree.chart.ChartUtilities;
+import org.jfree.chart.JFreeChart;
+import org.jfree.chart.axis.DateAxis;
+import org.jfree.chart.plot.XYPlot;
+import org.jfree.data.time.Day;
+import org.jfree.data.time.TimeSeries;
+import org.jfree.data.time.TimeSeriesCollection;
 
 /**
  * Движок бэктестинга торговых стратегий на исторических данных.
@@ -173,14 +172,12 @@ import java.util.concurrent.Future;
  *
  * <ul>
  *   <li>Total PnL, средний Win Rate, Max Drawdown, общее число сделок.
- *   <li><b>Sharpe Ratio</b>: {@code avgReturn / stdDev} доходностей по периодам.
  *   <li><b>Profit Factor</b>: {@code grossProfit / grossLoss} по всем сделкам.
  *   <li><b>Composite Score</b> ({@link #calculateScore}):
  *       <pre>
  *     score = WinRate% × 0.4
  *           + max(0, 20 - MaxDD%) × 0.3
- *           + max(0, Sharpe) × 10 × 0.2
- *           + min(PF, 3.0)    × 10 × 0.1
+ *           + min(PF, 3.0)    × 10 × 0.3
  *     </pre>
  * </ul>
  *
@@ -256,7 +253,6 @@ public class BacktestRunner {
     private static final DateTimeFormatter DATE_TIME_FMT =
             DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm:ss");
 
-    private static final double MIN_SHARPE_RATIO = 0.0;
     private static final int MIN_HOURS_REQUIRED = 60;
     private static final LocalTime WORK_START_TIME = LocalTime.of(10, 0);
     private static final LocalTime EOD_CLOSE_TIME = LocalTime.of(21, 0);
@@ -269,7 +265,7 @@ public class BacktestRunner {
                             Math.max(1, Runtime.getRuntime().availableProcessors() - 1)));
 
     private static final String[] ALL_STRATEGIES = {
-        "UnifiedStrategy", "RegimeAwareStrategy", "PrecisionStrategy", "TmonAveragingStrategy",
+        "UnifiedStrategy", "RegimeAwareStrategy",
     };
 
     public static class RawCandle {
@@ -539,10 +535,8 @@ public class BacktestRunner {
         List<String> loadedTickers = loadTickers();
         List<String> activeTickers = filterEnabledTickers(loadedTickers, config);
 
-        // filter out tickers with worst Sharpe Ratio
         String fullStart = chartPeriods.get(0).start;
         String fullEnd = chartPeriods.get(chartPeriods.size() - 1).endExclusive;
-        activeTickers = filterBySharpe(activeTickers, fullStart, fullEnd);
 
         if (!activeTickers.isEmpty()) {
             if ("PrecisionStrategy".equals(strategyName)) {
@@ -2514,98 +2508,6 @@ public class BacktestRunner {
         return result;
     }
 
-    private double calculateSharpeRatio(String ticker, String startDate, String endDate) {
-        List<RawCandle> candles = loadCandles(ticker, startDate, endDate);
-        if (candles.size() < 2) {
-            return Double.NEGATIVE_INFINITY;
-        }
-
-        // group by day, take last close per day
-        Map<LocalDate, Double> dailyClose = new LinkedHashMap<>();
-        for (RawCandle c : candles) {
-            LocalDate day = c.dateTime.toLocalDate();
-            dailyClose.put(day, c.close);
-        }
-
-        List<Double> closes = new ArrayList<>(dailyClose.values());
-        if (closes.size() < 2) {
-            return Double.NEGATIVE_INFINITY;
-        }
-
-        // daily returns
-        List<Double> returns = new ArrayList<>();
-        for (int i = 1; i < closes.size(); i++) {
-            double prev = closes.get(i - 1);
-            if (prev != 0) {
-                returns.add((closes.get(i) - prev) / prev);
-            }
-        }
-
-        if (returns.isEmpty()) {
-            return Double.NEGATIVE_INFINITY;
-        }
-
-        double mean = returns.stream().mapToDouble(Double::doubleValue).average().orElse(0.0);
-        double variance =
-                returns.stream().mapToDouble(r -> (r - mean) * (r - mean)).average().orElse(0.0);
-        double std = Math.sqrt(variance);
-
-        if (std == 0) {
-            return mean > 0 ? Double.POSITIVE_INFINITY : Double.NEGATIVE_INFINITY;
-        }
-
-        // annualized Sharpe (252 trading days)
-        return (mean / std) * Math.sqrt(252);
-    }
-
-    private List<String> filterBySharpe(List<String> tickers, String startDate, String endDate) {
-        System.out.println("Filtering tickers by Sharpe Ratio (min=" + MIN_SHARPE_RATIO + ")...");
-
-        Map<String, Double> sharpes = new LinkedHashMap<>();
-        for (String ticker : tickers) {
-            try {
-                double sharpe = calculateSharpeRatio(ticker, startDate, endDate);
-                sharpes.put(ticker, sharpe);
-            } catch (Exception ex) {
-                System.out.println(
-                        "  " + ticker + ": failed to calculate Sharpe (" + ex.getMessage() + ")");
-                sharpes.put(ticker, Double.NEGATIVE_INFINITY);
-            }
-        }
-
-        // print all Sharpe values sorted
-        sharpes.entrySet().stream()
-                .sorted(Map.Entry.<String, Double>comparingByValue().reversed())
-                .forEach(
-                        e ->
-                                System.out.printf(
-                                        "  %-10s Sharpe: %+.2f%n", e.getKey(), e.getValue()));
-
-        List<String> filtered = new ArrayList<>();
-        List<String> removed = new ArrayList<>();
-        for (String ticker : tickers) {
-            double sharpe = sharpes.getOrDefault(ticker, Double.NEGATIVE_INFINITY);
-            if (Double.isFinite(sharpe) && sharpe >= MIN_SHARPE_RATIO) {
-                filtered.add(ticker);
-            } else {
-                removed.add(ticker);
-            }
-        }
-
-        if (!removed.isEmpty()) {
-            System.out.println(
-                    "Removed "
-                            + removed.size()
-                            + " tickers with Sharpe < "
-                            + MIN_SHARPE_RATIO
-                            + ": "
-                            + removed);
-        }
-        System.out.println("Kept " + filtered.size() + " tickers after Sharpe filter: " + filtered);
-
-        return filtered;
-    }
-
     private int upperBound(List<LocalDateTime> times, LocalDateTime target) {
         int left = 0;
         int right = times.size() - 1;
@@ -2826,7 +2728,6 @@ public class BacktestRunner {
         double avgWinRate;
         double maxDrawdown;
         int totalTrades;
-        double sharpeRatio;
         double profitFactor;
         double averageMonthlyReturn;
 
@@ -2872,15 +2773,8 @@ public class BacktestRunner {
         metrics.totalTrades = portfolioData.values().stream().mapToInt(p -> p.totalTrades).sum();
 
         if (returns.size() > 1) {
-            double avgReturn = returns.stream().mapToDouble(r -> r).average().orElse(0.0);
-            double variance =
-                    returns.stream()
-                            .mapToDouble(r -> Math.pow(r - avgReturn, 2))
-                            .average()
-                            .orElse(0.0);
-            double stdDev = Math.sqrt(variance);
-            metrics.averageMonthlyReturn = avgReturn;
-            metrics.sharpeRatio = stdDev > 0 ? avgReturn / stdDev : 0.0;
+            metrics.averageMonthlyReturn =
+                    returns.stream().mapToDouble(r -> r).average().orElse(0.0);
         }
 
         for (Map.Entry<String, Map<String, TickerPeriodResult>> entry : allData.entrySet()) {
@@ -2911,15 +2805,8 @@ public class BacktestRunner {
         System.out.println();
         String header =
                 String.format(
-                        "%-20s %15s %10s %10s %10s %10s %10s %10s",
-                        "Стратегия",
-                        "Total PnL",
-                        "WinRate%",
-                        "MaxDD%",
-                        "Trades",
-                        "Sharpe",
-                        "PF",
-                        "Score");
+                        "%-20s %15s %10s %10s %10s %10s %10s",
+                        "Стратегия", "Total PnL", "WinRate%", "MaxDD%", "Trades", "PF", "Score");
         System.out.println(header);
         System.out.println("-".repeat(header.length()));
 
@@ -2932,21 +2819,19 @@ public class BacktestRunner {
             double score = calculateScore(m);
             System.out.println(
                     String.format(
-                            "%-20s %15s %10.1f %10.1f %10d %10.2f %10.2f %10.1f",
+                            "%-20s %15s %10.1f %10.1f %10d %10.2f %10.1f",
                             m.strategyName,
                             formatCompactPnL(m.totalPnL),
                             m.avgWinRate * 100.0,
                             m.maxDrawdown * 100.0,
                             m.totalTrades,
-                            m.sharpeRatio,
                             m.profitFactor,
                             score));
         }
 
         System.out.println();
         System.out.println("Legend:");
-        System.out.println(
-                "  Score = (WinRate% × 0.4) + ((20 - MaxDD%) × 0.3) + (Sharpe × 0.2) + (PF × 0.1)");
+        System.out.println("  Score = (WinRate% × 0.4) + ((20 - MaxDD%) × 0.3) + (PF × 0.3)");
         System.out.println("  Best strategy has highest score");
         System.out.println();
 
@@ -2967,10 +2852,9 @@ public class BacktestRunner {
         double winRateScore = m.avgWinRate * 100.0 * 0.4; // 40% weight
         double ddScore =
                 Math.max(0, (20.0 - (m.maxDrawdown * 100.0))) * 0.3; // 30% weight (target <10%)
-        double sharpeScore = Math.max(0, m.sharpeRatio) * 10.0 * 0.2; // 20% weight
-        double pfScore = Math.min(m.profitFactor, 3.0) * 10.0 * 0.1; // 10% weight (cap at 3.0)
+        double pfScore = Math.min(m.profitFactor, 3.0) * 10.0 * 0.3; // 30% weight (cap at 3.0)
 
-        return winRateScore + ddScore + sharpeScore + pfScore;
+        return winRateScore + ddScore + pfScore;
     }
 
     /** Collect all trades from period data for BacktestExpert evaluation. */
