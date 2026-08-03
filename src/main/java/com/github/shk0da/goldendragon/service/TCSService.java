@@ -2076,10 +2076,31 @@ public class TCSService {
      */
     public Map<TickerInfo.Key, TickerInfo> getFuturesList() {
         log("Loading current features...");
-        List<Future> futures = investApi.getInstrumentsService().getTradableFuturesSync();
+        List<Future> futures = fetchTradableFuturesWithRetry();
         return futures.stream()
                 .map(this::toFutureTickerInfo)
                 .collect(Collectors.toMap(TickerInfo::getKey, it -> it, (o, n) -> n));
+    }
+
+    private List<Future> fetchTradableFuturesWithRetry() {
+        final int maxAttempts = 3;
+        for (int attempt = 1; ; attempt++) {
+            try {
+                return investApi.getInstrumentsService().getTradableFuturesSync();
+            } catch (RuntimeException ex) {
+                if (attempt >= maxAttempts) {
+                    throw ex;
+                }
+                log(
+                        "Failed to load futures (attempt "
+                                + attempt
+                                + "/"
+                                + maxAttempts
+                                + "): "
+                                + ex.getMessage());
+                sleep(attempt * 1_000L);
+            }
+        }
     }
 
     /**

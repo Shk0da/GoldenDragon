@@ -115,7 +115,11 @@ public final class OrderBookTradingEngine implements MarketTickListener {
             while (true) {
                 if (isAllFuturesMode(config.getInstruments())
                         && System.currentTimeMillis() >= nextRescreenMs) {
-                    rescreenSubscriptions(subscribed, paper);
+                    try {
+                        rescreenSubscriptions(subscribed, paper);
+                    } catch (Exception ex) {
+                        log(strategyName + " rescreen failed: " + ex.getMessage());
+                    }
                     nextRescreenMs =
                             System.currentTimeMillis() + config.getRescreenMinutes() * 60_000L;
                 }
