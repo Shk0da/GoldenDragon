@@ -38,6 +38,8 @@ public final class OrderBookTradingEngine implements MarketTickListener {
 
     private static final double TP_COMMISSION_SAFETY = 1.5;
 
+    private static final long COOLDOWN_DURATION_MS = 5 * 60 * 1000L;
+
     private final TCSService tcsService;
     private final MainConfig mainConfig;
     private final OrderBookScalpConfig config;
@@ -103,6 +105,25 @@ public final class OrderBookTradingEngine implements MarketTickListener {
 
         tcsService.logAccountTradingEligibility();
 
+        while (true) {
+            try {
+                runTradingSession(paper);
+                return;
+            } catch (Exception ex) {
+                String message = strategyName + " error: " + ex.getMessage();
+                log(message);
+                telegramNotifyService.sendMessage(message);
+                log(
+                        strategyName
+                                + " entering cooldown for "
+                                + (COOLDOWN_DURATION_MS / 1000L)
+                                + "s");
+                sleep(COOLDOWN_DURATION_MS);
+            }
+        }
+    }
+
+    private void runTradingSession(boolean paper) {
         List<TickerRuntime> subscribed = subscribeInstruments(resolveInstruments());
         if (subscribed.isEmpty()) {
             log(strategyName + ": no instruments subscribed, stopping");
