@@ -45,7 +45,7 @@
 - Avoid meaningless messages like `Error` or `Failed` without context.
 
 ### Structure
-- Base package: `com.github.shk0da.GoldenDragon.*`
+- Base package: `com.github.shk0da.goldendragon.*`
 - Place new files near logically related code.
 
 ## Clarify the Task If

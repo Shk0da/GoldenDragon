@@ -91,7 +91,8 @@
  * <ul>
  *   <li><b>Via Gradle</b>:
  *       <pre>{@code ./gradlew clean runBacktest}</pre>
- *       Runs {@code BacktestRunner.main()} for all strategies in {@code ALL_STRATEGIES}.
+ *       Runs {@code BacktestRunner.main()} for all strategies in {@code
+ *       StrategyRegistry.backtestableNames()}.
  *   <li><b>Single Strategy</b>:
  *       <pre>{@code ./gradlew runStrategy -Pstrategy=UnifiedStrategy}</pre>
  *       Runs specific strategy in backtest mode.
@@ -136,8 +137,7 @@
  * <ol>
  *   <li>Create strategy class (extend {@code BaseStrategy} or implement {@code
  *       MarketTickListener}).
- *   <li>Add strategy to {@code ALL_STRATEGIES} in {@code BacktestRunner}.
- *   <li>Create factory ({@code StrategyFactory}) for parameterized instances if needed.
+ *   <li>Register the strategy in {@code StrategyRegistry} (live runner and/or backtest factory).
  *   <li>Run backtest via {@code ./gradlew clean runBacktest}.
  * </ol>
  *

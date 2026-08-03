@@ -31,7 +31,7 @@
 ## Архитектура
 
 ```
-src/main/java/com/github/shk0da/GoldenDragon/
+src/main/java/com/github/shk0da/goldendragon/
 ├── GoldenDragon.java          # точка входа, диспетчер стратегий
 ├── config/                   # конфигурация (MainConfig, UnifiedTraderConfig, ...)
 ├── model/                    # DTO (Candle, Position, TickerInfo, Config, ...)

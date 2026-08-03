@@ -3,7 +3,7 @@
 ## Package Overview
 
 ```
-src/main/java/com/github/shk0da/GoldenDragon/
+src/main/java/com/github/shk0da/goldendragon/
 ├── GoldenDragon.java              # Main application entry point
 ├── config/                        # Configuration classes
 ├── strategy/                      # Trading strategies
@@ -166,7 +166,7 @@ Testing infrastructure.
 
 ### Main Application
 ```java
-// src/main/java/com/github/shk0da/GoldenDragon/GoldenDragon.java
+// src/main/java/com/github/shk0da/goldendragon/GoldenDragon.java
 public static void main(String[] args)
 ```
 
@@ -177,7 +177,7 @@ public static void main(String[] args)
 
 ### Backtest Engine
 ```java
-// src/main/java/com/github/shk0da/GoldenDragon/test/BacktestRunner.java
+// src/main/java/com/github/shk0da/goldendragon/test/BacktestRunner.java
 public static void main(String[] args)
 ```
 
@@ -188,7 +188,7 @@ public static void main(String[] args)
 
 ### ML Model Trainer
 ```java
-// src/main/java/com/github/shk0da/GoldenDragon/ml/MlModelTrainer.java
+// src/main/java/com/github/shk0da/goldendragon/ml/MlModelTrainer.java
 public static void main(String[] args)
 ```
 

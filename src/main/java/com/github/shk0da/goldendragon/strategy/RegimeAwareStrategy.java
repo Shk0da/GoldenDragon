@@ -44,6 +44,10 @@ public class RegimeAwareStrategy extends BaseStrategy {
         UNKNOWN
     }
 
+    public RegimeAwareStrategy(UnifiedTraderConfig unifiedTraderConfig, TCSService tcsService) {
+        this(unifiedTraderConfig, tcsService, new Config(), false);
+    }
+
     public RegimeAwareStrategy(
             UnifiedTraderConfig unifiedTraderConfig,
             TCSService tcsService,

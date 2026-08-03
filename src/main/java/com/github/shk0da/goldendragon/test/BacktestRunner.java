@@ -11,11 +11,8 @@ import com.github.shk0da.goldendragon.model.TradingDecision;
 import com.github.shk0da.goldendragon.repository.TickerRepository;
 import com.github.shk0da.goldendragon.service.TCSService;
 import com.github.shk0da.goldendragon.strategy.BaseStrategy;
-import com.github.shk0da.goldendragon.strategy.PrecisionStrategy;
-import com.github.shk0da.goldendragon.strategy.RegimeAwareStrategy;
-import com.github.shk0da.goldendragon.strategy.RegimeAwareStrategyMl;
+import com.github.shk0da.goldendragon.strategy.StrategyRegistry;
 import com.github.shk0da.goldendragon.strategy.TmonAveragingStrategy;
-import com.github.shk0da.goldendragon.strategy.UnifiedStrategy;
 import com.github.shk0da.goldendragon.utils.PropertiesUtils;
 import java.io.File;
 import java.io.FileOutputStream;
@@ -57,11 +54,10 @@ import org.jfree.data.time.TimeSeriesCollection;
 /**
  * Движок бэктестинга торговых стратегий на исторических данных.
  *
- * <p>Класс симулирует исполнение одной или нескольких стратегий ({@link UnifiedStrategy}, {@link
- * RegimeAwareStrategy}, {@link RegimeAwareStrategyMl}) на массиве тикеров и временных периодов,
- * имитируя реальную торговлю с учётом комиссий, рабочих часов, EOD-закрытий и портфельного
- * управления капиталом. По завершении формирует сводную статистику и сравнительный рейтинг
- * стратегий.
+ * <p>Класс симулирует исполнение одной или нескольких стратегий (см. {@link
+ * StrategyRegistry#backtestableNames()}) на массиве тикеров и временных периодов, имитируя реальную
+ * торговлю с учётом комиссий, рабочих часов, EOD-закрытий и портфельного управления капиталом. По
+ * завершении формирует сводную статистику и сравнительный рейтинг стратегий.
  *
  * <h2>Точка входа</h2>
  *
@@ -110,7 +106,7 @@ import org.jfree.data.time.TimeSeriesCollection;
  * sharedCash}). Алгоритм:
  *
  * <ol>
- *   <li>Создаётся отдельный экземпляр стратегии для каждого тикера через {@link StrategyFactory}.
+ *   <li>Создаётся отдельный экземпляр стратегии для каждого тикера через {@link StrategyRegistry}.
  *   <li>Строится <b>глобальный таймлайн</b> ({@link #buildGlobalTimeline}) — объединение всех
  *       минутных меток времени всех тикеров (TreeSet с хронологическим компаратором).
  *   <li>Группировка тикеров по {@code allocationGroup} для построения peer-свечей при групповом
@@ -227,26 +223,6 @@ import org.jfree.data.time.TimeSeriesCollection;
  */
 public class BacktestRunner {
 
-    private static class StrategyFactory {
-        public static BaseStrategy createStrategy(String strategyName, UnifiedTraderConfig config) {
-            switch (strategyName) {
-                case "UnifiedStrategy":
-                    return new UnifiedStrategy(config, null, new Config(), true);
-                case "RegimeAwareStrategy":
-                    return new RegimeAwareStrategy(config, null, new Config(), true);
-                case "RegimeAwareStrategyMl":
-                    return new RegimeAwareStrategyMl(config, null, new Config(), true, true, true);
-                case "PrecisionStrategy":
-                    return new PrecisionStrategy(config, null, new Config(), true);
-                case "TmonAveragingStrategy":
-                    return new TmonAveragingStrategy(
-                            new TmonAveragingConfig(), null, new Config(), true, 1_000_000.0);
-                default:
-                    throw new IllegalArgumentException("Unknown strategy: " + strategyName);
-            }
-        }
-    }
-
     private static final String TMON_TICKER = "TMON@";
 
     private static final DateTimeFormatter DATE_FMT = DateTimeFormatter.ofPattern("dd.MM.yyyy");
@@ -264,9 +240,7 @@ public class BacktestRunner {
                             "backtest.threads",
                             Math.max(1, Runtime.getRuntime().availableProcessors() - 1)));
 
-    private static final String[] ALL_STRATEGIES = {
-        "UnifiedStrategy", "RegimeAwareStrategy",
-    };
+    private static final List<String> ALL_STRATEGIES = StrategyRegistry.backtestableNames();
 
     public static class RawCandle {
         public final String time;
@@ -1441,7 +1415,7 @@ public class BacktestRunner {
         Map<String, Integer> minuteIndexByTicker = new LinkedHashMap<>();
 
         for (String ticker : marketDataByTicker.keySet()) {
-            BaseStrategy strategy = StrategyFactory.createStrategy(strategyName, config);
+            BaseStrategy strategy = StrategyRegistry.createBacktest(strategyName, config);
             strategies.put(ticker, strategy);
             positionStates.put(ticker, new PortfolioPositionState());
             tradesByTicker.put(ticker, new ArrayList<>());

@@ -81,7 +81,7 @@ KillSwitch/RiskManager разрешают торговлю. Иначе — `HOLD
 ### 3.1 Базовый контракт
 
 Наследуемся от `BaseStrategy`
-(`src/main/java/com/github/shk0da/GoldenDragon/strategy/BaseStrategy.java`) — получаем
+(`src/main/java/com/github/shk0da/goldendragon/strategy/BaseStrategy.java`) — получаем
 бесплатно: загрузку свечей, lifecycle, исполнение ордеров, MM, фильтры, peer-candles.
 
 Обязательный к реализации абстрактный метод:
@@ -189,7 +189,7 @@ protected double adxVal(List<Candle>, int period)   // либо calculateAdx(...
 > двух точках + дефолтные параметры. Без рефакторинга чужого кода и новых библиотек.
 
 1. **Скелет класса.** Создать
-   `src/main/java/com/github/shk0da/GoldenDragon/strategy/PrecisionStrategy.java`,
+   `src/main/java/com/github/shk0da/goldendragon/strategy/PrecisionStrategy.java`,
    `extends BaseStrategy`, конструктор как у `RegimeAwareStrategy`
    `(UnifiedTraderConfig, TCSService, Config, boolean isBacktest)`, реализовать
    `getStrategyName()` → `"PrecisionStrategy"` и заглушку `decide(...)` → `HOLD`.
