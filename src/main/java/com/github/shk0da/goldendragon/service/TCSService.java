@@ -120,6 +120,7 @@ public class TCSService {
     private final Map<String, Object> marketDepthFileLocks = new ConcurrentHashMap<>();
     private volatile Map<TickerInfo.Key, TickerInfo> cachedStockList;
     private volatile Instant cachedStockListAt;
+    private volatile boolean sandboxQualificationLogged;
 
     /**
      * Creates a new {@code TCSService} initialized with the given configurations.
@@ -2106,9 +2107,15 @@ public class TCSService {
     /**
      * Returns whether the current API token belongs to a qualified investor.
      *
-     * <p>Uses {@code UsersService/GetInfo} ({@code qual_status}), same as MOEXScripts scanners.
+     * <p>Uses {@code UsersService/GetInfo} ({@code qual_status}), same as MOEXScripts scanners. In
+     * sandbox mode the API does not expose qualification data, so the account is always treated as
+     * qualified (all instruments are available there).
      */
     public boolean isQualifiedInvestor() {
+        if (mainConfig.isSandbox()) {
+            logSandboxQualificationOnce();
+            return true;
+        }
         try {
             return investApi.getUserService().getInfoSync().getQualStatus();
         } catch (Exception ex) {
@@ -2119,12 +2126,23 @@ public class TCSService {
 
     /** Returns instrument categories the user passed tests for (futures, derivatives, etc.). */
     public List<String> getQualifiedForWorkWith() {
+        if (mainConfig.isSandbox()) {
+            return List.of();
+        }
         try {
             return investApi.getUserService().getInfoSync().getQualifiedForWorkWithList();
         } catch (Exception ex) {
             log("Failed to load qualified_for_work_with: " + ex.getMessage());
             return List.of();
         }
+    }
+
+    private void logSandboxQualificationOnce() {
+        if (sandboxQualificationLogged) {
+            return;
+        }
+        sandboxQualificationLogged = true;
+        log("Sandbox mode: skipping qualification check, all instruments treated as tradable");
     }
 
     /**
