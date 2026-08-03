@@ -20,8 +20,6 @@ import com.github.shk0da.goldendragon.utils.LoggingUtils;
 import com.github.shk0da.goldendragon.utils.TickerTypeResolver;
 import java.time.Duration;
 import java.time.Instant;
-import java.time.LocalTime;
-import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -38,9 +36,6 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 public final class OrderBookTradingEngine implements MarketTickListener {
 
-    private static final LocalTime WORK_START = LocalTime.of(10, 0);
-    private static final LocalTime WORK_END = LocalTime.of(21, 0);
-    private static final ZoneId MOSCOW = ZoneId.of("Europe/Moscow");
     private static final double TP_COMMISSION_SAFETY = 1.5;
 
     private final TCSService tcsService;
@@ -117,7 +112,7 @@ public final class OrderBookTradingEngine implements MarketTickListener {
         nextRescreenMs = System.currentTimeMillis() + config.getRescreenMinutes() * 60_000L;
 
         try {
-            while (isWithinWorkingHours()) {
+            while (true) {
                 if (isAllFuturesMode(config.getInstruments())
                         && System.currentTimeMillis() >= nextRescreenMs) {
                     rescreenSubscriptions(subscribed, paper);
@@ -169,10 +164,6 @@ public final class OrderBookTradingEngine implements MarketTickListener {
     }
 
     private void handleOrderBook(TickerRuntime runtime, MarketDepthSnapshot snapshot) {
-        if (!isWithinWorkingHours()) {
-            return;
-        }
-
         Double bestBid = snapshot.getBestBid();
         Double bestAsk = snapshot.getBestAsk();
         if (bestBid == null || bestAsk == null || bestAsk <= bestBid) {
@@ -777,11 +768,6 @@ public final class OrderBookTradingEngine implements MarketTickListener {
                 tcsService.getRecentTrades(
                         key, Duration.ofSeconds(config.getTradeFlowWindowSeconds()));
         return OrderBookMath.calculateTradeDelta(trades);
-    }
-
-    private boolean isWithinWorkingHours() {
-        LocalTime now = LocalTime.now(MOSCOW);
-        return !now.isBefore(WORK_START) && now.isBefore(WORK_END);
     }
 
     private List<TickerInfo> resolveInstruments() {
