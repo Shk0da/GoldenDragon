@@ -124,6 +124,11 @@ public final class OrderBookTradingEngine implements MarketTickListener {
     }
 
     private void runTradingSession(boolean paper) {
+        if (!initInitialEquity()) {
+            log(strategyName + ": cannot start, no account equity available, stopping");
+            return;
+        }
+
         List<TickerRuntime> subscribed = subscribeInstruments(resolveInstruments());
         if (subscribed.isEmpty()) {
             log(strategyName + ": no instruments subscribed, stopping");
@@ -155,6 +160,21 @@ public final class OrderBookTradingEngine implements MarketTickListener {
             telegramNotifyService.sendMessage(strategyName + " stopped");
             log(strategyName + " stopped");
         }
+    }
+
+    private boolean initInitialEquity() {
+        try {
+            initialEquity = tcsService.getTotalPortfolioCost();
+        } catch (Exception ex) {
+            log(
+                    strategyName
+                            + ": portfolio cost unavailable, fallback to available cash: "
+                            + ex.getMessage());
+            Double availableCash = tcsService.getAvailableCash();
+            initialEquity = availableCash != null ? availableCash : 0.0;
+        }
+        log(strategyName + ": initialEquity=" + String.format("%.2f", initialEquity));
+        return initialEquity > 0.0;
     }
 
     @Override
@@ -417,8 +437,6 @@ public final class OrderBookTradingEngine implements MarketTickListener {
 
         int lot = Math.max(1, runtime.lot);
         BracketPrices bracket = buildBracketPrices(entryBid, entryAsk, spread);
-        double tpPercent = entryAsk > 0.0 ? bracket.tpDistance / entryAsk * 100.0 : 0.0;
-        double slPercent = entryAsk > 0.0 ? (entryAsk - bracket.slPrice) / entryAsk * 100.0 : 0.0;
 
         log(
                 "OPEN signal ["
@@ -463,16 +481,15 @@ public final class OrderBookTradingEngine implements MarketTickListener {
             return;
         }
 
+        // no exchange-side tp/sl in sandbox, exits are tracked virtually by the engine
         TCSService.OrderExecutionResult result =
                 tcsService.buyByMarketWithDetails(
-                        runtime.ticker,
-                        runtime.key.getType(),
-                        config.getPositionCash(),
-                        tpPercent,
-                        slPercent);
+                        runtime.ticker, runtime.key.getType(), config.getPositionCash(), 0.0, 0.0);
 
         if (!result.isSuccess()) {
             log("OPEN failed for " + runtime.ticker);
+            runtime.cooldownUntilMs =
+                    System.currentTimeMillis() + config.getCooldownSeconds() * 1000L;
             return;
         }
 
@@ -581,7 +598,12 @@ public final class OrderBookTradingEngine implements MarketTickListener {
     private BracketPrices buildBracketPricesShort(double entryBid, double entryAsk, double spread) {
         double minTpDistance = entryBid * config.getCommissionRate() * 2.0 * TP_COMMISSION_SAFETY;
         double tpDistance = Math.max(spread * config.getTakeProfitSpreads(), minTpDistance);
-        double slDistance = spread * config.getStopLossSpreads();
+        double slDistance =
+                Math.max(
+                        spread * config.getStopLossSpreads(),
+                        minTpDistance
+                                * config.getStopLossSpreads()
+                                / config.getTakeProfitSpreads());
         double tpPrice = Math.max(0.0, entryBid - tpDistance);
         double slPrice = entryAsk + slDistance;
         return new BracketPrices(tpPrice, slPrice, tpDistance);
@@ -683,7 +705,12 @@ public final class OrderBookTradingEngine implements MarketTickListener {
     private BracketPrices buildBracketPrices(double entryBid, double entryAsk, double spread) {
         double minTpDistance = entryAsk * config.getCommissionRate() * 2.0 * TP_COMMISSION_SAFETY;
         double tpDistance = Math.max(spread * config.getTakeProfitSpreads(), minTpDistance);
-        double slDistance = spread * config.getStopLossSpreads();
+        double slDistance =
+                Math.max(
+                        spread * config.getStopLossSpreads(),
+                        minTpDistance
+                                * config.getStopLossSpreads()
+                                / config.getTakeProfitSpreads());
         double tpPrice = entryAsk + tpDistance;
         double slPrice = Math.max(0.0, entryBid - slDistance);
         return new BracketPrices(tpPrice, slPrice, tpDistance);
@@ -691,7 +718,8 @@ public final class OrderBookTradingEngine implements MarketTickListener {
 
     private boolean isProfitableAfterCommission(double entryAsk, double spread) {
         double minTpDistance = entryAsk * config.getCommissionRate() * 2.0 * TP_COMMISSION_SAFETY;
-        return spread * config.getTakeProfitSpreads() >= minTpDistance;
+        double tpDistance = Math.max(spread * config.getTakeProfitSpreads(), minTpDistance);
+        return tpDistance >= minTpDistance;
     }
 
     private List<TickerRuntime> subscribeInstruments(List<TickerInfo> instruments) {

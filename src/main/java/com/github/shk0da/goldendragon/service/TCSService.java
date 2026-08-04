@@ -88,6 +88,7 @@ public class TCSService {
 
     public static final double FUTURES_MARGIN_RATE = 0.40;
     private static final int MAX_INSTRUMENTS_PER_MARKET_DATA_STREAM = 250;
+    private static final long MARKET_DATA_RECOVERY_MIN_INTERVAL_MS = 30_000L;
     private static final String MARKET_DEPTH_TICKS_HEADER =
             "time,best_bid,best_ask,mid_price,bids,asks";
     private static final DateTimeFormatter MARKET_DEPTH_TICKS_TIME_FORMATTER =
@@ -117,6 +118,7 @@ public class TCSService {
             new ConcurrentHashMap<>();
     private final List<MarketDataStreamShard> marketDataStreamShards = new CopyOnWriteArrayList<>();
     private final AtomicInteger marketDataStreamShardCounter = new AtomicInteger();
+    private volatile long lastMarketDataRecoveryMs;
     private final Map<String, Object> marketDepthFileLocks = new ConcurrentHashMap<>();
     private volatile Map<TickerInfo.Key, TickerInfo> cachedStockList;
     private volatile Instant cachedStockListAt;
@@ -2714,6 +2716,7 @@ public class TCSService {
             }
         }
         int shardId = marketDataStreamShardCounter.incrementAndGet();
+        MarketDataStreamShard[] shardHolder = new MarketDataStreamShard[1];
         MarketDataStreamShard shard =
                 new MarketDataStreamShard(
                         investApi
@@ -2721,10 +2724,47 @@ public class TCSService {
                                 .newStream(
                                         "market-data-shard-" + shardId,
                                         this::handleMarketDataResponse,
-                                        this::notifySharedMarketDataError),
+                                        error ->
+                                                handleMarketDataStreamError(shardHolder[0], error)),
                         depth);
+        shardHolder[0] = shard;
         marketDataStreamShards.add(shard);
         return shard;
+    }
+
+    private void handleMarketDataStreamError(
+            MarketDataStreamShard failedShard, Throwable throwable) {
+        notifySharedMarketDataError(throwable);
+        if (failedShard == null) {
+            return;
+        }
+        long now = System.currentTimeMillis();
+        if (now - lastMarketDataRecoveryMs < MARKET_DATA_RECOVERY_MIN_INTERVAL_MS) {
+            return;
+        }
+        lastMarketDataRecoveryMs = now;
+        synchronized (marketDataStreamShards) {
+            marketDataStreamShards.remove(failedShard);
+            Set<String> figis = Set.copyOf(failedShard.figis);
+            for (String figi : figis) {
+                marketDataShardByFigi.remove(figi);
+            }
+            if (!figis.isEmpty()) {
+                log("recovering market data stream, resubscribing " + figis.size() + " figis");
+                resubscribeMarketData(figis, failedShard.depth);
+            }
+        }
+    }
+
+    private void resubscribeMarketData(Set<String> figis, int depth) {
+        MarketDataStreamShard shard = findOrCreateMarketDataShard(depth);
+        List<String> figiList = List.copyOf(figis);
+        shard.stream.subscribeOrderbook(figiList, depth);
+        shard.stream.subscribeTrades(figiList);
+        for (String figi : figiList) {
+            shard.figis.add(figi);
+            marketDataShardByFigi.put(figi, shard);
+        }
     }
 
     private void handleMarketDataResponse(MarketDataResponse response) {

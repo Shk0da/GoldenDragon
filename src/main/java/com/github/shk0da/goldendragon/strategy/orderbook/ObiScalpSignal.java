@@ -9,6 +9,7 @@ public final class ObiScalpSignal implements OrderBookSignal {
 
     public static final String SIGNAL_ID = "obi";
 
+    static final double EDGE_FRACTION = 0.8;
     private final OrderBookScalpConfig config;
     private final Map<String, Integer> persistenceByTicker = new ConcurrentHashMap<>();
 
@@ -24,7 +25,8 @@ public final class ObiScalpSignal implements OrderBookSignal {
     @Override
     public OrderBookEntryDecision evaluateEntry(OrderBookMarketContext context, String ticker) {
         if (context.getObi() > config.getObiThreshold()
-                && context.getMicroEdge() > config.getEdgeSpreadFraction() * context.getSpread()
+                && context.getMicroEdge()
+                        > config.getEdgeSpreadFraction() * EDGE_FRACTION * context.getSpread()
                 && context.getTradeDelta() >= config.getMinTradeFlow()) {
             int persistence = persistenceByTicker.merge(ticker, 1, Integer::sum);
             if (persistence >= config.getPersistenceTicks()) {
@@ -43,7 +45,8 @@ public final class ObiScalpSignal implements OrderBookSignal {
     public OrderBookEntryDecision evaluateEntryShort(
             OrderBookMarketContext context, String ticker) {
         if (context.getObi() < -config.getObiThreshold()
-                && context.getMicroEdge() < -config.getEdgeSpreadFraction() * context.getSpread()
+                && context.getMicroEdge()
+                        < -config.getEdgeSpreadFraction() * EDGE_FRACTION * context.getSpread()
                 && context.getTradeDelta() <= -config.getMinTradeFlow()) {
             int persistence = persistenceByTicker.merge(ticker + "_short", 1, Integer::sum);
             if (persistence >= config.getPersistenceTicks()) {
