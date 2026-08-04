@@ -1346,6 +1346,7 @@ public class TCSService {
                     normalizeExecutedPrice(
                             rawExecutedPrice,
                             executedCount,
+                            lotSize,
                             referencePrice,
                             tickerInfo.getMinPriceIncrement());
             if (executedPrice <= 0.0) {
@@ -1416,6 +1417,7 @@ public class TCSService {
     private double normalizeExecutedPrice(
             double rawExecutedPrice,
             int executedCount,
+            int lotSize,
             double referencePrice,
             double minPriceIncrement) {
         if (rawExecutedPrice <= 0.0) {
@@ -1426,22 +1428,31 @@ public class TCSService {
         }
 
         double perUnitFromRaw = rawExecutedPrice;
+        double perUnitFromLot = lotSize > 0 ? rawExecutedPrice / lotSize : perUnitFromRaw;
         double perUnitFromTotal = rawExecutedPrice / executedCount;
         double tolerance = max(minPriceIncrement * 10, referencePrice * 0.03);
 
         boolean rawLooksPerUnit =
                 referencePrice > 0.0 && Math.abs(perUnitFromRaw - referencePrice) <= tolerance;
+        boolean lotLooksPerUnit =
+                referencePrice > 0.0 && Math.abs(perUnitFromLot - referencePrice) <= tolerance;
         boolean totalLooksPerUnit =
                 referencePrice > 0.0 && Math.abs(perUnitFromTotal - referencePrice) <= tolerance;
 
-        if (rawLooksPerUnit && !totalLooksPerUnit) {
+        if (rawLooksPerUnit && !lotLooksPerUnit && !totalLooksPerUnit) {
             return perUnitFromRaw;
         }
-        if (!rawLooksPerUnit && totalLooksPerUnit) {
+        if (!rawLooksPerUnit && lotLooksPerUnit && !totalLooksPerUnit) {
+            return perUnitFromLot;
+        }
+        if (!rawLooksPerUnit && !lotLooksPerUnit && totalLooksPerUnit) {
             return perUnitFromTotal;
         }
         if (rawLooksPerUnit) {
             return perUnitFromRaw;
+        }
+        if (lotLooksPerUnit) {
+            return perUnitFromLot;
         }
         if (totalLooksPerUnit) {
             return perUnitFromTotal;

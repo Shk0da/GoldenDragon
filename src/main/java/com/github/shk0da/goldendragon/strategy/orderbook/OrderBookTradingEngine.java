@@ -10,6 +10,7 @@ import com.github.shk0da.goldendragon.config.OrderBookScalpConfig;
 import com.github.shk0da.goldendragon.model.MarketDepthSnapshot;
 import com.github.shk0da.goldendragon.model.MarketTickListener;
 import com.github.shk0da.goldendragon.model.MarketTradeTick;
+import com.github.shk0da.goldendragon.model.PositionInfo;
 import com.github.shk0da.goldendragon.model.TickerInfo;
 import com.github.shk0da.goldendragon.model.TickerType;
 import com.github.shk0da.goldendragon.money.KillSwitch;
@@ -40,6 +41,16 @@ public final class OrderBookTradingEngine implements MarketTickListener {
 
     private static final long COOLDOWN_DURATION_MS = 5 * 60 * 1000L;
 
+    private static final long STREAM_STALE_THRESHOLD_MS = 60 * 1000L;
+
+    private static final int MAX_STREAM_RECOVERY_ATTEMPTS = 3;
+
+    private static final int EXIT_PERSISTENCE_TICKS = 3;
+
+    private static final int ORDER_PLACE_ATTEMPTS = 2;
+
+    private static final long ORDER_RETRY_DELAY_MS = 3 * 1000L;
+
     private final TCSService tcsService;
     private final MainConfig mainConfig;
     private final OrderBookScalpConfig config;
@@ -52,6 +63,8 @@ public final class OrderBookTradingEngine implements MarketTickListener {
     private final KillSwitch killSwitch;
     private final RiskManager riskManager;
     private volatile long lastStreamErrorLogMs;
+    private volatile long lastMarketDataAtMs;
+    private volatile int streamRecoveryAttempts;
     private volatile long nextRescreenMs;
     private volatile double initialEquity;
 
@@ -134,11 +147,14 @@ public final class OrderBookTradingEngine implements MarketTickListener {
             log(strategyName + ": no instruments subscribed, stopping");
             return;
         }
+        syncBrokerPositions(subscribed, paper);
+        lastMarketDataAtMs = System.currentTimeMillis();
 
         nextRescreenMs = System.currentTimeMillis() + config.getRescreenMinutes() * 60_000L;
 
         try {
             while (true) {
+                checkStreamHealth(paper);
                 if (isAllFuturesMode(config.getInstruments())
                         && System.currentTimeMillis() >= nextRescreenMs) {
                     try {
@@ -162,6 +178,74 @@ public final class OrderBookTradingEngine implements MarketTickListener {
         }
     }
 
+    private void syncBrokerPositions(List<TickerRuntime> subscribed, boolean paper) {
+        if (paper) {
+            return;
+        }
+        Map<TickerInfo.Key, PositionInfo> positions;
+        try {
+            positions = tcsService.getCurrentPositions(TickerType.ALL);
+        } catch (Exception ex) {
+            log(strategyName + " position sync failed: " + ex.getMessage());
+            return;
+        }
+        for (TickerRuntime runtime : subscribed) {
+            PositionInfo position = positions.get(runtime.key);
+            if (position == null || position.getBalance() == 0) {
+                continue;
+            }
+            log(
+                    "Stale position detected for "
+                            + runtime.ticker
+                            + " qty="
+                            + position.getBalance()
+                            + ", closing");
+            TCSService.OrderExecutionResult result = closePositionWithRetry(runtime);
+            if (!result.isSuccess()) {
+                log("Failed to close stale position for " + runtime.ticker);
+            }
+        }
+    }
+
+    private void checkStreamHealth(boolean paper) {
+        long now = System.currentTimeMillis();
+        if (now - lastMarketDataAtMs < STREAM_STALE_THRESHOLD_MS) {
+            return;
+        }
+        log(
+                strategyName
+                        + ": no market data for "
+                        + ((now - lastMarketDataAtMs) / 1000L)
+                        + "s, recovering stream");
+        for (TickerRuntime runtime : runtimesByTicker.values()) {
+            if (runtime.openPosition != null) {
+                closeOpenPosition(runtime, "stream_outage", paper);
+            }
+        }
+        streamRecoveryAttempts++;
+        if (streamRecoveryAttempts >= MAX_STREAM_RECOVERY_ATTEMPTS) {
+            throw new IllegalStateException(
+                    strategyName
+                            + ": market data stream dead after "
+                            + streamRecoveryAttempts
+                            + " recovery attempts, restarting session");
+        }
+        recoverStreamSubscriptions();
+        lastMarketDataAtMs = System.currentTimeMillis();
+    }
+
+    private void recoverStreamSubscriptions() {
+        for (TickerRuntime runtime : runtimesByTicker.values()) {
+            try {
+                tcsService.unsubscribeMarketData(runtime.key, this);
+                tcsService.subscribeMarketData(runtime.key, config.getDepth(), this);
+                log("Resubscribed to order book: " + runtime.ticker);
+            } catch (Exception ex) {
+                log("Failed to resubscribe " + runtime.ticker + ": " + ex.getMessage());
+            }
+        }
+    }
+
     private boolean initInitialEquity() {
         try {
             initialEquity = tcsService.getTotalPortfolioCost();
@@ -179,6 +263,10 @@ public final class OrderBookTradingEngine implements MarketTickListener {
 
     @Override
     public void onOrderBook(MarketDepthSnapshot snapshot) {
+        lastMarketDataAtMs = System.currentTimeMillis();
+        if (streamRecoveryAttempts > 0) {
+            streamRecoveryAttempts = 0;
+        }
         if (snapshot == null || !snapshot.isConsistent()) {
             return;
         }
@@ -381,22 +469,30 @@ public final class OrderBookTradingEngine implements MarketTickListener {
             return;
         }
 
-        if (isLong && context.getMicroEdge() < 0) {
+        double microExitThreshold = config.getEdgeSpreadFraction() * spread * 0.5;
+        if ((isLong && context.getMicroEdge() < 0) || (!isLong && context.getMicroEdge() > 0)) {
+            position.microReversalTicks++;
+        } else {
+            position.microReversalTicks = 0;
+        }
+        boolean strongMicroReversal =
+                isLong
+                        ? context.getMicroEdge() < -microExitThreshold
+                        : context.getMicroEdge() > microExitThreshold;
+        if (position.microReversalTicks >= EXIT_PERSISTENCE_TICKS || strongMicroReversal) {
             closeOpenPosition(runtime, "microprice_reversal", paper);
             return;
         }
 
-        if (!isLong && context.getMicroEdge() > 0) {
-            closeOpenPosition(runtime, "microprice_reversal", paper);
-            return;
+        if ((isLong && context.getTradeDelta() < -config.getMinTradeFlow())
+                || (!isLong && context.getTradeDelta() > config.getMinTradeFlow())) {
+            position.flowReversalTicks++;
+        } else {
+            position.flowReversalTicks = 0;
         }
-
-        if (isLong && context.getTradeDelta() < -config.getMinTradeFlow()) {
-            closeOpenPosition(runtime, "flow_reversal", paper);
-            return;
-        }
-
-        if (!isLong && context.getTradeDelta() > config.getMinTradeFlow()) {
+        boolean strongFlowReversal =
+                Math.abs(context.getTradeDelta()) > config.getMinTradeFlow() * 3;
+        if (position.flowReversalTicks >= EXIT_PERSISTENCE_TICKS || strongFlowReversal) {
             closeOpenPosition(runtime, "flow_reversal", paper);
             return;
         }
@@ -482,9 +578,7 @@ public final class OrderBookTradingEngine implements MarketTickListener {
         }
 
         // no exchange-side tp/sl in sandbox, exits are tracked virtually by the engine
-        TCSService.OrderExecutionResult result =
-                tcsService.buyByMarketWithDetails(
-                        runtime.ticker, runtime.key.getType(), config.getPositionCash(), 0.0, 0.0);
+        TCSService.OrderExecutionResult result = placeBuyOrderWithRetry(runtime);
 
         if (!result.isSuccess()) {
             log("OPEN failed for " + runtime.ticker);
@@ -524,6 +618,27 @@ public final class OrderBookTradingEngine implements MarketTickListener {
                         + executedBracket.tpPrice
                         + " sl="
                         + executedBracket.slPrice);
+    }
+
+    private TCSService.OrderExecutionResult placeBuyOrderWithRetry(TickerRuntime runtime) {
+        TCSService.OrderExecutionResult result = TCSService.OrderExecutionResult.failed();
+        for (int attempt = 1; attempt <= ORDER_PLACE_ATTEMPTS; attempt++) {
+            result =
+                    tcsService.buyByMarketWithDetails(
+                            runtime.ticker,
+                            runtime.key.getType(),
+                            config.getPositionCash(),
+                            0.0,
+                            0.0);
+            if (result.isSuccess()) {
+                return result;
+            }
+            if (attempt < ORDER_PLACE_ATTEMPTS) {
+                log("OPEN attempt " + attempt + " failed for " + runtime.ticker + ", retrying");
+                sleep(ORDER_RETRY_DELAY_MS);
+            }
+        }
+        return result;
     }
 
     private void openShort(
@@ -661,8 +776,7 @@ public final class OrderBookTradingEngine implements MarketTickListener {
             return;
         }
 
-        TCSService.OrderExecutionResult result =
-                tcsService.closeLongByMarketWithDetails(runtime.ticker, runtime.key.getType());
+        TCSService.OrderExecutionResult result = closePositionWithRetry(runtime);
         if (!result.isSuccess()) {
             log("CLOSE failed for " + runtime.ticker + " reason=" + reason);
             return;
@@ -700,6 +814,21 @@ public final class OrderBookTradingEngine implements MarketTickListener {
                         + " net="
                         + String.format("%.2f", netPnl));
         logStatsIfNeeded();
+    }
+
+    private TCSService.OrderExecutionResult closePositionWithRetry(TickerRuntime runtime) {
+        TCSService.OrderExecutionResult result = TCSService.OrderExecutionResult.failed();
+        for (int attempt = 1; attempt <= ORDER_PLACE_ATTEMPTS; attempt++) {
+            result = tcsService.closeLongByMarketWithDetails(runtime.ticker, runtime.key.getType());
+            if (result.isSuccess()) {
+                return result;
+            }
+            if (attempt < ORDER_PLACE_ATTEMPTS) {
+                log("CLOSE attempt " + attempt + " failed for " + runtime.ticker + ", retrying");
+                sleep(ORDER_RETRY_DELAY_MS);
+            }
+        }
+        return result;
     }
 
     private BracketPrices buildBracketPrices(double entryBid, double entryAsk, double spread) {
@@ -940,6 +1069,8 @@ public final class OrderBookTradingEngine implements MarketTickListener {
         final int lot;
         final double entryValue;
         final double entryCommission;
+        volatile int microReversalTicks;
+        volatile int flowReversalTicks;
 
         OpenPosition(
                 String signalId,
