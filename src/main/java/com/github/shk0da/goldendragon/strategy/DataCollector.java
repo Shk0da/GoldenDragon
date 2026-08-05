@@ -1,16 +1,7 @@
 package com.github.shk0da.goldendragon.strategy;
 
-import static com.github.shk0da.goldendragon.utils.IndicatorsUtil.toDouble;
-import static com.github.shk0da.goldendragon.utils.SerializationUtils.getDateOfContentOnDisk;
-import static com.github.shk0da.goldendragon.utils.SerializationUtils.loadDataFromDisk;
-import static com.github.shk0da.goldendragon.utils.SerializationUtils.saveDataToDisk;
-import static com.github.shk0da.goldendragon.utils.TimeUtils.sleep;
-import static java.lang.System.out;
-import static java.nio.file.Files.createDirectories;
-import static java.nio.file.Files.deleteIfExists;
-import static java.time.OffsetDateTime.now;
-
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.github.shk0da.goldendragon.config.DataCollectorConfig;
 import com.github.shk0da.goldendragon.config.MainConfig;
 import com.github.shk0da.goldendragon.config.MarketConfig;
@@ -26,6 +17,9 @@ import com.github.shk0da.goldendragon.utils.LevelUtils;
 import com.github.shk0da.goldendragon.utils.LevelUtils.Level;
 import com.github.shk0da.goldendragon.utils.TickerTypeResolver;
 import com.google.gson.reflect.TypeToken;
+import ru.tinkoff.piapi.contract.v1.CandleInterval;
+import ru.tinkoff.piapi.contract.v1.HistoricCandle;
+
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileReader;
@@ -56,12 +50,20 @@ import java.util.concurrent.Callable;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
-import ru.tinkoff.piapi.contract.v1.CandleInterval;
-import ru.tinkoff.piapi.contract.v1.HistoricCandle;
+
+import static com.github.shk0da.goldendragon.utils.IndicatorsUtil.toDouble;
+import static com.github.shk0da.goldendragon.utils.SerializationUtils.getDateOfContentOnDisk;
+import static com.github.shk0da.goldendragon.utils.SerializationUtils.loadDataFromDisk;
+import static com.github.shk0da.goldendragon.utils.SerializationUtils.saveDataToDisk;
+import static com.github.shk0da.goldendragon.utils.TimeUtils.sleep;
+import static java.lang.System.out;
+import static java.nio.file.Files.createDirectories;
+import static java.nio.file.Files.deleteIfExists;
+import static java.time.OffsetDateTime.now;
 
 public class DataCollector {
 
-    private static final ObjectMapper objectMapper = new ObjectMapper();
+    private static final ObjectMapper objectMapper = new ObjectMapper().registerModule(new JavaTimeModule());
     private static final DateFormat dateTimeFormat = new SimpleDateFormat("dd.MM.yyyy HH:mm:ss");
     private static final Repository<TickerInfo.Key, TickerInfo> tickerRepository =
             TickerRepository.INSTANCE;

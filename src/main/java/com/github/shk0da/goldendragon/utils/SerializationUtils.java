@@ -5,11 +5,15 @@ import com.google.gson.GsonBuilder;
 import com.google.gson.JsonDeserializer;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
+import com.google.gson.JsonPrimitive;
+import com.google.gson.JsonSerializer;
 import com.google.gson.reflect.TypeToken;
+
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.attribute.BasicFileAttributes;
+import java.time.Instant;
 import java.util.Date;
 
 /**
@@ -27,6 +31,22 @@ public final class SerializationUtils {
                 (JsonDeserializer<TickerInfo.Key>)
                         (jsonElement, type, jsonDeserializationContext) ->
                                 new TickerInfo.Key(jsonElement.getAsString()));
+
+        // Support for java.time.Instant (used in TickerInfo.expirationDate)
+        gsonBuilder.registerTypeAdapter(
+                Instant.class,
+                (JsonSerializer<Instant>)
+                        (src, typeOfSrc, context) -> new JsonPrimitive(src.toString()));
+        gsonBuilder.registerTypeAdapter(
+                Instant.class,
+                (JsonDeserializer<Instant>)
+                        (json, typeOfT, context) -> {
+                            try {
+                                return Instant.parse(json.getAsString());
+                            } catch (Exception e) {
+                                return null;
+                            }
+                        });
     }
 
     public static Date getDateOfContentOnDisk(String name) throws Exception {
