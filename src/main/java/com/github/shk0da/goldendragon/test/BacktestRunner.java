@@ -14,6 +14,15 @@ import com.github.shk0da.goldendragon.strategy.BaseStrategy;
 import com.github.shk0da.goldendragon.strategy.StrategyRegistry;
 import com.github.shk0da.goldendragon.strategy.TmonAveragingStrategy;
 import com.github.shk0da.goldendragon.utils.PropertiesUtils;
+import org.jfree.chart.ChartFactory;
+import org.jfree.chart.ChartUtilities;
+import org.jfree.chart.JFreeChart;
+import org.jfree.chart.axis.DateAxis;
+import org.jfree.chart.plot.XYPlot;
+import org.jfree.data.time.Day;
+import org.jfree.data.time.TimeSeries;
+import org.jfree.data.time.TimeSeriesCollection;
+
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
@@ -42,14 +51,6 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
-import org.jfree.chart.ChartFactory;
-import org.jfree.chart.ChartUtilities;
-import org.jfree.chart.JFreeChart;
-import org.jfree.chart.axis.DateAxis;
-import org.jfree.chart.plot.XYPlot;
-import org.jfree.data.time.Day;
-import org.jfree.data.time.TimeSeries;
-import org.jfree.data.time.TimeSeriesCollection;
 
 /**
  * Движок бэктестинга торговых стратегий на исторических данных.
@@ -155,7 +156,6 @@ import org.jfree.data.time.TimeSeriesCollection;
  *   <li>{@link PortfolioPeriodResult} — портфельные метрики за период.
  *   <li>{@link #calcMaxDrawdownByEquity} — максимальная просадка как {@code (peak - equity) /
  *       peak}.
- *   <li>{@link #calculateWinRate} / {@link #calculatePortfolioWinRate} — доля прибыльных сделок.
  *   <li>{@link #printResults} — таблица «Тикер × Период» с PnL, DD, числом сделок и win rate;
  *       компактное форматирование ({@code K}/{@code M} для PnL, маркеры риска {@code * / ! /
  *       пробел} для DD).
@@ -303,19 +303,6 @@ public class BacktestRunner {
         }
     }
 
-    private static class SimulateResult {
-        final List<TradeResult> trades;
-        final List<EquityPoint> equityCurve;
-        final double finalBalance;
-
-        SimulateResult(
-                List<TradeResult> trades, List<EquityPoint> equityCurve, double finalBalance) {
-            this.trades = trades;
-            this.equityCurve = equityCurve;
-            this.finalBalance = finalBalance;
-        }
-    }
-
     private static class TickerPeriodResult {
         final List<TradeResult> trades;
         final List<EquityPoint> equityCurve;
@@ -432,14 +419,6 @@ public class BacktestRunner {
     private final double commission;
     private final double slippage;
     private final double monthlyRebalanceAmount;
-
-    public BacktestRunner() {
-        this("data", 1_000_000.0, 0.0005, 0.0005, 0.0);
-    }
-
-    public BacktestRunner(String dataDir, double initialBalance, double commission) {
-        this(dataDir, initialBalance, commission, 0.0005, 0.0);
-    }
 
     public BacktestRunner(
             String dataDir,
@@ -1147,7 +1126,6 @@ public class BacktestRunner {
 
         double capital = initialBalance;
         double totalShares = 0.0;
-        double avgBuyPrice = 0.0;
         int lastDepositMonth = -1;
 
         TimeSeries tmonSeries = new TimeSeries("Buy & Hold TMON@");
@@ -1167,7 +1145,6 @@ public class BacktestRunner {
                 totalShares = Math.floor(capital / c.close);
                 double cost = totalShares * c.close;
                 capital -= cost;
-                avgBuyPrice = c.close;
             }
 
             double equity = capital + totalShares * c.close;
@@ -1483,7 +1460,7 @@ public class BacktestRunner {
                             .add(
                                     new EquityPoint(
                                             current.time,
-                                            tickerEquity(ticker, state, current.close, config)));
+                                            tickerEquity(ticker, state, current.close)));
                     minuteIndexByTicker.put(ticker, idx + 1);
                     continue;
                 }
@@ -1499,7 +1476,7 @@ public class BacktestRunner {
                         .add(
                                 new EquityPoint(
                                         current.time,
-                                        tickerEquity(ticker, state, current.close, config)));
+                                        tickerEquity(ticker, state, current.close)));
 
                 if (state.hourIdx + 1 >= MIN_HOURS_REQUIRED) {
                     List<Candle> hourHistory = marketData.hourCandles.subList(0, state.hourIdx + 1);
@@ -1540,7 +1517,6 @@ public class BacktestRunner {
                                     decision,
                                     current,
                                     current.time,
-                                    hourHistory,
                                     minHistory,
                                     sharedCash,
                                     tradesByTicker.get(ticker),
@@ -1677,62 +1653,6 @@ public class BacktestRunner {
         }
     }
 
-    private List<String> findCommonDailyDates(
-            List<Candle> qqq, List<Candle> tqqq, List<Candle> sqqq) {
-        Set<String> qqqDates = extractDailyDates(qqq);
-        Set<String> tqqqDates = extractDailyDates(tqqq);
-        Set<String> sqqqDates = extractDailyDates(sqqq);
-
-        List<String> common = new ArrayList<>();
-        for (String date : qqqDates) {
-            if (tqqqDates.contains(date) && sqqqDates.contains(date)) {
-                common.add(date);
-            }
-        }
-        common.sort(
-                Comparator.comparing(
-                        d -> {
-                            try {
-                                return LocalDate.parse(d, DATE_FMT);
-                            } catch (Exception e) {
-                                return LocalDate.MIN;
-                            }
-                        }));
-        return common;
-    }
-
-    private Set<String> extractDailyDates(List<Candle> candles) {
-        Set<String> dates = new LinkedHashSet<>();
-        for (Candle c : candles) {
-            String datePart = c.time.contains(" ") ? c.time.split(" ")[0] : c.time;
-            dates.add(datePart);
-        }
-        return dates;
-    }
-
-    private List<Candle> getDailyCandlesUpToDate(
-            List<Candle> candles, List<String> commonDates, int count) {
-        List<Candle> result = new ArrayList<>();
-        Set<String> dateSet = new LinkedHashSet<>(commonDates.subList(0, count));
-        for (Candle c : candles) {
-            String datePart = c.time.contains(" ") ? c.time.split(" ")[0] : c.time;
-            if (dateSet.contains(datePart)) {
-                result.add(c);
-            }
-        }
-        return result;
-    }
-
-    private Candle getDailyCandleAtDate(List<Candle> candles, String date) {
-        for (Candle c : candles) {
-            String datePart = c.time.contains(" ") ? c.time.split(" ")[0] : c.time;
-            if (date.equals(datePart)) {
-                return c;
-            }
-        }
-        return null;
-    }
-
     private List<MarketDataLoadResult> loadMarketDataParallel(
             List<String> tickers, UnifiedTraderConfig config, String start, String endExclusive)
             throws IOException {
@@ -1807,19 +1727,6 @@ public class BacktestRunner {
         return new MarketDataLoadResult(ticker, wrapped, marketData);
     }
 
-    private Map<String, List<LocalDateTime>> buildPeerTimesMap(
-            Map<String, List<Candle>> allHourlyCandles) {
-        Map<String, List<LocalDateTime>> peerTimesMap = new HashMap<>();
-        for (Map.Entry<String, List<Candle>> e : allHourlyCandles.entrySet()) {
-            List<LocalDateTime> peerTimes = new ArrayList<>(e.getValue().size());
-            for (Candle c : e.getValue()) {
-                peerTimes.add(LocalDateTime.parse(c.time, DATE_TIME_FMT));
-            }
-            peerTimesMap.put(e.getKey(), peerTimes);
-        }
-        return peerTimesMap;
-    }
-
     private List<String> buildGlobalTimeline(Map<String, MarketData> marketDataByTicker) {
         Set<String> timeline = new TreeSet<>(this::compareTime);
         for (MarketData marketData : marketDataByTicker.values()) {
@@ -1860,7 +1767,6 @@ public class BacktestRunner {
             TradingDecision decision,
             Candle current,
             String currentTime,
-            List<Candle> hourHistory,
             List<Candle> minHistory,
             double sharedCash,
             List<TradeResult> trades,
@@ -2006,11 +1912,9 @@ public class BacktestRunner {
     private double tickerEquity(
             String ticker,
             PortfolioPositionState state,
-            double currentPrice,
-            UnifiedTraderConfig config) {
+            double currentPrice) {
         double unrealizedPnl = 0.0;
         if (state.position.quantity > 0) {
-            int leverage = resolvePositionLeverage(state.position, config, ticker);
             boolean isShort = "SELL".equals(state.position.direction);
             double entryNotional = getNotionalValue(state.position.quantity, state.entryPrice);
             double markNotional = getNotionalValue(state.position.quantity, currentPrice);
@@ -2044,273 +1948,12 @@ public class BacktestRunner {
         return entryMargin + grossPnl;
     }
 
-    private SimulateResult simulateUnifiedLongOnly(
-            BaseStrategy strategy,
-            String ticker,
-            List<Candle> wrappedHour,
-            List<RawCandle> minuteCandlesRaw,
-            double startBalance,
-            Map<String, List<Candle>> allHourlyCandles,
-            Map<String, List<String>> groupTickers,
-            UnifiedTraderConfig strategyConfig) {
-        if (wrappedHour == null
-                || wrappedHour.isEmpty()
-                || minuteCandlesRaw == null
-                || minuteCandlesRaw.isEmpty()) {
-            return new SimulateResult(
-                    Collections.emptyList(), Collections.emptyList(), startBalance);
-        }
-
-        List<TradeResult> trades = new ArrayList<>();
-        List<EquityPoint> equityCurve = new ArrayList<>();
-
-        List<Candle> wrappedMin = new ArrayList<>(minuteCandlesRaw.size());
-        List<LocalDateTime> minTimes = new ArrayList<>(minuteCandlesRaw.size());
-        for (RawCandle c : minuteCandlesRaw) {
-            wrappedMin.add(new Candle(c.time, c.open, c.high, c.low, c.close, c.volume));
-            minTimes.add(c.dateTime);
-        }
-
-        List<LocalDateTime> hourTimes = new ArrayList<>(wrappedHour.size());
-        for (Candle c : wrappedHour) {
-            hourTimes.add(LocalDateTime.parse(c.time, DATE_TIME_FMT));
-        }
-
-        Map<String, List<LocalDateTime>> peerTimesMap = new HashMap<>();
-        for (Map.Entry<String, List<Candle>> e : allHourlyCandles.entrySet()) {
-            List<LocalDateTime> peerTimes = new ArrayList<>(e.getValue().size());
-            for (Candle c : e.getValue()) {
-                peerTimes.add(LocalDateTime.parse(c.time, DATE_TIME_FMT));
-            }
-            peerTimesMap.put(e.getKey(), peerTimes);
-        }
-
-        double cash = startBalance;
-        Position pos = new Position();
-        double entryPrice = 0.0;
-        int hourIdx = -1;
-        int lastSeenHourIdx = -1;
-        LocalDate lastEodCloseDate = null;
-        for (int i = 0; i < wrappedMin.size(); i++) {
-            Candle current = wrappedMin.get(i);
-            LocalDateTime minDt = minTimes.get(i);
-
-            if (!isTradingDay(minDt.toLocalDate()) || !isWithinWorkingHours(minDt.toLocalTime())) {
-                if (pos.quantity > 0
-                        && !minDt.toLocalTime().isBefore(EOD_CLOSE_TIME)
-                        && !minDt.toLocalDate().equals(lastEodCloseDate)) {
-
-                    double exitPrice = current.close;
-                    int q = pos.quantity;
-                    int leverage = resolvePositionLeverage(pos, strategyConfig, ticker);
-                    double entryMargin = getRequiredMargin(ticker, q, entryPrice, leverage);
-                    double entryNotional = getNotionalValue(q, entryPrice);
-                    double exitNotional = getNotionalValue(q, exitPrice);
-                    double grossPnl = calculateGrossPnl(entryNotional, exitNotional, false);
-                    double pnl = grossPnl - (entryNotional + exitNotional) * commission;
-
-                    trades.add(
-                            new TradeResult(
-                                    ticker,
-                                    "BUY",
-                                    entryPrice,
-                                    exitPrice,
-                                    q,
-                                    pnl,
-                                    "eod_close",
-                                    current.time));
-
-                    cash += (entryMargin + grossPnl - exitNotional * commission);
-                    pos = new Position();
-                    entryPrice = 0.0;
-                    lastEodCloseDate = minDt.toLocalDate();
-                }
-
-                double offHoursEquity = cash;
-                if (pos.quantity > 0) {
-                    int leverage = resolvePositionLeverage(pos, strategyConfig, ticker);
-                    double entryMargin =
-                            getRequiredMargin(ticker, pos.quantity, entryPrice, leverage);
-                    double grossPnl =
-                            calculateGrossPnl(
-                                    getNotionalValue(pos.quantity, entryPrice),
-                                    getNotionalValue(pos.quantity, current.close),
-                                    false);
-                    offHoursEquity += entryMargin + grossPnl;
-                }
-                equityCurve.add(new EquityPoint(current.time, offHoursEquity));
-                continue;
-            }
-
-            while (hourIdx + 1 < hourTimes.size() && !hourTimes.get(hourIdx + 1).isAfter(minDt)) {
-                hourIdx++;
-            }
-
-            boolean hourChanged = hourIdx != lastSeenHourIdx;
-
-            double equity = cash;
-            if (pos.quantity > 0) {
-                int leverage = resolvePositionLeverage(pos, strategyConfig, ticker);
-                double entryMargin = getRequiredMargin(ticker, pos.quantity, entryPrice, leverage);
-                double grossPnl =
-                        calculateGrossPnl(
-                                getNotionalValue(pos.quantity, entryPrice),
-                                getNotionalValue(pos.quantity, current.close),
-                                false);
-                equity += entryMargin + grossPnl;
-            }
-            equityCurve.add(new EquityPoint(current.time, equity));
-
-            if (hourIdx + 1 < MIN_HOURS_REQUIRED) {
-                lastSeenHourIdx = hourIdx;
-                continue;
-            }
-
-            List<Candle> hourHistory = wrappedHour.subList(0, hourIdx + 1);
-            List<Candle> minHistory = wrappedMin.subList(0, i + 1);
-
-            Map<String, List<Candle>> currentPeerCandles =
-                    buildCurrentPeerCandles(
-                            ticker,
-                            minDt,
-                            allHourlyCandles,
-                            groupTickers,
-                            peerTimesMap,
-                            hourHistory,
-                            strategyConfig);
-            if (!currentPeerCandles.isEmpty()) {
-                strategy.setPeerCandles(currentPeerCandles);
-            } else {
-                strategy.setPeerCandles(Collections.emptyMap());
-            }
-
-            TradingDecision decision =
-                    strategy.decide(ticker, hourHistory, minHistory, pos, cash, hourChanged);
-
-            switch (decision.action) {
-                case "OPEN":
-                    {
-                        if (decision.updatedPosition == null || decision.quantity <= 0) break;
-                        if (!"BUY".equals(decision.updatedPosition.direction)) break;
-                        if (pos.quantity > 0) break;
-
-                        double openEntry =
-                                decision.updatedPosition.entryPrice != null
-                                        ? decision.updatedPosition.entryPrice
-                                        : current.close;
-
-                        int openQty = decision.quantity;
-                        int leverage =
-                                resolvePositionLeverage(
-                                        decision.updatedPosition, strategyConfig, ticker);
-                        double openMargin = getRequiredMargin(ticker, openQty, openEntry, leverage);
-                        double openNotional = getNotionalValue(openQty, openEntry);
-                        double openCommission = openNotional * commission;
-
-                        if (openMargin + openCommission > cash) break;
-
-                        cash -= (openMargin + openCommission);
-                        pos = decision.updatedPosition;
-                        entryPrice = openEntry;
-                        // Use minute candles for accurate timestamp (5-min precision instead of
-                        // hourly)
-                        strategy.recordBacktestTradeEntry(ticker, minHistory, decision);
-                        break;
-                    }
-
-                case "CLOSE":
-                    {
-                        if (pos.quantity <= 0) {
-                            pos = decision.updatedPosition != null ? decision.updatedPosition : pos;
-                            break;
-                        }
-
-                        double exitPrice =
-                                decision.entryPrice != null ? decision.entryPrice : current.close;
-                        int q = pos.quantity;
-                        int leverage = resolvePositionLeverage(pos, strategyConfig, ticker);
-                        double closeEntryMargin =
-                                getRequiredMargin(ticker, q, entryPrice, leverage);
-                        double closeEntryNotional = getNotionalValue(q, entryPrice);
-                        double exitNotional = getNotionalValue(q, exitPrice);
-                        double grossPnl =
-                                calculateGrossPnl(closeEntryNotional, exitNotional, false);
-                        double pnl = grossPnl - (closeEntryNotional + exitNotional) * commission;
-
-                        trades.add(
-                                new TradeResult(
-                                        ticker,
-                                        "BUY",
-                                        entryPrice,
-                                        exitPrice,
-                                        q,
-                                        pnl,
-                                        decision.reason,
-                                        current.time));
-                        double stopLoss = pos.stopLoss != null ? pos.stopLoss : entryPrice;
-                        strategy.recordBacktestTradeOutcome(ticker, pnl, entryPrice, stopLoss, q);
-
-                        cash += (closeEntryMargin + grossPnl - exitNotional * commission);
-
-                        pos =
-                                decision.updatedPosition != null
-                                        ? decision.updatedPosition
-                                        : new Position();
-                        entryPrice = 0.0;
-                        break;
-                    }
-
-                case "HOLD":
-                    if (decision.updatedPosition != null) {
-                        pos = decision.updatedPosition;
-                    }
-                    break;
-            }
-
-            lastSeenHourIdx = hourIdx;
-        }
-
-        double finalBalance = cash;
-        if (pos.quantity > 0 && !wrappedMin.isEmpty()) {
-            double lastPrice = wrappedMin.get(wrappedMin.size() - 1).close;
-            int q = pos.quantity;
-            int leverage = resolvePositionLeverage(pos, strategyConfig, ticker);
-            double entryMargin = getRequiredMargin(ticker, q, entryPrice, leverage);
-            double entryNotional = getNotionalValue(q, entryPrice);
-            double exitNotional = getNotionalValue(q, lastPrice);
-            double grossPnl = calculateGrossPnl(entryNotional, exitNotional, false);
-            double pnl = grossPnl - (entryNotional + exitNotional) * commission;
-
-            trades.add(
-                    new TradeResult(
-                            ticker,
-                            "BUY",
-                            entryPrice,
-                            lastPrice,
-                            q,
-                            pnl,
-                            "period_end",
-                            wrappedMin.get(wrappedMin.size() - 1).time));
-            double stopLoss = pos.stopLoss != null ? pos.stopLoss : entryPrice;
-            strategy.recordBacktestTradeOutcome(ticker, pnl, entryPrice, stopLoss, q);
-
-            finalBalance += (entryMargin + grossPnl - exitNotional * commission);
-        }
-
-        return new SimulateResult(trades, equityCurve, finalBalance);
-    }
-
     private int resolvePositionLeverage(
             Position position, UnifiedTraderConfig config, String ticker) {
         if (position != null && position.quantity > 0) {
             return Math.max(1, position.appliedLeverage);
         }
         return Math.max(1, config.getTickerParams(ticker).leverage);
-    }
-
-    // Legacy overload: no leverage (default 1x)
-    private double getRequiredCash(String ticker, int quantity, double price) {
-        return getRequiredMargin(ticker, quantity, price, 1);
     }
 
     private double getRequiredMargin(String ticker, int quantity, double price, int leverage) {
@@ -2342,10 +1985,6 @@ public class BacktestRunner {
     private static double calculateGrossPnl(
             double entryNotional, double exitNotional, boolean isShort) {
         return isShort ? entryNotional - exitNotional : exitNotional - entryNotional;
-    }
-
-    private double getRequiredCash(String ticker, int quantity, double price, int leverage) {
-        return getRequiredMargin(ticker, quantity, price, leverage);
     }
 
     private TickerInfo resolveTickerInfo(String ticker) {
@@ -2399,113 +2038,10 @@ public class BacktestRunner {
         return result;
     }
 
-    private PortfolioPeriodResult buildPortfolioPeriodResult(
-            Map<String, TickerPeriodResult> tickerResults) {
-        if (tickerResults == null || tickerResults.isEmpty()) {
-            return new PortfolioPeriodResult(0.0, 0.0, Collections.emptyList(), 0, 0.0);
-        }
-
-        double totalStartBalance = 0.0;
-        double totalFinalBalance = 0.0;
-        int totalTrades = 0;
-
-        for (TickerPeriodResult result : tickerResults.values()) {
-            totalStartBalance += result.startBalance;
-            totalFinalBalance += result.startBalance + result.pnl;
-            totalTrades += result.trades.size();
-        }
-
-        List<EquityPoint> portfolioEquity = mergePortfolioEquity(tickerResults);
-        double dd = calcMaxDrawdownByEquity(portfolioEquity);
-        double pnl = totalFinalBalance - totalStartBalance;
-        double winRate = calculatePortfolioWinRate(tickerResults);
-
-        return new PortfolioPeriodResult(pnl, dd, portfolioEquity, totalTrades, winRate);
-    }
-
-    private List<EquityPoint> mergePortfolioEquity(Map<String, TickerPeriodResult> tickerResults) {
-        if (tickerResults == null || tickerResults.isEmpty()) {
-            return Collections.emptyList();
-        }
-
-        Set<String> allTimes =
-                new TreeSet<>(
-                        (a, b) -> {
-                            LocalDateTime ta = LocalDateTime.parse(a, DATE_TIME_FMT);
-                            LocalDateTime tb = LocalDateTime.parse(b, DATE_TIME_FMT);
-                            return ta.compareTo(tb);
-                        });
-
-        for (TickerPeriodResult result : tickerResults.values()) {
-            for (EquityPoint point : result.equityCurve) {
-                allTimes.add(point.time);
-            }
-        }
-
-        Map<String, Double> lastEquityByTicker = new HashMap<>();
-        Map<String, Integer> indexByTicker = new HashMap<>();
-        List<EquityPoint> merged = new ArrayList<>();
-
-        for (String ticker : tickerResults.keySet()) {
-            TickerPeriodResult result = tickerResults.get(ticker);
-            indexByTicker.put(ticker, 0);
-            lastEquityByTicker.put(ticker, result.startBalance);
-        }
-
-        for (String time : allTimes) {
-            double totalEquity = 0.0;
-
-            for (Map.Entry<String, TickerPeriodResult> entry : tickerResults.entrySet()) {
-                String ticker = entry.getKey();
-                TickerPeriodResult result = entry.getValue();
-                int idx = indexByTicker.get(ticker);
-
-                while (idx < result.equityCurve.size()
-                        && compareTime(result.equityCurve.get(idx).time, time) <= 0) {
-                    lastEquityByTicker.put(ticker, result.equityCurve.get(idx).equity);
-                    idx++;
-                }
-
-                indexByTicker.put(ticker, idx);
-                totalEquity += lastEquityByTicker.get(ticker);
-            }
-
-            merged.add(new EquityPoint(time, totalEquity));
-        }
-
-        return merged;
-    }
-
     private int compareTime(String t1, String t2) {
         LocalDateTime d1 = LocalDateTime.parse(t1, DATE_TIME_FMT);
         LocalDateTime d2 = LocalDateTime.parse(t2, DATE_TIME_FMT);
         return d1.compareTo(d2);
-    }
-
-    private Map<String, Double> buildCapitalAllocation(
-            List<String> tickers, UnifiedTraderConfig config) {
-        Map<String, Double> weights = new LinkedHashMap<>();
-        double totalWeight = 0.0;
-
-        for (String ticker : tickers) {
-            UnifiedTraderConfig.TickerParams params = config.getTickerParams(ticker);
-            if (!params.enabled) continue;
-
-            double weight = params.allocationWeight > 0.0 ? params.allocationWeight : 1.0;
-            weights.put(ticker, weight);
-            totalWeight += weight;
-        }
-
-        if (weights.isEmpty() || totalWeight <= 0.0) {
-            return Collections.emptyMap();
-        }
-
-        Map<String, Double> allocation = new LinkedHashMap<>();
-        for (Map.Entry<String, Double> e : weights.entrySet()) {
-            allocation.put(e.getKey(), initialBalance * (e.getValue() / totalWeight));
-        }
-
-        return allocation;
     }
 
     private List<String> filterEnabledTickers(List<String> tickers, UnifiedTraderConfig config) {
@@ -2686,24 +2222,6 @@ public class BacktestRunner {
 
         long winningTrades = trades.stream().filter(trade -> trade.pnl > 0).count();
         return (double) winningTrades / trades.size();
-    }
-
-    private double calculatePortfolioWinRate(Map<String, TickerPeriodResult> tickerResults) {
-        if (tickerResults == null || tickerResults.isEmpty()) return 0.0;
-
-        long totalTrades = 0;
-        long winningTrades = 0;
-
-        for (TickerPeriodResult result : tickerResults.values()) {
-            for (TradeResult trade : result.trades) {
-                totalTrades++;
-                if (trade.pnl > 0) {
-                    winningTrades++;
-                }
-            }
-        }
-
-        return totalTrades > 0 ? (double) winningTrades / totalTrades : 0.0;
     }
 
     private static String formatCompactPnL(double pnl) {
