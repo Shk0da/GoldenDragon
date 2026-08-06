@@ -75,7 +75,7 @@ public class OrderBookScalpConfig {
             .collect(toList());
     this.depth = Integer.parseInt(properties.getProperty("orderBookScalp.depth", "10"));
     this.paperMode =
-        Boolean.parseBoolean(properties.getProperty("orderBookScalp.paperMode", "true"));
+        Boolean.parseBoolean(properties.getProperty("orderBookScalp.paperMode", "false"));
     this.positionCash =
         Double.parseDouble(properties.getProperty("orderBookScalp.positionCash", "50000"));
     this.obiThreshold =
