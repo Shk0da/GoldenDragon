@@ -61,7 +61,9 @@ public final class MicropriceDriftSignal implements OrderBookSignal {
     @Override
     public String evaluateExit(
             OrderBookMarketContext context, OrderBookPositionView position, String ticker) {
-        if (context.getMicroEdge() < 0.0) {
+        boolean isLong = "LONG".equals(position.getDirection());
+        boolean reversal = isLong ? context.getMicroEdge() < 0.0 : context.getMicroEdge() > 0.0;
+        if (reversal) {
             return "microprice_reversal";
         }
         return null;

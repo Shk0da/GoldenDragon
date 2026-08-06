@@ -61,7 +61,12 @@ public final class TradeFlowScalpSignal implements OrderBookSignal {
     @Override
     public String evaluateExit(
             OrderBookMarketContext context, OrderBookPositionView position, String ticker) {
-        if (context.getTradeDelta() < -config.getMinTradeFlow()) {
+        boolean isLong = "LONG".equals(position.getDirection());
+        boolean reversal =
+                isLong
+                        ? context.getTradeDelta() < -config.getMinTradeFlow()
+                        : context.getTradeDelta() > config.getMinTradeFlow();
+        if (reversal) {
             return "flow_reversal";
         }
         return null;

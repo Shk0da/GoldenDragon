@@ -1,7 +1,6 @@
 package com.github.shk0da.goldendragon.strategy.orderbook;
 
 import com.github.shk0da.goldendragon.config.OrderBookScalpConfig;
-
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -81,7 +80,12 @@ public final class ObiScalpSignal implements OrderBookSignal {
     @Override
     public String evaluateExit(
             OrderBookMarketContext context, OrderBookPositionView position, String ticker) {
-        if (context.getObi() < config.getObiExitThreshold()) {
+        boolean isLong = "LONG".equals(position.getDirection());
+        boolean reversal =
+                isLong
+                        ? context.getObi() < config.getObiExitThreshold()
+                        : context.getObi() > -config.getObiExitThreshold();
+        if (reversal) {
             return "obi_flip";
         }
         return null;
