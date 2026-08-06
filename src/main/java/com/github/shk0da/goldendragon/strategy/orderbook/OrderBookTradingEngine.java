@@ -190,7 +190,7 @@ public final class OrderBookTradingEngine implements MarketTickListener {
 
     List<TickerRuntime> subscribed = subscribeInstruments(resolveInstruments());
     if (!subscribed.isEmpty()) {
-      syncBrokerPositions(subscribed, paper);
+      closeUntrackedPositions(subscribed, paper);
       restoreTrackedPositions(subscribed, paper);
       lastMarketDataAtMs = System.currentTimeMillis();
     }
@@ -222,7 +222,7 @@ public final class OrderBookTradingEngine implements MarketTickListener {
             List<TickerRuntime> refreshed = subscribeInstruments(resolveInstruments());
             if (!refreshed.isEmpty()) {
               subscribed.addAll(refreshed);
-              syncBrokerPositions(subscribed, paper);
+              closeUntrackedPositions(subscribed, paper);
               lastMarketDataAtMs = System.currentTimeMillis();
               log(strategyName + ": resumed from idle with " + subscribed.size() + " instruments");
             }
@@ -308,11 +308,8 @@ public final class OrderBookTradingEngine implements MarketTickListener {
     }
   }
 
-  private void syncBrokerPositions(List<TickerRuntime> subscribed, boolean paper) {
-    if (paper || mainConfig.isSandbox()) {
-      if (mainConfig.isSandbox()) {
-        log(strategyName + ": sandbox mode, skipping broker position sync");
-      }
+  private void closeUntrackedPositions(List<TickerRuntime> subscribed, boolean paper) {
+    if (paper) {
       return;
     }
     Map<TickerInfo.Key, PositionInfo> positions;
@@ -322,22 +319,39 @@ public final class OrderBookTradingEngine implements MarketTickListener {
       log(strategyName + " position sync failed: " + ex.getMessage());
       return;
     }
-    for (TickerRuntime runtime : subscribed) {
-      PositionInfo position = positions.get(runtime.key);
-      if (position == null || position.getBalance() == 0) {
+    Set<String> trackedTickers =
+        subscribed.stream().map(runtime -> runtime.ticker).collect(toSet());
+    for (PositionInfo position : positions.values()) {
+      if (position.getBalance() == 0) {
+        continue;
+      }
+      if (!isTradablePositionType(position.getInstrumentType())) {
+        continue;
+      }
+      if (trackedTickers.contains(position.getTicker())) {
         continue;
       }
       log(
-          "Stale position detected for "
-              + runtime.ticker
+          "Untracked position detected for "
+              + position.getTicker()
               + " qty="
               + position.getBalance()
               + ", closing");
-      TCSService.OrderExecutionResult result = closePositionWithRetry(runtime);
+      boolean isShort = position.getBalance() < 0;
+      TCSService.OrderExecutionResult result =
+          isShort
+              ? tcsService.closeShortByMarketWithDetails(
+                  position.getTicker(), position.getInstrumentType())
+              : tcsService.closeLongByMarketWithDetails(
+                  position.getTicker(), position.getInstrumentType());
       if (!result.isSuccess()) {
-        log("Failed to close stale position for " + runtime.ticker);
+        log("Failed to close untracked position for " + position.getTicker());
       }
     }
+  }
+
+  private static boolean isTradablePositionType(TickerType type) {
+    return TickerType.FEATURE == type || TickerType.STOCK == type || TickerType.ETF == type;
   }
 
   private void restoreTrackedPositions(List<TickerRuntime> subscribed, boolean paper) {
