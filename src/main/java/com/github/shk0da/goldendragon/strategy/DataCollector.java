@@ -63,7 +63,8 @@ import static java.time.OffsetDateTime.now;
 
 public class DataCollector {
 
-    private static final ObjectMapper objectMapper = new ObjectMapper().registerModule(new JavaTimeModule());
+    private static final ObjectMapper objectMapper =
+            new ObjectMapper().registerModule(new JavaTimeModule());
     private static final DateFormat dateTimeFormat = new SimpleDateFormat("dd.MM.yyyy HH:mm:ss");
     private static final Repository<TickerInfo.Key, TickerInfo> tickerRepository =
             TickerRepository.INSTANCE;

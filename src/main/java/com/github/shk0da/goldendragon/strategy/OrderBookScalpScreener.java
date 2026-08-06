@@ -1,16 +1,11 @@
 package com.github.shk0da.goldendragon.strategy;
 
-import static com.github.shk0da.goldendragon.utils.TimeUtils.sleep;
-import static java.util.Comparator.comparing;
-import static java.util.Comparator.comparingDouble;
-import static java.util.stream.Collectors.groupingBy;
-import static java.util.stream.Collectors.toList;
-
 import com.github.shk0da.goldendragon.config.OrderBookScalpConfig;
 import com.github.shk0da.goldendragon.model.MarketTradeTick;
 import com.github.shk0da.goldendragon.model.TickerInfo;
 import com.github.shk0da.goldendragon.service.TCSService;
 import com.github.shk0da.goldendragon.utils.LoggingUtils;
+
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -18,6 +13,12 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.regex.Pattern;
+
+import static com.github.shk0da.goldendragon.utils.TimeUtils.sleep;
+import static java.util.Comparator.comparing;
+import static java.util.Comparator.comparingDouble;
+import static java.util.stream.Collectors.groupingBy;
+import static java.util.stream.Collectors.toList;
 
 /** Ranks futures by spread, depth and recent trade activity for order-book scalping. */
 public final class OrderBookScalpScreener {
@@ -265,11 +266,18 @@ public final class OrderBookScalpScreener {
         }
 
         double tradeVolume = loadRecentTradeVolume(tcsService, info.getKey());
+        double expectedTpDistance = spread * config.getTakeProfitSpreads();
+        double roundTripCommission = bestAsk * config.getCommissionRate() * 2.0;
+        double economicsRatio =
+                roundTripCommission > 0.0 ? expectedTpDistance / roundTripCommission : 0.0;
 
         double spreadScore = Math.max(0.0, config.getMaxSpreadBps() - spreadBps) * 2.0;
         double topDepthScore = Math.log1p(topDepth) * 80.0;
         double bookDepthScore = Math.log1p(bookDepth) * 120.0;
         double flowScore = Math.min(tradeVolume, 5_000.0) * 0.02;
+        double economicsScore = Math.max(0.0, Math.min(economicsRatio, 3.0)) * 120.0;
+        double economicsPenalty = economicsRatio < 1.25 ? (1.25 - economicsRatio) * 400.0 : 0.0;
+        double microContractPenalty = spread < roundTripCommission * 0.75 ? 250.0 : 0.0;
         double coreBonus = 0.0;
         if (isCoreMoexPerpetual(info.getTicker())) {
             coreBonus += 200.0;
@@ -277,7 +285,15 @@ public final class OrderBookScalpScreener {
         if (isCoreCommodityAsset(assetGroupKey(info))) {
             coreBonus += 150.0;
         }
-        double score = spreadScore + topDepthScore + bookDepthScore + flowScore + coreBonus;
+        double score =
+                spreadScore
+                        + topDepthScore
+                        + bookDepthScore
+                        + flowScore
+                        + economicsScore
+                        + coreBonus
+                        - economicsPenalty
+                        - microContractPenalty;
         return new ScoredTicker(info, score, spreadBps, topDepth, bookDepth, tradeVolume);
     }
 

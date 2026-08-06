@@ -6,6 +6,7 @@ import com.github.shk0da.goldendragon.model.Config;
 import com.github.shk0da.goldendragon.model.Position;
 import com.github.shk0da.goldendragon.model.TradingDecision;
 import com.github.shk0da.goldendragon.service.TCSService;
+
 import java.util.List;
 
 /**
@@ -25,7 +26,6 @@ public class RegimeAwareStrategy extends BaseStrategy {
 
     // Market regime thresholds
     private static final double ADX_TREND_THRESHOLD = 26.0;
-    private static final double ADX_HOT_THRESHOLD = 35.0;
     private static final double ADX_RANGE_THRESHOLD = 16.0;
     private static final double NORMAL_MIN_ADX = 18.0;
 

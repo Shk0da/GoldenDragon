@@ -448,7 +448,7 @@ public class BacktestRunner {
         double commission = Double.parseDouble(System.getProperty("backtest.commission", "0.0005"));
         double monthlyDeposit =
                 Double.parseDouble(System.getProperty("backtest.monthlyDeposit", "0.0"));
-        BacktestRunner runner = new BacktestRunner("data", 1_000_000.0, commission, monthlyDeposit);
+        BacktestRunner runner = new BacktestRunner("data", 100_000, commission, monthlyDeposit);
         boolean singleStrategyRun = args != null && args.length > 0;
 
         String dataPath = "ml_strategy/data_pipeline/trades.csv";
@@ -1475,8 +1475,7 @@ public class BacktestRunner {
                         .get(ticker)
                         .add(
                                 new EquityPoint(
-                                        current.time,
-                                        tickerEquity(ticker, state, current.close)));
+                                        current.time, tickerEquity(ticker, state, current.close)));
 
                 if (state.hourIdx + 1 >= MIN_HOURS_REQUIRED) {
                     List<Candle> hourHistory = marketData.hourCandles.subList(0, state.hourIdx + 1);
@@ -1909,10 +1908,7 @@ public class BacktestRunner {
         return sharedCash;
     }
 
-    private double tickerEquity(
-            String ticker,
-            PortfolioPositionState state,
-            double currentPrice) {
+    private double tickerEquity(String ticker, PortfolioPositionState state, double currentPrice) {
         double unrealizedPnl = 0.0;
         if (state.position.quantity > 0) {
             boolean isShort = "SELL".equals(state.position.direction);

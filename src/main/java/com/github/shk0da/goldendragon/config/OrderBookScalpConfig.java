@@ -1,12 +1,13 @@
 package com.github.shk0da.goldendragon.config;
 
-import static java.util.Arrays.stream;
-import static java.util.stream.Collectors.toList;
-
 import com.github.shk0da.goldendragon.utils.PropertiesUtils;
+
 import java.io.IOException;
 import java.util.List;
 import java.util.Properties;
+
+import static java.util.Arrays.stream;
+import static java.util.stream.Collectors.toList;
 
 /** Configuration for order-book scalping strategy (OFIS). */
 public class OrderBookScalpConfig {
@@ -28,6 +29,7 @@ public class OrderBookScalpConfig {
     private final int tradeFlowWindowSeconds;
     private final int screeningTopN;
     private final int rescreenMinutes;
+    private final int idleRescreenSeconds;
     private final double commissionRate;
     private final double obiExitThreshold;
     private final int entryGraceSeconds;
@@ -46,6 +48,10 @@ public class OrderBookScalpConfig {
     private final double maxDailyLossPercent;
     private final int maxConsecutiveLosses;
     private final double criticalDrawdownPercent;
+    private final boolean diagnosticsEnabled;
+    private final boolean diagnosticsSummaryEnabled;
+    private final boolean diagnosticsReplayEnabled;
+    private final String diagnosticsReplayFile;
 
     public OrderBookScalpConfig() {
         final Properties properties;
@@ -66,7 +72,7 @@ public class OrderBookScalpConfig {
         this.positionCash =
                 Double.parseDouble(properties.getProperty("orderBookScalp.positionCash", "50000"));
         this.obiThreshold =
-                Double.parseDouble(properties.getProperty("orderBookScalp.obiThreshold", "0.35"));
+                Double.parseDouble(properties.getProperty("orderBookScalp.obiThreshold", "0.30"));
         this.edgeSpreadFraction =
                 Double.parseDouble(
                         properties.getProperty("orderBookScalp.edgeSpreadFraction", "0.3"));
@@ -79,9 +85,10 @@ public class OrderBookScalpConfig {
                 Integer.parseInt(properties.getProperty("orderBookScalp.minBestLevelQty", "1"));
         this.takeProfitSpreads =
                 Double.parseDouble(
-                        properties.getProperty("orderBookScalp.takeProfitSpreads", "2.0"));
+                        properties.getProperty("orderBookScalp.takeProfitSpreads", "2.5"));
         this.stopLossSpreads =
-                Double.parseDouble(properties.getProperty("orderBookScalp.stopLossSpreads", "1.0"));
+                Double.parseDouble(
+                        properties.getProperty("orderBookScalp.stopLossSpreads", "1.25"));
         this.maxHoldSeconds =
                 Integer.parseInt(properties.getProperty("orderBookScalp.maxHoldSeconds", "90"));
         this.cooldownSeconds =
@@ -93,6 +100,9 @@ public class OrderBookScalpConfig {
                 Integer.parseInt(properties.getProperty("orderBookScalp.screeningTopN", "30"));
         this.rescreenMinutes =
                 Integer.parseInt(properties.getProperty("orderBookScalp.rescreenMinutes", "60"));
+        this.idleRescreenSeconds =
+                Integer.parseInt(
+                        properties.getProperty("orderBookScalp.idleRescreenSeconds", "60"));
         this.commissionRate =
                 Double.parseDouble(
                         properties.getProperty("orderBookScalp.commissionRate", "0.0005"));
@@ -100,9 +110,9 @@ public class OrderBookScalpConfig {
                 Double.parseDouble(
                         properties.getProperty("orderBookScalp.obiExitThreshold", "-0.25"));
         this.entryGraceSeconds =
-                Integer.parseInt(properties.getProperty("orderBookScalp.entryGraceSeconds", "3"));
+                Integer.parseInt(properties.getProperty("orderBookScalp.entryGraceSeconds", "10"));
         this.minTradeFlow =
-                Double.parseDouble(properties.getProperty("orderBookScalp.minTradeFlow", "10"));
+                Double.parseDouble(properties.getProperty("orderBookScalp.minTradeFlow", "5"));
         this.screeningMinTopDepth =
                 Integer.parseInt(
                         properties.getProperty("orderBookScalp.screeningMinTopDepth", "40"));
@@ -151,6 +161,19 @@ public class OrderBookScalpConfig {
         this.criticalDrawdownPercent =
                 Double.parseDouble(
                         properties.getProperty("orderBookScalp.criticalDrawdownPercent", "0.10"));
+        this.diagnosticsEnabled =
+                Boolean.parseBoolean(
+                        properties.getProperty("orderBookScalp.diagnosticsEnabled", "false"));
+        this.diagnosticsSummaryEnabled =
+                Boolean.parseBoolean(
+                        properties.getProperty("orderBookScalp.diagnosticsSummaryEnabled", "false"));
+        this.diagnosticsReplayEnabled =
+                Boolean.parseBoolean(
+                        properties.getProperty("orderBookScalp.diagnosticsReplayEnabled", "false"));
+        this.diagnosticsReplayFile =
+                properties.getProperty(
+                        "orderBookScalp.diagnosticsReplayFile",
+                        "build/orderbook-diagnostics-replay.log");
     }
 
     public List<String> getInstruments() {
@@ -219,6 +242,10 @@ public class OrderBookScalpConfig {
 
     public int getRescreenMinutes() {
         return rescreenMinutes;
+    }
+
+    public int getIdleRescreenSeconds() {
+        return idleRescreenSeconds;
     }
 
     public double getCommissionRate() {
@@ -291,5 +318,21 @@ public class OrderBookScalpConfig {
 
     public double getCriticalDrawdownPercent() {
         return criticalDrawdownPercent;
+    }
+
+    public boolean isDiagnosticsEnabled() {
+        return diagnosticsEnabled;
+    }
+
+    public boolean isDiagnosticsSummaryEnabled() {
+        return diagnosticsSummaryEnabled;
+    }
+
+    public boolean isDiagnosticsReplayEnabled() {
+        return diagnosticsReplayEnabled;
+    }
+
+    public String getDiagnosticsReplayFile() {
+        return diagnosticsReplayFile;
     }
 }

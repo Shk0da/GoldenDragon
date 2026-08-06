@@ -1,20 +1,13 @@
 package com.github.shk0da.goldendragon.strategy;
 
-import static com.github.shk0da.goldendragon.model.TickerType.FEATURE;
-import static com.github.shk0da.goldendragon.model.TickerType.STOCK;
-import static com.github.shk0da.goldendragon.service.TelegramNotifyService.telegramNotifyService;
-import static com.github.shk0da.goldendragon.utils.TimeUtils.sleep;
-import static java.lang.Math.abs;
-import static java.lang.Math.max;
-import static java.util.concurrent.CompletableFuture.allOf;
-import static java.util.concurrent.CompletableFuture.runAsync;
-
 import com.github.shk0da.goldendragon.config.UnifiedTraderConfig;
 import com.github.shk0da.goldendragon.filters.BadWeatherFilter;
 import com.github.shk0da.goldendragon.filters.MarketRegimeFilter;
 import com.github.shk0da.goldendragon.ml.TradeDataCollector;
 import com.github.shk0da.goldendragon.model.Candle;
 import com.github.shk0da.goldendragon.model.Config;
+import com.github.shk0da.goldendragon.model.MarketDepthSnapshot;
+import com.github.shk0da.goldendragon.model.MarketTradeTick;
 import com.github.shk0da.goldendragon.model.Position;
 import com.github.shk0da.goldendragon.model.TickerCandle;
 import com.github.shk0da.goldendragon.model.TickerInfo;
@@ -24,6 +17,9 @@ import com.github.shk0da.goldendragon.repository.TickerRepository;
 import com.github.shk0da.goldendragon.service.TCSService;
 import com.github.shk0da.goldendragon.utils.IndicatorsUtil;
 import com.github.shk0da.goldendragon.utils.LoggingUtils;
+import ru.tinkoff.piapi.contract.v1.CandleInterval;
+import ru.tinkoff.piapi.contract.v1.HistoricCandle;
+
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileWriter;
@@ -34,6 +30,7 @@ import java.nio.file.Paths;
 import java.sql.Timestamp;
 import java.text.SimpleDateFormat;
 import java.time.DayOfWeek;
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.OffsetDateTime;
@@ -51,8 +48,15 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
-import ru.tinkoff.piapi.contract.v1.CandleInterval;
-import ru.tinkoff.piapi.contract.v1.HistoricCandle;
+
+import static com.github.shk0da.goldendragon.model.TickerType.FEATURE;
+import static com.github.shk0da.goldendragon.model.TickerType.STOCK;
+import static com.github.shk0da.goldendragon.service.TelegramNotifyService.telegramNotifyService;
+import static com.github.shk0da.goldendragon.utils.TimeUtils.sleep;
+import static java.lang.Math.abs;
+import static java.lang.Math.max;
+import static java.util.concurrent.CompletableFuture.allOf;
+import static java.util.concurrent.CompletableFuture.runAsync;
 
 /**
  * Base abstract trading strategy class implementing common execution lifecycle, position
@@ -62,7 +66,7 @@ import ru.tinkoff.piapi.contract.v1.HistoricCandle;
  *
  * <h2>Architecture</h2>
  *
- * Class acts as strategy "engine":
+ * <p>Class acts as strategy "engine":
  *
  * <ul>
  *   <li>Manages execution flow (trading hours, trading days, EOD).
@@ -94,7 +98,7 @@ import ru.tinkoff.piapi.contract.v1.HistoricCandle;
  *
  * <h2>Ticker Processing ({@link #processTicker})</h2>
  *
- * For each ticker on each cycle:
+ * <p>For each ticker on each cycle:
  *
  * <ol>
  *   <li>Check personal cooldown — skip if still active ({@link #COOLDOWN_DURATION_MS} = 5 minutes
@@ -153,21 +157,8 @@ import ru.tinkoff.piapi.contract.v1.HistoricCandle;
  *
  * <h2>Capital Allocation ({@link #computeCapitalAllocation})</h2>
  *
- * Proportional free cash distribution across active tickers based on {@code allocationWeight}
+ * <p>Proportional free cash distribution across active tickers based on {@code allocationWeight}
  * (default 1.0): {@code allocation[i] = totalCash × (weight[i] / Σweights)}.
- *
- * <h2>Entry Filters ({@link #applyFilters})</h2>
- *
- * Utility method sequentially applying:
- *
- * <ol>
- *   <li>{@link BadWeatherFilter} — filter unfavorable market conditions (low volume, ATR spikes,
- *       wide spreads, long wicks, panic).
- *   <li>{@link MarketRegimeFilter} — assess market regime suitability by ADX, volume and
- *       confidence.
- * </ol>
- *
- * Returns {@code HOLD} with block reason or {@code null} if passed.
  *
  * <h2>Временные ограничения</h2>
  *
@@ -179,7 +170,7 @@ import ru.tinkoff.piapi.contract.v1.HistoricCandle;
  *
  * <h2>Технические индикаторы</h2>
  *
- * Базовая реализация (используется наследниками):
+ * <p>Базовая реализация (используется наследниками):
  *
  * <ul>
  *   <li>{@link #ema} — экспоненциальное скользящее среднее с SMA-инициализацией.
@@ -200,7 +191,7 @@ import ru.tinkoff.piapi.contract.v1.HistoricCandle;
  *
  * <h2>Режим бэктеста</h2>
  *
- * Флаг {@code isBacktest} переключает поведение:
+ * <p>Флаг {@code isBacktest} переключает поведение:
  *
  * <ul>
  *   <li>{@link #logWithBacktest} — silent-логирование в backtest-режиме.
@@ -496,10 +487,10 @@ public abstract class BaseStrategy {
                 log("No hourly candles for " + name + ", skipping.");
                 return;
             }
+            refreshLastCandleWithLivePrice(hourCandles, ticker, isBacktest);
 
             boolean useMinCandles = tickerParams.useMinuteCandles;
-            List<Candle> minuteCandles = hourCandles;
-
+            List<Candle> minuteCandles;
             if (useMinCandles) {
                 minuteCandles =
                         loadOrRefreshCandles(
@@ -508,6 +499,9 @@ public abstract class BaseStrategy {
                     log("No minute candles for " + name + ", skipping.");
                     return;
                 }
+                refreshLastCandleWithLivePrice(minuteCandles, ticker, isBacktest);
+            } else {
+                minuteCandles = hourCandles;
             }
 
             Position storedPosition = positionStore.getOrDefault(name, new Position());
@@ -1132,6 +1126,69 @@ public abstract class BaseStrategy {
         log(report.toString());
     }
 
+    /**
+     * Refreshes the last candle with fresh live market data from TCSService. In live trading mode,
+     * gets the current price from the order book or recent trades and updates the last candle's
+     * close/high/low to reflect real-time market state.
+     *
+     * @param candles the candle list to refresh (modified in place)
+     * @param ticker the ticker info for the instrument
+     * @param isBacktest true if running in backtest mode (no refresh)
+     */
+    protected void refreshLastCandleWithLivePrice(
+            List<Candle> candles, TickerInfo ticker, boolean isBacktest) {
+        if (isBacktest || candles == null || candles.isEmpty() || tcsService == null) {
+            return;
+        }
+
+        try {
+            TickerInfo.Key key = ticker.getKey();
+            Double livePrice = null;
+
+            // Try to get price from order book first (most accurate)
+            MarketDepthSnapshot snapshot = tcsService.getLastMarketDepth(key);
+            if (snapshot != null && snapshot.getMidPrice() != null) {
+                livePrice = snapshot.getMidPrice();
+            } else if (snapshot != null && snapshot.getBestBid() != null) {
+                livePrice = snapshot.getBestBid();
+            } else if (snapshot != null && snapshot.getBestAsk() != null) {
+                livePrice = snapshot.getBestAsk();
+            }
+
+            // Fallback to recent trades if no order book data
+            if (livePrice == null) {
+                List<MarketTradeTick> recentTrades =
+                        tcsService.getRecentTrades(key, Duration.ofSeconds(60));
+                if (recentTrades != null && !recentTrades.isEmpty()) {
+                    livePrice = recentTrades.get(recentTrades.size() - 1).getPrice();
+                }
+            }
+
+            // Update last candle if we got a live price
+            if (livePrice != null) {
+                Candle lastCandle = candles.get(candles.size() - 1);
+                double newHigh = livePrice > lastCandle.high ? livePrice : lastCandle.high;
+                double newLow = livePrice < lastCandle.low ? livePrice : lastCandle.low;
+                // Candle fields are final, so create a new Candle with updated values
+                Candle updated =
+                        new Candle(
+                                lastCandle.time,
+                                lastCandle.open,
+                                newHigh,
+                                newLow,
+                                livePrice,
+                                lastCandle.volume);
+                candles.set(candles.size() - 1, updated);
+            }
+        } catch (Exception ex) {
+            log(
+                    "Failed to refresh last candle with live price for "
+                            + ticker.getTicker()
+                            + ": "
+                            + ex.getMessage());
+        }
+    }
+
     protected List<Candle> loadOrRefreshCandles(
             String name, String figi, String dataDir, OffsetDateTime now, CandleInterval interval) {
         if (tcsService == null) {
@@ -1638,48 +1695,5 @@ public abstract class BaseStrategy {
         }
 
         return allocation;
-    }
-
-    /**
-     * Применяет фильтры BadWeather и MarketRegime перед открытием позиции. Возвращает
-     * TradingDecision с HOLD если фильтр не прошёл, или null если всё ок.
-     */
-    protected TradingDecision applyFilters(
-            String ticker,
-            List<Candle> hourCandles,
-            Candle currentCandle,
-            Position position,
-            UnifiedTraderConfig.TickerParams tickerParams) {
-        if (!badWeatherFilter.canTrade(
-                hourCandles, currentCandle.close, tickerParams.badWeatherParams)) {
-            String reason =
-                    badWeatherFilter.getBlockReason(
-                            hourCandles, currentCandle.close, tickerParams.badWeatherParams);
-            return new TradingDecision(
-                    "HOLD",
-                    reason != null ? "BAD_WEATHER_" + reason : "BAD_WEATHER",
-                    0.0,
-                    0,
-                    null,
-                    null,
-                    null,
-                    position);
-        }
-
-        MarketRegimeFilter.FilterResult regimeResult =
-                marketRegimeFilter.evaluate(
-                        hourCandles,
-                        tickerParams.marketRegimeAdxRangeThreshold,
-                        tickerParams.marketRegimeAdxUnclearThreshold,
-                        tickerParams.marketRegimeVolumeRatioMin,
-                        tickerParams.marketRegimeConfidenceMin,
-                        tickerParams.marketRegimeAtrBars);
-
-        if (!regimeResult.canTrade) {
-            return new TradingDecision(
-                    "HOLD", "REGIME_" + regimeResult.reason, 0.0, 0, null, null, null, position);
-        }
-
-        return null;
     }
 }

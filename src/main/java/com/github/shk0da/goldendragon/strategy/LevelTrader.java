@@ -54,7 +54,8 @@ import static ru.tinkoff.piapi.contract.v1.CandleInterval.CANDLE_INTERVAL_HOUR;
 
 public class LevelTrader {
 
-    private static final ObjectMapper objectMapper = new ObjectMapper().registerModule(new JavaTimeModule());
+    private static final ObjectMapper objectMapper =
+            new ObjectMapper().registerModule(new JavaTimeModule());
     private static final DecimalFormat decimalFormat = new DecimalFormat("#.##");
     private static final DateFormat dateTimeFormat = new SimpleDateFormat("dd.MM.yyyy HH:mm:ss");
     private static final DateTimeFormatter formatter =

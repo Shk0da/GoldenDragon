@@ -2,6 +2,7 @@ package com.github.shk0da.goldendragon.strategy.orderbook;
 
 import com.github.shk0da.goldendragon.model.MarketDepthLevel;
 import com.github.shk0da.goldendragon.model.MarketTradeTick;
+
 import java.util.List;
 
 /** Shared order-book metric helpers for signals and the trading engine. */
@@ -20,6 +21,21 @@ public final class OrderBookMath {
         return (bidVol - askVol) / total;
     }
 
+    /**
+     * Calculates microprice edge relative to mid-price using top-of-book imbalance.
+     *
+     * <p>The formula intentionally cross-weights each best price by liquidity on the opposite side
+     * of the book:
+     *
+     * <pre>
+     * micro = (bestBid * askQty0 + bestAsk * bidQty0) / (bidQty0 + askQty0)
+     * edge = micro - mid
+     * </pre>
+     *
+     * <p>This produces a microprice that shifts toward the side more likely to trade next. The
+     * returned value is an edge relative to the simple midpoint and is consumed consistently by all
+     * order-book signals in this strategy.
+     */
     public static double calculateMicroEdge(
             double bestBid, double bestAsk, int bidQty0, int askQty0) {
         double mid = (bestBid + bestAsk) / 2.0;

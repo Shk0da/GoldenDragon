@@ -5,20 +5,26 @@ import com.github.shk0da.goldendragon.model.Position;
 import java.lang.reflect.Method;
 
 /**
- * Unit tests for BacktestRunner simulation logic.
- * Tests PnL calculation, slippage, commissions, margin, and position lifecycle.
+ * Unit tests for BacktestRunner simulation logic. Tests PnL calculation, slippage, commissions,
+ * margin, and position lifecycle.
  *
- * Use: java -cp build/classes/java/test BacktestRunnerTest
+ * <p>Use: java -cp build/classes/java/test BacktestRunnerTest
  */
 public class BacktestRunnerTest {
 
-    /**
-     * Helper assertion methods.
-     */
+    /** Helper assertion methods. */
     private static void assertEquals(double expected, double actual, double delta, String message) {
         double diff = Math.abs(expected - actual);
         if (diff > delta) {
-            throw new AssertionError(message + ": expected " + expected + " but got " + actual + " (diff: " + diff + ")");
+            throw new AssertionError(
+                    message
+                            + ": expected "
+                            + expected
+                            + " but got "
+                            + actual
+                            + " (diff: "
+                            + diff
+                            + ")");
         }
     }
 
@@ -79,7 +85,7 @@ public class BacktestRunnerTest {
 
     public static void testLeverage1xStock() {
         // Stock with leverage 1x => max notional
-        double margin = 10 * 100.0 / 1;  // notional 1000, leverage 1
+        double margin = 10 * 100.0 / 1; // notional 1000, leverage 1
         assertEquals(1000.0, margin, 0.001, "leverage 1x => full notional");
         printSuccess("testLeverage1xStock");
     }
@@ -138,23 +144,29 @@ public class BacktestRunnerTest {
     // =========================================================================
 
     public static void testLongProfit() throws Exception {
-        Method m = BacktestRunner.class.getDeclaredMethod("calculateGrossPnl", double.class, double.class, boolean.class);
+        Method m =
+                BacktestRunner.class.getDeclaredMethod(
+                        "calculateGrossPnl", double.class, double.class, boolean.class);
         m.setAccessible(true);
-        double pnl = (double) m.invoke(null, 1000.0, 1100.0, false);  // entry 1000, exit 1100, long
+        double pnl = (double) m.invoke(null, 1000.0, 1100.0, false); // entry 1000, exit 1100, long
         assertEquals(100.0, pnl, 0.001, "long profit");
         printSuccess("testLongProfit");
     }
 
     public static void testLongLoss() throws Exception {
-        Method m = BacktestRunner.class.getDeclaredMethod("calculateGrossPnl", double.class, double.class, boolean.class);
+        Method m =
+                BacktestRunner.class.getDeclaredMethod(
+                        "calculateGrossPnl", double.class, double.class, boolean.class);
         m.setAccessible(true);
-        double pnl = (double) m.invoke(null, 1000.0, 900.0, false);  // entry 1000, exit 900, long
+        double pnl = (double) m.invoke(null, 1000.0, 900.0, false); // entry 1000, exit 900, long
         assertEquals(-100.0, pnl, 0.001, "long loss");
         printSuccess("testLongLoss");
     }
 
     public static void testLongBreakEven() throws Exception {
-        Method m = BacktestRunner.class.getDeclaredMethod("calculateGrossPnl", double.class, double.class, boolean.class);
+        Method m =
+                BacktestRunner.class.getDeclaredMethod(
+                        "calculateGrossPnl", double.class, double.class, boolean.class);
         m.setAccessible(true);
         double pnl = (double) m.invoke(null, 1000.0, 1000.0, false);
         assertEquals(0.0, pnl, 0.001, "break even");
@@ -162,23 +174,29 @@ public class BacktestRunnerTest {
     }
 
     public static void testShortProfit() throws Exception {
-        Method m = BacktestRunner.class.getDeclaredMethod("calculateGrossPnl", double.class, double.class, boolean.class);
+        Method m =
+                BacktestRunner.class.getDeclaredMethod(
+                        "calculateGrossPnl", double.class, double.class, boolean.class);
         m.setAccessible(true);
-        double pnl = (double) m.invoke(null, 1000.0, 900.0, true);  // entry 1000, exit 900, short
+        double pnl = (double) m.invoke(null, 1000.0, 900.0, true); // entry 1000, exit 900, short
         assertEquals(100.0, pnl, 0.001, "short profit");
         printSuccess("testShortProfit");
     }
 
     public static void testShortLoss() throws Exception {
-        Method m = BacktestRunner.class.getDeclaredMethod("calculateGrossPnl", double.class, double.class, boolean.class);
+        Method m =
+                BacktestRunner.class.getDeclaredMethod(
+                        "calculateGrossPnl", double.class, double.class, boolean.class);
         m.setAccessible(true);
-        double pnl = (double) m.invoke(null, 1000.0, 1100.0, true);  // entry 1000, exit 1100, short
+        double pnl = (double) m.invoke(null, 1000.0, 1100.0, true); // entry 1000, exit 1100, short
         assertEquals(-100.0, pnl, 0.001, "short loss");
         printSuccess("testShortLoss");
     }
 
     public static void testShortBreakEven() throws Exception {
-        Method m = BacktestRunner.class.getDeclaredMethod("calculateGrossPnl", double.class, double.class, boolean.class);
+        Method m =
+                BacktestRunner.class.getDeclaredMethod(
+                        "calculateGrossPnl", double.class, double.class, boolean.class);
         m.setAccessible(true);
         double pnl = (double) m.invoke(null, 1000.0, 1000.0, true);
         assertEquals(0.0, pnl, 0.001, "short break even");
@@ -231,13 +249,13 @@ public class BacktestRunnerTest {
         double slippage = 0.0005;
 
         // Long total slippage per unit
-        double longEntrySlippage = price * (1.0 + slippage) - price;  // extra cost
-        double longExitSlippage = price - price * (1.0 - slippage);    // lower proceeds
+        double longEntrySlippage = price * (1.0 + slippage) - price; // extra cost
+        double longExitSlippage = price - price * (1.0 - slippage); // lower proceeds
         double longTotal = longEntrySlippage + longExitSlippage;
 
         // Short total slippage per unit
-        double shortEntrySlippage = price - price * (1.0 - slippage);  // less received
-        double shortExitSlippage = price * (1.0 + slippage) - price;   // extra cost
+        double shortEntrySlippage = price - price * (1.0 - slippage); // less received
+        double shortExitSlippage = price * (1.0 + slippage) - price; // extra cost
         double shortTotal = shortEntrySlippage + shortExitSlippage;
 
         assertEquals(longTotal, shortTotal, 0.0001, "slippage should be symmetric");
@@ -293,11 +311,59 @@ public class BacktestRunnerTest {
     public static void testLargePositionCommission() {
         double notional = 1_000_000.0;
         double rate = 0.0005;
-        double oneWay = notional * rate;        // 500
-        double roundtrip = (notional + notional) * rate;  // 1000
+        double oneWay = notional * rate; // 500
+        double roundtrip = (notional + notional) * rate; // 1000
         assertEquals(500.0, oneWay, 0.001, "one way commission for 1M");
         assertEquals(1000.0, roundtrip, 0.001, "round trip commission for 1M");
         printSuccess("testLargePositionCommission");
+    }
+
+    public static void testNormalizeQuantityToLot() {
+        int normalized = (int) invokePrivateMethod("normalizeQuantityToLot", 27, 10);
+        assertEquals(20, normalized, 0, "quantity should be rounded down to lot");
+        printSuccess("testNormalizeQuantityToLot");
+    }
+
+    public static void testNormalizeQuantityToLotSingle() {
+        int normalized = (int) invokePrivateMethod("normalizeQuantityToLot", 7, 1);
+        assertEquals(7, normalized, 0, "lot size 1 should keep quantity");
+        printSuccess("testNormalizeQuantityToLotSingle");
+    }
+
+    public static void testAffordabilityBufferPositive() {
+        boolean result =
+                (boolean) invokePrivateMethod("hasAffordabilityBuffer", 12_000.0, 10_500.0);
+        assertTrue(result, "cash should leave minimal buffer");
+        printSuccess("testAffordabilityBufferPositive");
+    }
+
+    public static void testAffordabilityBufferNegative() {
+        boolean result =
+                (boolean) invokePrivateMethod("hasAffordabilityBuffer", 12_000.0, 11_999.5);
+        assertTrue(!result, "cash should fail when buffer is exhausted");
+        printSuccess("testAffordabilityBufferNegative");
+    }
+
+    public static void testCommissionAwareEntryTooExpensive() {
+        double sharedCash = 12_000.0;
+        double entryPrice = 100.05;
+        int quantity = 120;
+        double notional = quantity * entryPrice;
+        double commission = notional * 0.0005;
+        boolean affordable = notional + commission <= sharedCash;
+        assertTrue(!affordable, "entry should not fit after commission");
+        printSuccess("testCommissionAwareEntryTooExpensive");
+    }
+
+    public static void testCommissionAwareEntryFits() {
+        double sharedCash = 12_000.0;
+        double entryPrice = 100.05;
+        int quantity = 119;
+        double notional = quantity * entryPrice;
+        double commission = notional * 0.0005;
+        boolean affordable = notional + commission < sharedCash;
+        assertTrue(affordable, "entry should fit with commission");
+        printSuccess("testCommissionAwareEntryFits");
     }
 
     // =========================================================================
@@ -400,7 +466,7 @@ public class BacktestRunnerTest {
         double exitPrice = 105.0;
         double qty = 10;
         double commissionRate = 0.0005;
-        double slippage = 0.0;  // No slippage
+        double slippage = 0.0; // No slippage
 
         double entryNotional = qty * entryPrice;
         double exitNotional = qty * exitPrice;
@@ -438,7 +504,7 @@ public class BacktestRunnerTest {
     }
 
     public static void testCloseCashIncrease() {
-        double entryPrice = 100.0;  // after slippage
+        double entryPrice = 100.0; // after slippage
         double qty = 10;
         double exitPrice = 110.0;
         double commissionRate = 0.0005;
@@ -603,63 +669,363 @@ public class BacktestRunnerTest {
         System.out.println("=============================\n");
 
         // Notional value
-        try { testBasicNotional(); passed++; } catch (Exception e) { printFail("testBasicNotional", e); failed++; }
-        try { testNotionalValueZeroQty(); passed++; } catch (Exception e) { printFail("testNotionalValueZeroQty", e); failed++; }
-        try { testNotionalValueZeroPrice(); passed++; } catch (Exception e) { printFail("testNotionalValueZeroPrice", e); failed++; }
-        try { testNotionalValueNegativeQty(); passed++; } catch (Exception e) { printFail("testNotionalValueNegativeQty", e); failed++; }
-        try { testNotionalValueLarge(); passed++; } catch (Exception e) { printFail("testNotionalValueLarge", e); failed++; }
+        try {
+            testBasicNotional();
+            passed++;
+        } catch (Exception e) {
+            printFail("testBasicNotional", e);
+            failed++;
+        }
+        try {
+            testNotionalValueZeroQty();
+            passed++;
+        } catch (Exception e) {
+            printFail("testNotionalValueZeroQty", e);
+            failed++;
+        }
+        try {
+            testNotionalValueZeroPrice();
+            passed++;
+        } catch (Exception e) {
+            printFail("testNotionalValueZeroPrice", e);
+            failed++;
+        }
+        try {
+            testNotionalValueNegativeQty();
+            passed++;
+        } catch (Exception e) {
+            printFail("testNotionalValueNegativeQty", e);
+            failed++;
+        }
+        try {
+            testNotionalValueLarge();
+            passed++;
+        } catch (Exception e) {
+            printFail("testNotionalValueLarge", e);
+            failed++;
+        }
 
         // Margin calculation
-        try { testLeverage1xStock(); passed++; } catch (Exception e) { printFail("testLeverage1xStock", e); failed++; }
-        try { testLeverage2x(); passed++; } catch (Exception e) { printFail("testLeverage2x", e); failed++; }
-        try { testLeverage10x(); passed++; } catch (Exception e) { printFail("testLeverage10x", e); failed++; }
-        try { testLeverage100x(); passed++; } catch (Exception e) { printFail("testLeverage100x", e); failed++; }
-        try { testNegativeQtyReturnsZeroMargin(); passed++; } catch (Exception e) { printFail("testNegativeQtyReturnsZeroMargin", e); failed++; }
-        try { testZeroQtyReturnsZeroMargin(); passed++; } catch (Exception e) { printFail("testZeroQtyReturnsZeroMargin", e); failed++; }
-        try { testZeroPriceReturnsZeroMargin(); passed++; } catch (Exception e) { printFail("testZeroPriceReturnsZeroMargin", e); failed++; }
+        try {
+            testLeverage1xStock();
+            passed++;
+        } catch (Exception e) {
+            printFail("testLeverage1xStock", e);
+            failed++;
+        }
+        try {
+            testLeverage2x();
+            passed++;
+        } catch (Exception e) {
+            printFail("testLeverage2x", e);
+            failed++;
+        }
+        try {
+            testLeverage10x();
+            passed++;
+        } catch (Exception e) {
+            printFail("testLeverage10x", e);
+            failed++;
+        }
+        try {
+            testLeverage100x();
+            passed++;
+        } catch (Exception e) {
+            printFail("testLeverage100x", e);
+            failed++;
+        }
+        try {
+            testNegativeQtyReturnsZeroMargin();
+            passed++;
+        } catch (Exception e) {
+            printFail("testNegativeQtyReturnsZeroMargin", e);
+            failed++;
+        }
+        try {
+            testZeroQtyReturnsZeroMargin();
+            passed++;
+        } catch (Exception e) {
+            printFail("testZeroQtyReturnsZeroMargin", e);
+            failed++;
+        }
+        try {
+            testZeroPriceReturnsZeroMargin();
+            passed++;
+        } catch (Exception e) {
+            printFail("testZeroPriceReturnsZeroMargin", e);
+            failed++;
+        }
 
         // Gross PnL
-        try { testLongProfit(); passed++; } catch (Exception e) { printFail("testLongProfit", e); failed++; }
-        try { testLongLoss(); passed++; } catch (Exception e) { printFail("testLongLoss", e); failed++; }
-        try { testLongBreakEven(); passed++; } catch (Exception e) { printFail("testLongBreakEven", e); failed++; }
-        try { testShortProfit(); passed++; } catch (Exception e) { printFail("testShortProfit", e); failed++; }
-        try { testShortLoss(); passed++; } catch (Exception e) { printFail("testShortLoss", e); failed++; }
-        try { testShortBreakEven(); passed++; } catch (Exception e) { printFail("testShortBreakEven", e); failed++; }
+        try {
+            testLongProfit();
+            passed++;
+        } catch (Exception e) {
+            printFail("testLongProfit", e);
+            failed++;
+        }
+        try {
+            testLongLoss();
+            passed++;
+        } catch (Exception e) {
+            printFail("testLongLoss", e);
+            failed++;
+        }
+        try {
+            testLongBreakEven();
+            passed++;
+        } catch (Exception e) {
+            printFail("testLongBreakEven", e);
+            failed++;
+        }
+        try {
+            testShortProfit();
+            passed++;
+        } catch (Exception e) {
+            printFail("testShortProfit", e);
+            failed++;
+        }
+        try {
+            testShortLoss();
+            passed++;
+        } catch (Exception e) {
+            printFail("testShortLoss", e);
+            failed++;
+        }
+        try {
+            testShortBreakEven();
+            passed++;
+        } catch (Exception e) {
+            printFail("testShortBreakEven", e);
+            failed++;
+        }
 
         // Slippage
-        try { testLongExitSlippage(); passed++; } catch (Exception e) { printFail("testLongExitSlippage", e); failed++; }
-        try { testShortExitSlippage(); passed++; } catch (Exception e) { printFail("testShortExitSlippage", e); failed++; }
-        try { testLongEntrySlippage(); passed++; } catch (Exception e) { printFail("testLongEntrySlippage", e); failed++; }
-        try { testShortEntrySlippage(); passed++; } catch (Exception e) { printFail("testShortEntrySlippage", e); failed++; }
-        try { testSlippageSymmetry(); passed++; } catch (Exception e) { printFail("testSlippageSymmetry", e); failed++; }
-        try { testSlippageCostCalc(); passed++; } catch (Exception e) { printFail("testSlippageCostCalc", e); failed++; }
+        try {
+            testLongExitSlippage();
+            passed++;
+        } catch (Exception e) {
+            printFail("testLongExitSlippage", e);
+            failed++;
+        }
+        try {
+            testShortExitSlippage();
+            passed++;
+        } catch (Exception e) {
+            printFail("testShortExitSlippage", e);
+            failed++;
+        }
+        try {
+            testLongEntrySlippage();
+            passed++;
+        } catch (Exception e) {
+            printFail("testLongEntrySlippage", e);
+            failed++;
+        }
+        try {
+            testShortEntrySlippage();
+            passed++;
+        } catch (Exception e) {
+            printFail("testShortEntrySlippage", e);
+            failed++;
+        }
+        try {
+            testSlippageSymmetry();
+            passed++;
+        } catch (Exception e) {
+            printFail("testSlippageSymmetry", e);
+            failed++;
+        }
+        try {
+            testSlippageCostCalc();
+            passed++;
+        } catch (Exception e) {
+            printFail("testSlippageCostCalc", e);
+            failed++;
+        }
 
         // Commission
-        try { testRoundtripCommission(); passed++; } catch (Exception e) { printFail("testRoundtripCommission", e); failed++; }
-        try { testEntryCommission(); passed++; } catch (Exception e) { printFail("testEntryCommission", e); failed++; }
-        try { testExitCommission(); passed++; } catch (Exception e) { printFail("testExitCommission", e); failed++; }
-        try { testZeroNotionalZeroCommission(); passed++; } catch (Exception e) { printFail("testZeroNotionalZeroCommission", e); failed++; }
-        try { testLargePositionCommission(); passed++; } catch (Exception e) { printFail("testLargePositionCommission", e); failed++; }
+        try {
+            testRoundtripCommission();
+            passed++;
+        } catch (Exception e) {
+            printFail("testRoundtripCommission", e);
+            failed++;
+        }
+        try {
+            testEntryCommission();
+            passed++;
+        } catch (Exception e) {
+            printFail("testEntryCommission", e);
+            failed++;
+        }
+        try {
+            testExitCommission();
+            passed++;
+        } catch (Exception e) {
+            printFail("testExitCommission", e);
+            failed++;
+        }
+        try {
+            testZeroNotionalZeroCommission();
+            passed++;
+        } catch (Exception e) {
+            printFail("testZeroNotionalZeroCommission", e);
+            failed++;
+        }
+        try {
+            testLargePositionCommission();
+            passed++;
+        } catch (Exception e) {
+            printFail("testLargePositionCommission", e);
+            failed++;
+        }
+        try {
+            testNormalizeQuantityToLot();
+            passed++;
+        } catch (Exception e) {
+            printFail("testNormalizeQuantityToLot", e);
+            failed++;
+        }
+        try {
+            testNormalizeQuantityToLotSingle();
+            passed++;
+        } catch (Exception e) {
+            printFail("testNormalizeQuantityToLotSingle", e);
+            failed++;
+        }
+        try {
+            testAffordabilityBufferPositive();
+            passed++;
+        } catch (Exception e) {
+            printFail("testAffordabilityBufferPositive", e);
+            failed++;
+        }
+        try {
+            testAffordabilityBufferNegative();
+            passed++;
+        } catch (Exception e) {
+            printFail("testAffordabilityBufferNegative", e);
+            failed++;
+        }
+        try {
+            testCommissionAwareEntryTooExpensive();
+            passed++;
+        } catch (Exception e) {
+            printFail("testCommissionAwareEntryTooExpensive", e);
+            failed++;
+        }
+        try {
+            testCommissionAwareEntryFits();
+            passed++;
+        } catch (Exception e) {
+            printFail("testCommissionAwareEntryFits", e);
+            failed++;
+        }
 
         // Full trade PnL
-        try { testLongProfitableTrade(); passed++; } catch (Exception e) { printFail("testLongProfitableTrade", e); failed++; }
-        try { testLongLosingTrade(); passed++; } catch (Exception e) { printFail("testLongLosingTrade", e); failed++; }
-        try { testShortProfitableTrade(); passed++; } catch (Exception e) { printFail("testShortProfitableTrade", e); failed++; }
-        try { testShortLosingTrade(); passed++; } catch (Exception e) { printFail("testShortLosingTrade", e); failed++; }
-        try { testNoSlippagePnl(); passed++; } catch (Exception e) { printFail("testNoSlippagePnl", e); failed++; }
+        try {
+            testLongProfitableTrade();
+            passed++;
+        } catch (Exception e) {
+            printFail("testLongProfitableTrade", e);
+            failed++;
+        }
+        try {
+            testLongLosingTrade();
+            passed++;
+        } catch (Exception e) {
+            printFail("testLongLosingTrade", e);
+            failed++;
+        }
+        try {
+            testShortProfitableTrade();
+            passed++;
+        } catch (Exception e) {
+            printFail("testShortProfitableTrade", e);
+            failed++;
+        }
+        try {
+            testShortLosingTrade();
+            passed++;
+        } catch (Exception e) {
+            printFail("testShortLosingTrade", e);
+            failed++;
+        }
+        try {
+            testNoSlippagePnl();
+            passed++;
+        } catch (Exception e) {
+            printFail("testNoSlippagePnl", e);
+            failed++;
+        }
 
         // Open/Close flow
-        try { testOpenCashDecrease(); passed++; } catch (Exception e) { printFail("testOpenCashDecrease", e); failed++; }
-        try { testCloseCashIncrease(); passed++; } catch (Exception e) { printFail("testCloseCashIncrease", e); failed++; }
-        try { testCloseWithLoss(); passed++; } catch (Exception e) { printFail("testCloseWithLoss", e); failed++; }
-        try { testShortOpenCashDecrease(); passed++; } catch (Exception e) { printFail("testShortOpenCashDecrease", e); failed++; }
-        try { testShortCloseWithProfit(); passed++; } catch (Exception e) { printFail("testShortCloseWithProfit", e); failed++; }
+        try {
+            testOpenCashDecrease();
+            passed++;
+        } catch (Exception e) {
+            printFail("testOpenCashDecrease", e);
+            failed++;
+        }
+        try {
+            testCloseCashIncrease();
+            passed++;
+        } catch (Exception e) {
+            printFail("testCloseCashIncrease", e);
+            failed++;
+        }
+        try {
+            testCloseWithLoss();
+            passed++;
+        } catch (Exception e) {
+            printFail("testCloseWithLoss", e);
+            failed++;
+        }
+        try {
+            testShortOpenCashDecrease();
+            passed++;
+        } catch (Exception e) {
+            printFail("testShortOpenCashDecrease", e);
+            failed++;
+        }
+        try {
+            testShortCloseWithProfit();
+            passed++;
+        } catch (Exception e) {
+            printFail("testShortCloseWithProfit", e);
+            failed++;
+        }
 
         // Position object
-        try { testPositionDefaultLeverage(); passed++; } catch (Exception e) { printFail("testPositionDefaultLeverage", e); failed++; }
-        try { testPositionWithLeverage(); passed++; } catch (Exception e) { printFail("testPositionWithLeverage", e); failed++; }
-        try { testPositionNegativeLeverageClamped(); passed++; } catch (Exception e) { printFail("testPositionNegativeLeverageClamped", e); failed++; }
-        try { testPositionEmptyDirection(); passed++; } catch (Exception e) { printFail("testPositionEmptyDirection", e); failed++; }
+        try {
+            testPositionDefaultLeverage();
+            passed++;
+        } catch (Exception e) {
+            printFail("testPositionDefaultLeverage", e);
+            failed++;
+        }
+        try {
+            testPositionWithLeverage();
+            passed++;
+        } catch (Exception e) {
+            printFail("testPositionWithLeverage", e);
+            failed++;
+        }
+        try {
+            testPositionNegativeLeverageClamped();
+            passed++;
+        } catch (Exception e) {
+            printFail("testPositionNegativeLeverageClamped", e);
+            failed++;
+        }
+        try {
+            testPositionEmptyDirection();
+            passed++;
+        } catch (Exception e) {
+            printFail("testPositionEmptyDirection", e);
+            failed++;
+        }
 
         // Summary
         System.out.println("\n=============================");
