@@ -1,7 +1,6 @@
 plugins {
     id 'java'
     id 'application'
-    id 'com.diffplug.spotless' version '6.25.0'
 }
 
 group 'com.github.shk0da'
@@ -20,23 +19,6 @@ dependencies {
     implementation 'com.tictactec:ta-lib:0.4.0'
     implementation 'org.jfree:jfreechart:1.0.19'
     implementation 'com.fasterxml.jackson.datatype:jackson-datatype-jsr310:2.13.4'
-}
-
-spotless {
-    java {
-        target 'src/**/*.java'
-        googleJavaFormat('1.19.2').aosp()
-        removeUnusedImports()
-        trimTrailingWhitespace()
-        endWithNewline()
-        cleanthat()
-
-        // Ensure line length matches IDEA settings (120 chars)
-        targetExclude '**/generated/**'
-
-        // Enforce 4 spaces indentation (no tabs)
-        indentWithSpaces(4)
-    }
 }
 
 task uberJar(type: Jar) {
@@ -200,12 +182,12 @@ task runStrategy(type: JavaExec) {
 
 task runOrderBookStrategy(type: JavaExec) {
     group = 'strategy'
-    description = 'Run OrderBook strategy live'
+    description = 'Run OrderBook strategy live (multi-signal orchestrator)'
     main = 'com.github.shk0da.goldendragon.GoldenDragon'
     classpath = sourceSets.test.runtimeClasspath
     workingDir = rootDir
     jvmArgs '--add-opens', 'java.base/java.time=ALL-UNNAMED'
-    args 'OrderBookScalpStrategy'
+    args 'OrderBookOrchestratorStrategy'
 }
 
 task runBacktestRunnerTest(type: JavaExec) {
