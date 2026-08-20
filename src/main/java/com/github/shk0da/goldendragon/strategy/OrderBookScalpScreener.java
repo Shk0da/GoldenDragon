@@ -221,11 +221,14 @@ public final class OrderBookScalpScreener {
 
     private static ScoredTicker scoreTicker(
             TCSService tcsService, TickerInfo info, OrderBookScalpConfig config) {
+        String ticker = info.getTicker();
         Map<String, Map<Double, Integer>> book = tcsService.getCurrentPrices(info.getKey(), false);
         if (book == null || !book.containsKey("bids") || !book.containsKey("asks")) {
+            LoggingUtils.log("Screen skip " + ticker + ": no orderbook data");
             return null;
         }
         if (book.get("bids").isEmpty() || book.get("asks").isEmpty()) {
+            LoggingUtils.log("Screen skip " + ticker + ": empty bids/asks");
             return null;
         }
 
@@ -240,6 +243,7 @@ public final class OrderBookScalpScreener {
                         .min()
                         .orElse(0.0);
         if (bestAsk <= bestBid) {
+            LoggingUtils.log("Screen skip " + ticker + ": inverted spread");
             return null;
         }
 
@@ -247,12 +251,30 @@ public final class OrderBookScalpScreener {
         double mid = (bestBid + bestAsk) / 2.0;
         double spreadBps = mid > 0.0 ? spread / mid * 10_000.0 : Double.MAX_VALUE;
         if (spreadBps > config.getMaxSpreadBps()) {
+            LoggingUtils.log(
+                    "Screen skip "
+                            + ticker
+                            + ": spread "
+                            + String.format("%.1f", spreadBps)
+                            + "bps > max "
+                            + String.format("%.1f", config.getMaxSpreadBps())
+                            + "bps");
             return null;
         }
 
         int bidQty0 = book.get("bids").getOrDefault(bestBid, 0);
         int askQty0 = book.get("asks").getOrDefault(bestAsk, 0);
         if (bidQty0 < config.getMinBestLevelQty() || askQty0 < config.getMinBestLevelQty()) {
+            LoggingUtils.log(
+                    "Screen skip "
+                            + ticker
+                            + ": low level qty (bid="
+                            + bidQty0
+                            + ", ask="
+                            + askQty0
+                            + ", min="
+                            + config.getMinBestLevelQty()
+                            + ")");
             return null;
         }
 
@@ -262,11 +284,31 @@ public final class OrderBookScalpScreener {
                         + sumTopLevels(book.get("asks"), config.getScreeningBookLevels());
         if (topDepth < config.getScreeningMinTopDepth()
                 || bookDepth < config.getScreeningMinBookDepth()) {
+            LoggingUtils.log(
+                    "Screen skip "
+                            + ticker
+                            + ": low depth (top="
+                            + topDepth
+                            + "/"
+                            + config.getScreeningMinTopDepth()
+                            + ", book="
+                            + bookDepth
+                            + "/"
+                            + config.getScreeningMinBookDepth()
+                            + ")");
             return null;
         }
 
         double tradeVolume = loadRecentTradeVolume(tcsService, info.getKey());
         if (tradeVolume < config.getMinScreeningTradeFlow()) {
+            LoggingUtils.log(
+                    "Screen skip "
+                            + ticker
+                            + ": low trade flow ("
+                            + String.format("%.0f", tradeVolume)
+                            + " < "
+                            + String.format("%.0f", config.getMinScreeningTradeFlow())
+                            + ")");
             return null;
         }
 
@@ -277,6 +319,18 @@ public final class OrderBookScalpScreener {
         double economicsRatio =
                 effectiveCommission > 0.0 ? expectedTpDistance / effectiveCommission : 0.0;
         if (economicsRatio < config.getMinEconomicsRatio()) {
+            LoggingUtils.log(
+                    "Screen skip "
+                            + ticker
+                            + ": bad economics (ratio="
+                            + String.format("%.2f", economicsRatio)
+                            + " < "
+                            + String.format("%.2f", config.getMinEconomicsRatio())
+                            + ", tp="
+                            + String.format("%.4f", expectedTpDistance)
+                            + ", commission="
+                            + String.format("%.4f", effectiveCommission)
+                            + ")");
             return null;
         }
 
