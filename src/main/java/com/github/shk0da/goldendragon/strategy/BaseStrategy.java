@@ -634,6 +634,26 @@ public abstract class BaseStrategy {
             log(openingLogMessage);
         }
 
+        // Check if we have enough cash before sending order
+        double availableCash = tcsService.getAvailableCash();
+        double requiredMargin = positionValue;
+        // For futures, margin is typically 20-40% of notional
+        if (ticker.getType() == TickerType.FEATURE) {
+            requiredMargin = positionValue * 0.25; // Conservative 25% margin estimate
+        }
+        if (availableCash < requiredMargin * 1.01) { // 1% buffer for slippage
+            logOpenCandidateSkipped(name, "insufficient_cash", decision);
+            String insufficientCashMsg =
+                    "Skip OPEN "
+                            + name
+                            + ": insufficient cash. Available="
+                            + String.format("%.2f", availableCash)
+                            + ", required="
+                            + String.format("%.2f", requiredMargin);
+            logThrottled(name + "_insufficient_cash", insufficientCashMsg, 5);
+            return;
+        }
+
         try {
             throttleApiCall();
             TCSService.OrderExecutionResult orderResult;
