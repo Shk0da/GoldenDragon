@@ -3,6 +3,7 @@ package com.github.shk0da.goldendragon.strategy;
 import com.github.shk0da.goldendragon.config.OrderBookScalpConfig;
 import com.github.shk0da.goldendragon.model.MarketTradeTick;
 import com.github.shk0da.goldendragon.model.TickerInfo;
+import com.github.shk0da.goldendragon.model.TickerType;
 import com.github.shk0da.goldendragon.service.TCSService;
 import com.github.shk0da.goldendragon.utils.LoggingUtils;
 
@@ -323,9 +324,17 @@ public final class OrderBookScalpScreener {
         double expectedTpDistance = spread * config.getTakeProfitSpreads();
         double expectedTpProfitPerContract = expectedTpDistance * contractMultiplier; // PnL in RUB
         
-        double roundTripCommission = bestAsk * config.getCommissionRate() * 2.0 * contractMultiplier;
-        double futuresCommission = config.getFuturesCommissionPerContract() * 2.0;
-        double effectiveCommission = Math.max(roundTripCommission, futuresCommission);
+        // For futures (FEATURE), Tinkoff charges FIXED commission per contract (~4-7 RUB)
+        // For stocks, commission is percentage-based
+        double effectiveCommission;
+        if (info.getType() == TickerType.FEATURE) {
+            // Futures: use fixed commission only
+            effectiveCommission = config.getFuturesCommissionPerContract() * 2.0;
+        } else {
+            // Stocks: use percentage-based commission
+            effectiveCommission = bestAsk * config.getCommissionRate() * 2.0 * contractMultiplier;
+        }
+        
         double economicsRatio =
                 effectiveCommission > 0.0 ? expectedTpProfitPerContract / effectiveCommission : 0.0;
         if (economicsRatio < config.getMinEconomicsRatio()) {
@@ -342,6 +351,8 @@ public final class OrderBookScalpScreener {
                             + String.format("%.2f", effectiveCommission)
                             + " RUB, multiplier="
                             + String.format("%.0f", contractMultiplier)
+                            + ", type="
+                            + info.getType()
                             + ")");
             return null;
         }
