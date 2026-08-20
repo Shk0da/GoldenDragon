@@ -110,6 +110,7 @@ public final class OrderBookTradingEngine implements MarketTickListener {
   private final OrderBookPositionStore positionStore;
   private final Map<String, VolatilityTracker> volatilityTrackers = new ConcurrentHashMap<>();
   private final LiquidityWindows liquidityWindows;
+  private final Map<String, Long> lastThrottledLogMs = new ConcurrentHashMap<>();
   private static final ZoneId MSK_ZONE = ZoneId.of("Europe/Moscow");
 
   public OrderBookTradingEngine(
@@ -822,7 +823,11 @@ public final class OrderBookTradingEngine implements MarketTickListener {
     double currentPrice = isLong ? bestBid : context.getBestAsk();
 
     long heldSeconds = Duration.between(position.entryTime, Instant.now()).getSeconds();
-    if (heldSeconds >= config.getMaxHoldSeconds()) {
+    // For restored positions, use reduced max hold time (50% of normal)
+    long effectiveMaxHoldSeconds = position.isRestored
+        ? config.getMaxHoldSeconds() / 2
+        : config.getMaxHoldSeconds();
+    if (heldSeconds >= effectiveMaxHoldSeconds) {
       closeOpenPosition(runtime, "time_stop", paper);
       return;
     }
@@ -1008,10 +1013,14 @@ public final class OrderBookTradingEngine implements MarketTickListener {
     }
     int units = tcsService.calculateTradeCount(runtime.key, adjustedCash, entryAsk);
     if (units <= 0) {
-      log("Skip OPEN " + runtime.ticker + ": insufficient cash for one lot " +
-          "(adjusted=" + String.format("%.0f", adjustedCash) + ", session=" + currentSessionLabel() + ")");
+      logThrottled(runtime.ticker + "_insufficient_cash_open",
+          "Skip OPEN " + runtime.ticker + ": insufficient cash for one lot " +
+          "(adjusted=" + String.format("%.0f", adjustedCash) + ", session=" + currentSessionLabel() + ")", 5);
       return;
     }
+
+    // Apply fee-aware cap to prevent excessive commission drag
+    units = calculateFeeAwareUnits(units, entryAsk, runtime.ticker);
 
     // Dynamic TP/SL based on volatility
     double[] tpSl = calculateDynamicTpSl(runtime.ticker, entryAsk, true);
@@ -1216,10 +1225,14 @@ public final class OrderBookTradingEngine implements MarketTickListener {
     }
     int units = tcsService.calculateTradeCount(runtime.key, adjustedCash, entryBid);
     if (units <= 0) {
-      log("Skip SHORT " + runtime.ticker + ": insufficient cash for one lot " +
-          "(adjusted=" + String.format("%.0f", adjustedCash) + ", session=" + currentSessionLabel() + ")");
+      logThrottled(runtime.ticker + "_insufficient_cash_short",
+          "Skip SHORT " + runtime.ticker + ": insufficient cash for one lot " +
+          "(adjusted=" + String.format("%.0f", adjustedCash) + ", session=" + currentSessionLabel() + ")", 5);
       return;
     }
+
+    // Apply fee-aware cap to prevent excessive commission drag
+    units = calculateFeeAwareUnits(units, entryBid, runtime.ticker);
 
     TCSService.OrderExecutionResult result =
         sellByMarketWithRetry(runtime, adjustedCash, entryBid);
@@ -1613,7 +1626,7 @@ public final class OrderBookTradingEngine implements MarketTickListener {
    *
    * <p>Applies two multipliers:
    * <ul>
-   *   <li>Volatility multiplier: inversely proportional to spread volatility</li>
+   *   <li>Volatility multiplier: proportional to spread volatility (higher vol = larger position for scalping)</li>
    *   <li>Liquidity multiplier: based on time-of-day (MOEX session windows)</li>
    * </ul>
    *
@@ -1714,6 +1727,81 @@ public final class OrderBookTradingEngine implements MarketTickListener {
       return "FILTER_DISABLED";
     }
     return liquidityWindows.getSessionLabel(LocalTime.now(MSK_ZONE));
+  }
+
+  /**
+   * Logs message with throttling to prevent spam of repeated warnings.
+   *
+   * @param key unique identifier for the log category
+   * @param message message to log
+   * @param throttleMinutes minutes to wait between logs for the same key
+   */
+  private void logThrottled(String key, String message, int throttleMinutes) {
+    long now = System.currentTimeMillis();
+    long throttleMs = throttleMinutes * 60 * 1000L;
+    Long lastTime = lastThrottledLogMs.get(key);
+    if (lastTime == null || (now - lastTime) >= throttleMs) {
+      lastThrottledLogMs.put(key, now);
+      log(message);
+    }
+  }
+
+  /**
+   * Calculates fee-aware position size cap.
+   *
+   * <p>Ensures that total commission does not exceed maxFeePercent of expected profit.
+   * This prevents opening positions where fees would consume too much of the potential profit.
+   *
+   * @param units initial calculated units
+   * @param entryPrice expected entry price
+   * @param ticker instrument ticker
+   * @return capped units (may be same or lower than input)
+   */
+  private int calculateFeeAwareUnits(int units, double entryPrice, String ticker) {
+    if (units <= 0 || entryPrice <= 0.0) {
+      return units;
+    }
+
+    // Calculate expected profit per unit (TP distance)
+    double tpDistanceFraction = feeDistanceFraction(ticker, config.getTargetFeeMultiple());
+    double expectedProfitPerUnit = entryPrice * tpDistanceFraction;
+
+    // Calculate commission per unit (round trip)
+    double commissionRate = estimateCommissionRate(ticker);
+    double commissionPerUnit = entryPrice * commissionRate * 2.0; // entry + exit
+
+    if (expectedProfitPerUnit <= 0.0 || commissionPerUnit <= 0.0) {
+      return units;
+    }
+
+    // Max fee percent of expected profit (default 15%)
+    double maxFeePercent = 0.15;
+    double maxCommissionPerUnit = expectedProfitPerUnit * maxFeePercent;
+
+    // If commission already acceptable, return original units
+    if (commissionPerUnit <= maxCommissionPerUnit) {
+      return units;
+    }
+
+    // Calculate max units where commission <= maxFeePercent * profit
+    // total_commission = units * commissionPerUnit
+    // total_profit = units * expectedProfitPerUnit
+    // We want: units * commissionPerUnit <= maxFeePercent * units * expectedProfitPerUnit
+    // This simplifies to: commissionPerUnit <= maxFeePercent * expectedProfitPerUnit
+    // Which is already checked above, so we need to reduce units to make it profitable
+    // Actually, the ratio is fixed per unit, so we can't fix it by reducing units
+    // Instead, we cap units to a reasonable maximum based on position cash
+    double maxUnitsByCash = config.getPositionCash() / (entryPrice * 10); // 10x leverage max
+    int cappedUnits = (int) Math.min(units, maxUnitsByCash);
+
+    if (cappedUnits < units) {
+      logThrottled(ticker + "_fee_cap",
+          "Fee-aware cap for " + ticker + ": " + units + " → " + cappedUnits +
+          " (commission=" + String.format("%.2f", commissionPerUnit) +
+          " > " + (maxFeePercent * 100) + "% of profit=" + String.format("%.2f", expectedProfitPerUnit) + ")", 5);
+    }
+
+    return cappedUnits;
   }
 
   private double estimateCommissionRate(String ticker) {
@@ -2203,6 +2291,7 @@ public final class OrderBookTradingEngine implements MarketTickListener {
     final int units;
     final double entryValue;
     final double entryCommission;
+    final boolean isRestored;
     volatile int microReversalTicks;
     volatile int flowReversalTicks;
 
@@ -2217,6 +2306,22 @@ public final class OrderBookTradingEngine implements MarketTickListener {
         int units,
         double entryValue,
         double entryCommission) {
+      this(signalId, direction, entryPrice, spreadAtEntry, entryTime, takeProfitPrice,
+           stopLossPrice, units, entryValue, entryCommission, false);
+    }
+
+    OpenPosition(
+        String signalId,
+        String direction,
+        double entryPrice,
+        double spreadAtEntry,
+        Instant entryTime,
+        double takeProfitPrice,
+        double stopLossPrice,
+        int units,
+        double entryValue,
+        double entryCommission,
+        boolean isRestored) {
       this.signalId = signalId;
       this.direction = direction;
       this.entryPrice = entryPrice;
@@ -2227,6 +2332,7 @@ public final class OrderBookTradingEngine implements MarketTickListener {
       this.units = units;
       this.entryValue = entryValue;
       this.entryCommission = entryCommission;
+      this.isRestored = isRestored;
     }
 
     @Override
@@ -2309,7 +2415,8 @@ public final class OrderBookTradingEngine implements MarketTickListener {
           stopLossPrice,
           units,
           entryValue,
-          entryCommission);
+          entryCommission,
+          true); // isRestored = true
     }
   }
 

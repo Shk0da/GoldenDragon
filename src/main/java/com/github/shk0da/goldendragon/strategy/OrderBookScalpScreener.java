@@ -263,6 +263,23 @@ public final class OrderBookScalpScreener {
             return null;
         }
 
+        // Check lot affordability — skip if minimum lot cost exceeds position cash
+        int lotSize = info.getLot() != null ? Math.max(1, info.getLot()) : 1;
+        double minLotCost = bestAsk * lotSize;
+        if (minLotCost > config.getPositionCash()) {
+            LoggingUtils.log(
+                    "Screen skip "
+                            + ticker
+                            + ": lot too expensive (lot="
+                            + lotSize
+                            + ", cost="
+                            + String.format("%.0f", minLotCost)
+                            + " > cash="
+                            + String.format("%.0f", config.getPositionCash())
+                            + ")");
+            return null;
+        }
+
         int bidQty0 = book.get("bids").getOrDefault(bestBid, 0);
         int askQty0 = book.get("asks").getOrDefault(bestAsk, 0);
         if (bidQty0 < config.getMinBestLevelQty() || askQty0 < config.getMinBestLevelQty()) {

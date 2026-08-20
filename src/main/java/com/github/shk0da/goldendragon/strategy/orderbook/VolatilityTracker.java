@@ -126,20 +126,21 @@ public final class VolatilityTracker {
     /**
      * Volatility ratio: current volatility vs target.
      *
-     * <p>Used for position sizing:
+     * <p>Used for position sizing in scalping:
      * <ul>
-     *   <p>< 1.0: low volatility → can increase position</li>
-     *   <p>> 1.0: high volatility → should decrease position</li>
+     *   <p>> 1.0: high volatility → more profit potential → can increase position</li>
+     *   <p>< 1.0: low volatility → less movement → should decrease position</li>
      * </ul>
      *
      * @param targetSpreadBps target spread in basis points
      */
     public double getVolatilityRatio(double targetSpreadBps, double currentMidPrice) {
         double currentSpreadBps = getAverageSpreadBps(currentMidPrice);
-        if (currentSpreadBps <= 0.0) {
+        if (currentSpreadBps <= 0.0 || targetSpreadBps <= 0.0) {
             return 1.0;
         }
-        return targetSpreadBps / currentSpreadBps;
+        // For scalping: higher volatility = more profit potential = larger position
+        return currentSpreadBps / targetSpreadBps;
     }
 
     /** Number of samples in the window. */
