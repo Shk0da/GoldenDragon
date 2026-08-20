@@ -123,6 +123,7 @@ public class TCSService {
     private volatile Map<TickerInfo.Key, TickerInfo> cachedStockList;
     private volatile Instant cachedStockListAt;
     private volatile boolean sandboxQualificationLogged;
+    private final Map<String, Long> throttledLogLastTime = new ConcurrentHashMap<>();
 
     /**
      * Creates a new {@code TCSService} initialized with the given configurations.
@@ -145,6 +146,24 @@ public class TCSService {
         figiRepository.insert(new TickerInfo.Key("RUB", TickerType.CURRENCY), "RUB000UTSTOM");
         figiRepository.insert(new TickerInfo.Key("USD", TickerType.CURRENCY), "BBG0013HGFT4");
         figiRepository.insert(new TickerInfo.Key("EUR", TickerType.CURRENCY), "BBG0013HJJ31");
+    }
+
+    /**
+     * Logs message with throttling to prevent spam of repeated warnings.
+     * Only logs if more than {@code throttleMinutes} have passed since the last log for this key.
+     *
+     * @param key unique identifier for the log category (e.g., "TMON@_empty_orderbook")
+     * @param message message to log
+     * @param throttleMinutes minutes to wait between logs for the same key
+     */
+    private void logThrottled(String key, String message, long throttleMinutes) {
+        long now = System.currentTimeMillis();
+        long throttleMs = throttleMinutes * 60 * 1000L;
+        Long lastTime = throttledLogLastTime.get(key);
+        if (lastTime == null || (now - lastTime) >= throttleMs) {
+            throttledLogLastTime.put(key, now);
+            log(message);
+        }
     }
 
     /**
@@ -1139,7 +1158,8 @@ public class TCSService {
         }
 
         if (0.0 == tickerPrice) {
-            log(
+            logThrottled(
+                    name + "_empty_orderbook",
                     "Warn: purchase will be skipped - "
                             + name
                             + " due to empty asks in order book"
@@ -1149,7 +1169,8 @@ public class TCSService {
                             + currentPrices.get("bids").size()
                             + ", cashToBuy="
                             + cashToBuy
-                            + "]");
+                            + "]",
+                    5);
             return OrderExecutionResult.failed();
         }
 
