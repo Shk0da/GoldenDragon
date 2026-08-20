@@ -67,6 +67,7 @@ public class TickerInfo {
     private String basicAsset;
     private String assetType;
     private Instant expirationDate;
+    private Double basicAssetSize;
 
     public TickerInfo() {}
 
@@ -167,6 +168,14 @@ public class TickerInfo {
 
     public void setExpirationDate(Instant expirationDate) {
         this.expirationDate = expirationDate;
+    }
+
+    public Double getBasicAssetSize() {
+        return basicAssetSize;
+    }
+
+    public void setBasicAssetSize(Double basicAssetSize) {
+        this.basicAssetSize = basicAssetSize;
     }
 
     @JsonIgnore

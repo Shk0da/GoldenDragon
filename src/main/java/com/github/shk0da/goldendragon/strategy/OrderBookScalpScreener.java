@@ -312,16 +312,22 @@ public final class OrderBookScalpScreener {
             return null;
         }
 
-        // Calculate economics in RUB (accounting for lot size)
+        // Calculate economics in RUB (accounting for contract size)
         int lot = Math.max(1, info.getLot() != null ? info.getLot() : 1);
+        // For futures, use basicAssetSize to get real contract value
+        // e.g., CNYRUBF: price=12.5, basicAssetSize=1000, contract_value=12500 RUB
+        double contractMultiplier = lot;
+        if (info.getBasicAssetSize() != null && info.getBasicAssetSize() > 0) {
+            contractMultiplier = info.getBasicAssetSize();
+        }
         double expectedTpDistance = spread * config.getTakeProfitSpreads();
-        double expectedTpProfitPerLot = expectedTpDistance * lot; // PnL in RUB per lot
+        double expectedTpProfitPerContract = expectedTpDistance * contractMultiplier; // PnL in RUB
         
-        double roundTripCommission = bestAsk * config.getCommissionRate() * 2.0 * lot;
+        double roundTripCommission = bestAsk * config.getCommissionRate() * 2.0 * contractMultiplier;
         double futuresCommission = config.getFuturesCommissionPerContract() * 2.0;
         double effectiveCommission = Math.max(roundTripCommission, futuresCommission);
         double economicsRatio =
-                effectiveCommission > 0.0 ? expectedTpProfitPerLot / effectiveCommission : 0.0;
+                effectiveCommission > 0.0 ? expectedTpProfitPerContract / effectiveCommission : 0.0;
         if (economicsRatio < config.getMinEconomicsRatio()) {
             LoggingUtils.log(
                     "Screen skip "
@@ -331,11 +337,11 @@ public final class OrderBookScalpScreener {
                             + " < "
                             + String.format("%.2f", config.getMinEconomicsRatio())
                             + ", tpProfit="
-                            + String.format("%.2f", expectedTpProfitPerLot)
+                            + String.format("%.2f", expectedTpProfitPerContract)
                             + " RUB, commission="
                             + String.format("%.2f", effectiveCommission)
-                            + " RUB, lot="
-                            + lot
+                            + " RUB, multiplier="
+                            + String.format("%.0f", contractMultiplier)
                             + ")");
             return null;
         }

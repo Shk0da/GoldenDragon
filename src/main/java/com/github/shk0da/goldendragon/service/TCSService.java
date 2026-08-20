@@ -2261,6 +2261,7 @@ public class TCSService {
         info.setNormalTradingStatus(isNormalTradingStatus(future.getTradingStatus()));
         info.setBasicAsset(future.getBasicAsset());
         info.setAssetType(future.getAssetType());
+        info.setBasicAssetSize(toDouble(future.getBasicAssetSize()));
         if (future.hasExpirationDate()) {
             info.setExpirationDate(
                     Instant.ofEpochSecond(
