@@ -252,6 +252,7 @@ public abstract class BaseStrategy {
     protected final Map<String, Position> positionStore = new ConcurrentHashMap<>();
     protected final Map<String, String> lastSeenHourBarByTicker = new ConcurrentHashMap<>();
     protected volatile Map<String, List<Candle>> peerCandles = new ConcurrentHashMap<>();
+    protected final Map<String, Long> throttledLogLastTime = new ConcurrentHashMap<>();
 
     protected static final int MAX_CONCURRENT_POSITIONS = 8; // Максимум 8 одновременных позиций
 
@@ -609,7 +610,7 @@ public abstract class BaseStrategy {
             tpPercent = abs(tpPrice - entryPrice) / entryPrice * 100;
         }
 
-        log(
+        String openingLogMessage =
                 "Opening "
                         + decision.updatedPosition.direction
                         + " for "
@@ -625,7 +626,13 @@ public abstract class BaseStrategy {
                         + "%"
                         + ", TP="
                         + String.format("%.2f", tpPercent)
-                        + "%");
+                        + "%";
+
+        if ("TMON@".equals(name)) {
+            logThrottled(name + "_opening", openingLogMessage, 5);
+        } else {
+            log(openingLogMessage);
+        }
 
         try {
             throttleApiCall();
@@ -642,7 +649,13 @@ public abstract class BaseStrategy {
 
             if (!orderResult.isSuccess()) {
                 logOpenCandidateSkipped(name, "order_execution_failed", decision);
-                log("Failed to open " + decision.updatedPosition.direction + " for " + name + ".");
+                String failedLogMessage =
+                        "Failed to open " + decision.updatedPosition.direction + " for " + name + ".";
+                if ("TMON@".equals(name)) {
+                    logThrottled(name + "_failed_open", failedLogMessage, 5);
+                } else {
+                    log(failedLogMessage);
+                }
                 return;
             }
 
@@ -723,7 +736,7 @@ public abstract class BaseStrategy {
         int quantity = decision != null ? decision.quantity : 0;
         Double entryPrice = decision != null ? decision.entryPrice : null;
         String signal = decision != null ? decision.reason : null;
-        log(
+        String message =
                 "OPEN candidate skipped for "
                         + name
                         + ": reason="
@@ -735,7 +748,12 @@ public abstract class BaseStrategy {
                         + ", qty="
                         + quantity
                         + ", entry="
-                        + (entryPrice != null ? entryPrice : 0.0));
+                        + (entryPrice != null ? entryPrice : 0.0);
+        if ("TMON@".equals(name)) {
+            logThrottled(name + "_skipped_" + reason, message, 5);
+        } else {
+            log(message);
+        }
     }
 
     protected void closePosition(
@@ -1485,6 +1503,38 @@ public abstract class BaseStrategy {
             return;
         }
         LoggingUtils.log(message);
+    }
+
+    /**
+     * Logs message with throttling to prevent spam of repeated warnings.
+     * Only logs if more than {@code throttleMinutes} have passed since the last log for this key.
+     *
+     * @param key unique identifier for the log category (e.g., "TMON@_empty_orderbook")
+     * @param message message to log
+     * @param throttleMinutes minutes to wait between logs for the same key
+     */
+    protected void logThrottled(String key, String message, long throttleMinutes) {
+        long now = System.currentTimeMillis();
+        long throttleMs = throttleMinutes * 60 * 1000L;
+        Long lastTime = throttledLogLastTime.get(key);
+        if (lastTime == null || (now - lastTime) >= throttleMs) {
+            throttledLogLastTime.put(key, now);
+            log(message);
+        }
+    }
+
+    /**
+     * Logs message with throttling, respecting backtest mode (silent during backtest).
+     *
+     * @param key unique identifier for the log category
+     * @param message message to log
+     * @param throttleMinutes minutes to wait between logs for the same key
+     */
+    protected void logThrottledWithBacktest(String key, String message, long throttleMinutes) {
+        if (isBacktest) {
+            return;
+        }
+        logThrottled(key, message, throttleMinutes);
     }
 
     protected static void shutdownExecutor(ExecutorService executor) {
