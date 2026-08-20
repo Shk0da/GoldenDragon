@@ -1968,6 +1968,14 @@ public class TCSService {
         // Safety margin (0.1%) for market order slippage to avoid INSUFFICIENT_FUNDS (error 30049)
         double effectivePrice = price * 1.001;
         double tradeUnitCost = effectivePrice * lot;
+        
+        // For futures (FEATURE), use margin requirement instead of full notional
+        // MOEX futures typically require 20-25% margin
+        if (tickerInfo.getType() == TickerType.FEATURE) {
+            double futuresMarginRate = 0.25; // Conservative 25% margin
+            tradeUnitCost = effectivePrice * lot * futuresMarginRate;
+        }
+        
         if (availableCash < tradeUnitCost) {
             return 0;
         }

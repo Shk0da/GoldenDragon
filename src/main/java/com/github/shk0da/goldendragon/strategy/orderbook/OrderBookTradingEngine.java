@@ -416,6 +416,11 @@ public final class OrderBookTradingEngine implements MarketTickListener {
         continue;
       }
       runtime.openPosition = state.toOpenPosition();
+      
+      // Apply tighter stop loss for restored positions
+      // Restored positions may be stale, so we tighten the stop loss to reduce risk
+      applyTighterStopLossForRestoredPosition(runtime);
+      
       log(
           "Restored tracked position "
               + runtime.ticker
@@ -424,7 +429,9 @@ public final class OrderBookTradingEngine implements MarketTickListener {
               + " entry="
               + state.entryPrice
               + " units="
-              + state.units);
+              + state.units
+              + " sl="
+              + runtime.openPosition.stopLossPrice);
       emitDiagnostic(
           OrderBookDiagnosticEventType.POSITION_RESTORED,
           runtime.ticker,
@@ -702,7 +709,8 @@ public final class OrderBookTradingEngine implements MarketTickListener {
       return;
     }
 
-    if (Math.abs(context.getTradeDelta()) < config.getMinTradeFlow() * MIN_ENTRY_FLOW_MULTIPLIER) {
+    double adjustedMinFlow = getTimeAdjustedMinTradeFlow();
+    if (Math.abs(context.getTradeDelta()) < adjustedMinFlow * MIN_ENTRY_FLOW_MULTIPLIER) {
       emitSkipDiagnostic(
           runtime.ticker,
           "trade_flow_too_weak",
@@ -710,7 +718,7 @@ public final class OrderBookTradingEngine implements MarketTickListener {
               "flow",
               context.getTradeDelta(),
               "requiredFlow",
-              config.getMinTradeFlow() * MIN_ENTRY_FLOW_MULTIPLIER,
+              adjustedMinFlow * MIN_ENTRY_FLOW_MULTIPLIER,
               "obi",
               context.getObi(),
               "microEdge",
@@ -728,15 +736,23 @@ public final class OrderBookTradingEngine implements MarketTickListener {
       return;
     }
 
+    // Capital-aware check: skip signal generation if insufficient capital
+    if (!hasSufficientCapital(runtime.ticker, bestAsk)) {
+      return;
+    }
+
     boolean inRecovery = System.currentTimeMillis() < marketDataRecoveryUntilMs;
     double longQuality = calculateEntryQuality(context, inRecovery, false);
-    if (longQuality < ENTRY_QUALITY_THRESHOLD) {
+    double dynamicThreshold = calculateDynamicQualityThreshold(runtime.ticker, context.getSpreadBps());
+    if (longQuality < dynamicThreshold) {
       emitSkipDiagnostic(
           runtime.ticker,
           "entry_quality_below_threshold",
           Map.of(
               "quality",
               longQuality,
+              "threshold",
+              dynamicThreshold,
               "obi",
               context.getObi(),
               "microEdge",
@@ -769,13 +785,15 @@ public final class OrderBookTradingEngine implements MarketTickListener {
 
     if (config.isShortsEnabled() && runtime.openPosition == null) {
       double shortQuality = calculateEntryQuality(context, inRecovery, true);
-      if (shortQuality < ENTRY_QUALITY_THRESHOLD) {
+      if (shortQuality < dynamicThreshold) {
         emitSkipDiagnostic(
             runtime.ticker,
             "short_entry_quality_below_threshold",
             Map.of(
                 "quality",
                 shortQuality,
+                "threshold",
+                dynamicThreshold,
                 "obi",
                 context.getObi(),
                 "microEdge",
@@ -1743,6 +1761,174 @@ public final class OrderBookTradingEngine implements MarketTickListener {
     if (lastTime == null || (now - lastTime) >= throttleMs) {
       lastThrottledLogMs.put(key, now);
       log(message);
+    }
+  }
+
+  /**
+   * Applies tighter stop loss for restored positions.
+   *
+   * <p>Restored positions from previous sessions may be stale or in unfavorable conditions.
+   * This method tightens the stop loss by 50% to reduce risk and exit faster if the position
+   * moves against us.
+   *
+   * @param runtime ticker runtime with restored position
+   */
+  private void applyTighterStopLossForRestoredPosition(TickerRuntime runtime) {
+    if (runtime.openPosition == null) {
+      return;
+    }
+    
+    OpenPosition pos = runtime.openPosition;
+    double entryPrice = pos.entryPrice;
+    double currentSl = pos.stopLossPrice;
+    
+    // Calculate original SL distance
+    double slDistance = Math.abs(entryPrice - currentSl);
+    
+    // Apply 50% tighter stop loss
+    double tighterSlDistance = slDistance * 0.5;
+    
+    // Calculate new SL price based on direction
+    double newSlPrice;
+    if ("LONG".equals(pos.direction)) {
+      newSlPrice = entryPrice - tighterSlDistance;
+    } else { // SHORT
+      newSlPrice = entryPrice + tighterSlDistance;
+    }
+    
+    // Update stop loss
+    pos.stopLossPrice = newSlPrice;
+    
+    log("Tightened SL for restored " + runtime.ticker + ": " + 
+        String.format("%.2f", currentSl) + " → " + String.format("%.2f", newSlPrice));
+  }
+
+  /**
+   * Returns time-adjusted minimum trade flow threshold.
+   *
+   * <p>During low liquidity periods (lunch break, evening session), increases the threshold
+   * to reduce false entries and improve signal quality.
+   *
+   * <ul>
+   *   <li>Lunch break (14:00-15:00 MSK): +50% threshold</li>
+   *   <li>Evening session (18:45-23:50 MSK): +25% threshold</li>
+   *   <li>Normal hours: base threshold</li>
+   * </ul>
+   *
+   * @return adjusted minimum trade flow
+   */
+  private double getTimeAdjustedMinTradeFlow() {
+    double baseFlow = config.getMinTradeFlow();
+    LocalTime now = LocalTime.now(MSK_ZONE);
+    
+    // Lunch break: 14:00-15:00 MSK (low liquidity)
+    if (now.isAfter(LocalTime.of(14, 0)) && now.isBefore(LocalTime.of(15, 0))) {
+      return baseFlow * 1.5;
+    }
+    
+    // Evening session: 18:45-23:50 MSK (reduced liquidity)
+    if (now.isAfter(LocalTime.of(18, 45)) && now.isBefore(LocalTime.of(23, 50))) {
+      return baseFlow * 1.25;
+    }
+    
+    return baseFlow;
+  }
+
+  /**
+   * Calculates dynamic quality threshold based on volatility.
+   *
+   * <p>Higher volatility → lower threshold (more entries, more profit potential)
+   * Lower volatility → higher threshold (fewer entries, less profit potential)
+   *
+   * @param ticker instrument ticker
+   * @param currentSpreadBps current spread in basis points
+   * @return dynamic quality threshold
+   */
+  private double calculateDynamicQualityThreshold(String ticker, double currentSpreadBps) {
+    double baseThreshold = ENTRY_QUALITY_THRESHOLD;
+    
+    // Use current spread as volatility proxy
+    // Higher spread → higher volatility → lower threshold
+    double targetSpreadBps = config.getVolatilityTargetSpreadBps();
+    double volRatio = currentSpreadBps / targetSpreadBps;
+    
+    // Adjust threshold based on volatility
+    // High vol (volRatio > 1.0) → lower threshold (down to 0.35)
+    // Low vol (volRatio < 1.0) → higher threshold (up to 0.50)
+    double minThreshold = 0.35;
+    double maxThreshold = 0.50;
+    
+    // Inverse relationship: higher vol → lower threshold
+    double adjustedThreshold = baseThreshold / Math.max(0.7, Math.min(1.3, volRatio));
+    
+    // Clamp to bounds
+    return Math.max(minThreshold, Math.min(maxThreshold, adjustedThreshold));
+  }
+
+  /**
+   * Checks if there is sufficient capital to open a new position.
+   *
+   * <p>For futures, uses margin requirement (25% of notional) instead of full notional.
+   * This prevents futile signal generation when capital is insufficient.
+   *
+   * @param ticker instrument ticker
+   * @param price current market price
+   * @return true if sufficient capital is available, false otherwise
+   */
+  private boolean hasSufficientCapital(String ticker, double price) {
+    if (price <= 0.0) {
+      return false;
+    }
+
+    try {
+      double availableCash = tcsService.getAvailableCash();
+      
+      // Calculate reserved capital for open positions
+      double reservedCapital = 0.0;
+      for (TickerRuntime runtime : runtimesByTicker.values()) {
+        if (runtime.openPosition != null) {
+          OpenPosition pos = runtime.openPosition;
+          double notional = pos.units * pos.entryPrice;
+          // For futures, only margin is reserved
+          if (runtime.tickerInfo != null && runtime.tickerInfo.getType() == TickerType.FEATURE) {
+            reservedCapital += notional * 0.25;
+          } else {
+            reservedCapital += notional;
+          }
+        }
+      }
+
+      double effectiveAvailableCash = availableCash - reservedCapital;
+      
+      // Calculate minimum capital required for one lot
+      TickerInfo.Key key = runtimesByTicker.get(ticker) != null 
+          ? runtimesByTicker.get(ticker).key 
+          : new TickerInfo.Key(ticker, TickerType.FEATURE);
+      
+      TickerInfo tickerInfo = tcsService.searchTicker(key);
+      int lot = tickerInfo.getLot() != null ? Math.max(1, tickerInfo.getLot()) : 1;
+      double minLotCost = price * lot;
+      
+      // For futures, use margin requirement
+      if (tickerInfo.getType() == TickerType.FEATURE) {
+        minLotCost *= 0.25;
+      }
+
+      // Need at least enough for one lot plus some buffer
+      double requiredCapital = minLotCost * 1.1; // 10% buffer
+
+      if (effectiveAvailableCash < requiredCapital) {
+        logThrottled(ticker + "_insufficient_capital",
+            "Skip " + ticker + ": insufficient capital (available=" + 
+            String.format("%.0f", effectiveAvailableCash) + 
+            ", required=" + String.format("%.0f", requiredCapital) + ")", 5);
+        return false;
+      }
+
+      return true;
+    } catch (Exception e) {
+      // If we can't get cash info, allow trading to proceed
+      return true;
     }
   }
 
