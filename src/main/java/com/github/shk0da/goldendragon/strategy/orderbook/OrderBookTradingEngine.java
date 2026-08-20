@@ -57,7 +57,7 @@ public final class OrderBookTradingEngine implements MarketTickListener {
 
   private static final long RECOVERY_STABILIZATION_MS = 15_000L;
 
-  private static final double ENTRY_QUALITY_THRESHOLD = 0.47;
+  private static final double ENTRY_QUALITY_THRESHOLD = 0.42;
 
   private static final double ENTRY_QUALITY_OBI_WEIGHT = 0.15;
 
@@ -988,7 +988,8 @@ public final class OrderBookTradingEngine implements MarketTickListener {
       return;
     }
 
-    int units = tcsService.calculateTradeCount(runtime.key, config.getPositionCash(), entryAsk);
+    double effectiveCash = effectivePositionCash();
+    int units = tcsService.calculateTradeCount(runtime.key, effectiveCash, entryAsk);
     if (units <= 0) {
       log("Skip OPEN " + runtime.ticker + ": insufficient cash for one lot");
       return;
@@ -1182,14 +1183,15 @@ public final class OrderBookTradingEngine implements MarketTickListener {
       return;
     }
 
-    int units = tcsService.calculateTradeCount(runtime.key, config.getPositionCash(), entryBid);
+    double effectiveCash = effectivePositionCash();
+    int units = tcsService.calculateTradeCount(runtime.key, effectiveCash, entryBid);
     if (units <= 0) {
       log("Skip SHORT " + runtime.ticker + ": insufficient cash for one lot");
       return;
     }
 
     TCSService.OrderExecutionResult result =
-        sellByMarketWithRetry(runtime, config.getPositionCash(), entryBid);
+        sellByMarketWithRetry(runtime, effectiveCash, entryBid);
 
     BracketPrices bracket = buildBracketPricesShort(runtime.ticker, entryBid, entryAsk);
 
@@ -1562,6 +1564,11 @@ public final class OrderBookTradingEngine implements MarketTickListener {
 
   private static double toBps(double fraction) {
     return fraction * 10_000.0;
+  }
+
+  /** Returns position cash minus commission reserve so the order never exceeds available funds. */
+  private double effectivePositionCash() {
+    return config.getPositionCash() / (1.0 + config.getCommissionRate());
   }
 
   private double estimateCommissionRate(String ticker) {

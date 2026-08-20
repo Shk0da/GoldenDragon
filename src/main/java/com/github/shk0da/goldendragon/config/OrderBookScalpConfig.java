@@ -71,7 +71,7 @@ public class OrderBookScalpConfig {
     }
 
     this.instruments =
-        stream(properties.getProperty("orderBookScalp.instruments", "ALL").split(","))
+        stream(properties.getProperty("orderBookScalp.instruments", "IMOEXF,CNYRUBF").split(","))
             .map(String::trim)
             .filter(s -> !s.isEmpty())
             .collect(toList());
@@ -102,7 +102,7 @@ public class OrderBookScalpConfig {
     this.tradeFlowWindowSeconds =
         Integer.parseInt(properties.getProperty("orderBookScalp.tradeFlowWindowSeconds", "5"));
     this.screeningTopN =
-        Integer.parseInt(properties.getProperty("orderBookScalp.screeningTopN", "30"));
+        Integer.parseInt(properties.getProperty("orderBookScalp.screeningTopN", "10"));
     this.rescreenMinutes =
         Integer.parseInt(properties.getProperty("orderBookScalp.rescreenMinutes", "60"));
     this.idleRescreenSeconds =
@@ -122,7 +122,7 @@ public class OrderBookScalpConfig {
     this.entryGraceSeconds =
         Integer.parseInt(properties.getProperty("orderBookScalp.entryGraceSeconds", "10"));
     this.minTradeFlow =
-        Double.parseDouble(properties.getProperty("orderBookScalp.minTradeFlow", "5"));
+        Double.parseDouble(properties.getProperty("orderBookScalp.minTradeFlow", "2.5"));
     this.screeningMinTopDepth =
         Integer.parseInt(properties.getProperty("orderBookScalp.screeningMinTopDepth", "40"));
     this.screeningMinBookDepth =
