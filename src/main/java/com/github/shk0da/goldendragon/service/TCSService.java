@@ -3,7 +3,6 @@ package com.github.shk0da.goldendragon.service;
 import static com.github.shk0da.goldendragon.dictionary.CurrenciesDictionary.getTickerName;
 import static com.github.shk0da.goldendragon.service.TelegramNotifyService.telegramNotifyService;
 import static com.github.shk0da.goldendragon.utils.LoggingUtils.log;
-import static com.github.shk0da.goldendragon.utils.LoggingUtils.logError;
 import static com.github.shk0da.goldendragon.utils.PrintUtils.printGlassOfPrices;
 import static com.github.shk0da.goldendragon.utils.TimeUtils.sleep;
 import static java.lang.Math.max;
@@ -1437,8 +1436,27 @@ public class TCSService {
                 errorDetail += " | cause=" + ex.getCause().getClass().getSimpleName()
                         + (ex.getCause().getMessage() != null ? ": " + ex.getCause().getMessage() : "");
             }
+            if (ex instanceof ru.tinkoff.piapi.core.exception.ApiRuntimeException) {
+                ru.tinkoff.piapi.core.exception.ApiRuntimeException apiEx =
+                        (ru.tinkoff.piapi.core.exception.ApiRuntimeException) ex;
+                errorDetail += " [code=" + apiEx.getCode();
+                if (apiEx.getTrackingId() != null) {
+                    errorDetail += ", trackingId=" + apiEx.getTrackingId();
+                }
+                Throwable grpcThrowable = apiEx.getThrowable();
+                if (grpcThrowable != null) {
+                    io.grpc.Status grpcStatus = io.grpc.Status.fromThrowable(grpcThrowable);
+                    if (grpcStatus.getDescription() != null) {
+                        errorDetail += ", detail=" + grpcStatus.getDescription();
+                    }
+                    if (grpcThrowable.getMessage() != null && !grpcThrowable.getMessage().equals(grpcStatus.getDescription())) {
+                        errorDetail += ", grpc=" + grpcThrowable.getMessage();
+                    }
+                }
+                errorDetail += "]";
+            }
             String message = "Failed create order [" + key.getTicker() + "]: " + errorDetail;
-            logError(message, ex);
+            log(message);
             telegramNotifyService.sendMessage(message);
             return OrderExecutionResult.failed();
         }
