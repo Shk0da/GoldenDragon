@@ -1319,8 +1319,10 @@ public class TCSService {
                         : 0.0;
         log(
                 String.format(
-                        "Create order request [%s]: operation=%s direction=%s type=%s quantity=%d lot=%d lots=%d requestedPrice=%.4f referencePrice=%.4f fullNotional=%.2f cashToUse=%.2f estimatedCost=%.2f takeProfit=%.4f stopLose=%.4f isFullPrice=%s",
+                        "Create order request [%s]: figi=%s accountId=%s operation=%s direction=%s type=%s quantity=%d lot=%d lots=%d requestedPrice=%.4f referencePrice=%.4f fullNotional=%.2f cashToUse=%.2f estimatedCost=%.2f takeProfit=%.4f stopLose=%.4f isFullPrice=%s",
                         key.getTicker(),
+                        figi,
+                        mainConfig.getTcsAccountId(),
                         operation,
                         direction,
                         type,
@@ -1342,7 +1344,7 @@ public class TCSService {
                             .getOrdersService()
                             .postOrderSync(
                                     figi,
-                                    count,
+                                    normalizedCount,
                                     orderPrice,
                                     direction,
                                     mainConfig.getTcsAccountId(),
@@ -1440,6 +1442,9 @@ public class TCSService {
                 ru.tinkoff.piapi.core.exception.ApiRuntimeException apiEx =
                         (ru.tinkoff.piapi.core.exception.ApiRuntimeException) ex;
                 errorDetail += " [code=" + apiEx.getCode();
+                if (apiEx.getMessage() != null && !apiEx.getMessage().isEmpty()) {
+                    errorDetail += ", message=" + apiEx.getMessage();
+                }
                 if (apiEx.getTrackingId() != null) {
                     errorDetail += ", trackingId=" + apiEx.getTrackingId();
                 }
@@ -1960,7 +1965,9 @@ public class TCSService {
 
         TickerInfo tickerInfo = searchTicker(key);
         int lot = Math.max(1, tickerInfo.getLot());
-        double tradeUnitCost = price * lot;
+        // Safety margin (0.1%) for market order slippage to avoid INSUFFICIENT_FUNDS (error 30049)
+        double effectivePrice = price * 1.001;
+        double tradeUnitCost = effectivePrice * lot;
         if (availableCash < tradeUnitCost) {
             return 0;
         }
