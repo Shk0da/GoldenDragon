@@ -58,6 +58,8 @@ public class OrderBookScalpConfig {
   private final boolean diagnosticsSummaryEnabled;
   private final boolean diagnosticsReplayEnabled;
   private final String diagnosticsReplayFile;
+  private final boolean metricsCsvEnabled;
+  private final String metricsCsvFile;
   private final String positionStateFile;
 
   public OrderBookScalpConfig() {
@@ -108,13 +110,13 @@ public class OrderBookScalpConfig {
     this.commissionRate =
         Double.parseDouble(properties.getProperty("orderBookScalp.commissionRate", "0.0005"));
     this.targetFeeMultiple =
-        Double.parseDouble(properties.getProperty("orderBookScalp.targetFeeMultiple", "2.0"));
+        Double.parseDouble(properties.getProperty("orderBookScalp.targetFeeMultiple", "2.5"));
     this.stopFeeMultiple =
-        Double.parseDouble(properties.getProperty("orderBookScalp.stopFeeMultiple", "0.75"));
+        Double.parseDouble(properties.getProperty("orderBookScalp.stopFeeMultiple", "1.0"));
     this.expectedWinRate =
-        Double.parseDouble(properties.getProperty("orderBookScalp.expectedWinRate", "0.55"));
+        Double.parseDouble(properties.getProperty("orderBookScalp.expectedWinRate", "0.60"));
     this.evGateBuffer =
-        Double.parseDouble(properties.getProperty("orderBookScalp.evGateBuffer", "1.0"));
+        Double.parseDouble(properties.getProperty("orderBookScalp.evGateBuffer", "0.8"));
     this.obiExitThreshold =
         Double.parseDouble(properties.getProperty("orderBookScalp.obiExitThreshold", "-0.25"));
     this.entryGraceSeconds =
@@ -165,16 +167,22 @@ public class OrderBookScalpConfig {
         Double.parseDouble(
             properties.getProperty("orderBookScalp.criticalDrawdownPercent", "0.10"));
     this.diagnosticsEnabled =
-        Boolean.parseBoolean(properties.getProperty("orderBookScalp.diagnosticsEnabled", "false"));
+        Boolean.parseBoolean(properties.getProperty("orderBookScalp.diagnosticsEnabled", "true"));
     this.diagnosticsSummaryEnabled =
         Boolean.parseBoolean(
-            properties.getProperty("orderBookScalp.diagnosticsSummaryEnabled", "false"));
+            properties.getProperty("orderBookScalp.diagnosticsSummaryEnabled", "true"));
     this.diagnosticsReplayEnabled =
         Boolean.parseBoolean(
-            properties.getProperty("orderBookScalp.diagnosticsReplayEnabled", "false"));
+            properties.getProperty("orderBookScalp.diagnosticsReplayEnabled", "true"));
     this.diagnosticsReplayFile =
         properties.getProperty(
             "orderBookScalp.diagnosticsReplayFile", "build/orderbook-diagnostics-replay.log");
+    this.metricsCsvEnabled =
+        Boolean.parseBoolean(
+            properties.getProperty("orderBookScalp.metricsCsvEnabled", "true"));
+    this.metricsCsvFile =
+        properties.getProperty(
+            "orderBookScalp.metricsCsvFile", "build/orderbook-metrics.csv");
     this.positionStateFile =
         properties.getProperty("orderBookScalp.positionStateFile", "data/orderbook-positions.json");
   }
@@ -365,6 +373,14 @@ public class OrderBookScalpConfig {
 
   public String getDiagnosticsReplayFile() {
     return diagnosticsReplayFile;
+  }
+
+  public boolean isMetricsCsvEnabled() {
+    return metricsCsvEnabled;
+  }
+
+  public String getMetricsCsvFile() {
+    return metricsCsvFile;
   }
 
   public String getPositionStateFile() {

@@ -22,6 +22,7 @@ import com.github.shk0da.goldendragon.strategy.orderbook.diagnostics.OrderBookDi
 import com.github.shk0da.goldendragon.strategy.orderbook.diagnostics.OrderBookDiagnosticsCollector;
 import com.github.shk0da.goldendragon.strategy.orderbook.diagnostics.OrderBookDiagnosticsReplayWriter;
 import com.github.shk0da.goldendragon.strategy.orderbook.diagnostics.OrderBookDiagnosticsSummary;
+import com.github.shk0da.goldendragon.strategy.orderbook.diagnostics.OrderBookMetricsCsvWriter;
 import com.github.shk0da.goldendragon.utils.LoggingUtils;
 import com.github.shk0da.goldendragon.utils.TickerTypeResolver;
 import java.time.Duration;
@@ -93,6 +94,7 @@ public final class OrderBookTradingEngine implements MarketTickListener {
   private final RiskManager riskManager;
   private final OrderBookDiagnosticsCollector diagnosticsCollector;
   private final OrderBookDiagnosticsReplayWriter diagnosticsReplayWriter;
+  private final OrderBookMetricsCsvWriter metricsCsvWriter;
   private final Map<String, Long> lastSkipDiagnosticMsByKey = new ConcurrentHashMap<>();
   private final Map<String, CommissionEstimator> commissionEstimators = new ConcurrentHashMap<>();
   private volatile long lastStreamErrorLogMs;
@@ -139,9 +141,17 @@ public final class OrderBookTradingEngine implements MarketTickListener {
           config.isDiagnosticsReplayEnabled()
               ? new OrderBookDiagnosticsReplayWriter(config.getDiagnosticsReplayFile())
               : null;
+      this.metricsCsvWriter =
+          config.isMetricsCsvEnabled()
+              ? new OrderBookMetricsCsvWriter(config.getMetricsCsvFile())
+              : null;
+      if (metricsCsvWriter != null) {
+        log(strategyName + ": metrics CSV writer initialized -> " + config.getMetricsCsvFile());
+      }
     } else {
       this.diagnosticsCollector = null;
       this.diagnosticsReplayWriter = null;
+      this.metricsCsvWriter = null;
       log(strategyName + ": diagnostics DISABLED");
     }
   }
@@ -302,6 +312,9 @@ public final class OrderBookTradingEngine implements MarketTickListener {
       }
       if (diagnosticsReplayWriter != null) {
         diagnosticsReplayWriter.close();
+      }
+      if (metricsCsvWriter != null) {
+        metricsCsvWriter.close();
       }
       telegramNotifyService.sendMessage(strategyName + " stopped");
       log(strategyName + " stopped");
@@ -685,7 +698,13 @@ public final class OrderBookTradingEngine implements MarketTickListener {
               "flow",
               context.getTradeDelta(),
               "requiredFlow",
-              config.getMinTradeFlow() * MIN_ENTRY_FLOW_MULTIPLIER));
+              config.getMinTradeFlow() * MIN_ENTRY_FLOW_MULTIPLIER,
+              "obi",
+              context.getObi(),
+              "microEdge",
+              context.getMicroEdge(),
+              "spreadBps",
+              context.getSpreadBps()));
       return;
     }
 
@@ -1419,6 +1438,7 @@ public final class OrderBookTradingEngine implements MarketTickListener {
     if (riskManager != null) {
       riskManager.registerTrade(netPnl);
     }
+    long holdSeconds = Duration.between(position.entryTime, Instant.now()).getSeconds();
     emitDiagnostic(
         OrderBookDiagnosticEventType.POSITION_CLOSED,
         runtime.ticker,
@@ -1437,7 +1457,11 @@ public final class OrderBookTradingEngine implements MarketTickListener {
             "netPnl",
             netPnl,
             "fees",
-            position.entryCommission + exitCommission));
+            position.entryCommission + exitCommission,
+            "holdSeconds",
+            holdSeconds,
+            "units",
+            position.units));
     runtime.openPosition = null;
     positionStore.remove(runtime.ticker);
     runtime.cooldownUntilMs = System.currentTimeMillis() + config.getCooldownSeconds() * 1000L;
@@ -1946,6 +1970,9 @@ public final class OrderBookTradingEngine implements MarketTickListener {
     System.out.flush();
     if (diagnosticsReplayWriter != null) {
       diagnosticsReplayWriter.write(event);
+    }
+    if (metricsCsvWriter != null) {
+      metricsCsvWriter.write(event);
     }
   }
 

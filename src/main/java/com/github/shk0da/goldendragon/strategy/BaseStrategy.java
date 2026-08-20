@@ -1212,7 +1212,7 @@ public abstract class BaseStrategy {
                 tcsService.getCandles(
                         figi,
                         interval == CandleInterval.CANDLE_INTERVAL_HOUR
-                                ? now.minusMinutes(24 * 60)
+                                ? now.minusMinutes(7 * 24 * 60)
                                 : now.minusMinutes(6 * 60),
                         now,
                         interval);
