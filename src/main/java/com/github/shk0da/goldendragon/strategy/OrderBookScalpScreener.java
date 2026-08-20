@@ -312,12 +312,16 @@ public final class OrderBookScalpScreener {
             return null;
         }
 
+        // Calculate economics in RUB (accounting for lot size)
+        int lot = Math.max(1, info.getLot() != null ? info.getLot() : 1);
         double expectedTpDistance = spread * config.getTakeProfitSpreads();
-        double roundTripCommission = bestAsk * config.getCommissionRate() * 2.0;
+        double expectedTpProfitPerLot = expectedTpDistance * lot; // PnL in RUB per lot
+        
+        double roundTripCommission = bestAsk * config.getCommissionRate() * 2.0 * lot;
         double futuresCommission = config.getFuturesCommissionPerContract() * 2.0;
         double effectiveCommission = Math.max(roundTripCommission, futuresCommission);
         double economicsRatio =
-                effectiveCommission > 0.0 ? expectedTpDistance / effectiveCommission : 0.0;
+                effectiveCommission > 0.0 ? expectedTpProfitPerLot / effectiveCommission : 0.0;
         if (economicsRatio < config.getMinEconomicsRatio()) {
             LoggingUtils.log(
                     "Screen skip "
@@ -326,10 +330,12 @@ public final class OrderBookScalpScreener {
                             + String.format("%.2f", economicsRatio)
                             + " < "
                             + String.format("%.2f", config.getMinEconomicsRatio())
-                            + ", tp="
-                            + String.format("%.4f", expectedTpDistance)
-                            + ", commission="
-                            + String.format("%.4f", effectiveCommission)
+                            + ", tpProfit="
+                            + String.format("%.2f", expectedTpProfitPerLot)
+                            + " RUB, commission="
+                            + String.format("%.2f", effectiveCommission)
+                            + " RUB, lot="
+                            + lot
                             + ")");
             return null;
         }

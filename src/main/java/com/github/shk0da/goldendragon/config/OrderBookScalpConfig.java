@@ -88,7 +88,7 @@ public class OrderBookScalpConfig {
     this.edgeSpreadFraction =
         Double.parseDouble(properties.getProperty("orderBookScalp.edgeSpreadFraction", "0.3"));
     this.maxSpreadBps =
-        Double.parseDouble(properties.getProperty("orderBookScalp.maxSpreadBps", "10"));
+        Double.parseDouble(properties.getProperty("orderBookScalp.maxSpreadBps", "15"));
     this.persistenceTicks =
         Integer.parseInt(properties.getProperty("orderBookScalp.persistenceTicks", "3"));
     this.obiLevels = Integer.parseInt(properties.getProperty("orderBookScalp.obiLevels", "5"));
@@ -120,7 +120,7 @@ public class OrderBookScalpConfig {
             properties.getProperty("orderBookScalp.minScreeningTradeFlow", "20.0"));
     this.minEconomicsRatio =
         Double.parseDouble(
-            properties.getProperty("orderBookScalp.minEconomicsRatio", "1.2"));
+            properties.getProperty("orderBookScalp.minEconomicsRatio", "1.0"));
     this.targetFeeMultiple =
         Double.parseDouble(properties.getProperty("orderBookScalp.targetFeeMultiple", "2.5"));
     this.stopFeeMultiple =
