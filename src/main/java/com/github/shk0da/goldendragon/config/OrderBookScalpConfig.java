@@ -30,6 +30,9 @@ public class OrderBookScalpConfig {
   private final int rescreenMinutes;
   private final int idleRescreenSeconds;
   private final double commissionRate;
+  private final double futuresCommissionPerContract;
+  private final double minScreeningTradeFlow;
+  private final double minEconomicsRatio;
   private final double targetFeeMultiple;
   private final double stopFeeMultiple;
   private final double expectedWinRate;
@@ -85,7 +88,7 @@ public class OrderBookScalpConfig {
     this.edgeSpreadFraction =
         Double.parseDouble(properties.getProperty("orderBookScalp.edgeSpreadFraction", "0.3"));
     this.maxSpreadBps =
-        Double.parseDouble(properties.getProperty("orderBookScalp.maxSpreadBps", "15"));
+        Double.parseDouble(properties.getProperty("orderBookScalp.maxSpreadBps", "5"));
     this.persistenceTicks =
         Integer.parseInt(properties.getProperty("orderBookScalp.persistenceTicks", "3"));
     this.obiLevels = Integer.parseInt(properties.getProperty("orderBookScalp.obiLevels", "5"));
@@ -109,6 +112,15 @@ public class OrderBookScalpConfig {
         Integer.parseInt(properties.getProperty("orderBookScalp.idleRescreenSeconds", "60"));
     this.commissionRate =
         Double.parseDouble(properties.getProperty("orderBookScalp.commissionRate", "0.0005"));
+    this.futuresCommissionPerContract =
+        Double.parseDouble(
+            properties.getProperty("orderBookScalp.futuresCommissionPerContract", "4.0"));
+    this.minScreeningTradeFlow =
+        Double.parseDouble(
+            properties.getProperty("orderBookScalp.minScreeningTradeFlow", "50.0"));
+    this.minEconomicsRatio =
+        Double.parseDouble(
+            properties.getProperty("orderBookScalp.minEconomicsRatio", "1.5"));
     this.targetFeeMultiple =
         Double.parseDouble(properties.getProperty("orderBookScalp.targetFeeMultiple", "2.5"));
     this.stopFeeMultiple =
@@ -261,6 +273,18 @@ public class OrderBookScalpConfig {
 
   public double getCommissionRate() {
     return commissionRate;
+  }
+
+  public double getFuturesCommissionPerContract() {
+    return futuresCommissionPerContract;
+  }
+
+  public double getMinScreeningTradeFlow() {
+    return minScreeningTradeFlow;
+  }
+
+  public double getMinEconomicsRatio() {
+    return minEconomicsRatio;
   }
 
   public double getTargetFeeMultiple() {

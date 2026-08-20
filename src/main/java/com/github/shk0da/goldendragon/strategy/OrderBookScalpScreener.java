@@ -266,18 +266,27 @@ public final class OrderBookScalpScreener {
         }
 
         double tradeVolume = loadRecentTradeVolume(tcsService, info.getKey());
+        if (tradeVolume < config.getMinScreeningTradeFlow()) {
+            return null;
+        }
+
         double expectedTpDistance = spread * config.getTakeProfitSpreads();
         double roundTripCommission = bestAsk * config.getCommissionRate() * 2.0;
+        double futuresCommission = config.getFuturesCommissionPerContract() * 2.0;
+        double effectiveCommission = Math.max(roundTripCommission, futuresCommission);
         double economicsRatio =
-                roundTripCommission > 0.0 ? expectedTpDistance / roundTripCommission : 0.0;
+                effectiveCommission > 0.0 ? expectedTpDistance / effectiveCommission : 0.0;
+        if (economicsRatio < config.getMinEconomicsRatio()) {
+            return null;
+        }
 
         double spreadScore = Math.max(0.0, config.getMaxSpreadBps() - spreadBps) * 2.0;
         double topDepthScore = Math.log1p(topDepth) * 80.0;
         double bookDepthScore = Math.log1p(bookDepth) * 120.0;
         double flowScore = Math.min(tradeVolume, 5_000.0) * 0.02;
         double economicsScore = Math.max(0.0, Math.min(economicsRatio, 3.0)) * 120.0;
-        double economicsPenalty = economicsRatio < 1.25 ? (1.25 - economicsRatio) * 400.0 : 0.0;
-        double microContractPenalty = spread < roundTripCommission * 0.75 ? 250.0 : 0.0;
+        double economicsPenalty = economicsRatio < 1.5 ? (1.5 - economicsRatio) * 400.0 : 0.0;
+        double microContractPenalty = spread < effectiveCommission * 0.75 ? 250.0 : 0.0;
         double coreBonus = 0.0;
         if (isCoreMoexPerpetual(info.getTicker())) {
             coreBonus += 200.0;
