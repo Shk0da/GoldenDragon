@@ -64,6 +64,17 @@ public class OrderBookScalpConfig {
   private final boolean metricsCsvEnabled;
   private final String metricsCsvFile;
   private final String positionStateFile;
+  private final boolean volatilitySizingEnabled;
+  private final double volatilityTargetSpreadBps;
+  private final double volatilityMinMultiplier;
+  private final double volatilityMaxMultiplier;
+  private final boolean timeOfDayFilterEnabled;
+  private final double morningLiquidityMultiplier;
+  private final double lunchLiquidityMultiplier;
+  private final double eveningLiquidityMultiplier;
+  private final boolean dynamicTpSlEnabled;
+  private final double atrTpMultiplier;
+  private final double atrSlMultiplier;
 
   public OrderBookScalpConfig() {
     final Properties properties;
@@ -197,6 +208,45 @@ public class OrderBookScalpConfig {
             "orderBookScalp.metricsCsvFile", "build/orderbook-metrics.csv");
     this.positionStateFile =
         properties.getProperty("orderBookScalp.positionStateFile", "data/orderbook-positions.json");
+
+    // Volatility-adjusted position sizing
+    this.volatilitySizingEnabled =
+        Boolean.parseBoolean(
+            properties.getProperty("orderBookScalp.volatilitySizingEnabled", "true"));
+    this.volatilityTargetSpreadBps =
+        Double.parseDouble(
+            properties.getProperty("orderBookScalp.volatilityTargetSpreadBps", "5.0"));
+    this.volatilityMinMultiplier =
+        Double.parseDouble(
+            properties.getProperty("orderBookScalp.volatilityMinMultiplier", "0.5"));
+    this.volatilityMaxMultiplier =
+        Double.parseDouble(
+            properties.getProperty("orderBookScalp.volatilityMaxMultiplier", "2.0"));
+
+    // Time-of-day liquidity filter
+    this.timeOfDayFilterEnabled =
+        Boolean.parseBoolean(
+            properties.getProperty("orderBookScalp.timeOfDayFilterEnabled", "true"));
+    this.morningLiquidityMultiplier =
+        Double.parseDouble(
+            properties.getProperty("orderBookScalp.morningLiquidityMultiplier", "1.5"));
+    this.lunchLiquidityMultiplier =
+        Double.parseDouble(
+            properties.getProperty("orderBookScalp.lunchLiquidityMultiplier", "0.6"));
+    this.eveningLiquidityMultiplier =
+        Double.parseDouble(
+            properties.getProperty("orderBookScalp.eveningLiquidityMultiplier", "0.8"));
+
+    // Dynamic TP/SL based on spread volatility
+    this.dynamicTpSlEnabled =
+        Boolean.parseBoolean(
+            properties.getProperty("orderBookScalp.dynamicTpSlEnabled", "true"));
+    this.atrTpMultiplier =
+        Double.parseDouble(
+            properties.getProperty("orderBookScalp.atrTpMultiplier", "1.5"));
+    this.atrSlMultiplier =
+        Double.parseDouble(
+            properties.getProperty("orderBookScalp.atrSlMultiplier", "1.0"));
   }
 
   public List<String> getInstruments() {
@@ -409,5 +459,49 @@ public class OrderBookScalpConfig {
 
   public String getPositionStateFile() {
     return positionStateFile;
+  }
+
+  public boolean isVolatilitySizingEnabled() {
+    return volatilitySizingEnabled;
+  }
+
+  public double getVolatilityTargetSpreadBps() {
+    return volatilityTargetSpreadBps;
+  }
+
+  public double getVolatilityMinMultiplier() {
+    return volatilityMinMultiplier;
+  }
+
+  public double getVolatilityMaxMultiplier() {
+    return volatilityMaxMultiplier;
+  }
+
+  public boolean isTimeOfDayFilterEnabled() {
+    return timeOfDayFilterEnabled;
+  }
+
+  public double getMorningLiquidityMultiplier() {
+    return morningLiquidityMultiplier;
+  }
+
+  public double getLunchLiquidityMultiplier() {
+    return lunchLiquidityMultiplier;
+  }
+
+  public double getEveningLiquidityMultiplier() {
+    return eveningLiquidityMultiplier;
+  }
+
+  public boolean isDynamicTpSlEnabled() {
+    return dynamicTpSlEnabled;
+  }
+
+  public double getAtrTpMultiplier() {
+    return atrTpMultiplier;
+  }
+
+  public double getAtrSlMultiplier() {
+    return atrSlMultiplier;
   }
 }

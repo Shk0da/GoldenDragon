@@ -27,6 +27,8 @@ import com.github.shk0da.goldendragon.utils.LoggingUtils;
 import com.github.shk0da.goldendragon.utils.TickerTypeResolver;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.LocalTime;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -106,6 +108,9 @@ public final class OrderBookTradingEngine implements MarketTickListener {
   private volatile long marketDataRecoveryUntilMs;
   private volatile double initialEquity;
   private final OrderBookPositionStore positionStore;
+  private final Map<String, VolatilityTracker> volatilityTrackers = new ConcurrentHashMap<>();
+  private final LiquidityWindows liquidityWindows;
+  private static final ZoneId MSK_ZONE = ZoneId.of("Europe/Moscow");
 
   public OrderBookTradingEngine(
       TCSService tcsService,
@@ -123,6 +128,7 @@ public final class OrderBookTradingEngine implements MarketTickListener {
     }
     this.strategyName = strategyName;
     this.positionStore = new OrderBookPositionStore(config.getPositionStateFile());
+    this.liquidityWindows = new LiquidityWindows(config);
     if (config.isRiskManagementEnabled()) {
       this.killSwitch = new KillSwitch(config.getCriticalDrawdownPercent());
       this.riskManager =
@@ -650,6 +656,11 @@ public final class OrderBookTradingEngine implements MarketTickListener {
             microEdge,
             tradeDelta);
 
+    // Update volatility tracker for this ticker
+    VolatilityTracker volatilityTracker =
+        volatilityTrackers.computeIfAbsent(runtime.ticker, k -> new VolatilityTracker());
+    volatilityTracker.update(spread, mid);
+
     if (runtime.openPosition != null) {
       manageOpenPosition(runtime, context, bestBid, spread, paper);
       return;
@@ -988,14 +999,23 @@ public final class OrderBookTradingEngine implements MarketTickListener {
       return;
     }
 
-    double effectiveCash = effectivePositionCash();
-    int units = tcsService.calculateTradeCount(runtime.key, effectiveCash, entryAsk);
+    // Volatility and time-of-day adjusted position sizing
+    double midPrice = (entryBid + entryAsk) / 2.0;
+    double adjustedCash = volatilityAdjustedPositionCash(runtime.ticker, midPrice);
+    if (adjustedCash <= 0.0) {
+      log("Skip OPEN " + runtime.ticker + ": outside trading hours or low liquidity window");
+      return;
+    }
+    int units = tcsService.calculateTradeCount(runtime.key, adjustedCash, entryAsk);
     if (units <= 0) {
-      log("Skip OPEN " + runtime.ticker + ": insufficient cash for one lot");
+      log("Skip OPEN " + runtime.ticker + ": insufficient cash for one lot " +
+          "(adjusted=" + String.format("%.0f", adjustedCash) + ", session=" + currentSessionLabel() + ")");
       return;
     }
 
-    BracketPrices bracket = buildBracketPrices(runtime.ticker, entryBid, entryAsk);
+    // Dynamic TP/SL based on volatility
+    double[] tpSl = calculateDynamicTpSl(runtime.ticker, entryAsk, true);
+    BracketPrices bracket = new BracketPrices(tpSl[0], tpSl[1]);
 
     log(
         "OPEN signal ["
@@ -1005,7 +1025,11 @@ public final class OrderBookTradingEngine implements MarketTickListener {
             + ": "
             + signalDescription
             + ", entryAsk="
-            + entryAsk);
+            + entryAsk
+            + ", session="
+            + currentSessionLabel()
+            + ", volAdj="
+            + String.format("%.2f", adjustedCash / effectivePositionCash()));
 
     if (paper) {
       double entryValue = units * entryAsk;
@@ -1183,17 +1207,26 @@ public final class OrderBookTradingEngine implements MarketTickListener {
       return;
     }
 
-    double effectiveCash = effectivePositionCash();
-    int units = tcsService.calculateTradeCount(runtime.key, effectiveCash, entryBid);
+    // Volatility and time-of-day adjusted position sizing
+    double midPrice = (entryBid + entryAsk) / 2.0;
+    double adjustedCash = volatilityAdjustedPositionCash(runtime.ticker, midPrice);
+    if (adjustedCash <= 0.0) {
+      log("Skip SHORT " + runtime.ticker + ": outside trading hours or low liquidity window");
+      return;
+    }
+    int units = tcsService.calculateTradeCount(runtime.key, adjustedCash, entryBid);
     if (units <= 0) {
-      log("Skip SHORT " + runtime.ticker + ": insufficient cash for one lot");
+      log("Skip SHORT " + runtime.ticker + ": insufficient cash for one lot " +
+          "(adjusted=" + String.format("%.0f", adjustedCash) + ", session=" + currentSessionLabel() + ")");
       return;
     }
 
     TCSService.OrderExecutionResult result =
-        sellByMarketWithRetry(runtime, effectiveCash, entryBid);
+        sellByMarketWithRetry(runtime, adjustedCash, entryBid);
 
-    BracketPrices bracket = buildBracketPricesShort(runtime.ticker, entryBid, entryAsk);
+    // Dynamic TP/SL based on volatility
+    double[] tpSl = calculateDynamicTpSl(runtime.ticker, entryBid, false);
+    BracketPrices bracket = new BracketPrices(tpSl[0], tpSl[1]);
 
     log(
         "SHORT signal ["
@@ -1203,7 +1236,11 @@ public final class OrderBookTradingEngine implements MarketTickListener {
             + ": "
             + signalDescription
             + ", entryBid="
-            + entryBid);
+            + entryBid
+            + ", session="
+            + currentSessionLabel()
+            + ", volAdj="
+            + String.format("%.2f", adjustedCash / effectivePositionCash()));
 
     if (paper) {
       double entryValue = units * entryBid;
@@ -1569,6 +1606,114 @@ public final class OrderBookTradingEngine implements MarketTickListener {
   /** Returns position cash minus commission reserve so the order never exceeds available funds. */
   private double effectivePositionCash() {
     return config.getPositionCash() / (1.0 + config.getCommissionRate());
+  }
+
+  /**
+   * Calculates volatility-adjusted position cash for a specific ticker.
+   *
+   * <p>Applies two multipliers:
+   * <ul>
+   *   <li>Volatility multiplier: inversely proportional to spread volatility</li>
+   *   <li>Liquidity multiplier: based on time-of-day (MOEX session windows)</li>
+   * </ul>
+   *
+   * @param ticker the instrument ticker
+   * @param currentMidPrice current mid-price for volatility calculation
+   * @return adjusted cash amount for position sizing
+   */
+  private double volatilityAdjustedPositionCash(String ticker, double currentMidPrice) {
+    double baseCash = effectivePositionCash();
+
+    if (!config.isVolatilitySizingEnabled() && !config.isTimeOfDayFilterEnabled()) {
+      return baseCash;
+    }
+
+    double multiplier = 1.0;
+
+    // Volatility adjustment
+    if (config.isVolatilitySizingEnabled()) {
+      VolatilityTracker tracker = volatilityTrackers.get(ticker);
+      if (tracker != null && tracker.isReady()) {
+        double volRatio = tracker.getVolatilityRatio(config.getVolatilityTargetSpreadBps(), currentMidPrice);
+        // Clamp to configured bounds
+        multiplier *= Math.max(config.getVolatilityMinMultiplier(),
+                      Math.min(config.getVolatilityMaxMultiplier(), volRatio));
+      }
+    }
+
+    // Time-of-day adjustment
+    if (config.isTimeOfDayFilterEnabled()) {
+      LocalTime currentTime = LocalTime.now(MSK_ZONE);
+      double liquidityMultiplier = liquidityWindows.getLiquidityMultiplier(currentTime);
+      if (liquidityMultiplier <= 0.0) {
+        return 0.0; // Outside trading hours
+      }
+      multiplier *= liquidityMultiplier;
+    }
+
+    return baseCash * multiplier;
+  }
+
+  /**
+   * Calculates dynamic TP/SL distances based on current volatility.
+   *
+   * <p>Uses ATR-proxy (spread volatility + price volatility) to set adaptive levels:
+   * <ul>
+   *   <li>TP = entryPrice ± (atrProxy * atrTpMultiplier)</li>
+   *   <li>SL = entryPrice ∓ (atrProxy * atrSlMultiplier)</li>
+   * </ul>
+   *
+   * @param ticker the instrument ticker
+   * @param entryPrice entry price
+   * @param isLong true for long position, false for short
+   * @return array of [tpPrice, slPrice]
+   */
+  private double[] calculateDynamicTpSl(String ticker, double entryPrice, boolean isLong) {
+    double defaultTpDistance = feeDistanceFraction(ticker, config.getTargetFeeMultiple()) * entryPrice;
+    double defaultSlDistance = feeDistanceFraction(ticker, config.getStopFeeMultiple()) * entryPrice;
+
+    if (!config.isDynamicTpSlEnabled()) {
+      double tp = isLong ? entryPrice + defaultTpDistance : entryPrice - defaultTpDistance;
+      double sl = isLong ? entryPrice - defaultSlDistance : entryPrice + defaultSlDistance;
+      return new double[]{tp, sl};
+    }
+
+    VolatilityTracker tracker = volatilityTrackers.get(ticker);
+    if (tracker == null || !tracker.isReady()) {
+      // Not enough data, use defaults
+      double tp = isLong ? entryPrice + defaultTpDistance : entryPrice - defaultTpDistance;
+      double sl = isLong ? entryPrice - defaultSlDistance : entryPrice + defaultSlDistance;
+      return new double[]{tp, sl};
+    }
+
+    // ATR proxy = spread volatility + mid-price volatility
+    double atrProxy = tracker.getCombinedVolatility();
+    if (atrProxy <= 0.0) {
+      double tp = isLong ? entryPrice + defaultTpDistance : entryPrice - defaultTpDistance;
+      double sl = isLong ? entryPrice - defaultSlDistance : entryPrice + defaultSlDistance;
+      return new double[]{tp, sl};
+    }
+
+    double tpDistance = atrProxy * config.getAtrTpMultiplier();
+    double slDistance = atrProxy * config.getAtrSlMultiplier();
+
+    // Ensure minimum distances (at least 1 spread to cover fees)
+    double minDistance = tracker.getAverageSpread() * 2.0;
+    tpDistance = Math.max(tpDistance, minDistance * config.getTargetFeeMultiple());
+    slDistance = Math.max(slDistance, minDistance * config.getStopFeeMultiple());
+
+    double tp = isLong ? entryPrice + tpDistance : entryPrice - tpDistance;
+    double sl = isLong ? entryPrice - slDistance : entryPrice + slDistance;
+
+    return new double[]{tp, sl};
+  }
+
+  /** Returns current session label for logging. */
+  private String currentSessionLabel() {
+    if (!config.isTimeOfDayFilterEnabled()) {
+      return "FILTER_DISABLED";
+    }
+    return liquidityWindows.getSessionLabel(LocalTime.now(MSK_ZONE));
   }
 
   private double estimateCommissionRate(String ticker) {
@@ -2018,7 +2163,7 @@ public final class OrderBookTradingEngine implements MarketTickListener {
     final double tpPrice;
     final double slPrice;
 
-    private BracketPrices(double tpPrice, double slPrice) {
+    BracketPrices(double tpPrice, double slPrice) {
       this.tpPrice = tpPrice;
       this.slPrice = slPrice;
     }
