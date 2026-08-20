@@ -3,6 +3,7 @@ package com.github.shk0da.goldendragon.service;
 import static com.github.shk0da.goldendragon.dictionary.CurrenciesDictionary.getTickerName;
 import static com.github.shk0da.goldendragon.service.TelegramNotifyService.telegramNotifyService;
 import static com.github.shk0da.goldendragon.utils.LoggingUtils.log;
+import static com.github.shk0da.goldendragon.utils.LoggingUtils.logError;
 import static com.github.shk0da.goldendragon.utils.PrintUtils.printGlassOfPrices;
 import static com.github.shk0da.goldendragon.utils.TimeUtils.sleep;
 import static java.lang.Math.max;
@@ -1407,8 +1408,16 @@ public class TCSService {
             return OrderExecutionResult.success(
                     executedPrice, executedCount, executedCommission, bracketPosition);
         } catch (Exception ex) {
-            String message = "Failed create order [" + key.getTicker() + "]: " + ex.getMessage();
-            log(message);
+            String errorDetail = ex.getClass().getSimpleName();
+            if (ex.getMessage() != null && !ex.getMessage().isEmpty()) {
+                errorDetail += ": " + ex.getMessage();
+            }
+            if (ex.getCause() != null) {
+                errorDetail += " | cause=" + ex.getCause().getClass().getSimpleName()
+                        + (ex.getCause().getMessage() != null ? ": " + ex.getCause().getMessage() : "");
+            }
+            String message = "Failed create order [" + key.getTicker() + "]: " + errorDetail;
+            logError(message, ex);
             telegramNotifyService.sendMessage(message);
             return OrderExecutionResult.failed();
         }
