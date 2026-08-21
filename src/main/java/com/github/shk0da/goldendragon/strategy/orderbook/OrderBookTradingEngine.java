@@ -59,7 +59,7 @@ public final class OrderBookTradingEngine implements MarketTickListener {
 
   private static final long RECOVERY_STABILIZATION_MS = 15_000L;
 
-  private static final double ENTRY_QUALITY_THRESHOLD = 0.42;
+  private static final double ENTRY_QUALITY_THRESHOLD = 0.30;
 
   private static final double ENTRY_QUALITY_OBI_WEIGHT = 0.15;
 
@@ -1853,10 +1853,10 @@ public final class OrderBookTradingEngine implements MarketTickListener {
     double volRatio = currentSpreadBps / targetSpreadBps;
     
     // Adjust threshold based on volatility
-    // High vol (volRatio > 1.0) → lower threshold (down to 0.35)
-    // Low vol (volRatio < 1.0) → higher threshold (up to 0.50)
-    double minThreshold = 0.35;
-    double maxThreshold = 0.50;
+    // High vol (volRatio > 1.0) → lower threshold (down to 0.25)
+    // Low vol (volRatio < 1.0) → higher threshold (up to 0.40)
+    double minThreshold = 0.25;
+    double maxThreshold = 0.40;
     
     // Inverse relationship: higher vol → lower threshold
     double adjustedThreshold = baseThreshold / Math.max(0.7, Math.min(1.3, volRatio));
@@ -1888,7 +1888,11 @@ public final class OrderBookTradingEngine implements MarketTickListener {
       for (TickerRuntime runtime : runtimesByTicker.values()) {
         if (runtime.openPosition != null) {
           OpenPosition pos = runtime.openPosition;
-          double notional = pos.units * pos.entryPrice;
+          double contractMultiplier = (runtime.tickerInfo != null
+                  && runtime.tickerInfo.getBasicAssetSize() != null
+                  && runtime.tickerInfo.getBasicAssetSize() > 0)
+                  ? runtime.tickerInfo.getBasicAssetSize() : 1.0;
+          double notional = pos.units * pos.entryPrice * contractMultiplier;
           // For futures, only margin is reserved
           if (runtime.tickerInfo != null && runtime.tickerInfo.getType() == TickerType.FEATURE) {
             reservedCapital += notional * 0.25;
@@ -1907,7 +1911,9 @@ public final class OrderBookTradingEngine implements MarketTickListener {
       
       TickerInfo tickerInfo = tcsService.searchTicker(key);
       int lot = tickerInfo.getLot() != null ? Math.max(1, tickerInfo.getLot()) : 1;
-      double minLotCost = price * lot;
+      double basicAssetSize = (tickerInfo.getBasicAssetSize() != null && tickerInfo.getBasicAssetSize() > 0)
+              ? tickerInfo.getBasicAssetSize() : lot;
+      double minLotCost = price * lot * basicAssetSize;
       
       // For futures, use margin requirement
       if (tickerInfo.getType() == TickerType.FEATURE) {

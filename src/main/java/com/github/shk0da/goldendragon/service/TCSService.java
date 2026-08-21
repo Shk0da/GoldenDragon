@@ -1973,7 +1973,9 @@ public class TCSService {
         // MOEX futures typically require 20-25% margin
         if (tickerInfo.getType() == TickerType.FEATURE) {
             double futuresMarginRate = 0.25; // Conservative 25% margin
-            tradeUnitCost = effectivePrice * lot * futuresMarginRate;
+            double basicAssetSize = (tickerInfo.getBasicAssetSize() != null && tickerInfo.getBasicAssetSize() > 0)
+                    ? tickerInfo.getBasicAssetSize() : lot;
+            tradeUnitCost = effectivePrice * lot * basicAssetSize * futuresMarginRate;
         }
         
         if (availableCash < tradeUnitCost) {
