@@ -1204,7 +1204,9 @@ public class UnifiedStrategy extends BaseStrategy {
                 return new TradingDecision("HOLD", "tmon_ticker_not_found");
             }
             int lot = tickerInfo.getLot() != null ? tickerInfo.getLot() : 1;
-            double costPerLot = currentPrice * lot;
+            // Apply slippage buffer (0.1%) to avoid order rejection due to price movement
+            double effectivePrice = currentPrice * 1.001;
+            double costPerLot = effectivePrice * lot;
             int buyQty = costPerLot > 0.0 ? (int) Math.floor(balance / costPerLot) * lot : 0;
             if (buyQty > 0) {
                 double totalCost = buyQty * currentPrice;
