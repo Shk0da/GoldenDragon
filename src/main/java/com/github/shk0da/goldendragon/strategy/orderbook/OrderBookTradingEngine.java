@@ -348,6 +348,12 @@ public final class OrderBookTradingEngine implements MarketTickListener {
     }
     Set<String> trackedTickers =
         subscribed.stream().map(runtime -> runtime.ticker).collect(toSet());
+    double availableCash = 0.0;
+    try {
+      availableCash = tcsService.getAvailableCash();
+    } catch (Exception ex) {
+      logThrottled("_close_untracked_cash", strategyName + ": cannot fetch available cash: " + ex.getMessage(), 5);
+    }
     for (PositionInfo position : positions.values()) {
       if (position.getBalance() == 0) {
         continue;
@@ -358,13 +364,26 @@ public final class OrderBookTradingEngine implements MarketTickListener {
       if (trackedTickers.contains(position.getTicker())) {
         continue;
       }
+      boolean isShort = position.getBalance() < 0;
+      if (isShort && availableCash <= 0.0) {
+        logThrottled(
+            "_close_untracked_" + position.getTicker(),
+            "Untracked short position for "
+                + position.getTicker()
+                + " qty="
+                + position.getBalance()
+                + ", skipping close: insufficient cash (available="
+                + String.format("%.2f", availableCash)
+                + ")",
+            15);
+        continue;
+      }
       log(
           "Untracked position detected for "
               + position.getTicker()
               + " qty="
               + position.getBalance()
               + ", closing");
-      boolean isShort = position.getBalance() < 0;
       TCSService.OrderExecutionResult result =
           isShort
               ? tcsService.closeShortByMarketWithDetails(
@@ -372,7 +391,10 @@ public final class OrderBookTradingEngine implements MarketTickListener {
               : tcsService.closeLongByMarketWithDetails(
                   position.getTicker(), position.getInstrumentType());
       if (!result.isSuccess()) {
-        log("Failed to close untracked position for " + position.getTicker());
+        logThrottled(
+            "_close_untracked_fail_" + position.getTicker(),
+            "Failed to close untracked position for " + position.getTicker(),
+            15);
       }
     }
   }
