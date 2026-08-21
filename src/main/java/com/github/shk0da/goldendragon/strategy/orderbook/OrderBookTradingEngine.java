@@ -348,6 +348,12 @@ public final class OrderBookTradingEngine implements MarketTickListener {
     }
     Set<String> trackedTickers =
         subscribed.stream().map(runtime -> runtime.ticker).collect(toSet());
+    double availableCash = 0.0;
+    try {
+      availableCash = tcsService.getAvailableCash();
+    } catch (Exception ex) {
+      logThrottled("_close_untracked_cash", strategyName + ": cannot fetch available cash: " + ex.getMessage(), 5);
+    }
     for (PositionInfo position : positions.values()) {
       if (position.getBalance() == 0) {
         continue;
@@ -359,15 +365,17 @@ public final class OrderBookTradingEngine implements MarketTickListener {
         continue;
       }
       boolean isShort = position.getBalance() < 0;
-      if (isShort) {
+      if (isShort && availableCash <= 0.0) {
         logThrottled(
-            "_close_untracked_short_" + position.getTicker(),
+            "_close_untracked_" + position.getTicker(),
             "Untracked short position for "
                 + position.getTicker()
                 + " qty="
                 + position.getBalance()
-                + ", skipping: closing short requires buying and may fail in sandbox",
-            60);
+                + ", skipping close: insufficient cash (available="
+                + String.format("%.2f", availableCash)
+                + ")",
+            15);
         continue;
       }
       log(
@@ -377,12 +385,15 @@ public final class OrderBookTradingEngine implements MarketTickListener {
               + position.getBalance()
               + ", closing");
       TCSService.OrderExecutionResult result =
-          tcsService.closeLongByMarketWithDetails(
-              position.getTicker(), position.getInstrumentType());
+          isShort
+              ? tcsService.closeShortByMarketWithDetails(
+                  position.getTicker(), position.getInstrumentType())
+              : tcsService.closeLongByMarketWithDetails(
+                  position.getTicker(), position.getInstrumentType());
       if (!result.isSuccess()) {
         logThrottled(
             "_close_untracked_fail_" + position.getTicker(),
-            "Failed to close untracked long position for " + position.getTicker(),
+            "Failed to close untracked position for " + position.getTicker(),
             15);
       }
     }
