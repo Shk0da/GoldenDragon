@@ -2734,6 +2734,21 @@ public class TCSService {
     }
 
     /**
+     * Returns the best (lowest) live ask price from the orderbook without printing the glass.
+     *
+     * @param key ticker key identifying the instrument
+     * @return the best ask price, or {@code 0.0} if the orderbook is empty or unavailable
+     */
+    public double getLiveAskPrice(TickerInfo.Key key) {
+        Map<String, Map<Double, Integer>> prices = getCurrentPrices(key, false);
+        Map<Double, Integer> asks = prices.get("asks");
+        if (asks == null || asks.isEmpty()) {
+            return 0.0;
+        }
+        return asks.keySet().iterator().next();
+    }
+
+    /**
      * Returns the current prices (bids and asks) for the given ticker, optionally printing the
      * glass.
      *

@@ -583,21 +583,24 @@ public abstract class BaseStrategy {
                         ? decision.entryPrice
                         : candles.get(candles.size() - 1).close;
 
-        int qty = decision.quantity;
         int lotSize = ticker.getLot() != null ? Math.max(1, ticker.getLot()) : 1;
-        double positionValue = qty * entryPrice * lotSize;
 
-        // Check if we have enough cash before logging or sending order
+        // Recalculate actual purchasable quantity using the live ask price from the orderbook,
+        // the same way openLong() does internally. entryPrice may be stale/cached while the
+        // actual execution uses the live orderbook ask which can be higher.
         double availableCash = tcsService.getAvailableCash();
-        double requiredMargin = positionValue;
-        // For futures, margin is typically 20-40% of notional
-        if (ticker.getType() == TickerType.FEATURE) {
-            requiredMargin = positionValue * 0.25; // Conservative 25% margin estimate
+        TickerInfo.Key key = new TickerInfo.Key(name, ticker.getType());
+        double liveAskPrice = tcsService.getLiveAskPrice(key);
+        if (liveAskPrice <= 0.0) {
+            logOpenCandidateSkipped(name, "no_live_price", decision);
+            return;
         }
-        if (availableCash < requiredMargin * 1.01) { // 1% buffer for slippage
+        int qty = tcsService.calculateTradeCount(key, availableCash, liveAskPrice);
+        if (qty <= 0) {
             logOpenCandidateSkipped(name, "insufficient_cash", decision);
             return;
         }
+        double positionValue = qty * liveAskPrice * lotSize;
 
         boolean isTmonCashParking = "TMON@".equals(name);
         double slPercent;
@@ -630,7 +633,7 @@ public abstract class BaseStrategy {
                         + ": qty="
                         + qty
                         + ", entry="
-                        + entryPrice
+                        + liveAskPrice
                         + ", value="
                         + positionValue
                         + ", SL="
@@ -652,7 +655,7 @@ public abstract class BaseStrategy {
             if ("BUY".equals(decision.updatedPosition.direction)) {
                 orderResult =
                         tcsService.buyByMarketWithDetails(
-                                name, ticker.getType(), positionValue, tpPercent, slPercent);
+                                name, ticker.getType(), availableCash, tpPercent, slPercent);
             } else { // SELL
                 orderResult =
                         tcsService.sellByMarketWithDetails(
@@ -1750,7 +1753,9 @@ public abstract class BaseStrategy {
         Map<String, Double> allocation = new HashMap<>();
         for (Map.Entry<String, Double> e : weights.entrySet()) {
             if (tmonCashParking && "TMON@".equals(e.getKey())) {
-                allocation.put(e.getKey(), totalCash);
+                // TMON@ cash parking always uses real-time available cash via
+                // getAvailableCash() in processTicker(), not a stale startup snapshot.
+                // Skipping allocation so allocatedBalance = 0.0 and the fallback kicks in.
             } else if (!tmonCashParking) {
                 allocation.put(e.getKey(), totalCash * (e.getValue() / totalWeight));
             }

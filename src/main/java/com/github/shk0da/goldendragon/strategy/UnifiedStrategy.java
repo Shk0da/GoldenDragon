@@ -1197,7 +1197,23 @@ public class UnifiedStrategy extends BaseStrategy {
             return new TradingDecision("HOLD", "tmon_parked", 0.0, 0, null, null, null, position);
         }
 
-        if (!hasActiveNonTmonPositions() && balance > 0.0) {
+        if (!hasActiveNonTmonPositions()) {
+            // Use real-time available cash, not the stale balance parameter from
+            // processTicker which may be based on an outdated capital allocation snapshot.
+            double realCash = 0.0;
+            if (tcsService != null) {
+                try {
+                    realCash = tcsService.getAvailableCash();
+                } catch (Exception ex) {
+                    logWithBacktest("TMON@: failed to read available cash: " + ex.getMessage());
+                }
+            } else {
+                // Backtest mode: fall back to the balance parameter
+                realCash = balance;
+            }
+            if (realCash <= 0.0) {
+                return new TradingDecision("HOLD", "tmon_no_cash");
+            }
             TickerInfo tickerInfo = resolveTickerInfo("TMON@");
             if (tickerInfo == null) {
                 logWithBacktest("TMON@: ticker info not found, skipping buy");
@@ -1207,7 +1223,7 @@ public class UnifiedStrategy extends BaseStrategy {
             // Apply 1% slippage buffer to avoid order rejection due to price movement
             double effectivePrice = currentPrice * 1.01;
             double costPerLot = effectivePrice * lot;
-            int buyQty = costPerLot > 0.0 ? (int) Math.floor(balance / costPerLot) * lot : 0;
+            int buyQty = costPerLot > 0.0 ? (int) Math.floor(realCash / costPerLot) * lot : 0;
             if (buyQty > 0) {
                 return new TradingDecision(
                         "OPEN",
