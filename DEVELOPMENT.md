@@ -91,7 +91,7 @@ Python script for analyzing order book strategy performance from diagnostic logs
 
 **Run analysis:**
 ```bash
-# Default paths (build/orderbook-metrics.csv + build/orderbook-diagnostics-replay.log)
+# Default paths (analytics/orderbook-metrics.csv + analytics/orderbook-diagnostics-replay.log)
 python scripts/analyze_strategy.py
 
 # Custom paths

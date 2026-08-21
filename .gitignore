@@ -89,6 +89,7 @@ Thumbs.db
 /.vscode/settings.json
 /application.properties
 /data/
+/analytics/
 /td/
 /telegram_session/
 tickers.json

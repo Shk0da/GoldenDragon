@@ -7,7 +7,7 @@ to produce a comprehensive trading performance report.
 
 Usage:
     python scripts/analyze_strategy.py
-    python scripts/analyze_strategy.py --csv build/orderbook-metrics.csv --log build/orderbook-diagnostics-replay.log
+    python scripts/analyze_strategy.py --csv analytics/orderbook-metrics.csv --log analytics/orderbook-diagnostics-replay.log
 """
 
 import csv
@@ -511,12 +511,12 @@ def main():
     parser = argparse.ArgumentParser(description="Order book strategy analytics")
     parser.add_argument(
         "--csv",
-        default="build/orderbook-metrics.csv",
+        default="analytics/orderbook-metrics.csv",
         help="Path to orderbook-metrics.csv",
     )
     parser.add_argument(
         "--log",
-        default="build/orderbook-diagnostics-replay.log",
+        default="analytics/orderbook-diagnostics-replay.log",
         help="Path to orderbook-diagnostics-replay.log",
     )
     args = parser.parse_args()

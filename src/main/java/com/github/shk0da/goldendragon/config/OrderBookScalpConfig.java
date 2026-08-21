@@ -199,13 +199,13 @@ public class OrderBookScalpConfig {
             properties.getProperty("orderBookScalp.diagnosticsReplayEnabled", "true"));
     this.diagnosticsReplayFile =
         properties.getProperty(
-            "orderBookScalp.diagnosticsReplayFile", "build/orderbook-diagnostics-replay.log");
+            "orderBookScalp.diagnosticsReplayFile", "analytics/orderbook-diagnostics-replay.log");
     this.metricsCsvEnabled =
         Boolean.parseBoolean(
             properties.getProperty("orderBookScalp.metricsCsvEnabled", "true"));
     this.metricsCsvFile =
         properties.getProperty(
-            "orderBookScalp.metricsCsvFile", "build/orderbook-metrics.csv");
+            "orderBookScalp.metricsCsvFile", "analytics/orderbook-metrics.csv");
     this.positionStateFile =
         properties.getProperty("orderBookScalp.positionStateFile", "data/orderbook-positions.json");
 
