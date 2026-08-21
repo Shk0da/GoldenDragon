@@ -1965,8 +1965,8 @@ public class TCSService {
 
         TickerInfo tickerInfo = searchTicker(key);
         int lot = Math.max(1, tickerInfo.getLot());
-        // Safety margin (0.1%) for market order slippage to avoid INSUFFICIENT_FUNDS (error 30049)
-        double effectivePrice = price * 1.001;
+        // Safety margin (1%) for market order slippage to avoid INSUFFICIENT_FUNDS (error 30049)
+        double effectivePrice = price * 1.01;
         double tradeUnitCost = effectivePrice * lot;
         
         // For futures (FEATURE), use margin requirement instead of full notional
