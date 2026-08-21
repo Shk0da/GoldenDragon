@@ -75,6 +75,10 @@ public class OrderBookScalpConfig {
   private final boolean dynamicTpSlEnabled;
   private final double atrTpMultiplier;
   private final double atrSlMultiplier;
+  private final int trendMomentumWindow;
+  private final int trendFlowWindow;
+  private final double trendMinMomentumRatio;
+  private final double trendMinFlowAccumulation;
 
   public OrderBookScalpConfig() {
     final Properties properties;
@@ -157,7 +161,7 @@ public class OrderBookScalpConfig {
     this.enabledSignals =
         stream(
                 properties
-                    .getProperty("orderBookScalp.enabledSignals", "obi,tradeFlow,microprice")
+                    .getProperty("orderBookScalp.enabledSignals", "obi,tradeFlow,microprice,density")
                     .split(","))
             .map(String::trim)
             .filter(s -> !s.isEmpty())
@@ -247,6 +251,18 @@ public class OrderBookScalpConfig {
     this.atrSlMultiplier =
         Double.parseDouble(
             properties.getProperty("orderBookScalp.atrSlMultiplier", "1.0"));
+
+    // Trend filter parameters
+    this.trendMomentumWindow =
+        Integer.parseInt(properties.getProperty("orderBookScalp.trendMomentumWindow", "5"));
+    this.trendFlowWindow =
+        Integer.parseInt(properties.getProperty("orderBookScalp.trendFlowWindow", "3"));
+    this.trendMinMomentumRatio =
+        Double.parseDouble(
+            properties.getProperty("orderBookScalp.trendMinMomentumRatio", "0.1"));
+    this.trendMinFlowAccumulation =
+        Double.parseDouble(
+            properties.getProperty("orderBookScalp.trendMinFlowAccumulation", "1.0"));
   }
 
   public List<String> getInstruments() {
@@ -503,5 +519,21 @@ public class OrderBookScalpConfig {
 
   public double getAtrSlMultiplier() {
     return atrSlMultiplier;
+  }
+
+  public int getTrendMomentumWindow() {
+    return trendMomentumWindow;
+  }
+
+  public int getTrendFlowWindow() {
+    return trendFlowWindow;
+  }
+
+  public double getTrendMinMomentumRatio() {
+    return trendMinMomentumRatio;
+  }
+
+  public double getTrendMinFlowAccumulation() {
+    return trendMinFlowAccumulation;
   }
 }

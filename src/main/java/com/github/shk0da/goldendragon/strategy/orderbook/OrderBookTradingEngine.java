@@ -109,6 +109,7 @@ public final class OrderBookTradingEngine implements MarketTickListener {
   private volatile double initialEquity;
   private final OrderBookPositionStore positionStore;
   private final Map<String, VolatilityTracker> volatilityTrackers = new ConcurrentHashMap<>();
+  private final OrderBookTrendFilter trendFilter;
   private final LiquidityWindows liquidityWindows;
   private final Map<String, Long> lastThrottledLogMs = new ConcurrentHashMap<>();
   private static final ZoneId MSK_ZONE = ZoneId.of("Europe/Moscow");
@@ -130,6 +131,12 @@ public final class OrderBookTradingEngine implements MarketTickListener {
     this.strategyName = strategyName;
     this.positionStore = new OrderBookPositionStore(config.getPositionStateFile());
     this.liquidityWindows = new LiquidityWindows(config);
+    this.trendFilter =
+        new OrderBookTrendFilter(
+            config.getTrendMomentumWindow(),
+            config.getTrendFlowWindow(),
+            config.getTrendMinMomentumRatio(),
+            config.getTrendMinFlowAccumulation());
     if (config.isRiskManagementEnabled()) {
       this.killSwitch = new KillSwitch(config.getCriticalDrawdownPercent());
       this.riskManager =
@@ -648,6 +655,14 @@ public final class OrderBookTradingEngine implements MarketTickListener {
         OrderBookMath.calculateObi(snapshot.getBids(), snapshot.getAsks(), config.getObiLevels());
     double microEdge = OrderBookMath.calculateMicroEdge(bestBid, bestAsk, bidQty0, askQty0);
     double tradeDelta = calculateTradeDelta(runtime.key);
+    double weightedDepthImbalance =
+        OrderBookMath.calculateWeightedDepthImbalance(
+            snapshot.getBids(), snapshot.getAsks(), config.getObiLevels());
+    double depthGradient =
+        OrderBookMath.calculateDepthGradient(
+            snapshot.getBids(), snapshot.getAsks(), config.getObiLevels());
+    double absorptionScore =
+        OrderBookMath.calculateAbsorptionScore(snapshot.getBids(), snapshot.getAsks());
 
     OrderBookMarketContext context =
         new OrderBookMarketContext(
@@ -662,7 +677,10 @@ public final class OrderBookTradingEngine implements MarketTickListener {
             askQty0,
             obi,
             microEdge,
-            tradeDelta);
+            tradeDelta,
+            weightedDepthImbalance,
+            depthGradient,
+            absorptionScore);
 
     // Update volatility tracker for this ticker
     VolatilityTracker volatilityTracker =
@@ -761,6 +779,21 @@ public final class OrderBookTradingEngine implements MarketTickListener {
               context.getTradeDelta(),
               "spreadBps",
               context.getSpreadBps()));
+    } else if (!trendFilter.allowsDirection(mid, obi, tradeDelta, true)) {
+      emitSkipDiagnostic(
+          runtime.ticker,
+          "trend_filter_blocks_long",
+          Map.of(
+              "quality",
+              longQuality,
+              "obi",
+              context.getObi(),
+              "microEdge",
+              context.getMicroEdge(),
+              "tradeDelta",
+              context.getTradeDelta(),
+              "weightedDepthImbalance",
+              context.getWeightedDepthImbalance()));
     } else {
       for (OrderBookSignal signal : signals) {
         OrderBookEntryDecision decision = signal.evaluateEntry(context, runtime.ticker);
@@ -802,6 +835,21 @@ public final class OrderBookTradingEngine implements MarketTickListener {
                 context.getTradeDelta(),
                 "spreadBps",
                 context.getSpreadBps()));
+      } else if (!trendFilter.allowsDirection(mid, obi, tradeDelta, false)) {
+        emitSkipDiagnostic(
+            runtime.ticker,
+            "trend_filter_blocks_short",
+            Map.of(
+                "quality",
+                shortQuality,
+                "obi",
+                context.getObi(),
+                "microEdge",
+                context.getMicroEdge(),
+                "tradeDelta",
+                context.getTradeDelta(),
+                "weightedDepthImbalance",
+                context.getWeightedDepthImbalance()));
       } else {
         for (OrderBookSignal signal : signals) {
           OrderBookEntryDecision decision = signal.evaluateEntryShort(context, runtime.ticker);
@@ -983,11 +1031,23 @@ public final class OrderBookTradingEngine implements MarketTickListener {
 
     double recoveryScore = inRecovery ? 0.0 : 1.0;
 
+    // Density score: weighted depth imbalance aligned with direction
+    double depthImb = shortSide ? -context.getWeightedDepthImbalance() : context.getWeightedDepthImbalance();
+    double depthScore = Math.min(1.0, Math.max(0.0, (depthImb + 1.0) / 2.0));
+    depthScore = depthImb > 0.0 ? depthScore : 0.0;
+
+    // Absorption score: absorption aligned with direction
+    double absorption = shortSide ? -context.getAbsorptionScore() : context.getAbsorptionScore();
+    double absorptionScoreVal = Math.min(1.0, Math.max(0.0, absorption * 2.0 + 0.5));
+
+    double densityComponent = (depthScore * 0.6 + absorptionScoreVal * 0.4) * 0.15;
+
     return obiScore * ENTRY_QUALITY_OBI_WEIGHT
         + edgeScore * ENTRY_QUALITY_EDGE_WEIGHT
         + flowScore * ENTRY_QUALITY_FLOW_WEIGHT
         + spreadQuality * ENTRY_QUALITY_SPREAD_WEIGHT
-        + recoveryScore * ENTRY_QUALITY_RECOVERY_WEIGHT;
+        + recoveryScore * ENTRY_QUALITY_RECOVERY_WEIGHT
+        + densityComponent;
   }
 
   private void emitSkipDiagnostic(String ticker, String reason, Map<String, Object> metrics) {

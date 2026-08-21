@@ -17,7 +17,8 @@ public final class OrderBookSignalFactory {
                 List.of(
                         new ObiScalpSignal(config),
                         new TradeFlowScalpSignal(config),
-                        new MicropriceDriftSignal(config));
+                        new MicropriceDriftSignal(config),
+                        new DensityImbalanceSignal(config));
         Map<String, OrderBookSignal> available = new LinkedHashMap<>();
         for (OrderBookSignal signal : allSignals) {
             available.put(signal.id().toLowerCase(Locale.ROOT), signal);

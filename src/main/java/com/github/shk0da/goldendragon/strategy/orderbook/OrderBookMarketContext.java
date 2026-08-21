@@ -18,6 +18,9 @@ public final class OrderBookMarketContext {
     private final double obi;
     private final double microEdge;
     private final double tradeDelta;
+    private final double weightedDepthImbalance;
+    private final double depthGradient;
+    private final double absorptionScore;
 
     public OrderBookMarketContext(
             MarketDepthSnapshot snapshot,
@@ -31,7 +34,10 @@ public final class OrderBookMarketContext {
             int askQty0,
             double obi,
             double microEdge,
-            double tradeDelta) {
+            double tradeDelta,
+            double weightedDepthImbalance,
+            double depthGradient,
+            double absorptionScore) {
         this.snapshot = snapshot;
         this.key = key;
         this.ticker = ticker;
@@ -44,6 +50,9 @@ public final class OrderBookMarketContext {
         this.obi = obi;
         this.microEdge = microEdge;
         this.tradeDelta = tradeDelta;
+        this.weightedDepthImbalance = weightedDepthImbalance;
+        this.depthGradient = depthGradient;
+        this.absorptionScore = absorptionScore;
     }
 
     public MarketDepthSnapshot getSnapshot() {
@@ -92,5 +101,17 @@ public final class OrderBookMarketContext {
 
     public double getTradeDelta() {
         return tradeDelta;
+    }
+
+    public double getWeightedDepthImbalance() {
+        return weightedDepthImbalance;
+    }
+
+    public double getDepthGradient() {
+        return depthGradient;
+    }
+
+    public double getAbsorptionScore() {
+        return absorptionScore;
     }
 }
