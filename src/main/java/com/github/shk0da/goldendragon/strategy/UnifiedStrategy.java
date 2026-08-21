@@ -1209,14 +1209,6 @@ public class UnifiedStrategy extends BaseStrategy {
             double costPerLot = effectivePrice * lot;
             int buyQty = costPerLot > 0.0 ? (int) Math.floor(balance / costPerLot) * lot : 0;
             if (buyQty > 0) {
-                double totalCost = buyQty * currentPrice;
-                logThrottledWithBacktest(
-                        "TMON@_buying_idle_cash",
-                        "TMON@: buying "
-                                + buyQty
-                                + " with idle cash "
-                                + String.format("%.2f", totalCost),
-                        5);
                 return new TradingDecision(
                         "OPEN",
                         "tmon_cash_parking",
