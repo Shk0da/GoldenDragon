@@ -1993,9 +1993,8 @@ public final class OrderBookTradingEngine implements MarketTickListener {
       
       TickerInfo tickerInfo = tcsService.searchTicker(key);
       int lot = tickerInfo.getLot() != null ? Math.max(1, tickerInfo.getLot()) : 1;
-      double basicAssetSize = (tickerInfo.getBasicAssetSize() != null && tickerInfo.getBasicAssetSize() > 0)
-              ? tickerInfo.getBasicAssetSize() : lot;
-      double minLotCost = price * lot * basicAssetSize;
+      // price is per unit, lot is units per lot — price * lot = notional per lot
+      double minLotCost = price * lot;
       
       // For futures, use margin requirement
       if (tickerInfo.getType() == TickerType.FEATURE) {

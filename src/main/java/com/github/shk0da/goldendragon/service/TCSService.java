@@ -1971,11 +1971,10 @@ public class TCSService {
         
         // For futures (FEATURE), use margin requirement instead of full notional
         // MOEX futures typically require 20-25% margin
+        // price is per unit, lot is units per lot — price * lot = notional per lot
         if (tickerInfo.getType() == TickerType.FEATURE) {
             double futuresMarginRate = 0.25; // Conservative 25% margin
-            double basicAssetSize = (tickerInfo.getBasicAssetSize() != null && tickerInfo.getBasicAssetSize() > 0)
-                    ? tickerInfo.getBasicAssetSize() : lot;
-            tradeUnitCost = effectivePrice * lot * basicAssetSize * futuresMarginRate;
+            tradeUnitCost = effectivePrice * lot * futuresMarginRate;
         }
         
         if (availableCash < tradeUnitCost) {
