@@ -2294,28 +2294,20 @@ public class TCSService {
     }
 
     /**
-     * Returns the available (free) cash balance in the base currency configured in {@link MarketConfig}.
+     * Returns the available cash balance in the base currency configured in {@link MarketConfig}.
      *
-     * <p>Subtracts blocked amounts (pending orders, margin) from the total money balance.
-     *
-     * @return available (unblocked) cash amount
+     * @return available cash amount
      */
     public Double getAvailableCash() {
         sleep(550);
         Positions positions =
                 investApi.getOperationsService().getPositionsSync(mainConfig.getTcsAccountId());
-        String currency = marketConfig.getCurrency();
-        BigDecimal total = positions.getMoney().stream()
-                .filter(it -> currency.equalsIgnoreCase(it.getCurrency()))
+        return positions.getMoney().stream()
+                .filter(it -> marketConfig.getCurrency().equalsIgnoreCase(it.getCurrency()))
                 .map(Money::getValue)
                 .findFirst()
-                .orElse(BigDecimal.ZERO);
-        BigDecimal blocked = positions.getBlocked().stream()
-                .filter(it -> currency.equalsIgnoreCase(it.getCurrency()))
-                .map(Money::getValue)
-                .findFirst()
-                .orElse(BigDecimal.ZERO);
-        return total.subtract(blocked).doubleValue();
+                .orElse(BigDecimal.ZERO)
+                .doubleValue();
     }
 
     /** Applies ticker lot override from config if present. */

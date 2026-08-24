@@ -1197,34 +1197,22 @@ public class UnifiedStrategy extends BaseStrategy {
             return new TradingDecision("HOLD", "tmon_parked", 0.0, 0, null, null, null, position);
         }
 
-        if (!hasActiveNonTmonPositions()) {
-            // Use real-time available cash, not the stale balance parameter from
-            // processTicker which may be based on an outdated capital allocation snapshot.
-            double realCash = 0.0;
-            if (tcsService != null) {
-                try {
-                    realCash = tcsService.getAvailableCash();
-                } catch (Exception ex) {
-                    logWithBacktest("TMON@: failed to read available cash: " + ex.getMessage());
-                }
-            } else {
-                // Backtest mode: fall back to the balance parameter
-                realCash = balance;
-            }
-            if (realCash <= 0.0) {
-                return new TradingDecision("HOLD", "tmon_no_cash");
-            }
+        if (!hasActiveNonTmonPositions() && balance > 0.0) {
             TickerInfo tickerInfo = resolveTickerInfo("TMON@");
             if (tickerInfo == null) {
                 logWithBacktest("TMON@: ticker info not found, skipping buy");
                 return new TradingDecision("HOLD", "tmon_ticker_not_found");
             }
             int lot = tickerInfo.getLot() != null ? tickerInfo.getLot() : 1;
-            // Apply 1% slippage buffer to avoid order rejection due to price movement
-            double effectivePrice = currentPrice * 1.01;
-            double costPerLot = effectivePrice * lot;
-            int buyQty = costPerLot > 0.0 ? (int) Math.floor(realCash / costPerLot) * lot : 0;
+            double costPerLot = currentPrice * lot;
+            int buyQty = costPerLot > 0.0 ? (int) Math.floor(balance / costPerLot) * lot : 0;
             if (buyQty > 0) {
+                double totalCost = buyQty * currentPrice;
+                logWithBacktest(
+                        "TMON@: buying "
+                                + buyQty
+                                + " with idle cash "
+                                + String.format("%.2f", totalCost));
                 return new TradingDecision(
                         "OPEN",
                         "tmon_cash_parking",

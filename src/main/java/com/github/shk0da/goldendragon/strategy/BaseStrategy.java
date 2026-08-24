@@ -1762,7 +1762,8 @@ public abstract class BaseStrategy {
                 // TMON@ cash parking always uses real-time available cash via
                 // getAvailableCash() in processTicker(), not a stale startup snapshot.
                 // Skipping allocation so allocatedBalance = 0.0 and the fallback kicks in.
-            } else if (!tmonCashParking) {
+            } else {
+                // Allocate capital to non-TMON@ tickers (or all tickers if tmonCashParking=false)
                 allocation.put(e.getKey(), totalCash * (e.getValue() / totalWeight));
             }
         }
