@@ -585,20 +585,25 @@ public abstract class BaseStrategy {
 
         int lotSize = ticker.getLot() != null ? Math.max(1, ticker.getLot()) : 1;
 
-        // Recalculate actual purchasable quantity using the live ask price from the orderbook,
-        // the same way openLong() does internally. entryPrice may be stale/cached while the
-        // actual execution uses the live orderbook ask which can be higher.
-        double availableCash = tcsService.getAvailableCash();
+        // Use live ask price for accurate execution (entryPrice may be stale/cached)
         TickerInfo.Key key = new TickerInfo.Key(name, ticker.getType());
         double liveAskPrice = tcsService.getLiveAskPrice(key);
         if (liveAskPrice <= 0.0) {
             logOpenCandidateSkipped(name, "no_live_price", decision);
             return;
         }
-        int qty = tcsService.calculateTradeCount(key, availableCash, liveAskPrice);
+
+        // Use strategy-computed quantity (risk-based sizing from subclass) and verify it
+        // against live ask price and available cash. Fall back to calculateTradeCount only
+        // when the strategy did not provide a valid quantity.
+        int qty = decision.quantity;
         if (qty <= 0) {
-            logOpenCandidateSkipped(name, "insufficient_cash", decision);
-            return;
+            double availableCash = tcsService.getAvailableCash();
+            qty = tcsService.calculateTradeCount(key, availableCash, liveAskPrice);
+            if (qty <= 0) {
+                logOpenCandidateSkipped(name, "insufficient_cash", decision);
+                return;
+            }
         }
         double positionValue = qty * liveAskPrice * lotSize;
 
@@ -655,7 +660,7 @@ public abstract class BaseStrategy {
             if ("BUY".equals(decision.updatedPosition.direction)) {
                 orderResult =
                         tcsService.buyByMarketWithDetails(
-                                name, ticker.getType(), availableCash, tpPercent, slPercent);
+                                name, ticker.getType(), positionValue, tpPercent, slPercent);
             } else { // SELL
                 orderResult =
                         tcsService.sellByMarketWithDetails(

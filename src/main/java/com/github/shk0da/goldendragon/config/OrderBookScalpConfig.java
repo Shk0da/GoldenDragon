@@ -136,8 +136,8 @@ public class OrderBookScalpConfig {
     this.minEconomicsRatio =
         Double.parseDouble(
             properties.getProperty("orderBookScalp.minEconomicsRatio", "1.0"));
-    this.targetFeeMultiple =
-        Double.parseDouble(properties.getProperty("orderBookScalp.targetFeeMultiple", "2.5"));
+        this.targetFeeMultiple =
+            Double.parseDouble(properties.getProperty("orderBookScalp.targetFeeMultiple", "4.0"));
     this.stopFeeMultiple =
         Double.parseDouble(properties.getProperty("orderBookScalp.stopFeeMultiple", "1.0"));
     this.expectedWinRate =

@@ -911,17 +911,9 @@ public final class OrderBookTradingEngine implements MarketTickListener {
     double currentPrice = isLong ? bestBid : context.getBestAsk();
 
     long heldSeconds = Duration.between(position.entryTime, Instant.now()).getSeconds();
-    // For restored positions, use reduced max hold time (50% of normal)
-    long effectiveMaxHoldSeconds = position.isRestored
-        ? config.getMaxHoldSeconds() / 2
-        : config.getMaxHoldSeconds();
-    if (heldSeconds >= effectiveMaxHoldSeconds) {
-      closeOpenPosition(runtime, "time_stop", paper);
-      return;
-    }
-
     boolean inGracePeriod = heldSeconds < config.getEntryGraceSeconds();
 
+    // Check TP first — profitable positions should exit at target, not by time
     if (!inGracePeriod) {
       boolean tpHit =
           isLong
@@ -931,6 +923,15 @@ public final class OrderBookTradingEngine implements MarketTickListener {
         closeOpenPosition(runtime, "take_profit", paper);
         return;
       }
+    }
+
+    // time_stop after TP check — gives TP a chance to hit before forced exit
+    long effectiveMaxHoldSeconds = position.isRestored
+        ? config.getMaxHoldSeconds() / 2
+        : config.getMaxHoldSeconds();
+    if (heldSeconds >= effectiveMaxHoldSeconds) {
+      closeOpenPosition(runtime, "time_stop", paper);
+      return;
     }
 
     if (inGracePeriod) {
@@ -2056,15 +2057,20 @@ public final class OrderBookTradingEngine implements MarketTickListener {
       return units;
     }
 
-    // Calculate max units where commission <= maxFeePercent * profit
-    // total_commission = units * commissionPerUnit
-    // total_profit = units * expectedProfitPerUnit
-    // We want: units * commissionPerUnit <= maxFeePercent * units * expectedProfitPerUnit
-    // This simplifies to: commissionPerUnit <= maxFeePercent * expectedProfitPerUnit
-    // Which is already checked above, so we need to reduce units to make it profitable
-    // Actually, the ratio is fixed per unit, so we can't fix it by reducing units
-    // Instead, we cap units to a reasonable maximum based on position cash
-    double maxUnitsByCash = config.getPositionCash() / (entryPrice * 10); // 10x leverage max
+    // Cap units to a reasonable maximum based on position cash
+    // For futures: positionCash covers margin (25% of notional), not full notional
+    TickerInfo.Key key = runtimesByTicker.get(ticker) != null
+        ? runtimesByTicker.get(ticker).key
+        : new TickerInfo.Key(ticker, TickerType.FEATURE);
+    TickerInfo tickerInfo = tcsService.searchTicker(key);
+    double marginPerUnit;
+    if (tickerInfo != null && tickerInfo.getType() == TickerType.FEATURE) {
+      double marginRate = 0.25; // MOEX futures margin ~25%
+      marginPerUnit = entryPrice * marginRate;
+    } else {
+      marginPerUnit = entryPrice; // equities: full price per unit
+    }
+    double maxUnitsByCash = config.getPositionCash() / marginPerUnit;
     int cappedUnits = (int) Math.min(units, maxUnitsByCash);
 
     if (cappedUnits < units) {
