@@ -586,9 +586,10 @@ public abstract class BaseStrategy {
         int lotSize = ticker.getLot() != null ? Math.max(1, ticker.getLot()) : 1;
 
         // Use live ask price for accurate execution (entryPrice may be stale/cached)
+        // In backtest mode, use entryPrice from candles since orderbook is not available
         TickerInfo.Key key = new TickerInfo.Key(name, ticker.getType());
-        double liveAskPrice = tcsService.getLiveAskPrice(key);
-        if (liveAskPrice <= 0.0) {
+        double liveAskPrice = isBacktest ? entryPrice : tcsService.getLiveAskPrice(key);
+        if (!isBacktest && liveAskPrice <= 0.0) {
             logOpenCandidateSkipped(name, "no_live_price", decision);
             return;
         }
