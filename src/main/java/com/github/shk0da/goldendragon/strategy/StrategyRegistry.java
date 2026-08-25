@@ -1,8 +1,5 @@
 package com.github.shk0da.goldendragon.strategy;
 
-import static com.github.shk0da.goldendragon.service.TelegramNotifyService.telegramNotifyService;
-import static java.lang.System.out;
-
 import com.github.shk0da.goldendragon.config.DataCollectorConfig;
 import com.github.shk0da.goldendragon.config.LevelTraderConfig;
 import com.github.shk0da.goldendragon.config.MainConfig;
@@ -14,10 +11,14 @@ import com.github.shk0da.goldendragon.config.TmonAveragingConfig;
 import com.github.shk0da.goldendragon.config.UnifiedTraderConfig;
 import com.github.shk0da.goldendragon.model.Config;
 import com.github.shk0da.goldendragon.service.TCSService;
+
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+
+import static com.github.shk0da.goldendragon.service.TelegramNotifyService.telegramNotifyService;
+import static java.lang.System.out;
 
 /**
  * Central registry of all runnable strategies. Each entry defines an optional live runner (used by
@@ -217,16 +218,6 @@ public final class StrategyRegistry {
                         "Stop OrderBookScalpStrategy",
                         (mc, mkt, tcs, args) ->
                                 new OrderBookScalpStrategy(tcs, mc, new OrderBookScalpConfig())
-                                        .run()),
-                null);
-        register(
-                "OrderBookOrchestratorStrategy",
-                runAndNotify(
-                        "OrderBookOrchestratorStrategy",
-                        "Stop OrderBookOrchestratorStrategy",
-                        (mc, mkt, tcs, args) ->
-                                new OrderBookOrchestratorStrategy(
-                                                tcs, mc, new OrderBookScalpConfig())
                                         .run()),
                 null);
         register(
