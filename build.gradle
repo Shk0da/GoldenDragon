@@ -182,12 +182,12 @@ task runStrategy(type: JavaExec) {
 
 task runOrderBookStrategy(type: JavaExec) {
     group = 'strategy'
-    description = 'Run OrderBook strategy live (multi-signal orchestrator)'
+    description = 'Run OrderBook scalping strategy live (cumulative delta + density analysis)'
     main = 'com.github.shk0da.goldendragon.GoldenDragon'
     classpath = sourceSets.test.runtimeClasspath
     workingDir = rootDir
     jvmArgs '--add-opens', 'java.base/java.time=ALL-UNNAMED'
-    args 'OrderBookOrchestratorStrategy'
+    args 'OrderBookScalpStrategy'
 }
 
 task runBacktestRunnerTest(type: JavaExec) {
