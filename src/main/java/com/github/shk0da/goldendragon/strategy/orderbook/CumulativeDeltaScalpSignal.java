@@ -142,8 +142,9 @@ public final class CumulativeDeltaScalpSignal implements OrderBookSignal {
             currentDensityVolume = densityVolume.getOriginalVolume();
         }
         
-        // Get delta analysis for divergence detection
-        CumulativeDeltaTracker.DeltaAnalysis deltaAnalysis = deltaTracker.analyzeDelta(ticker, -1); // Price down
+        // Get delta analysis for divergence detection (using config parameters)
+        CumulativeDeltaTracker.DeltaAnalysis deltaAnalysis = deltaTracker.analyzeDelta(
+            ticker, -1, config.getFadeRatio(), config.getAccelRatio(), config.getDeltaBarsLookback());
         
         // Evaluate Scenario A (Bounce) - HIGHER PRIORITY
         HftScalpDecision.Decision bounceDecision = HftScalpDecision.evaluateBounceEntry(
@@ -151,7 +152,9 @@ public final class CumulativeDeltaScalpSignal implements OrderBookSignal {
             currentPrice,
             deltaAnalysis,
             context.getSpread(),
-            false // Short
+            false, // Short
+            config.getMinNetProfitTicks(),
+            config.getTickSize() > 0 ? config.getTickSize() : 0.0001
         );
         
         if (bounceDecision.isEnter()) {
@@ -190,7 +193,7 @@ public final class CumulativeDeltaScalpSignal implements OrderBookSignal {
             ? context.getBestBid() 
             : context.getBestAsk();
         
-        // Check density disappearance for emergency exit
+        // Check density disappearance for emergency exit (TODO.md 3.6: spoofing)
         DensityVolume densityVolume = densityVolumes.get(ticker);
         if (densityVolume != null) {
             // Find current density at same price level
@@ -205,10 +208,10 @@ public final class CumulativeDeltaScalpSignal implements OrderBookSignal {
                 }
             }
             
-            // Emergency exit if density >90% gone
+            // Emergency exit if density decreased more than density_pull_exit (spoofing detection)
             double remainingPercent = remainingVolume / densityVolume.getOriginalVolume();
-            if (remainingPercent < 0.1) {
-                logExit(ticker, "density_disappeared", currentPrice);
+            if (remainingPercent < (1.0 - config.getDensityPullExit())) {
+                logExit(ticker, "spoofing_detected_density_gone", currentPrice);
                 return "density_gone";
             }
         }

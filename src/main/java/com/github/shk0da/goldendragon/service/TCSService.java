@@ -1846,6 +1846,82 @@ public class TCSService {
             return protectivePosition;
         }
     }
+    
+    /**
+     * Result of a server-side stop-loss order placement.
+     * Used by TODO.md Section 5: server-side stops for real account trading.
+     */
+    public static class StopLossOrderResult {
+        public final String orderId;
+        private final boolean success;
+        
+        public StopLossOrderResult(String orderId, boolean success) {
+            this.orderId = orderId;
+            this.success = success;
+        }
+        
+        public String getOrderId() {
+            return orderId;
+        }
+        
+        public boolean isSuccess() {
+            return success;
+        }
+        
+        public static StopLossOrderResult success(String orderId) {
+            return new StopLossOrderResult(orderId, true);
+        }
+        
+        public static StopLossOrderResult failed() {
+            return new StopLossOrderResult(null, false);
+        }
+    }
+    
+    /**
+     * Places a server-side stop-loss order for a position (TODO.md Section 5).
+     * This is a separate order from the bracket order placed in createOrder.
+     * Used as a backup protection mechanism.
+     */
+    public StopLossOrderResult createStopLossOrder(
+            TickerInfo.Key key,
+            int units,
+            double stopLossPrice,
+            String operation) {
+        if (mainConfig.isTestMode()) {
+            return StopLossOrderResult.success("test-stop-");
+        }
+        
+        try {
+            String figi = figiByName(key);
+            TickerInfo tickerInfo = searchTicker(key);
+            int lotSize = tickerInfo.getLot();
+            int normalizedCount = normalizeOrderCount(units, lotSize);
+            int contractUnits = getContractUnits(tickerInfo);
+            
+            StopOrderDirection stopOrderDirection = 
+                "Sell".equals(operation) ? STOP_ORDER_DIRECTION_BUY : STOP_ORDER_DIRECTION_SELL;
+            Quotation stopPrice = createQuotation(stopLossPrice);
+            
+            log("Placing server SL order for " + key.getTicker() + ": price=" + stopLossPrice + ", units=" + units);
+            
+            String stopOrderId = investApi
+                .getStopOrdersService()
+                .postStopOrderGoodTillCancelSync(
+                    figi,
+                    normalizedCount,
+                    stopPrice,
+                    stopPrice,
+                    stopOrderDirection,
+                    mainConfig.getTcsAccountId(),
+                    STOP_ORDER_TYPE_STOP_LOSS);
+            
+            log("Server SL placed for " + key.getTicker() + ": orderId=" + stopOrderId);
+            return StopLossOrderResult.success(stopOrderId);
+        } catch (Exception e) {
+            log("Server SL placement failed for " + key.getTicker() + ": " + e.getMessage());
+            return StopLossOrderResult.failed();
+        }
+    }
 
     private void syncStopOrder(
             String figi,
@@ -1918,7 +1994,7 @@ public class TCSService {
         }
     }
 
-    private void cancelStopOrder(TickerInfo.Key key, String stopOrderId, String orderTypeName) {
+    public void cancelStopOrder(TickerInfo.Key key, String stopOrderId, String orderTypeName) {
         if (stopOrderId == null || stopOrderId.isBlank()) {
             return;
         }

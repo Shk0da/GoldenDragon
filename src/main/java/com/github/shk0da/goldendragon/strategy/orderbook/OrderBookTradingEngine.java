@@ -82,6 +82,9 @@ public final class OrderBookTradingEngine implements MarketTickListener {
   private static final long INITIAL_DIAGNOSTICS_SUMMARY_DELAY_MS = 30 * 1000L;
 
   private static final long SKIP_DIAGNOSTIC_THROTTLE_MS = 30 * 1000L;
+  
+  // Manual emergency stop state (TODO.md Section 5, item 135)
+  private volatile boolean manualEmergencyStopRequested = false;
 
   private final TCSService tcsService;
   private final MainConfig mainConfig;
@@ -196,6 +199,16 @@ public final class OrderBookTradingEngine implements MarketTickListener {
     tcsService.logAccountTradingEligibility();
 
     while (true) {
+      // Check for manual emergency stop (TODO.md Section 5, item 135)
+      if (manualEmergencyStopRequested) {
+        log(strategyName + ": MANUAL EMERGENCY STOP TRIGGERED - closing all positions immediately");
+        emergencyCloseAllPositions(paper);
+        manualEmergencyStopRequested = false;
+        log(strategyName + ": Emergency stop completed, waiting cooldown");
+        sleep(COOLDOWN_DURATION_MS);
+        continue;
+      }
+      
       try {
         runTradingSession(paper);
         return;
@@ -207,6 +220,29 @@ public final class OrderBookTradingEngine implements MarketTickListener {
         sleep(COOLDOWN_DURATION_MS);
       }
     }
+  }
+  
+  /**
+   * Manual emergency stop - immediately closes all positions and stops trading.
+   * Can be called externally (e.g., via API, monitoring system, or manual intervention).
+   * TODO.md Section 5, item 135: Ручной аварийный стоп.
+   */
+  public void requestManualEmergencyStop() {
+    log(strategyName + ": MANUAL EMERGENCY STOP REQUESTED by external trigger");
+    manualEmergencyStopRequested = true;
+  }
+  
+  /**
+   * Emergency close all positions immediately.
+   */
+  private void emergencyCloseAllPositions(boolean paper) {
+    for (TickerRuntime runtime : runtimesByTicker.values()) {
+      if (runtime.openPosition != null) {
+        log(strategyName + ": Emergency closing position for " + runtime.ticker);
+        closeOpenPosition(runtime, "manual_emergency_stop", paper);
+      }
+    }
+    telegramNotifyService.sendMessage(strategyName + ": EMERGENCY STOP - all positions closed");
   }
 
   private void runTradingSession(boolean paper) {
@@ -594,6 +630,32 @@ public final class OrderBookTradingEngine implements MarketTickListener {
       } catch (Exception ex) {
         log("Failed to resubscribe " + runtime.ticker + ": " + ex.getMessage());
       }
+    }
+  }
+  
+  /**
+   * Reconciles tracked position with broker position after stream outage (TODO.md Section 5).
+   * Ensures internal state matches exchange reality.
+   */
+  private void reconcilePositionAfterClose(TickerRuntime runtime, String signalId, String reason) {
+    try {
+      Map<TickerInfo.Key, PositionInfo> brokerPositions = tcsService.getCurrentPositions(TickerType.ALL);
+      PositionInfo brokerPosition = brokerPositions.get(runtime.key);
+      
+      if (brokerPosition != null && brokerPosition.getBalance() != 0) {
+        log("WARN: Position closed but broker still shows " + runtime.ticker + " qty=" + brokerPosition.getBalance());
+        // This could indicate a failed close - trigger emergency investigation
+        emitDiagnostic(
+            OrderBookDiagnosticEventType.RECONCILIATION_MISMATCH,
+            runtime.ticker,
+            "position_mismatch",
+            Map.of(
+                "signalId", signalId,
+                "reason", reason,
+                "brokerQty", brokerPosition.getBalance()));
+      }
+    } catch (Exception e) {
+      log("Reconciliation failed for " + runtime.ticker + ": " + e.getMessage());
     }
   }
 
@@ -1215,8 +1277,12 @@ public final class OrderBookTradingEngine implements MarketTickListener {
       return;
     }
 
-    // no exchange-side tp/sl in sandbox, exits are tracked virtually by the engine
-    TCSService.OrderExecutionResult result = placeBuyOrderWithRetry(runtime);
+    // Place server-side stop-loss if enabled (TODO.md Section 5)
+    String brokerOrderId = "ob_" + runtime.ticker + "_" + System.currentTimeMillis();
+    String brokerStopLossOrderId = null;
+    double brokerStopLossPrice = 0.0;
+    
+    TCSService.OrderExecutionResult result = placeBuyOrderWithRetry(runtime, brokerOrderId);
 
     if (!result.isSuccess()) {
       log("OPEN failed for " + runtime.ticker);
@@ -1228,6 +1294,19 @@ public final class OrderBookTradingEngine implements MarketTickListener {
     int executedUnits = result.getExecutedCount() > 0 ? result.getExecutedCount() : units;
     BracketPrices executedBracket = buildBracketPrices(runtime.ticker, entryBid, executedEntry);
     double entryValue = executedUnits * executedEntry;
+    
+    // Place server-side stop-loss order if enabled
+    if (config.isServerStopEnabled() && !mainConfig.isTestMode()) {
+      var stopLossResult = placeServerStopLossOrder(runtime, executedUnits, executedBracket.slPrice, "BUY");
+      if (stopLossResult != null && stopLossResult.orderId != null) {
+        brokerStopLossOrderId = stopLossResult.orderId;
+        brokerStopLossPrice = executedBracket.slPrice;
+        log("Server SL placed for " + runtime.ticker + ": orderId=" + brokerStopLossOrderId + ", price=" + brokerStopLossPrice);
+      } else {
+        log("WARN: Server SL failed for " + runtime.ticker);
+      }
+    }
+    
     runtime.openPosition =
         new OpenPosition(
             signalId,
@@ -1239,7 +1318,11 @@ public final class OrderBookTradingEngine implements MarketTickListener {
             executedBracket.slPrice,
             executedUnits,
             entryValue,
-            result.getCommission());
+            result.getCommission(),
+            false,
+            brokerOrderId,
+            brokerStopLossOrderId,
+            brokerStopLossPrice);
     recordRealizedCommission(runtime.ticker, entryValue, result.getCommission());
     persistPosition(runtime);
     runtime.cooldownUntilMs = System.currentTimeMillis() + config.getCooldownSeconds() * 1000L;
@@ -1282,7 +1365,7 @@ public final class OrderBookTradingEngine implements MarketTickListener {
             + executedBracket.slPrice);
   }
 
-  private TCSService.OrderExecutionResult placeBuyOrderWithRetry(TickerRuntime runtime) {
+  private TCSService.OrderExecutionResult placeBuyOrderWithRetry(TickerRuntime runtime, String clientOrderId) {
     TCSService.OrderExecutionResult result = TCSService.OrderExecutionResult.failed();
     for (int attempt = 1; attempt <= ORDER_PLACE_ATTEMPTS; attempt++) {
       result =
@@ -1297,6 +1380,28 @@ public final class OrderBookTradingEngine implements MarketTickListener {
       }
     }
     return result;
+  }
+  
+  /**
+   * Places server-side stop-loss order for position protection (TODO.md Section 5).
+   * @return OrderId if successful, null otherwise
+   */
+  private TCSService.StopLossOrderResult placeServerStopLossOrder(
+      TickerRuntime runtime, int units, double stopLossPrice, String direction) {
+    try {
+      // For BUY positions, SL is a SELL order at stopLossPrice
+      // For SHORT positions, SL is a BUY order at stopLossPrice
+      String operation = "BUY".equals(direction) ? "Sell" : "Buy";
+      var result = tcsService.createStopLossOrder(
+          runtime.key,
+          units,
+          stopLossPrice,
+          operation);
+      return result;
+    } catch (Exception e) {
+      log("Server SL placement failed for " + runtime.ticker + ": " + e.getMessage());
+      return null;
+    }
   }
 
   private TCSService.OrderExecutionResult sellByMarketWithRetry(
@@ -1612,29 +1717,38 @@ public final class OrderBookTradingEngine implements MarketTickListener {
       riskManager.registerTrade(netPnl);
     }
     long holdSeconds = Duration.between(position.entryTime, Instant.now()).getSeconds();
+    
+    // Cancel server-side stop-loss if it was set
+    if (position.brokerStopLossOrderId != null && !position.brokerStopLossOrderId.isEmpty()) {
+      try {
+        tcsService.cancelStopOrder(runtime.key, position.brokerStopLossOrderId, "ServerSL");
+        log("Cancelled server SL for " + runtime.ticker + ": orderId=" + position.brokerStopLossOrderId);
+      } catch (Exception e) {
+        log("Failed to cancel server SL for " + runtime.ticker + ": " + e.getMessage());
+      }
+    }
+    
+    // Record realized PnL for reporting (TODO.md Section 6)
+    position.realizedPnl = netPnl;
+    
+    Map<String, Object> closeMetrics = new HashMap<>();
+    closeMetrics.put("signalId", position.signalId);
+    closeMetrics.put("direction", position.direction);
+    closeMetrics.put("entryPrice", position.entryPrice);
+    closeMetrics.put("exitPrice", exitPrice);
+    closeMetrics.put("grossPnl", grossPnl);
+    closeMetrics.put("netPnl", netPnl);
+    closeMetrics.put("fees", position.entryCommission + exitCommission);
+    closeMetrics.put("holdSeconds", holdSeconds);
+    closeMetrics.put("units", position.units);
+    closeMetrics.put("realizedPnl", netPnl);
+    closeMetrics.put("serverSlCancelled", position.brokerStopLossOrderId != null);
+    
     emitDiagnostic(
         OrderBookDiagnosticEventType.POSITION_CLOSED,
         runtime.ticker,
         reason,
-        Map.of(
-            "signalId",
-            position.signalId,
-            "direction",
-            position.direction,
-            "entryPrice",
-            position.entryPrice,
-            "exitPrice",
-            exitPrice,
-            "grossPnl",
-            grossPnl,
-            "netPnl",
-            netPnl,
-            "fees",
-            position.entryCommission + exitCommission,
-            "holdSeconds",
-            holdSeconds,
-            "units",
-            position.units));
+        closeMetrics);
     runtime.openPosition = null;
     positionStore.remove(runtime.ticker);
     runtime.cooldownUntilMs = System.currentTimeMillis() + config.getCooldownSeconds() * 1000L;
@@ -2624,6 +2738,12 @@ public final class OrderBookTradingEngine implements MarketTickListener {
     final boolean isRestored;
     volatile int microReversalTicks;
     volatile int flowReversalTicks;
+    
+    // TODO.md Section 5: Server-side stop-loss and order idempotency
+    final String brokerOrderId;          // Client-provided unique order ID for idempotency
+    final String brokerStopLossOrderId;  // Broker-side stop-loss order ID
+    final double brokerStopLossPrice;    // Server-side SL price
+    volatile double realizedPnl;         // Net PnL after commissions
 
     OpenPosition(
         String signalId,
@@ -2637,7 +2757,7 @@ public final class OrderBookTradingEngine implements MarketTickListener {
         double entryValue,
         double entryCommission) {
       this(signalId, direction, entryPrice, spreadAtEntry, entryTime, takeProfitPrice,
-           stopLossPrice, units, entryValue, entryCommission, false);
+           stopLossPrice, units, entryValue, entryCommission, false, null, null, 0.0);
     }
 
     OpenPosition(
@@ -2652,6 +2772,26 @@ public final class OrderBookTradingEngine implements MarketTickListener {
         double entryValue,
         double entryCommission,
         boolean isRestored) {
+      this(signalId, direction, entryPrice, spreadAtEntry, entryTime, takeProfitPrice,
+           stopLossPrice, units, entryValue, entryCommission, isRestored, null, null, 0.0);
+    }
+    
+    // Full constructor with server-side stop and idempotency
+    OpenPosition(
+        String signalId,
+        String direction,
+        double entryPrice,
+        double spreadAtEntry,
+        Instant entryTime,
+        double takeProfitPrice,
+        double stopLossPrice,
+        int units,
+        double entryValue,
+        double entryCommission,
+        boolean isRestored,
+        String brokerOrderId,
+        String brokerStopLossOrderId,
+        double brokerStopLossPrice) {
       this.signalId = signalId;
       this.direction = direction;
       this.entryPrice = entryPrice;
@@ -2663,6 +2803,12 @@ public final class OrderBookTradingEngine implements MarketTickListener {
       this.entryValue = entryValue;
       this.entryCommission = entryCommission;
       this.isRestored = isRestored;
+      this.microReversalTicks = 0;
+      this.flowReversalTicks = 0;
+      this.brokerOrderId = brokerOrderId;
+      this.brokerStopLossOrderId = brokerStopLossOrderId;
+      this.brokerStopLossPrice = brokerStopLossPrice;
+      this.realizedPnl = 0.0;
     }
 
     @Override
@@ -2718,6 +2864,10 @@ public final class OrderBookTradingEngine implements MarketTickListener {
     int units;
     double entryValue;
     double entryCommission;
+    String brokerOrderId;
+    String brokerStopLossOrderId;
+    double brokerStopLossPrice;
+    double realizedPnl;
 
     PositionState() {}
 
@@ -2732,6 +2882,10 @@ public final class OrderBookTradingEngine implements MarketTickListener {
       this.units = position.units;
       this.entryValue = position.entryValue;
       this.entryCommission = position.entryCommission;
+      this.brokerOrderId = position.brokerOrderId;
+      this.brokerStopLossOrderId = position.brokerStopLossOrderId;
+      this.brokerStopLossPrice = position.brokerStopLossPrice;
+      this.realizedPnl = position.realizedPnl;
     }
 
     OpenPosition toOpenPosition() {
@@ -2746,7 +2900,10 @@ public final class OrderBookTradingEngine implements MarketTickListener {
           units,
           entryValue,
           entryCommission,
-          true); // isRestored = true
+          true,
+          brokerOrderId,
+          brokerStopLossOrderId,
+          brokerStopLossPrice);
     }
   }
 

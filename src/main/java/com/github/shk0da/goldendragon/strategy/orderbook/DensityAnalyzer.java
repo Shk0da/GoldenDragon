@@ -17,6 +17,9 @@ import java.util.concurrent.ConcurrentHashMap;
  *   <li>Density_1 (Local): Volume >= Average_Volume_5m * 3</li>
  *   <li>Density_2 (Anomalous): Volume >= Average_Volume_5m * 5</li>
  * </ul>
+ * 
+ * <p>Additionally supports cluster detection (TODO.md Section 2):
+ * groups nearby density levels into clusters using cluster_ticks.
  */
 public final class DensityAnalyzer {
     
@@ -254,5 +257,136 @@ public final class DensityAnalyzer {
     public boolean hasSufficientData(String ticker) {
         VolumeHistory history = volumeHistories.get(ticker);
         return history != null && history.hasSufficientData();
+    }
+    
+    /**
+     * Find clustered densities - groups nearby density levels into clusters (TODO.md Section 2).
+     * 
+     * <p>Clusters volumes within cluster_ticks price range.
+     * Useful for detecting "spread" large orders.
+     * 
+     * @param snapshot current order book
+     * @param ticker ticker symbol
+     * @param clusterTicks number of ticks for clustering
+     * @return list of clustered densities
+     */
+    public List<ClusteredDensity> findClusteredDensities(MarketDepthSnapshot snapshot, String ticker, int clusterTicks) {
+        List<Density> densities = findDensities(snapshot, ticker);
+        if (densities.isEmpty()) {
+            return Collections.emptyList();
+        }
+        
+        // Group by side
+        List<Density> bidDensities = densities.stream().filter(Density::isBid).toList();
+        List<Density> askDensities = densities.stream().filter(d -> !d.isBid()).toList();
+        
+        List<ClusteredDensity> clusters = new ArrayList<>();
+        
+        clusters.addAll(groupDensities(bidDensities, clusterTicks, true));
+        clusters.addAll(groupDensities(askDensities, clusterTicks, false));
+        
+        return clusters;
+    }
+    
+    private List<ClusteredDensity> groupDensities(List<Density> densities, int clusterTicks, boolean isBid) {
+        if (densities.isEmpty()) {
+            return Collections.emptyList();
+        }
+        
+        // Sort by price
+        densities.sort(Comparator.comparingDouble(Density::getPrice));
+        
+        List<ClusteredDensity> clusters = new ArrayList<>();
+        double clusterPriceStep = calculateClusterStep(densities.get(0).getPrice(), clusterTicks);
+        
+        // Simple greedy clustering
+        List<Density> remaining = new ArrayList<>(densities);
+        while (!remaining.isEmpty()) {
+            Density first = remaining.get(0);
+            double clusterPrice = first.getPrice();
+            long totalVolume = 0;
+            int count = 0;
+            
+            Iterator<Density> it = remaining.iterator();
+            while (it.hasNext()) {
+                Density d = it.next();
+                if (Math.abs(d.getPrice() - clusterPrice) <= clusterPriceStep) {
+                    totalVolume += d.getVolume();
+                    count++;
+                    it.remove();
+                }
+            }
+            
+            if (count > 0 && totalVolume > 0) {
+                double avgVolume = totalVolume / count;
+                long avgVol = getAverageVolume();
+                DensityType type = avgVolume >= (avgVol * DENSITY_2_MULTIPLIER)
+                    ? DensityType.ANOMALOUS
+                    : DensityType.LOCAL;
+                    
+                clusters.add(new ClusteredDensity(clusterPrice, totalVolume, type, isBid, count));
+            }
+        }
+        
+        return clusters;
+    }
+    
+    private long getAverageVolume() {
+        // Use overall average from histories
+        double avg = volumeHistories.values().stream()
+            .mapToLong(VolumeHistory::getAverageVolume)
+            .average()
+            .orElse(0.0);
+        return (long) avg;
+    }
+    
+    private double calculateClusterStep(double price, int ticks) {
+        if (price > 10000) return 0.1 * ticks;
+        if (price > 1000) return 0.01 * ticks;
+        if (price > 100) return 0.001 * ticks;
+        return 0.0001 * ticks;
+    }
+    
+    /**
+     * Clustered density - group of nearby density levels.
+     */
+    public static final class ClusteredDensity {
+        private final double price;
+        private final long volume;
+        private final DensityType type;
+        private final boolean isBid;
+        private final int densityCount;
+        
+        public ClusteredDensity(double price, long volume, DensityType type, boolean isBid, int densityCount) {
+            this.price = price;
+            this.volume = volume;
+            this.type = type;
+            this.isBid = isBid;
+            this.densityCount = densityCount;
+        }
+        
+        public double getPrice() {
+            return price;
+        }
+        
+        public long getVolume() {
+            return volume;
+        }
+        
+        public DensityType getType() {
+            return type;
+        }
+        
+        public boolean isBid() {
+            return isBid;
+        }
+        
+        public int getDensityCount() {
+            return densityCount;
+        }
+        
+        public boolean isAnomalous() {
+            return type == DensityType.ANOMALOUS;
+        }
     }
 }

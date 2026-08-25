@@ -79,6 +79,23 @@ public class OrderBookScalpConfig {
   private final int trendFlowWindow;
   private final double trendMinMomentumRatio;
   private final double trendMinFlowAccumulation;
+  
+  // HFT scalping spec parameters (TODO.md Section 2)
+  private final double tickSize;
+  private final double lotStep;
+  private final int volLookbackHours;
+  private final int clusterTicks;
+  private final double fadeRatio;
+  private final double accelRatio;
+  private final double densityPullExit;
+  private final boolean serverStopEnabled;
+  private final long orderTimeoutMs;
+  
+  // Additional HFT parameters (TODO.md compliance)
+  private final int deltaBarsLookback;      // TODO.md 3.1: number of 10s bars for delta analysis
+  private final int stickBars;              // TODO.md 3.3: bars for stickiness detection
+  private final int minNetProfitTicks;      // TODO.md 2: minimum net profit in ticks for entry
+  private final double eatenRatioEntry;     // TODO.md 2: density consumption ratio for breakout
 
   public OrderBookScalpConfig() {
     final Properties properties;
@@ -263,6 +280,36 @@ public class OrderBookScalpConfig {
     this.trendMinFlowAccumulation =
         Double.parseDouble(
             properties.getProperty("orderBookScalp.trendMinFlowAccumulation", "1.0"));
+    
+    // HFT scalping spec parameters (TODO.md Section 2)
+    this.tickSize =
+        Double.parseDouble(properties.getProperty("orderBookScalp.tickSize", "0.0"));
+    this.lotStep =
+        Double.parseDouble(properties.getProperty("orderBookScalp.lotStep", "1.0"));
+    this.volLookbackHours =
+        Integer.parseInt(properties.getProperty("orderBookScalp.volLookbackHours", "2"));
+    this.clusterTicks =
+        Integer.parseInt(properties.getProperty("orderBookScalp.clusterTicks", "3"));
+    this.fadeRatio =
+        Double.parseDouble(properties.getProperty("orderBookScalp.fadeRatio", "0.3"));
+    this.accelRatio =
+        Double.parseDouble(properties.getProperty("orderBookScalp.accelRatio", "1.5"));
+    this.densityPullExit =
+        Double.parseDouble(properties.getProperty("orderBookScalp.densityPullExit", "0.5"));
+    this.serverStopEnabled =
+        Boolean.parseBoolean(properties.getProperty("orderBookScalp.serverStopEnabled", "true"));
+    this.orderTimeoutMs =
+        Long.parseLong(properties.getProperty("orderBookScalp.orderTimeoutMs", "5000"));
+    
+    // Additional HFT parameters (TODO.md compliance)
+    this.deltaBarsLookback =
+        Integer.parseInt(properties.getProperty("orderBookScalp.deltaBarsLookback", "2"));
+    this.stickBars =
+        Integer.parseInt(properties.getProperty("orderBookScalp.stickBars", "2"));
+    this.minNetProfitTicks =
+        Integer.parseInt(properties.getProperty("orderBookScalp.minNetProfitTicks", "2"));
+    this.eatenRatioEntry =
+        Double.parseDouble(properties.getProperty("orderBookScalp.eatenRatioEntry", "0.75"));
   }
 
   public List<String> getInstruments() {
@@ -535,5 +582,59 @@ public class OrderBookScalpConfig {
 
   public double getTrendMinFlowAccumulation() {
     return trendMinFlowAccumulation;
+  }
+  
+  // HFT scalping spec parameters (TODO.md Section 2)
+  public double getTickSize() {
+    return tickSize;
+  }
+  
+  public double getLotStep() {
+    return lotStep;
+  }
+  
+  public int getVolLookbackHours() {
+    return volLookbackHours;
+  }
+  
+  public int getClusterTicks() {
+    return clusterTicks;
+  }
+  
+  public double getFadeRatio() {
+    return fadeRatio;
+  }
+  
+  public double getAccelRatio() {
+    return accelRatio;
+  }
+  
+  public double getDensityPullExit() {
+    return densityPullExit;
+  }
+  
+  public boolean isServerStopEnabled() {
+    return serverStopEnabled;
+  }
+  
+  public long getOrderTimeoutMs() {
+    return orderTimeoutMs;
+  }
+  
+  // Additional HFT parameters (TODO.md compliance)
+  public int getDeltaBarsLookback() {
+    return deltaBarsLookback;
+  }
+  
+  public int getStickBars() {
+    return stickBars;
+  }
+  
+  public int getMinNetProfitTicks() {
+    return minNetProfitTicks;
+  }
+  
+  public double getEatenRatioEntry() {
+    return eatenRatioEntry;
   }
 }

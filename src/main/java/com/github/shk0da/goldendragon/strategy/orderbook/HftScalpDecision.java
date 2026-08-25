@@ -1,5 +1,6 @@
 package com.github.shk0da.goldendragon.strategy.orderbook;
 
+import com.github.shk0da.goldendragon.config.OrderBookScalpConfig;
 import com.github.shk0da.goldendragon.strategy.orderbook.CumulativeDeltaTracker.DeltaAnalysis;
 import com.github.shk0da.goldendragon.strategy.orderbook.DensityAnalyzer.Density;
 import com.github.shk0da.goldendragon.strategy.orderbook.DensityAnalyzer.DensityType;
@@ -27,7 +28,15 @@ public final class HftScalpDecision {
     private static final int BREAKOUT_MAX_BARS = 4; // Max 4 bars (1 minute)
     private static final int BREAKOUT_MAX_SECONDS = 60; // Max 60 seconds
     private static final int BREAKOUT_DENSITY_CONSUMED_PERCENT = 75; // 75-80% consumed
-    private static final int STICKINESS_BARS_THRESHOLD = 3; // Price sticks for 3 bars
+    
+    // Configurable parameters (default values - overridden by config)
+    private static int stickinessBarsThreshold = 2;
+    private static int minNetProfitTicks = 2;
+    private static double fadeRatio = 0.3;
+    private static double accelRatio = 1.5;
+    private static double eatenRatioEntry = 0.75;
+    private static double tickSizeForCalc = 0.0001;
+    private static double densityPullExitRatio = 0.5;
     
     /**
      * Tracks density stickiness for Scenario B breakout detection.
@@ -66,7 +75,7 @@ public final class HftScalpDecision {
         }
         
         boolean isSticky() {
-            return stickyBars >= STICKINESS_BARS_THRESHOLD;
+            return stickyBars >= stickinessBarsThreshold;
         }
         
         int getStickyBars() {
@@ -155,6 +164,19 @@ public final class HftScalpDecision {
     }
     
     /**
+     * Configure HftScalpDecision with parameters from OrderBookScalpConfig.
+     */
+    public static void configure(OrderBookScalpConfig config) {
+        stickinessBarsThreshold = config.getStickBars();
+        minNetProfitTicks = config.getMinNetProfitTicks();
+        fadeRatio = config.getFadeRatio();
+        accelRatio = config.getAccelRatio();
+        eatenRatioEntry = config.getEatenRatioEntry();
+        tickSizeForCalc = config.getTickSize() > 0 ? config.getTickSize() : 0.0001;
+        densityPullExitRatio = config.getDensityPullExit();
+    }
+    
+    /**
      * Calculate tick size for instrument (typical values).
      * In real implementation, this would query instrument characteristics.
      */
@@ -175,8 +197,9 @@ public final class HftScalpDecision {
      * <p>Conditions:
      * <ul>
      *   <li>Price approaches Density_2 (within 0.05%)</li>
-     *   <li>Delta decay or divergence in last 2 bars</li>
+     *   <li>Delta decay or divergence in last 2 bars (TODO.md 3.2)</li>
      *   <li>Spread protection (max 0.02%)</li>
+     *   <li>Minimum net profit in ticks (TODO.md 2: min_net_profit_ticks)</li>
      * </ul>
      * 
      * <p>Entry: Limit order (Maker) 1 tick before density
@@ -188,7 +211,9 @@ public final class HftScalpDecision {
             double currentPrice,
             DeltaAnalysis deltaAnalysis,
             double spread,
-            boolean isLong) {
+            boolean isLong,
+            int minNetProfitTicks,
+            double tickSize) {
         
         if (density == null || density.getType() != DensityType.ANOMALOUS) {
             return Decision.none();
@@ -207,13 +232,13 @@ public final class HftScalpDecision {
             return Decision.none();
         }
         
-        // Check delta filter: decay or divergence
+        // Check delta filter: decay or divergence (TODO.md 3.2)
         if (!deltaAnalysis.isDecaying() && !deltaAnalysis.isDiverging()) {
             return Decision.none();
         }
         
         // Calculate tick size for precise placement
-        double tickSize = calculateTickSize(currentPrice);
+        if (tickSize <= 0) tickSize = calculateTickSize(currentPrice);
         
         // Calculate TP/SL with tick precision
         double distanceToDensity = Math.abs(currentPrice - density.getPrice());
@@ -229,13 +254,21 @@ public final class HftScalpDecision {
             tp = density.getPrice() - distanceToDensity * BOUNCE_TP_RR_MAX;
         }
         
+        // Check minimum net profit (TODO.md: min_net_profit_ticks)
+        double profitDistance = isLong ? (tp - currentPrice) : (currentPrice - tp);
+        double minProfitInTicks = minNetProfitTicks * tickSize;
+        if (profitDistance < minProfitInTicks) {
+            return Decision.none();
+        }
+        
         String reason = String.format(
             "Bounce entry (Scenario A): density=%.2f type=ANOMALOUS " +
-            "deltaDecay=%b deltaDivergence=%b tickSize=%.4f",
+            "deltaDecay=%b deltaDivergence=%b tickSize=%.4f minProfit=%d ticks",
             density.getPrice(),
             deltaAnalysis.isDecaying(),
             deltaAnalysis.isDiverging(),
-            tickSize
+            tickSize,
+            minNetProfitTicks
         );
         
         return Decision.enterBounce(reason, tp, sl);
@@ -246,9 +279,9 @@ public final class HftScalpDecision {
      * 
      * <p>Conditions:
      * <ul>
-     *   <li>Price sticks to density for 2-3 bars</li>
-     *   <li>Exponential delta growth in breakout direction</li>
-     *   <li>Density volume consumed 75-80%</li>
+     *   <li>Price sticks to density for stickBars (configurable) bars</li>
+     *   <li>Exponential delta growth in breakout direction (TODO.md 3.4)</li>
+     *   <li>Density volume consumed >= eaten_ratio_entry (TODO.md 3.5)</li>
      *   <li>Spread protection (max 0.02%)</li>
      * </ul>
      * 
@@ -284,24 +317,24 @@ public final class HftScalpDecision {
             return Decision.none();
         }
         
-        // Check price stickiness (2-3 bars requirement)
+        // Check price stickiness (configurable stickBars threshold)
         if (!tracker.isSticky()) {
             return Decision.none();
         }
         
-        // Check density consumption (75-80% consumed)
-        double consumedPercent = 1.0 - (currentDensityVolume / originalDensityVolume);
-        if (consumedPercent < 0.75) {
+        // Check density consumption (TODO.md 3.5: eaten >= eaten_ratio_entry)
+        double eatenRatio = 1.0 - (currentDensityVolume / originalDensityVolume);
+        if (eatenRatio < eatenRatioEntry) {
             return Decision.none();
         }
         
-        // Check exponential delta growth
+        // Check exponential delta growth (TODO.md 3.4: |d0| > |d1| * accel_ratio)
         if (!deltaAnalysis.isExponentialGrowth()) {
             return Decision.none();
         }
         
         // Calculate tick size
-        double tickSize = calculateTickSize(currentPrice);
+        double tickSize = tickSizeForCalc > 0 ? tickSizeForCalc : calculateTickSize(currentPrice);
         
         // Calculate TP/SL for breakout
         double tp, sl;
@@ -317,12 +350,13 @@ public final class HftScalpDecision {
         }
         
         String reason = String.format(
-            "Breakout entry (Scenario B): density=%.2f consumed=%.0f%% " +
-            "stickyBars=%d exponentialGrowth=%b tickSize=%.4f",
+            "Breakout entry (Scenario B): density=%.2f eatenRatio=%.0f%% " +
+            "stickyBars=%d exponentialGrowth=%b growthRate=%.2f tickSize=%.4f",
             density.getPrice(),
-            consumedPercent * 100,
+            eatenRatio * 100,
             tracker.getStickyBars(),
             deltaAnalysis.isExponentialGrowth(),
+            deltaAnalysis.getGrowthRate(),
             tickSize
         );
         
@@ -337,6 +371,14 @@ public final class HftScalpDecision {
      *   <li>Take Profit: TP/SL levels hit</li>
      *   <li>Emergency exit: Density disappears (spoofing detection)</li>
      *   <li>Time stop: Max hold time exceeded (Scenario B)</li>
+     *   <li>Breakout decay: delta stopped growing for 2 bars (Scenario B)</li>
+     *   <li>Density pull exit: density decreased more than density_pull_exit (spoofing)</li>
+     * </ul>
+     * 
+     * <p>Spoofing vs Eating (TODO.md 3.6):
+     * <ul>
+     *   <li><b>Eating:</b> density volume decreases SYNCHRONOUSLY with trade volume at that price</li>
+     *   <li><b>Spoofing:</b> density volume decreases WITHOUT corresponding trades → emergency exit</li>
      * </ul>
      */
     public static Decision evaluateExit(
@@ -348,7 +390,8 @@ public final class HftScalpDecision {
             Instant entryTime,
             Density density,
             double currentDensityVolume,
-            double originalDensityVolume) {
+            double originalDensityVolume,
+            double densityPullExitRatio) {
         
         // Check TP/SL
         if (isLong) {
@@ -373,12 +416,30 @@ public final class HftScalpDecision {
             return Decision.exit("time_stop");
         }
         
-        // Check emergency exit: density disappeared (spoofing detection)
+        // Check spoofing vs eating (TODO.md 3.6)
         if (density != null && originalDensityVolume > 0) {
             double remainingPercent = currentDensityVolume / originalDensityVolume;
-            if (remainingPercent < 0.1) { // 90% gone
+            
+            // Spoofing: density disappeared rapidly (> density_pull_exit ratio)
+            if (remainingPercent < (1.0 - densityPullExitRatio)) {
                 return Decision.emergencyExit();
             }
+        }
+        
+        return Decision.none();
+    }
+    
+    /**
+     * Evaluate breakout decay exit (TODO.md Section 4, item 122).
+     * Exit position when delta stops growing for 2 bars in Scenario B.
+     * 
+     * @param deltaAnalysis current delta analysis
+     * @return exit decision if delta has decayed
+     */
+    public static Decision evaluateBreakoutDecayExit(DeltaAnalysis deltaAnalysis) {
+        // If delta is decaying, exit breakout position
+        if (deltaAnalysis.isDecaying()) {
+            return Decision.exit("delta_decay_exit");
         }
         
         return Decision.none();
