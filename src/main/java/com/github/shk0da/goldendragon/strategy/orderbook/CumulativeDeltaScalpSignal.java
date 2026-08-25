@@ -120,6 +120,7 @@ public final class CumulativeDeltaScalpSignal implements OrderBookSignal {
         
         MarketDepthSnapshot snapshot = context.getSnapshot();
         double currentPrice = context.getBestAsk(); // Use ask for short entry
+        Instant now = Instant.now();
         
         // Update volume history if needed
         updateVolumeHistory(ticker, snapshot);
@@ -127,23 +128,24 @@ public final class CumulativeDeltaScalpSignal implements OrderBookSignal {
         // Update cumulative delta from trades
         updateDelta(ticker);
         
-        // Check for Scenario A: Bounce from density
+        // Check for Scenario A: Bounce from density (higher priority)
         DensityAnalyzer.Density density = densityAnalyzer.findAnomalousDensity(snapshot, ticker, false); // Check ask side for short
         
         if (density == null) {
             return OrderBookEntryDecision.none();
         }
         
-        // Check spread protection
-        double spreadPercent = context.getSpreadBps() / 10000.0;
-        if (spreadPercent > 0.0002) { // 0.02%
-            return OrderBookEntryDecision.none();
+        // Get current density volume for breakout scenario
+        double currentDensityVolume = 0;
+        DensityVolume densityVolume = densityVolumes.get(ticker);
+        if (densityVolume != null) {
+            currentDensityVolume = densityVolume.getOriginalVolume();
         }
         
         // Get delta analysis for divergence detection
         CumulativeDeltaTracker.DeltaAnalysis deltaAnalysis = deltaTracker.analyzeDelta(ticker, -1); // Price down
         
-        // Evaluate bounce entry
+        // Evaluate Scenario A (Bounce) - HIGHER PRIORITY
         HftScalpDecision.Decision bounceDecision = HftScalpDecision.evaluateBounceEntry(
             density,
             currentPrice,
@@ -152,20 +154,29 @@ public final class CumulativeDeltaScalpSignal implements OrderBookSignal {
             false // Short
         );
         
-        if (!bounceDecision.isEnter()) {
-            return OrderBookEntryDecision.none();
+        if (bounceDecision.isEnter()) {
+            // Log bounce entry signal with detailed metrics
+            String reason = String.format(
+                "Bounce SHORT (Scenario A): density=%.2f deltaDecay=%b deltaDivergence=%b spread=%.3fbps tick=%.4f",
+                density.getPrice(),
+                deltaAnalysis.isDecaying(),
+                deltaAnalysis.isDiverging(),
+                context.getSpreadBps(),
+                HftScalpDecision.calculateTickSize(currentPrice)
+            );
+            
+            // Track density volume for breakout scenario
+            densityVolumes.put(ticker, new DensityVolume(
+                density.getPrice(),
+                density.getVolume(),
+                density.isBid()
+            ));
+            
+            logEntry(ticker, "SHORT", reason);
+            return OrderBookEntryDecision.enter(reason);
         }
         
-        // Log bounce entry signal
-        String reason = String.format(
-            "Bounce SHORT: density=%.2f deltaDecay=%b deltaDivergence=%b spread=%.3fbps",
-            density.getPrice(),
-            deltaAnalysis.isDecaying(),
-            deltaAnalysis.isDiverging(),
-            context.getSpreadBps()
-        );
-        
-        return OrderBookEntryDecision.enter(reason);
+        return OrderBookEntryDecision.none();
     }
     
     @Override

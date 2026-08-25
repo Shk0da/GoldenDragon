@@ -5,15 +5,19 @@ import com.github.shk0da.goldendragon.strategy.orderbook.DensityAnalyzer.Density
 import com.github.shk0da.goldendragon.strategy.orderbook.DensityAnalyzer.DensityType;
 
 import java.time.Instant;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Makes entry/exit decisions for HFT scalping strategy.
  * 
  * <p>Implements two scenarios from the spec:
  * <ul>
- *   <li>Scenario A: Bounce from large density (counter-trend)</li>
- *   <li>Scenario B: Density breakout (impulse)</li>
+ *   <li><b>Scenario A (Bounce):</b> Counter-trend bounce from large density with delta confirmation</li>
+ *   <li><b>Scenario B (Breakout):</b> Impulse breakout when density is consumed</li>
  * </ul>
+ * 
+ * <p><b>Priority:</b> Scenario A has priority over Scenario B as per specification.
+ * This means if both signals trigger simultaneously, Scenario A entry is preferred.
  */
 public final class HftScalpDecision {
     
@@ -23,6 +27,54 @@ public final class HftScalpDecision {
     private static final int BREAKOUT_MAX_BARS = 4; // Max 4 bars (1 minute)
     private static final int BREAKOUT_MAX_SECONDS = 60; // Max 60 seconds
     private static final int BREAKOUT_DENSITY_CONSUMED_PERCENT = 75; // 75-80% consumed
+    private static final int STICKINESS_BARS_THRESHOLD = 3; // Price sticks for 3 bars
+    
+    /**
+     * Tracks density stickiness for Scenario B breakout detection.
+     */
+    private static final class DensityStickinessTracker {
+        private final String ticker;
+        private final double densityPrice;
+        private final boolean isBid;
+        private int stickyBars;
+        private Instant lastBarTime;
+        
+        DensityStickinessTracker(String ticker, double densityPrice, boolean isBid) {
+            this.ticker = ticker;
+            this.densityPrice = densityPrice;
+            this.isBid = isBid;
+            this.stickyBars = 0;
+            this.lastBarTime = Instant.now();
+        }
+        
+        void update(Instant barTime, double currentPrice) {
+            // Check if still near same density
+            double distance = Math.abs(currentPrice - densityPrice);
+            double distancePercent = distance / currentPrice;
+            
+            // Consider sticky if within 0.05% (same as bounce proximity)
+            if (distancePercent <= 0.0005) {
+                if (barTime.getEpochSecond() > lastBarTime.getEpochSecond()) {
+                    stickyBars++;
+                    lastBarTime = barTime;
+                }
+            } else {
+                // Reset if price moved away
+                stickyBars = 0;
+                lastBarTime = barTime;
+            }
+        }
+        
+        boolean isSticky() {
+            return stickyBars >= STICKINESS_BARS_THRESHOLD;
+        }
+        
+        int getStickyBars() {
+            return stickyBars;
+        }
+    }
+    
+    private final ConcurrentHashMap<String, DensityStickinessTracker> stickinessTrackers = new ConcurrentHashMap<>();
     
     /**
      * Decision result for entry/exit.
@@ -35,10 +87,13 @@ public final class HftScalpDecision {
         private final double stopLoss;
         private final String exitReason;
         private final boolean emergencyExit;
+        private final boolean isLimitOrder; // true for maker (Scenario A), false for taker (Scenario B)
+        private final String scenario; // "bounce" or "breakout"
         
         Decision(boolean enter, boolean isLong, String reason, 
                  double takeProfit, double stopLoss, 
-                 String exitReason, boolean emergencyExit) {
+                 String exitReason, boolean emergencyExit,
+                 boolean isLimitOrder, String scenario) {
             this.enter = enter;
             this.isLong = isLong;
             this.reason = reason;
@@ -46,26 +101,28 @@ public final class HftScalpDecision {
             this.stopLoss = stopLoss;
             this.exitReason = exitReason;
             this.emergencyExit = emergencyExit;
+            this.isLimitOrder = isLimitOrder;
+            this.scenario = scenario;
         }
         
         public static Decision none() {
-            return new Decision(false, false, null, 0, 0, null, false);
+            return new Decision(false, false, null, 0, 0, null, false, false, null);
         }
         
-        public static Decision enterBounce(String reason) {
-            return new Decision(true, false, reason, 0, 0, null, false);
+        public static Decision enterBounce(String reason, double tp, double sl) {
+            return new Decision(true, false, reason, tp, sl, null, false, true, "bounce");
         }
         
-        public static Decision enterBreakout(String reason) {
-            return new Decision(true, false, reason, 0, 0, null, false);
+        public static Decision enterBreakout(String reason, double tp, double sl) {
+            return new Decision(true, false, reason, tp, sl, null, false, false, "breakout");
         }
         
         public static Decision exit(String exitReason) {
-            return new Decision(false, false, null, 0, 0, exitReason, false);
+            return new Decision(false, false, null, 0, 0, exitReason, false, false, null);
         }
         
         public static Decision emergencyExit() {
-            return new Decision(false, false, null, 0, 0, "emergency_exit", true);
+            return new Decision(false, false, null, 0, 0, "emergency_exit", true, false, null);
         }
         
         public boolean isEnter() {
@@ -87,16 +144,44 @@ public final class HftScalpDecision {
         public String getExitReason() {
             return exitReason;
         }
+        
+        public boolean isLimitOrder() {
+            return isLimitOrder;
+        }
+        
+        public String getScenario() {
+            return scenario;
+        }
+    }
+    
+    /**
+     * Calculate tick size for instrument (typical values).
+     * In real implementation, this would query instrument characteristics.
+     */
+    public static double calculateTickSize(double price) {
+        // Approximate tick size based on price level
+        if (price > 10000) return 0.1;
+        if (price > 1000) return 0.01;
+        if (price > 100) return 0.001;
+        return 0.0001;
     }
     
     /**
      * Evaluate entry for Scenario A: Bounce from density.
      * 
+     * <p>Priority: Scenario A has higher priority than Scenario B.
+     * If both trigger, Scenario A should be taken first.
+     * 
      * <p>Conditions:
      * <ul>
      *   <li>Price approaches Density_2 (within 0.05%)</li>
      *   <li>Delta decay or divergence in last 2 bars</li>
+     *   <li>Spread protection (max 0.02%)</li>
      * </ul>
+     * 
+     * <p>Entry: Limit order (Maker) 1 tick before density
+     * <p>SL: 1 tick behind density
+     * <p>TP: RR 1:2 to 1:3
      */
     public static Decision evaluateBounceEntry(
             Density density,
@@ -109,16 +194,16 @@ public final class HftScalpDecision {
             return Decision.none();
         }
         
-        // Check spread
+        // Check spread protection (max 0.02%)
         double spreadPercent = spread / currentPrice;
         if (spreadPercent > SPREAD_MAX_PERCENT) {
             return Decision.none();
         }
         
-        // Check density proximity
+        // Check density proximity (within 0.05%)
         double distance = Math.abs(currentPrice - density.getPrice());
         double distancePercent = distance / currentPrice;
-        if (distancePercent > 0.0005) { // 0.05%
+        if (distancePercent > 0.0005) {
             return Decision.none();
         }
         
@@ -127,28 +212,33 @@ public final class HftScalpDecision {
             return Decision.none();
         }
         
-        // Calculate TP and SL
+        // Calculate tick size for precise placement
+        double tickSize = calculateTickSize(currentPrice);
+        
+        // Calculate TP/SL with tick precision
+        double distanceToDensity = Math.abs(currentPrice - density.getPrice());
         double tp, sl;
-        double stopDistance = (currentPrice - density.getPrice()) * (isLong ? -1 : 1);
         
         if (isLong) {
-            // For long: SL 1 tick behind density, TP with RR 1:2 or 1:3
-            sl = density.getPrice() - (spread / 2); // 1 tick behind density
-            tp = density.getPrice() + Math.abs(currentPrice - density.getPrice()) * BOUNCE_TP_RR_MAX;
+            // Long: entry before density, SL behind density, TP with RR 1:2-1:3
+            sl = density.getPrice() - tickSize; // 1 tick behind density
+            tp = density.getPrice() + distanceToDensity * BOUNCE_TP_RR_MAX;
         } else {
-            // For short: SL 1 tick behind density, TP with RR 1:2 or 1:3
-            sl = density.getPrice() + (spread / 2);
-            tp = density.getPrice() - Math.abs(currentPrice - density.getPrice()) * BOUNCE_TP_RR_MAX;
+            // Short: entry before density, SL behind density, TP with RR 1:2-1:3
+            sl = density.getPrice() + tickSize;
+            tp = density.getPrice() - distanceToDensity * BOUNCE_TP_RR_MAX;
         }
         
         String reason = String.format(
-            "Bounce entry: density=%.2f type=ANOMALOUS deltaDecay=%b deltaDivergence=%b",
+            "Bounce entry (Scenario A): density=%.2f type=ANOMALOUS " +
+            "deltaDecay=%b deltaDivergence=%b tickSize=%.4f",
             density.getPrice(),
             deltaAnalysis.isDecaying(),
-            deltaAnalysis.isDiverging()
+            deltaAnalysis.isDiverging(),
+            tickSize
         );
         
-        return Decision.enterBounce(reason);
+        return Decision.enterBounce(reason, tp, sl);
     }
     
     /**
@@ -156,27 +246,46 @@ public final class HftScalpDecision {
      * 
      * <p>Conditions:
      * <ul>
-     *   <li>Price sticks to Density_1 or Density_2 (2-3 bars)</li>
-     *   <li>Exponential delta growth</li>
+     *   <li>Price sticks to density for 2-3 bars</li>
+     *   <li>Exponential delta growth in breakout direction</li>
      *   <li>Density volume consumed 75-80%</li>
+     *   <li>Spread protection (max 0.02%)</li>
      * </ul>
+     * 
+     * <p>Entry: Market order (Taker) when density consumed
+     * <p>SL: Behind broken density level (mirror support/resistance)
+     * <p>TP: 1-minute time stop or impulse exhaustion
      */
-    public static Decision evaluateBreakoutEntry(
+    public Decision evaluateBreakoutEntry(
+            String ticker,
             Density density,
             double currentPrice,
             double originalDensityVolume,
             double currentDensityVolume,
             DeltaAnalysis deltaAnalysis,
             double spread,
-            boolean isLong) {
+            boolean isLong,
+            Instant barTime) {
         
         if (density == null) {
             return Decision.none();
         }
         
-        // Check spread
+        // Update stickiness tracker for this ticker
+        DensityStickinessTracker tracker = stickinessTrackers.computeIfAbsent(
+            ticker + "_" + (isLong ? "long" : "short") + "_" + (int)density.getPrice(),
+            k -> new DensityStickinessTracker(ticker, density.getPrice(), density.isBid())
+        );
+        tracker.update(barTime, currentPrice);
+        
+        // Check spread protection (max 0.02%)
         double spreadPercent = spread / currentPrice;
         if (spreadPercent > SPREAD_MAX_PERCENT) {
+            return Decision.none();
+        }
+        
+        // Check price stickiness (2-3 bars requirement)
+        if (!tracker.isSticky()) {
             return Decision.none();
         }
         
@@ -191,27 +300,33 @@ public final class HftScalpDecision {
             return Decision.none();
         }
         
-        // Calculate TP and SL
+        // Calculate tick size
+        double tickSize = calculateTickSize(currentPrice);
+        
+        // Calculate TP/SL for breakout
         double tp, sl;
         
         if (isLong) {
-            // For long breakout: SL behind broken density, TP at first impulse
-            sl = density.getPrice() - (spread / 2); // Breakout level
+            // Long breakout: SL behind broken density, TP at impulse
+            sl = density.getPrice() - tickSize; // Mirror level
             tp = currentPrice + (currentPrice - density.getPrice()) * BOUNCE_TP_RR;
         } else {
-            // For short breakout: SL behind broken density, TP at first impulse
-            sl = density.getPrice() + (spread / 2);
+            // Short breakout: SL behind broken density
+            sl = density.getPrice() + tickSize;
             tp = currentPrice - (density.getPrice() - currentPrice) * BOUNCE_TP_RR;
         }
         
         String reason = String.format(
-            "Breakout entry: density=%.2f consumed=%.0f%% exponentialGrowth=%b",
+            "Breakout entry (Scenario B): density=%.2f consumed=%.0f%% " +
+            "stickyBars=%d exponentialGrowth=%b tickSize=%.4f",
             density.getPrice(),
             consumedPercent * 100,
-            deltaAnalysis.isExponentialGrowth()
+            tracker.getStickyBars(),
+            deltaAnalysis.isExponentialGrowth(),
+            tickSize
         );
         
-        return Decision.enterBreakout(reason);
+        return Decision.enterBreakout(reason, tp, sl);
     }
     
     /**
@@ -220,8 +335,8 @@ public final class HftScalpDecision {
      * <p>Exits:
      * <ul>
      *   <li>Take Profit: TP/SL levels hit</li>
-     *   <li>Emergency exit: Density disappears</li>
-     *   <li>Time stop: Max hold time exceeded</li>
+     *   <li>Emergency exit: Density disappears (spoofing detection)</li>
+     *   <li>Time stop: Max hold time exceeded (Scenario B)</li>
      * </ul>
      */
     public static Decision evaluateExit(
@@ -235,7 +350,7 @@ public final class HftScalpDecision {
             double currentDensityVolume,
             double originalDensityVolume) {
         
-        // Check TP
+        // Check TP/SL
         if (isLong) {
             if (currentPrice >= takeProfit) {
                 return Decision.exit("take_profit");
@@ -252,13 +367,13 @@ public final class HftScalpDecision {
             }
         }
         
-        // Check time stop for breakout
+        // Check time stop for Scenario B (max 1 minute)
         long holdSeconds = java.time.Duration.between(entryTime, Instant.now()).getSeconds();
         if (holdSeconds > BREAKOUT_MAX_SECONDS) {
             return Decision.exit("time_stop");
         }
         
-        // Check emergency exit: density disappeared
+        // Check emergency exit: density disappeared (spoofing detection)
         if (density != null && originalDensityVolume > 0) {
             double remainingPercent = currentDensityVolume / originalDensityVolume;
             if (remainingPercent < 0.1) { // 90% gone
@@ -267,5 +382,12 @@ public final class HftScalpDecision {
         }
         
         return Decision.none();
+    }
+    
+    /**
+     * Reset stickiness tracker for ticker.
+     */
+    public void resetTicker(String ticker) {
+        stickinessTrackers.keySet().removeIf(key -> key.startsWith(ticker));
     }
 }

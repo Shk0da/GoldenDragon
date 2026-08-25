@@ -108,6 +108,9 @@ public final class OrderBookTradingEngine implements MarketTickListener {
   private volatile long marketDataRecoveryUntilMs;
   private volatile double initialEquity;
   private final OrderBookPositionStore positionStore;
+  private final Map<String, Long> lastProcessingLatencyNs = new ConcurrentHashMap<>();
+  private final Map<String, List<Long>> processingLatencySamples = new ConcurrentHashMap<>();
+  private static final int MAX_LATENCY_SAMPLES = 100;
   private final Map<String, VolatilityTracker> volatilityTrackers = new ConcurrentHashMap<>();
   private final OrderBookTrendFilter trendFilter;
   private final LiquidityWindows liquidityWindows;
@@ -653,6 +656,8 @@ public final class OrderBookTradingEngine implements MarketTickListener {
   }
 
   private void handleOrderBook(TickerRuntime runtime, MarketDepthSnapshot snapshot) {
+    long startTime = System.nanoTime();
+    
     Double bestBid = snapshot.getBestBid();
     Double bestAsk = snapshot.getBestAsk();
     if (bestBid == null || bestAsk == null || bestAsk <= bestBid) {
@@ -708,6 +713,21 @@ public final class OrderBookTradingEngine implements MarketTickListener {
     VolatilityTracker volatilityTracker =
         volatilityTrackers.computeIfAbsent(runtime.ticker, k -> new VolatilityTracker());
     volatilityTracker.update(spread, mid);
+
+    // Measure and record processing latency
+    long latencyNs = System.nanoTime() - startTime;
+    lastProcessingLatencyNs.put(runtime.ticker, latencyNs);
+    recordLatencySample(runtime.ticker, latencyNs);
+    
+    // Log slow processing events (> 50ms threshold)
+    if (latencyNs > 50_000_000) { // 50ms in nanoseconds
+      logThrottled(
+          "_latency_warning_" + runtime.ticker,
+          String.format(
+              "High latency detected for %s: %.2fms (threshold: 50ms)",
+              runtime.ticker, latencyNs / 1_000_000.0),
+          5);
+    }
 
     if (runtime.openPosition != null) {
       manageOpenPosition(runtime, context, bestBid, spread, paper);
@@ -2267,6 +2287,37 @@ public final class OrderBookTradingEngine implements MarketTickListener {
 
   private static void log(String message) {
     LoggingUtils.log(message);
+  }
+  
+  /**
+   * Record latency sample for processing order book events.
+   * Maintains rolling window of samples for statistical analysis.
+   */
+  private void recordLatencySample(String ticker, long latencyNs) {
+    List<Long> samples = processingLatencySamples.computeIfAbsent(
+        ticker, k -> new ArrayList<>());
+    synchronized (samples) {
+      samples.add(latencyNs);
+      if (samples.size() > MAX_LATENCY_SAMPLES) {
+        samples.remove(0);
+      }
+    }
+  }
+  
+  /**
+   * Get average latency for ticker in milliseconds.
+   */
+  private double getAverageLatencyMs(String ticker) {
+    List<Long> samples = processingLatencySamples.get(ticker);
+    if (samples == null || samples.isEmpty()) {
+      return 0.0;
+    }
+    synchronized (samples) {
+      return samples.stream()
+          .mapToLong(Long::longValue)
+          .average()
+          .orElse(0.0) / 1_000_000.0;
+    }
   }
 
   private void maybeLogPeriodicDiagnosticsSummary() {
