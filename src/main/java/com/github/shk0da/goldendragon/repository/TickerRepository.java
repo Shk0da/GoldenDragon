@@ -22,4 +22,19 @@ public class TickerRepository extends AbstractRepository<TickerInfo.Key, TickerI
             this.putAll(dataFromDisk);
         }
     }
+
+    /**
+     * Find ticker info by name.
+     *
+     * @param name ticker name
+     * @return ticker info or null if not found
+     */
+    public TickerInfo getByName(String name) {
+        for (TickerInfo info : getAll().values()) {
+            if (info.getName().equalsIgnoreCase(name) || info.getTicker().equalsIgnoreCase(name)) {
+                return info;
+            }
+        }
+        return null;
+    }
 }

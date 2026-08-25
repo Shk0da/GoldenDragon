@@ -4,6 +4,13 @@ import com.github.shk0da.goldendragon.config.UnifiedTraderConfig;
 import com.github.shk0da.goldendragon.filters.BadWeatherFilter;
 import com.github.shk0da.goldendragon.filters.MarketRegimeFilter;
 import com.github.shk0da.goldendragon.ml.TradeDataCollector;
+import com.github.shk0da.goldendragon.market.BacktestMarketDataProvider;
+import com.github.shk0da.goldendragon.market.BacktestOrderExecutor;
+import com.github.shk0da.goldendragon.market.LiveMarketDataProvider;
+import com.github.shk0da.goldendragon.market.LiveOrderExecutor;
+import com.github.shk0da.goldendragon.market.MarketDataProvider;
+import com.github.shk0da.goldendragon.market.MarketPrices;
+import com.github.shk0da.goldendragon.market.OrderExecutor;
 import com.github.shk0da.goldendragon.model.Candle;
 import com.github.shk0da.goldendragon.model.Config;
 import com.github.shk0da.goldendragon.model.MarketDepthSnapshot;
@@ -232,6 +239,8 @@ public abstract class BaseStrategy {
     protected final Config config;
     protected final TCSService tcsService;
     protected final UnifiedTraderConfig unifiedTraderConfig;
+    protected final MarketDataProvider marketDataProvider;
+    protected final OrderExecutor orderExecutor;
     protected final BadWeatherFilter badWeatherFilter;
     protected final MarketRegimeFilter marketRegimeFilter;
     protected final boolean isBacktest;
@@ -265,6 +274,27 @@ public abstract class BaseStrategy {
         this.tcsService = tcsService;
         this.unifiedTraderConfig = unifiedTraderConfig;
         this.isBacktest = isBacktest;
+        
+        // Initialize market data provider based on mode
+        if (isBacktest) {
+            String dataDir = unifiedTraderConfig != null 
+                    ? unifiedTraderConfig.getDataDir() 
+                    : "data";
+            this.marketDataProvider = new BacktestMarketDataProvider(dataDir);
+        } else {
+            this.marketDataProvider = new LiveMarketDataProvider(tcsService);
+        }
+        
+        // Initialize order executor based on mode
+        if (isBacktest) {
+            double initialBalance = tcsService != null 
+                    ? tcsService.getAvailableCash() 
+                    : 100000.0;
+            this.orderExecutor = new BacktestOrderExecutor(marketDataProvider, initialBalance);
+        } else {
+            this.orderExecutor = new LiveOrderExecutor(tcsService);
+        }
+        
         boolean bwFilterEnabled =
                 unifiedTraderConfig != null
                         ? unifiedTraderConfig.isBadWeatherFilterEnabled()
@@ -438,10 +468,6 @@ public abstract class BaseStrategy {
             TCSService tcsService,
             UnifiedTraderConfig unifiedTraderConfig,
             double allocatedBalance) {
-        if (tcsService == null) {
-            return;
-        }
-
         Long cooldownUntil = tickerCooldown.get(name);
         if (cooldownUntil != null) {
             long remaining = cooldownUntil - System.currentTimeMillis();
@@ -477,30 +503,21 @@ public abstract class BaseStrategy {
                 return;
             }
 
-            String figi = ticker.getFigi();
-            OffsetDateTime now = OffsetDateTime.now();
-            String dataDir = unifiedTraderConfig.getDataDir();
-
-            List<Candle> hourCandles =
-                    loadOrRefreshCandles(
-                            name, figi, dataDir, now, CandleInterval.CANDLE_INTERVAL_HOUR);
+            // Get candles from market data provider (works in both backtest and live)
+            List<Candle> hourCandles = marketDataProvider.getCandles(name, "HOUR");
             if (hourCandles == null || hourCandles.isEmpty()) {
                 log("No hourly candles for " + name + ", skipping.");
                 return;
             }
-            refreshLastCandleWithLivePrice(hourCandles, ticker, isBacktest);
 
             boolean useMinCandles = tickerParams.useMinuteCandles;
             List<Candle> minuteCandles;
             if (useMinCandles) {
-                minuteCandles =
-                        loadOrRefreshCandles(
-                                name, figi, dataDir, now, CandleInterval.CANDLE_INTERVAL_5_MIN);
+                minuteCandles = marketDataProvider.getCandles(name, "5_MIN");
                 if (minuteCandles == null || minuteCandles.isEmpty()) {
                     log("No minute candles for " + name + ", skipping.");
                     return;
                 }
-                refreshLastCandleWithLivePrice(minuteCandles, ticker, isBacktest);
             } else {
                 minuteCandles = hourCandles;
             }
@@ -521,7 +538,7 @@ public abstract class BaseStrategy {
             }
 
             double balance =
-                    allocatedBalance > 0.0 ? allocatedBalance : tcsService.getAvailableCash();
+                    allocatedBalance > 0.0 ? allocatedBalance : orderExecutor.getAvailableCash();
 
             TradingDecision decision =
                     decide(name, hourCandles, minuteCandles, storedPosition, balance, hourChanged);
@@ -585,22 +602,19 @@ public abstract class BaseStrategy {
 
         int lotSize = ticker.getLot() != null ? Math.max(1, ticker.getLot()) : 1;
 
-        // Use live ask price for accurate execution (entryPrice may be stale/cached)
-        // In backtest mode, use entryPrice from candles since orderbook is not available.
-        TickerInfo.Key key = new TickerInfo.Key(name, ticker.getType());
-        double liveAskPrice = isBacktest ? entryPrice : tcsService.getLiveAskPrice(key);
-        if (!isBacktest && liveAskPrice <= 0.0) {
+        // Get live price from market data provider (works in both backtest and live)
+        MarketPrices prices = marketDataProvider.getLivePrices(name);
+        double liveAskPrice = prices.getAsk() != null ? prices.getAsk() : entryPrice;
+        if (liveAskPrice <= 0.0) {
             logOpenCandidateSkipped(name, "no_live_price", decision);
             return;
         }
 
-        // Use strategy-computed quantity (risk-based sizing from subclass) and verify it
-        // against live ask price and available cash. Fall back to calculateTradeCount only
-        // when the strategy did not provide a valid quantity.
+        // Use strategy-computed quantity
         int qty = decision.quantity;
         if (qty <= 0) {
-            double availableCash = tcsService.getAvailableCash();
-            qty = tcsService.calculateTradeCount(key, availableCash, liveAskPrice);
+            double availableCash = orderExecutor.getAvailableCash();
+            qty = (int) Math.floor(availableCash / (liveAskPrice * lotSize));
             if (qty <= 0) {
                 logOpenCandidateSkipped(name, "insufficient_cash", decision);
                 return;
@@ -656,16 +670,12 @@ public abstract class BaseStrategy {
         }
 
         try {
-            throttleApiCall();
-            TCSService.OrderExecutionResult orderResult;
+            // Execute order through order executor (works in both backtest and live)
+            OrderExecutor.ExecutionResult orderResult;
             if ("BUY".equals(decision.updatedPosition.direction)) {
-                orderResult =
-                        tcsService.buyByMarketWithDetails(
-                                name, ticker.getType(), positionValue, tpPercent, slPercent);
+                orderResult = orderExecutor.buy(name, qty, slPercent, tpPercent);
             } else { // SELL
-                orderResult =
-                        tcsService.sellByMarketWithDetails(
-                                name, ticker.getType(), positionValue, tpPercent, slPercent);
+                orderResult = orderExecutor.sell(name, qty, slPercent, tpPercent);
             }
 
             if (!orderResult.isSuccess()) {
@@ -680,8 +690,16 @@ public abstract class BaseStrategy {
                 return;
             }
 
-            Position executedPosition =
-                    mergeExecutedPosition(decision.updatedPosition, orderResult);
+            // Create position from execution result
+            Position executedPosition = new Position(
+                    decision.updatedPosition.direction,
+                    orderResult.getExecutedPrice(),
+                    decision.stopLoss,
+                    decision.takeProfit,
+                    orderResult.getExecutedQuantity(),
+                    0,
+                    0,
+                    decision.updatedPosition.appliedLeverage);
 
             positionStore.put(name, executedPosition);
             lastSeenHourBarByTicker.put(name, candles.get(candles.size() - 1).time);
@@ -795,19 +813,19 @@ public abstract class BaseStrategy {
                         + ", reason="
                         + decision.reason);
 
-        TCSService.OrderExecutionResult closeResult = TCSService.OrderExecutionResult.failed();
+        OrderExecutor.ExecutionResult closeResult;
         if ("BUY".equals(storedPosition.direction)) {
-            throttleApiCall();
-            closeResult = tcsService.closeLongByMarketWithDetails(name, ticker.getType());
+            closeResult = orderExecutor.closeLong(name);
         } else if ("SELL".equals(storedPosition.direction)) {
-            throttleApiCall();
-            closeResult = tcsService.closeShortByMarketWithDetails(name, ticker.getType());
+            closeResult = orderExecutor.closeShort(name);
+        } else {
+            closeResult = OrderExecutor.ExecutionResult.failed("Invalid direction");
         }
 
         if (closeResult.isSuccess()) {
             int closedQuantity =
-                    closeResult.getExecutedCount() > 0
-                            ? closeResult.getExecutedCount()
+                    closeResult.getExecutedQuantity() > 0
+                            ? closeResult.getExecutedQuantity()
                             : storedPosition.quantity;
             if (closedQuantity <= 0) {
                 log("Failed to close position for " + name + " (executed quantity is zero)");
@@ -815,20 +833,15 @@ public abstract class BaseStrategy {
             }
 
             double entryPrice = storedPosition.entryPrice != null ? storedPosition.entryPrice : 0.0;
-            Double executedExitPrice =
-                    closeResult.getExecutedPrice() != null
-                            ? closeResult.getExecutedPrice()
-                            : tcsService.getLastExecutedPrice(name, ticker.getType());
             double exitPrice =
-                    executedExitPrice != null && executedExitPrice > 0.0
-                            ? executedExitPrice
+                    closeResult.getExecutedPrice() != null && closeResult.getExecutedPrice() > 0.0
+                            ? closeResult.getExecutedPrice()
                             : decision.entryPrice != null ? decision.entryPrice : 0.0;
             double pnl = calculatePnlForQuantity(storedPosition, exitPrice, closedQuantity);
             double stopLoss =
                     storedPosition.stopLoss != null ? storedPosition.stopLoss : entryPrice;
 
             if (closedQuantity >= storedPosition.quantity) {
-                tcsService.clearProtectiveOrders(name, ticker.getType());
                 positionStore.put(name, getCooldownPosition());
                 lastSeenHourBarByTicker.remove(name);
                 telegramNotifyService.sendMessage(
@@ -1065,7 +1078,7 @@ public abstract class BaseStrategy {
     }
 
     private void restoreTrackedPositions(List<String> activeTickers) {
-        if (tcsService == null || isBacktest) {
+        if (tcsService == null) {
             return;
         }
 
@@ -1176,7 +1189,7 @@ public abstract class BaseStrategy {
      */
     protected void refreshLastCandleWithLivePrice(
             List<Candle> candles, TickerInfo ticker, boolean isBacktest) {
-        if (isBacktest || candles == null || candles.isEmpty() || tcsService == null) {
+        if (candles == null || candles.isEmpty() || tcsService == null) {
             return;
         }
 
@@ -1542,20 +1555,6 @@ public abstract class BaseStrategy {
             throttledLogLastTime.put(key, now);
             log(message);
         }
-    }
-
-    /**
-     * Logs message with throttling, respecting backtest mode (silent during backtest).
-     *
-     * @param key unique identifier for the log category
-     * @param message message to log
-     * @param throttleMinutes minutes to wait between logs for the same key
-     */
-    protected void logThrottledWithBacktest(String key, String message, long throttleMinutes) {
-        if (isBacktest) {
-            return;
-        }
-        logThrottled(key, message, throttleMinutes);
     }
 
     protected static void shutdownExecutor(ExecutorService executor) {

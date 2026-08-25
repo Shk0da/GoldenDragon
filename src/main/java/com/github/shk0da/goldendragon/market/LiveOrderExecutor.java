@@ -1,0 +1,144 @@
+package com.github.shk0da.goldendragon.market;
+
+import com.github.shk0da.goldendragon.model.TickerInfo;
+import com.github.shk0da.goldendragon.model.TickerType;
+import com.github.shk0da.goldendragon.repository.TickerRepository;
+import com.github.shk0da.goldendragon.service.TCSService;
+
+/**
+ * Live order executor using TCS API.
+ * Sends real orders to the Tinkoff Invest API.
+ */
+public class LiveOrderExecutor implements OrderExecutor {
+
+    private final TCSService tcsService;
+    private final TickerRepository tickerRepository;
+
+    public LiveOrderExecutor(TCSService tcsService) {
+        this.tcsService = tcsService;
+        this.tickerRepository = TickerRepository.INSTANCE;
+    }
+
+    @Override
+    public ExecutionResult buy(String ticker, int quantity, Double stopLossPercent, Double takeProfitPercent) {
+        try {
+            TickerInfo info = tickerRepository.getByName(ticker);
+            if (info == null) {
+                return ExecutionResult.failed("Ticker not found: " + ticker);
+            }
+
+            TickerInfo.Key key = new TickerInfo.Key(ticker, info.getType());
+            double cash = tcsService.getAvailableCash();
+            double askPrice = tcsService.getLiveAskPrice(key);
+            
+            double value = quantity * askPrice * info.getLot();
+            if (value > cash) {
+                return ExecutionResult.failed("Insufficient cash: needed " + value + ", available " + cash);
+            }
+
+            TCSService.OrderExecutionResult result = tcsService.buyByMarketWithDetails(
+                    ticker, info.getType(), value, takeProfitPercent, stopLossPercent);
+
+            if (!result.isSuccess()) {
+                return ExecutionResult.failed("Order failed");
+            }
+
+            return ExecutionResult.success(result.getExecutedCount(), result.getExecutedPrice());
+        } catch (Exception e) {
+            return ExecutionResult.failed("Exception: " + e.getMessage());
+        }
+    }
+
+    @Override
+    public ExecutionResult sell(String ticker, int quantity, Double stopLossPercent, Double takeProfitPercent) {
+        try {
+            TickerInfo info = tickerRepository.getByName(ticker);
+            if (info == null) {
+                return ExecutionResult.failed("Ticker not found: " + ticker);
+            }
+
+            TickerInfo.Key key = new TickerInfo.Key(ticker, info.getType());
+            double cash = tcsService.getAvailableCash();
+            double askPrice = tcsService.getLiveAskPrice(key);
+            
+            double value = quantity * askPrice * info.getLot();
+            if (value > cash) {
+                return ExecutionResult.failed("Insufficient cash: needed " + value + ", available " + cash);
+            }
+
+            TCSService.OrderExecutionResult result = tcsService.sellByMarketWithDetails(
+                    ticker, info.getType(), value, takeProfitPercent, stopLossPercent);
+
+            if (!result.isSuccess()) {
+                return ExecutionResult.failed("Order failed");
+            }
+
+            return ExecutionResult.success(result.getExecutedCount(), result.getExecutedPrice());
+        } catch (Exception e) {
+            return ExecutionResult.failed("Exception: " + e.getMessage());
+        }
+    }
+
+    @Override
+    public ExecutionResult closeLong(String ticker) {
+        try {
+            TickerInfo info = tickerRepository.getByName(ticker);
+            if (info == null) {
+                return ExecutionResult.failed("Ticker not found: " + ticker);
+            }
+
+            TCSService.OrderExecutionResult result = tcsService.closeLongByMarketWithDetails(ticker, info.getType());
+            
+            if (!result.isSuccess()) {
+                return ExecutionResult.failed("Close failed");
+            }
+
+            return ExecutionResult.success(result.getExecutedCount(), result.getExecutedPrice());
+        } catch (Exception e) {
+            return ExecutionResult.failed("Exception: " + e.getMessage());
+        }
+    }
+
+    @Override
+    public ExecutionResult closeShort(String ticker) {
+        try {
+            TickerInfo info = tickerRepository.getByName(ticker);
+            if (info == null) {
+                return ExecutionResult.failed("Ticker not found: " + ticker);
+            }
+
+            TCSService.OrderExecutionResult result = tcsService.closeShortByMarketWithDetails(ticker, info.getType());
+            
+            if (!result.isSuccess()) {
+                return ExecutionResult.failed("Close failed");
+            }
+
+            return ExecutionResult.success(result.getExecutedCount(), result.getExecutedPrice());
+        } catch (Exception e) {
+            return ExecutionResult.failed("Exception: " + e.getMessage());
+        }
+    }
+
+    @Override
+    public double getAvailableCash() {
+        try {
+            return tcsService.getAvailableCash();
+        } catch (Exception e) {
+            return 0.0;
+        }
+    }
+
+    @Override
+    public double getPortfolioValue() {
+        try {
+            return tcsService.getTotalPortfolioCost();
+        } catch (Exception e) {
+            return 0.0;
+        }
+    }
+
+    @Override
+    public boolean isLive() {
+        return true;
+    }
+}
