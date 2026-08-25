@@ -3,6 +3,7 @@ package com.github.shk0da.goldendragon.ml;
 import com.github.shk0da.goldendragon.model.Candle;
 import com.github.shk0da.goldendragon.model.Position;
 import com.github.shk0da.goldendragon.model.TradingDecision;
+
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileReader;
@@ -12,6 +13,7 @@ import java.io.PrintWriter;
 import java.text.SimpleDateFormat;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.Date;
@@ -26,6 +28,8 @@ public class TradeDataCollector {
 
     private static final ThreadLocal<SimpleDateFormat> CANDLE_TIME_FORMAT =
             ThreadLocal.withInitial(() -> new SimpleDateFormat("dd.MM.yyyy HH:mm:ss"));
+
+    private static final DateTimeFormatter TIMESTAMP_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss");
 
     private static final String CSV_HEADER =
             String.join(
@@ -752,7 +756,7 @@ public class TradeDataCollector {
         return String.format(
                 Locale.US,
                 "%s,%s,%s,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%d,%d,%d,%d,%.6f,%.6f,%.6f,%d,%s,%s",
-                trade.entryTime,
+                trade.entryTime.format(TIMESTAMP_FORMATTER),
                 trade.ticker,
                 trade.strategy,
                 trade.adx,
