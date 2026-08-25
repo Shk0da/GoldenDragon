@@ -1,6 +1,7 @@
 package com.github.shk0da.goldendragon.strategy.orderbook;
 
 import com.github.shk0da.goldendragon.config.OrderBookScalpConfig;
+import com.github.shk0da.goldendragon.service.TCSService;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -12,10 +13,13 @@ public final class OrderBookSignalFactory {
 
     private OrderBookSignalFactory() {}
 
-    public static List<OrderBookSignal> createEnabledSignals(OrderBookScalpConfig config) {
+    public static List<OrderBookSignal> createEnabledSignals(
+            TCSService tcsService, OrderBookScalpConfig config) {
+        // CumulativeDeltaScalpSignal is the primary signal for HFT scalping
+        // It implements both bounce and breakout scenarios from the spec
         List<OrderBookSignal> allSignals =
                 List.of(
-                        new ObiScalpSignal(config),
+                        new CumulativeDeltaScalpSignal(tcsService, config),
                         new TradeFlowScalpSignal(config),
                         new MicropriceDriftSignal(config),
                         new DensityImbalanceSignal(config));
@@ -33,7 +37,8 @@ public final class OrderBookSignalFactory {
             }
         }
         if (enabled.isEmpty()) {
-            enabled.add(new ObiScalpSignal(config));
+            // Default to CumulativeDeltaScalpSignal if no signals configured
+            enabled.add(new CumulativeDeltaScalpSignal(tcsService, config));
         }
         return enabled;
     }
