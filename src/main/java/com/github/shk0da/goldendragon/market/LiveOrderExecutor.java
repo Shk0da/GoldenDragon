@@ -49,6 +49,9 @@ public class LiveOrderExecutor implements OrderExecutor {
         }
     }
 
+    /** Margin requirement for short positions on MOEX (30% of position value). */
+    private static final double SHORT_MARGIN_RATIO = 0.30;
+
     @Override
     public ExecutionResult sell(String ticker, int quantity, Double stopLossPercent, Double takeProfitPercent) {
         try {
@@ -60,14 +63,19 @@ public class LiveOrderExecutor implements OrderExecutor {
             TickerInfo.Key key = new TickerInfo.Key(ticker, info.getType());
             double cash = tcsService.getAvailableCash();
             double askPrice = tcsService.getLiveAskPrice(key);
-            
-            double value = quantity * askPrice * info.getLot();
-            if (value > cash) {
-                return ExecutionResult.failed("Insufficient cash: needed " + value + ", available " + cash);
+
+            double positionValue = quantity * askPrice * info.getLot();
+            // short positions require margin, not full position value
+            double requiredMargin = positionValue * SHORT_MARGIN_RATIO;
+            if (requiredMargin > cash) {
+                return ExecutionResult.failed(
+                        "Insufficient margin for short: needed "
+                                + String.format("%.2f", requiredMargin)
+                                + ", available " + String.format("%.2f", cash));
             }
 
             TCSService.OrderExecutionResult result = tcsService.sellByMarketWithDetails(
-                    ticker, info.getType(), value, takeProfitPercent, stopLossPercent);
+                    ticker, info.getType(), positionValue, takeProfitPercent, stopLossPercent);
 
             if (!result.isSuccess()) {
                 return ExecutionResult.failed("Order failed");

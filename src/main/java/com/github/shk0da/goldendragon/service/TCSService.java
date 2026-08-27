@@ -2824,6 +2824,21 @@ public class TCSService {
     }
 
     /**
+     * Returns the best bid price from the current order book for the given ticker.
+     *
+     * @param key ticker key identifying the instrument
+     * @return the best bid price, or {@code 0.0} if the orderbook is empty or unavailable
+     */
+    public double getLiveBidPrice(TickerInfo.Key key) {
+        Map<String, Map<Double, Integer>> prices = getCurrentPrices(key, false);
+        Map<Double, Integer> bids = prices.get("bids");
+        if (bids == null || bids.isEmpty()) {
+            return 0.0;
+        }
+        return bids.keySet().iterator().next();
+    }
+
+    /**
      * Returns the current prices (bids and asks) for the given ticker, optionally printing the
      * glass.
      *

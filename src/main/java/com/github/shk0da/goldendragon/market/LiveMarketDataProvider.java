@@ -39,25 +39,25 @@ public class LiveMarketDataProvider implements MarketDataProvider {
         if (info == null) {
             return Collections.emptyList();
         }
-        
+
         String figi = info.getFigi();
         OffsetDateTime now = OffsetDateTime.now();
         OffsetDateTime start;
-        
+
         if ("HOUR".equals(interval)) {
-            start = now.minusDays(7);
+            start = now.minusDays(60);
         } else if ("5_MIN".equals(interval)) {
-            start = now.minusHours(6);
+            start = now.minusHours(72);
         } else {
             return Collections.emptyList();
         }
 
         try {
-            List<HistoricCandle> historicCandles = tcsService.getCandles(figi, start, now, 
-                    "HOUR".equals(interval) 
-                            ? CandleInterval.CANDLE_INTERVAL_HOUR 
+            List<HistoricCandle> historicCandles = tcsService.getCandles(figi, start, now,
+                    "HOUR".equals(interval)
+                            ? CandleInterval.CANDLE_INTERVAL_HOUR
                             : CandleInterval.CANDLE_INTERVAL_5_MIN);
-            
+
             List<Candle> candles = new ArrayList<>();
             for (HistoricCandle hc : historicCandles) {
                 Timestamp ts = new Timestamp(hc.getTime().getSeconds() * 1000);
@@ -92,13 +92,12 @@ public class LiveMarketDataProvider implements MarketDataProvider {
         }
 
         try {
-            double ask = tcsService.getLiveAskPrice(new TickerInfo.Key(ticker, info.getType()));
-            if (ask <= 0) {
+            TickerInfo.Key key = new TickerInfo.Key(ticker, info.getType());
+            double ask = tcsService.getLiveAskPrice(key);
+            double bid = tcsService.getLiveBidPrice(key);
+            if (ask <= 0 || bid <= 0) {
                 return new MarketPrices(null, null);
             }
-            
-            // Get bid price (typically slightly lower than ask)
-            double bid = ask * 0.999; // Approximate bid
             return new MarketPrices(bid, ask);
         } catch (Exception e) {
             return new MarketPrices(null, null);

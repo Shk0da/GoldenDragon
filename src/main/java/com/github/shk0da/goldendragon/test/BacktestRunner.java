@@ -230,7 +230,7 @@ public class BacktestRunner {
             DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm:ss");
 
     private static final int MIN_HOURS_REQUIRED = 60;
-    private static final LocalTime WORK_START_TIME = LocalTime.of(10, 0);
+    private static final LocalTime WORK_START_TIME = LocalTime.of(8, 30);
     private static final LocalTime EOD_CLOSE_TIME = LocalTime.of(21, 0);
     private static final String BACKTEST_MODE = System.getProperty("backtest.mode", "full");
     private static final int BACKTEST_THREADS =
