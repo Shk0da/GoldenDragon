@@ -404,18 +404,47 @@ public final class OrderBookTradingEngine implements MarketTickListener {
         continue;
       }
       boolean isShort = position.getBalance() < 0;
-      if (isShort && availableCash <= 0.0) {
-        logThrottled(
-            "_close_untracked_" + position.getTicker(),
-            "Untracked short position for "
-                + position.getTicker()
-                + " qty="
-                + position.getBalance()
-                + ", skipping close: insufficient cash (available="
-                + String.format("%.2f", availableCash)
-                + ")",
-            15);
-        continue;
+      if (isShort) {
+        // Calculate required cash to close short position
+        TickerInfo.Key posKey = new TickerInfo.Key(position.getTicker(), position.getInstrumentType());
+        TickerInfo posTickerInfo = tcsService.searchTicker(posKey);
+        if (posTickerInfo == null) {
+          logThrottled(
+              "_close_untracked_no_info_" + position.getTicker(),
+              "Untracked short position for "
+                  + position.getTicker()
+                  + ", skipping close: ticker info not found",
+              15);
+          continue;
+        }
+        int lot = posTickerInfo.getLot() != null ? Math.max(1, posTickerInfo.getLot()) : 1;
+        double askPrice = tcsService.getLiveAskPrice(posKey);
+        if (askPrice <= 0.0) {
+          logThrottled(
+              "_close_untracked_no_price_" + position.getTicker(),
+              "Untracked short position for "
+                  + position.getTicker()
+                  + ", skipping close: no ask price available",
+              15);
+          continue;
+        }
+        int absBalance = Math.abs(position.getBalance());
+        double requiredCash = absBalance * lot * askPrice;
+        if (availableCash < requiredCash) {
+          logThrottled(
+              "_close_untracked_" + position.getTicker(),
+              "Untracked short position for "
+                  + position.getTicker()
+                  + " qty="
+                  + position.getBalance()
+                  + ", skipping close: insufficient cash (required="
+                  + String.format("%.2f", requiredCash)
+                  + ", available="
+                  + String.format("%.2f", availableCash)
+                  + ")",
+              15);
+          continue;
+        }
       }
       log(
           "Untracked position detected for "

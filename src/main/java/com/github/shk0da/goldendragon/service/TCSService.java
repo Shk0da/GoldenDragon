@@ -2107,10 +2107,9 @@ public class TCSService {
         if (count <= 0) {
             return count;
         }
-        if (lot <= 1 || count >= lot) {
-            return count;
-        }
-        return count * lot;
+        // count is already in lots (from API position balance or calculateTradeCount)
+        // no need to multiply by lot size
+        return count;
     }
 
     private static Quotation createQuotation(double price) {
