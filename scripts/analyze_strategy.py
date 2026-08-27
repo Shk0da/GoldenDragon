@@ -44,12 +44,28 @@ class SkipStats:
     tickers: dict = field(default_factory=lambda: defaultdict(int))
 
 
+@dataclass
+class DensityScalpSkip:
+    """DensityScalp signal skip event with detailed metrics."""
+    timestamp: str
+    ticker: str
+    skip_reason: str
+    trend: str = ""
+    level_strength: float = 0.0
+    compression_strength: float = 0.0
+    impulse_strength: float = 0.0
+    cluster_count: int = 0
+    spread_bps: float = 0.0
+    obi: float = 0.0
+
+
 def parse_metrics_csv(path: str) -> tuple:
     """Parse orderbook-metrics.csv into trades and skip events."""
     trades = []
     skip_reasons = defaultdict(lambda: SkipStats(""))
     entry_events = []
     all_events = []
+    density_scalp_skips = []
 
     with open(path, "r", encoding="utf-8") as f:
         reader = csv.DictReader(f)
@@ -65,6 +81,23 @@ def parse_metrics_csv(path: str) -> tuple:
                 skip_reasons[reason].reason = reason
                 skip_reasons[reason].count += 1
                 skip_reasons[reason].tickers[ticker] += 1
+                
+                # Parse densityScalp specific metrics
+                signal_id = row.get("signalId", "")
+                if signal_id == "densityScalp" or reason.startswith("densityScalp_"):
+                    skip = DensityScalpSkip(
+                        timestamp=timestamp,
+                        ticker=ticker,
+                        skip_reason=row.get("skipReason", reason.replace("densityScalp_", "")),
+                        trend=row.get("trend", ""),
+                        level_strength=_float_or(row.get("levelStrength"), 0.0),
+                        compression_strength=_float_or(row.get("compressionStrength"), 0.0),
+                        impulse_strength=_float_or(row.get("impulseStrength"), 0.0),
+                        cluster_count=_int_or(row.get("clusterCount"), 0),
+                        spread_bps=_float_or(row.get("spreadBps"), 0.0),
+                        obi=_float_or(row.get("obi"), 0.0),
+                    )
+                    density_scalp_skips.append(skip)
 
             elif event_type == "ENTRY_OPENED":
                 entry_events.append(row)
@@ -109,7 +142,7 @@ def parse_metrics_csv(path: str) -> tuple:
                 )
                 trades.append(trade)
 
-    return trades, dict(skip_reasons), entry_events, all_events
+    return trades, dict(skip_reasons), entry_events, all_events, density_scalp_skips
 
 
 def parse_diagnostics_log(path: str) -> dict:
@@ -178,8 +211,10 @@ def print_subsection(title: str):
     print(f"\n  --- {title} ---")
 
 
-def analyze(trades: list, skip_reasons: dict, entry_events: list, diag_stats: dict):
+def analyze(trades: list, skip_reasons: dict, entry_events: list, diag_stats: dict, density_scalp_skips: list = None):
     """Print comprehensive analytics report."""
+    if density_scalp_skips is None:
+        density_scalp_skips = []
 
     # --- Header ---
     print_section("ORDER BOOK STRATEGY ANALYTICS REPORT")
@@ -447,8 +482,67 @@ def analyze(trades: list, skip_reasons: dict, entry_events: list, diag_stats: di
             bar = "#" * min(count, 60)
             print(f"    {bucket:>8}: {count:>4} {bar}")
 
+    # --- DensityScalp Signal Analysis ---
+    if density_scalp_skips:
+        print_section("13. DENSITYSCALP SIGNAL ANALYSIS")
+        print(f"  Total densityScalp skip events: {len(density_scalp_skips)}")
+        
+        # Skip reasons breakdown
+        skip_reason_counts = defaultdict(int)
+        skip_reason_by_ticker = defaultdict(lambda: defaultdict(int))
+        for skip in density_scalp_skips:
+            skip_reason_counts[skip.skip_reason] += 1
+            skip_reason_by_ticker[skip.skip_reason][skip.ticker] += 1
+        
+        print_subsection("Skip reasons")
+        print(f"  {'Reason':<25} {'Count':>6}  %")
+        print(f"  {'-'*25} {'-'*6}  {'-'*5}")
+        total_skips = len(density_scalp_skips)
+        for reason, count in sorted(skip_reason_counts.items(), key=lambda x: -x[1]):
+            pct = count / total_skips * 100
+            print(f"  {reason:<25} {count:>6}  {pct:>5.1f}%")
+            # Top tickers for this reason
+            ticker_counts = skip_reason_by_ticker[reason]
+            top_tickers = sorted(ticker_counts.items(), key=lambda x: -x[1])[:3]
+            if top_tickers:
+                ticker_str = ", ".join(f"{t}({c})" for t, c in top_tickers)
+                print(f"    top tickers: {ticker_str}")
+        
+        # Average metrics by skip reason
+        print_subsection("Average metrics by skip reason")
+        metrics_by_reason = defaultdict(lambda: {
+            "level_strength": [], "compression_strength": [], 
+            "impulse_strength": [], "cluster_count": [], "spread_bps": []
+        })
+        for skip in density_scalp_skips:
+            metrics_by_reason[skip.skip_reason]["level_strength"].append(skip.level_strength)
+            metrics_by_reason[skip.skip_reason]["compression_strength"].append(skip.compression_strength)
+            metrics_by_reason[skip.skip_reason]["impulse_strength"].append(skip.impulse_strength)
+            metrics_by_reason[skip.skip_reason]["cluster_count"].append(skip.cluster_count)
+            metrics_by_reason[skip.skip_reason]["spread_bps"].append(skip.spread_bps)
+        
+        print(f"  {'Reason':<25} {'AvgLvl':>7} {'AvgCmpr':>8} {'AvgImp':>7} {'AvgClust':>9} {'AvgSpread':>10}")
+        print(f"  {'-'*25} {'-'*7} {'-'*8} {'-'*7} {'-'*9} {'-'*10}")
+        for reason, metrics in sorted(metrics_by_reason.items()):
+            avg_lvl = sum(metrics["level_strength"]) / len(metrics["level_strength"]) if metrics["level_strength"] else 0
+            avg_cmpr = sum(metrics["compression_strength"]) / len(metrics["compression_strength"]) if metrics["compression_strength"] else 0
+            avg_imp = sum(metrics["impulse_strength"]) / len(metrics["impulse_strength"]) if metrics["impulse_strength"] else 0
+            avg_clust = sum(metrics["cluster_count"]) / len(metrics["cluster_count"]) if metrics["cluster_count"] else 0
+            avg_spread = sum(metrics["spread_bps"]) / len(metrics["spread_bps"]) if metrics["spread_bps"] else 0
+            print(f"  {reason:<25} {avg_lvl:>7.2f} {avg_cmpr:>8.2f} {avg_imp:>7.2f} {avg_clust:>9.1f} {avg_spread:>9.1f}bps")
+        
+        # Trend distribution
+        print_subsection("Trend distribution")
+        trend_counts = defaultdict(int)
+        for skip in density_scalp_skips:
+            trend_counts[skip.trend] += 1
+        for trend, count in sorted(trend_counts.items(), key=lambda x: -x[1]):
+            pct = count / total_skips * 100
+            print(f"  {trend:<15} {count:>6}  {pct:>5.1f}%")
+
     # --- Recommendations ---
-    print_section("13. KEY OBSERVATIONS & RECOMMENDATIONS")
+    section_num = 14 if density_scalp_skips else 13
+    print_section(f"{section_num}. KEY OBSERVATIONS & RECOMMENDATIONS")
     observations = []
 
     if trades:
@@ -536,10 +630,10 @@ def main():
     print(f"Loading CSV:  {csv_path}")
     print(f"Loading LOG:  {log_path}")
 
-    trades, skip_reasons, entry_events, all_events = parse_metrics_csv(csv_path)
+    trades, skip_reasons, entry_events, all_events, density_scalp_skips = parse_metrics_csv(csv_path)
     diag_stats = parse_diagnostics_log(log_path)
 
-    analyze(trades, skip_reasons, entry_events, diag_stats)
+    analyze(trades, skip_reasons, entry_events, diag_stats, density_scalp_skips)
 
 
 if __name__ == "__main__":

@@ -36,6 +36,15 @@ public final class OrderBookScalpScreener {
                     "BRENT", "BR", "BM", "WHEAT", "W4", "WU", "NG", "NATGAS", "GAS", "GOLD", "GL",
                     "SILVER", "SV", "COPPER", "CU", "SUGAR", "COFFEE");
 
+    // First-echelon MOEX stocks suitable for order-book scalping
+    private static final Set<String> CORE_STOCKS =
+            Set.of(
+                    "SBER", "GAZP", "GMKN", "VTBR", "LKOH", "ROSN",
+                    "YDEX", "MGNT", "PLZL", "MTSS", "TATN", "NVTK",
+                    "SNGS", "SNGSP", "CHMF", "NLMK", "ALRS", "RUAL",
+                    "MOEX", "AFLT", "IRAO", "HYDR", "VKCO", "OZON",
+                    "X5", "FIVE", "CBOM", "MAGN");
+
     private OrderBookScalpScreener() {}
 
     public static List<TickerInfo> selectTop(
@@ -48,10 +57,16 @@ public final class OrderBookScalpScreener {
                 candidates.stream()
                         .filter(OrderBookScalpScreener::isCommodityDatedFuture)
                         .collect(toList());
+        // Filter stocks for scalping
+        List<TickerInfo> stocks =
+                candidates.stream()
+                        .filter(info -> isStockCandidate(info))
+                        .collect(toList());
 
         List<ScoredTicker> scored = new ArrayList<>();
         scored.addAll(pickNearestLiquidDated(tcsService, datedCommodities, config));
 
+        // Score perpetual futures
         for (TickerInfo info : perpetuals) {
             try {
                 ScoredTicker ranked = scoreTicker(tcsService, info, config);
@@ -60,6 +75,19 @@ public final class OrderBookScalpScreener {
                 }
             } catch (Exception ex) {
                 LoggingUtils.log("Screen skip " + info.getTicker() + ": " + ex.getMessage());
+            }
+            sleep(120);
+        }
+
+        // Score stocks
+        for (TickerInfo info : stocks) {
+            try {
+                ScoredTicker ranked = scoreTicker(tcsService, info, config);
+                if (ranked != null) {
+                    scored.add(ranked);
+                }
+            } catch (Exception ex) {
+                LoggingUtils.log("Screen skip stock " + info.getTicker() + ": " + ex.getMessage());
             }
             sleep(120);
         }
@@ -77,6 +105,8 @@ public final class OrderBookScalpScreener {
                         + perpetuals.size()
                         + ", datedCommodities="
                         + datedCommodities.size()
+                        + ", stocks="
+                        + stocks.size()
                         + ", ranked="
                         + scored.size()
                         + ", selected="
@@ -133,6 +163,26 @@ public final class OrderBookScalpScreener {
         }
         String assetKey = assetGroupKey(info);
         return CORE_COMMODITY_ASSETS.stream().anyMatch(assetKey::contains);
+    }
+
+    /**
+     * Check if ticker is a stock suitable for order-book scalping.
+     * Includes first-echelon MOEX stocks with good liquidity.
+     */
+    static boolean isStockCandidate(TickerInfo info) {
+        if (info == null) {
+            return false;
+        }
+        // Must be a stock type
+        if (info.getType() != TickerType.STOCK) {
+            return false;
+        }
+        String ticker = info.getTicker();
+        if (ticker == null || ticker.isEmpty()) {
+            return false;
+        }
+        // Check if it's in our core stocks list
+        return CORE_STOCKS.contains(ticker.toUpperCase());
     }
 
     private static List<ScoredTicker> pickNearestLiquidDated(
@@ -388,6 +438,11 @@ public final class OrderBookScalpScreener {
         if (isCoreCommodityAsset(assetGroupKey(info))) {
             coreBonus += 150.0;
         }
+        if (isCoreStock(info.getTicker())) {
+            coreBonus += 250.0; // High priority for liquid stocks
+        }
+        // Stocks generally have tighter spreads and better for scalping
+        double stockBonus = (info.getType() == TickerType.STOCK && spreadBps < 5.0) ? 100.0 : 0.0;
         double score =
                 spreadScore
                         + topDepthScore
@@ -395,6 +450,7 @@ public final class OrderBookScalpScreener {
                         + flowScore
                         + economicsScore
                         + coreBonus
+                        + stockBonus
                         - economicsPenalty
                         - microContractPenalty;
         return new ScoredTicker(info, score, spreadBps, topDepth, bookDepth, tradeVolume);
@@ -407,6 +463,10 @@ public final class OrderBookScalpScreener {
     private static boolean isCoreCommodityAsset(String assetKey) {
         String normalized = assetKey.toUpperCase();
         return CORE_COMMODITY_ASSETS.stream().anyMatch(normalized::contains);
+    }
+
+    private static boolean isCoreStock(String ticker) {
+        return ticker != null && CORE_STOCKS.contains(ticker.toUpperCase());
     }
 
     private static int sumTopLevels(Map<Double, Integer> side, int maxLevels) {

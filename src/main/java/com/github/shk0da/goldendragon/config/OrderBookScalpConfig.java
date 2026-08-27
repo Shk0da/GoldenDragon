@@ -96,6 +96,25 @@ public class OrderBookScalpConfig {
   private final int stickBars;              // TODO.md 3.3: bars for stickiness detection
   private final int minNetProfitTicks;      // TODO.md 2: minimum net profit in ticks for entry
   private final double eatenRatioEntry;     // TODO.md 2: density consumption ratio for breakout
+  
+  // DensityScalpStrategy parameters
+  private final boolean stocksEnabled;
+  private final int leaderLagSeconds;
+  private final double basisAnomalySigma;
+  private final boolean divergenceBlockEnabled;
+  private final int trendTimeframeMinutes;
+  private final int trendLookbackCandles;
+  private final long trendCacheTtlMs;
+  private final double minLevelVolumeRatio;
+  private final int maxLevelAgeMinutes;
+  private final double levelPriceToleranceBps;
+  private final double compressionSpreadBps;
+  private final double compressionVolumeMultiplier;
+  private final double compressionProximityBps;
+  private final int compressionHistorySize;
+  private final int microImpulseMinTrades;
+  private final int microImpulseWindowMs;
+  private final double microImpulseVolumeMultiplier;
 
   public OrderBookScalpConfig() {
     final Properties properties;
@@ -310,6 +329,42 @@ public class OrderBookScalpConfig {
         Integer.parseInt(properties.getProperty("orderBookScalp.minNetProfitTicks", "2"));
     this.eatenRatioEntry =
         Double.parseDouble(properties.getProperty("orderBookScalp.eatenRatioEntry", "0.75"));
+    
+    // DensityScalpStrategy parameters
+    this.stocksEnabled =
+        Boolean.parseBoolean(properties.getProperty("orderBookScalp.stocksEnabled", "true"));
+    this.leaderLagSeconds =
+        Integer.parseInt(properties.getProperty("orderBookScalp.leaderLagSeconds", "4"));
+    this.basisAnomalySigma =
+        Double.parseDouble(properties.getProperty("orderBookScalp.basisAnomalySigma", "2.0"));
+    this.divergenceBlockEnabled =
+        Boolean.parseBoolean(properties.getProperty("orderBookScalp.divergenceBlockEnabled", "true"));
+    this.trendTimeframeMinutes =
+        Integer.parseInt(properties.getProperty("orderBookScalp.trendTimeframeMinutes", "5"));
+    this.trendLookbackCandles =
+        Integer.parseInt(properties.getProperty("orderBookScalp.trendLookbackCandles", "20"));
+    this.trendCacheTtlMs =
+        Long.parseLong(properties.getProperty("orderBookScalp.trendCacheTtlMs", "60000"));
+    this.minLevelVolumeRatio =
+        Double.parseDouble(properties.getProperty("orderBookScalp.minLevelVolumeRatio", "3.0"));
+    this.maxLevelAgeMinutes =
+        Integer.parseInt(properties.getProperty("orderBookScalp.maxLevelAgeMinutes", "30"));
+    this.levelPriceToleranceBps =
+        Double.parseDouble(properties.getProperty("orderBookScalp.levelPriceToleranceBps", "5.0"));
+    this.compressionSpreadBps =
+        Double.parseDouble(properties.getProperty("orderBookScalp.compressionSpreadBps", "3.0"));
+    this.compressionVolumeMultiplier =
+        Double.parseDouble(properties.getProperty("orderBookScalp.compressionVolumeMultiplier", "2.0"));
+    this.compressionProximityBps =
+        Double.parseDouble(properties.getProperty("orderBookScalp.compressionProximityBps", "10.0"));
+    this.compressionHistorySize =
+        Integer.parseInt(properties.getProperty("orderBookScalp.compressionHistorySize", "50"));
+    this.microImpulseMinTrades =
+        Integer.parseInt(properties.getProperty("orderBookScalp.microImpulseMinTrades", "5"));
+    this.microImpulseWindowMs =
+        Integer.parseInt(properties.getProperty("orderBookScalp.microImpulseWindowMs", "2000"));
+    this.microImpulseVolumeMultiplier =
+        Double.parseDouble(properties.getProperty("orderBookScalp.microImpulseVolumeMultiplier", "2.0"));
   }
 
   public List<String> getInstruments() {
@@ -636,5 +691,74 @@ public class OrderBookScalpConfig {
   
   public double getEatenRatioEntry() {
     return eatenRatioEntry;
+  }
+  
+  // DensityScalpStrategy parameters
+  public boolean isStocksEnabled() {
+    return stocksEnabled;
+  }
+  
+  public int getLeaderLagSeconds() {
+    return leaderLagSeconds;
+  }
+  
+  public double getBasisAnomalySigma() {
+    return basisAnomalySigma;
+  }
+  
+  public boolean isDivergenceBlockEnabled() {
+    return divergenceBlockEnabled;
+  }
+  
+  public int getTrendTimeframeMinutes() {
+    return trendTimeframeMinutes;
+  }
+  
+  public int getTrendLookbackCandles() {
+    return trendLookbackCandles;
+  }
+  
+  public long getTrendCacheTtlMs() {
+    return trendCacheTtlMs;
+  }
+  
+  public double getMinLevelVolumeRatio() {
+    return minLevelVolumeRatio;
+  }
+  
+  public int getMaxLevelAgeMinutes() {
+    return maxLevelAgeMinutes;
+  }
+  
+  public double getLevelPriceToleranceBps() {
+    return levelPriceToleranceBps;
+  }
+  
+  public double getCompressionSpreadBps() {
+    return compressionSpreadBps;
+  }
+  
+  public double getCompressionVolumeMultiplier() {
+    return compressionVolumeMultiplier;
+  }
+  
+  public double getCompressionProximityBps() {
+    return compressionProximityBps;
+  }
+  
+  public int getCompressionHistorySize() {
+    return compressionHistorySize;
+  }
+  
+  public int getMicroImpulseMinTrades() {
+    return microImpulseMinTrades;
+  }
+  
+  public int getMicroImpulseWindowMs() {
+    return microImpulseWindowMs;
+  }
+  
+  public double getMicroImpulseVolumeMultiplier() {
+    return microImpulseVolumeMultiplier;
   }
 }

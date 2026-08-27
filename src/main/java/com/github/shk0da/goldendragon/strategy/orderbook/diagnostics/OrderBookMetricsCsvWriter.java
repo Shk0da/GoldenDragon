@@ -15,7 +15,8 @@ import java.time.format.DateTimeFormatter;
  * Writes order-book strategy metrics to CSV for offline analysis.
  *
  * <p>Columns: timestamp, type, ticker, reason, obi, microEdge, tradeDelta, spreadBps, quality,
- * entryPrice, exitPrice, grossPnl, netPnl, fees, holdSeconds, units, direction
+ * entryPrice, exitPrice, grossPnl, netPnl, fees, holdSeconds, units, direction,
+ * signalId, trend, levelStrength, compressionStrength, impulseStrength, clusterCount, skipReason
  */
 public class OrderBookMetricsCsvWriter implements AutoCloseable {
 
@@ -24,7 +25,8 @@ public class OrderBookMetricsCsvWriter implements AutoCloseable {
 
     private static final String HEADER =
             "timestamp,type,ticker,reason,obi,microEdge,tradeDelta,spreadBps,quality,"
-                    + "entryPrice,exitPrice,grossPnl,netPnl,fees,holdSeconds,units,direction";
+                    + "entryPrice,exitPrice,grossPnl,netPnl,fees,holdSeconds,units,direction,"
+                    + "signalId,trend,levelStrength,compressionStrength,impulseStrength,clusterCount,skipReason";
 
     private final BufferedWriter writer;
 
@@ -80,6 +82,14 @@ public class OrderBookMetricsCsvWriter implements AutoCloseable {
         sb.append(',').append(getDouble(event, "holdSeconds"));
         sb.append(',').append(getInt(event, "units"));
         sb.append(',').append(getString(event, "direction"));
+        // densityScalp metrics
+        sb.append(',').append(getString(event, "signalId"));
+        sb.append(',').append(getString(event, "trend"));
+        sb.append(',').append(getDouble(event, "levelStrength"));
+        sb.append(',').append(getDouble(event, "compressionStrength"));
+        sb.append(',').append(getDouble(event, "impulseStrength"));
+        sb.append(',').append(getInt(event, "clusterCount"));
+        sb.append(',').append(getString(event, "skipReason"));
         return sb.toString();
     }
 

@@ -17,12 +17,15 @@ public final class OrderBookSignalFactory {
             TCSService tcsService, OrderBookScalpConfig config) {
         // CumulativeDeltaScalpSignal is the primary signal for HFT scalping
         // It implements both bounce and breakout scenarios from the spec
-        List<OrderBookSignal> allSignals =
-                List.of(
-                        new CumulativeDeltaScalpSignal(tcsService, config),
-                        new TradeFlowScalpSignal(config),
-                        new MicropriceDriftSignal(config),
-                        new DensityImbalanceSignal(config));
+        List<OrderBookSignal> allSignals = new ArrayList<>();
+        allSignals.add(new CumulativeDeltaScalpSignal(tcsService, config));
+        allSignals.add(new TradeFlowScalpSignal(config));
+        allSignals.add(new MicropriceDriftSignal(config));
+        allSignals.add(new DensityImbalanceSignal(config));
+        
+        // Add DensityScalpSignal with all required components
+        allSignals.add(createDensityScalpSignal(tcsService, config));
+        
         Map<String, OrderBookSignal> available = new LinkedHashMap<>();
         for (OrderBookSignal signal : allSignals) {
             available.put(signal.id().toLowerCase(Locale.ROOT), signal);
@@ -41,5 +44,53 @@ public final class OrderBookSignalFactory {
             enabled.add(new CumulativeDeltaScalpSignal(tcsService, config));
         }
         return enabled;
+    }
+    
+    /**
+     * Create DensityScalpSignal with all required analysis components.
+     */
+    private static DensityScalpSignal createDensityScalpSignal(
+            TCSService tcsService, OrderBookScalpConfig config) {
+        
+        // Create asset pair analyzer
+        AssetPairAnalyzer pairAnalyzer = new AssetPairAnalyzer(
+                config.getLeaderLagSeconds(),
+                config.getBasisAnomalySigma(),
+                config.isDivergenceBlockEnabled());
+        
+        // Create trend analyzer
+        TrendAnalyzer trendAnalyzer = new TrendAnalyzer(
+                tcsService,
+                config.getTrendTimeframeMinutes(),
+                config.getTrendLookbackCandles(),
+                config.getTrendCacheTtlMs());
+        
+        // Create level history
+        LevelHistory levelHistory = new LevelHistory(
+                config.getMinLevelVolumeRatio(),
+                config.getMaxLevelAgeMinutes(),
+                config.getLevelPriceToleranceBps());
+        
+        // Create compression detector
+        CompressionDetector compressionDetector = new CompressionDetector(
+                config.getCompressionSpreadBps(),
+                config.getCompressionVolumeMultiplier(),
+                config.getCompressionProximityBps(),
+                config.getCompressionHistorySize());
+        
+        // Create micro impulse detector
+        MicroImpulseDetector impulseDetector = new MicroImpulseDetector(
+                config.getMicroImpulseMinTrades(),
+                config.getMicroImpulseWindowMs(),
+                config.getMicroImpulseVolumeMultiplier());
+        
+        return new DensityScalpSignal(
+                tcsService,
+                config,
+                pairAnalyzer,
+                trendAnalyzer,
+                levelHistory,
+                compressionDetector,
+                impulseDetector);
     }
 }

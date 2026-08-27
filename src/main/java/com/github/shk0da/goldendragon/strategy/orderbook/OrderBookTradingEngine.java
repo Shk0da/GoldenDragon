@@ -168,6 +168,14 @@ public final class OrderBookTradingEngine implements MarketTickListener {
       if (metricsCsvWriter != null) {
         log(strategyName + ": metrics CSV writer initialized -> " + config.getMetricsCsvFile());
       }
+      
+      // Setup DensityScalpSignal skip metrics callback
+      for (OrderBookSignal signal : this.signals) {
+        if (signal instanceof DensityScalpSignal) {
+          DensityScalpSignal densitySignal = (DensityScalpSignal) signal;
+          densitySignal.setSkipMetricsCallback(this::emitDensityScalpSkip);
+        }
+      }
     } else {
       this.diagnosticsCollector = null;
       this.diagnosticsReplayWriter = null;
@@ -2370,8 +2378,9 @@ public final class OrderBookTradingEngine implements MarketTickListener {
   private List<TickerInfo> resolveInstruments() {
     List<String> configured = config.getInstruments();
     if (isAllFuturesMode(configured)) {
+      // Load futures
       Map<TickerInfo.Key, TickerInfo> allFutures = tcsService.getFuturesList();
-      List<TickerInfo> candidates =
+      List<TickerInfo> futuresCandidates =
           allFutures.values().stream()
               .filter(info -> "rub".equalsIgnoreCase(info.getCurrency()))
               .filter(tcsService::isTradableForAccount)
@@ -2381,9 +2390,29 @@ public final class OrderBookTradingEngine implements MarketTickListener {
           "Loaded "
               + allFutures.size()
               + " RUB futures, "
-              + candidates.size()
+              + futuresCandidates.size()
               + " tradable for current account");
-      return OrderBookScalpScreener.selectTop(tcsService, candidates, config);
+      
+      // Load stocks if enabled
+      List<TickerInfo> allCandidates = new ArrayList<>(futuresCandidates);
+      if (config.isStocksEnabled()) {
+        Map<TickerInfo.Key, TickerInfo> allStocks = tcsService.getStockList();
+        List<TickerInfo> stockCandidates =
+            allStocks.values().stream()
+                .filter(info -> "rub".equalsIgnoreCase(info.getCurrency()))
+                .filter(tcsService::isTradableForAccount)
+                .sorted(Comparator.comparing(TickerInfo::getTicker))
+                .collect(toList());
+        log(
+            "Loaded "
+                + allStocks.size()
+                + " RUB stocks, "
+                + stockCandidates.size()
+                + " tradable for current account");
+        allCandidates.addAll(stockCandidates);
+      }
+      
+      return OrderBookScalpScreener.selectTop(tcsService, allCandidates, config);
     }
 
     List<TickerInfo> resolved = new ArrayList<>();
@@ -2691,6 +2720,19 @@ public final class OrderBookTradingEngine implements MarketTickListener {
     if (metricsCsvWriter != null) {
       metricsCsvWriter.write(event);
     }
+  }
+
+  /**
+   * Emit densityScalp skip metrics for CSV diagnostics.
+   * Called by DensityScalpSignal when entry is skipped.
+   */
+  private void emitDensityScalpSkip(String ticker, Map<String, Object> metrics) {
+    String skipReason = metrics.getOrDefault("skipReason", "unknown").toString();
+    emitDiagnostic(
+        OrderBookDiagnosticEventType.ENTRY_SKIPPED,
+        ticker,
+        "densityScalp_" + skipReason,
+        metrics);
   }
 
   private String buildDiagnosticLogLine(OrderBookDiagnosticEvent event) {
