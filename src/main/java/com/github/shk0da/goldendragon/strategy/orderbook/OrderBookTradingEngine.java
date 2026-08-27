@@ -1620,12 +1620,14 @@ public final class OrderBookTradingEngine implements MarketTickListener {
       double grossPnl;
       double exitPrice;
       if (isLong) {
+        // closing LONG: sell at BID
         double fallback = position.entryPrice - position.spreadAtEntry;
         exitPrice = resolveBestBid(book, fallback);
         grossPnl = (exitPrice - position.entryPrice) * position.units;
       } else {
+        // closing SHORT: buy at ASK
         double fallback = position.entryPrice + position.spreadAtEntry;
-        exitPrice = resolveBestBid(book, fallback);
+        exitPrice = resolveBestAsk(book, fallback);
         grossPnl = (position.entryPrice - exitPrice) * position.units;
       }
       double exitValue = position.units * exitPrice;
