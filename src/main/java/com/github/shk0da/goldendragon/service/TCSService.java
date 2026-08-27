@@ -1891,6 +1891,13 @@ public class TCSService {
             return StopLossOrderResult.success("test-stop-");
         }
         
+        // In sandbox mode, server-side stop orders are not supported.
+        // Return success with a virtual order ID to indicate client-side tracking.
+        if (mainConfig.isSandbox()) {
+            log("Sandbox mode: skipping server SL for " + key.getTicker() + " (will track client-side)");
+            return StopLossOrderResult.success("sandbox-stop-");
+        }
+        
         try {
             String figi = figiByName(key);
             TickerInfo tickerInfo = searchTicker(key);
@@ -2327,6 +2334,54 @@ public class TCSService {
                         + qualified
                         + ", qualified_for_work_with="
                         + qualifiedFor);
+    }
+
+    /**
+     * Logs a formatted table of all account positions at strategy startup.
+     */
+    public void logAccountPositions() {
+        try {
+            double availableCash = getAvailableCash();
+            double totalPortfolio = getTotalPortfolioCost();
+            Map<TickerInfo.Key, PositionInfo> positions = getCurrentPositions(TickerType.ALL);
+
+            log("======================================================================");
+            log("  ACCOUNT POSITIONS");
+            log("======================================================================");
+            log(String.format("  Total portfolio:  %.2f RUB", totalPortfolio));
+            log(String.format("  Available cash:   %.2f RUB", availableCash));
+            log("----------------------------------------------------------------------");
+
+            if (positions.isEmpty()) {
+                log("  No positions on account");
+            } else {
+                log(String.format("  %-12s %-10s %8s %8s %12s  %s",
+                        "Ticker", "Type", "Balance", "Lots", "AvgPrice", "Name"));
+                log(String.format("  %-12s %-10s %8s %8s %12s  %s",
+                        "------------", "----------", "--------", "--------", "------------", "--------------------"));
+
+                for (PositionInfo pos : positions.values()) {
+                    if (pos.getBalance() == 0) {
+                        continue;
+                    }
+                    String type = pos.getInstrumentType() != null ? pos.getInstrumentType().name() : "?";
+                    String name = pos.getName() != null ? pos.getName() : "";
+                    if (name.length() > 20) {
+                        name = name.substring(0, 20);
+                    }
+                    log(String.format("  %-12s %-10s %8d %8d %12.4f  %s",
+                            pos.getTicker(),
+                            type,
+                            pos.getBalance(),
+                            pos.getLots(),
+                            pos.getAveragePositionPrice() != null ? pos.getAveragePositionPrice() : 0.0,
+                            name));
+                }
+            }
+            log("======================================================================");
+        } catch (Exception e) {
+            log("Failed to load account positions: " + e.getMessage());
+        }
     }
 
     private TickerInfo toFutureTickerInfo(Future future) {

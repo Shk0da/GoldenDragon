@@ -197,6 +197,7 @@ public final class OrderBookTradingEngine implements MarketTickListener {
     telegramNotifyService.sendMessage(strategyName + " started (paper=" + paper + ")");
 
     tcsService.logAccountTradingEligibility();
+    tcsService.logAccountPositions();
 
     while (true) {
       // Check for manual emergency stop (TODO.md Section 5, item 135)
@@ -1324,8 +1325,8 @@ public final class OrderBookTradingEngine implements MarketTickListener {
     BracketPrices executedBracket = buildBracketPrices(runtime.ticker, entryBid, executedEntry);
     double entryValue = executedUnits * executedEntry;
     
-    // Place server-side stop-loss order if enabled
-    if (config.isServerStopEnabled() && !mainConfig.isTestMode()) {
+    // Place server-side stop-loss order if enabled (not in sandbox mode - server stops not supported there)
+    if (config.isServerStopEnabled() && !mainConfig.isTestMode() && !mainConfig.isSandbox()) {
       var stopLossResult = placeServerStopLossOrder(runtime, executedUnits, executedBracket.slPrice, "BUY");
       if (stopLossResult != null && stopLossResult.orderId != null) {
         brokerStopLossOrderId = stopLossResult.orderId;
@@ -1334,6 +1335,10 @@ public final class OrderBookTradingEngine implements MarketTickListener {
       } else {
         log("WARN: Server SL failed for " + runtime.ticker);
       }
+    } else if (mainConfig.isSandbox()) {
+      // In sandbox mode, track SL/TP client-side only
+      brokerStopLossPrice = executedBracket.slPrice;
+      log("Sandbox mode: SL tracked client-side for " + runtime.ticker + ", price=" + brokerStopLossPrice);
     }
     
     runtime.openPosition =
@@ -1575,6 +1580,15 @@ public final class OrderBookTradingEngine implements MarketTickListener {
     BracketPrices executedBracket =
         buildBracketPricesShort(runtime.ticker, entryBid, executedEntry);
     double entryValue = executedUnits * executedEntry;
+    
+    // Track SL/TP client-side in sandbox mode (server stops not supported)
+    String brokerStopLossOrderId = null;
+    double brokerStopLossPrice = 0.0;
+    if (mainConfig.isSandbox()) {
+      brokerStopLossPrice = executedBracket.slPrice;
+      log("Sandbox mode: SHORT SL tracked client-side for " + runtime.ticker + ", price=" + brokerStopLossPrice);
+    }
+    
     runtime.openPosition =
         new OpenPosition(
             signalId,
@@ -1586,7 +1600,11 @@ public final class OrderBookTradingEngine implements MarketTickListener {
             executedBracket.slPrice,
             executedUnits,
             entryValue,
-            result.getCommission());
+            result.getCommission(),
+            false,
+            null,  // brokerOrderId
+            brokerStopLossOrderId,
+            brokerStopLossPrice);
     recordRealizedCommission(runtime.ticker, entryValue, result.getCommission());
     persistPosition(runtime);
     runtime.cooldownUntilMs = System.currentTimeMillis() + config.getCooldownSeconds() * 1000L;
@@ -2131,26 +2149,10 @@ public final class OrderBookTradingEngine implements MarketTickListener {
     try {
       double availableCash = tcsService.getAvailableCash();
       
-      // Calculate reserved capital for open positions
-      double reservedCapital = 0.0;
-      for (TickerRuntime runtime : runtimesByTicker.values()) {
-        if (runtime.openPosition != null) {
-          OpenPosition pos = runtime.openPosition;
-          double contractMultiplier = (runtime.tickerInfo != null
-                  && runtime.tickerInfo.getBasicAssetSize() != null
-                  && runtime.tickerInfo.getBasicAssetSize() > 0)
-                  ? runtime.tickerInfo.getBasicAssetSize() : 1.0;
-          double notional = pos.units * pos.entryPrice * contractMultiplier;
-          // For futures, only margin is reserved
-          if (runtime.tickerInfo != null && runtime.tickerInfo.getType() == TickerType.FEATURE) {
-            reservedCapital += notional * 0.25;
-          } else {
-            reservedCapital += notional;
-          }
-        }
-      }
-
-      double effectiveAvailableCash = availableCash - reservedCapital;
+      // getAvailableCash() from Tinkoff API already returns free cash after margin blocking,
+      // so we don't need to subtract reservedCapital again (was causing double deduction).
+      // Just protect against negative values from API.
+      double effectiveAvailableCash = Math.max(0.0, availableCash);
       
       // Calculate minimum capital required for one lot
       TickerInfo.Key key = runtimesByTicker.get(ticker) != null 
