@@ -711,7 +711,7 @@ public class BacktestRunner {
         }
 
         try {
-            Path imagesDir = Paths.get("ml_strategy/images");
+            Path imagesDir = Paths.get("images");
             Files.createDirectories(imagesDir);
 
             String fileName = strategyName + ".png";
@@ -821,7 +821,7 @@ public class BacktestRunner {
         dateAxis.setDateFormatOverride(new SimpleDateFormat("yyyy-MM"));
 
         try {
-            Path imagesDir = Paths.get("ml_strategy/images");
+            Path imagesDir = Paths.get("images");
             Files.createDirectories(imagesDir);
             Path outputPath = imagesDir.resolve("Basic.png");
             try (FileOutputStream out = new FileOutputStream(outputPath.toFile())) {
@@ -929,7 +929,7 @@ public class BacktestRunner {
         dateAxis.setDateFormatOverride(new SimpleDateFormat("yyyy-MM"));
 
         try {
-            Path imagesDir = Paths.get("ml_strategy/images");
+            Path imagesDir = Paths.get("images");
             Files.createDirectories(imagesDir);
             Path outputPath = imagesDir.resolve("BasicQQQ.png");
             try (FileOutputStream out = new FileOutputStream(outputPath.toFile())) {
