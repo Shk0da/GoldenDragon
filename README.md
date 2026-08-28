@@ -15,7 +15,6 @@
 | Стратегия | Описание |
 |---|---|
 | `UnifiedStrategy` | Основная стратегия с тремя типами сигналов (trend, fx, mixed), свечными паттернами, голосованием и режимом фильтрации рынка (Regime-Aware Filter) |
-| `Rebalance` | Простая ребалансировка по фиксированному портфелю |
 | `OrderBookScalpStrategy` | Скальпинг на основе анализа стакана и дельты |
 
 ## Архитектура
@@ -98,18 +97,15 @@ tcs.isSandbox=true
 tcs.accountId=
 tcs.apiKey=
 
-# Market Config
-market.moex.maxPositionCostToBuy=10000
-market.moex.currency=RUB
-
-# Rebalance Config
-rebalance.position.percent=5.0
-rebalance.portfolio.ratio=AIV:10;BXP:10;EXR:10;IRM:10;KIM:10;PLD:10;O:10;SLG:10;UDR:10;VTR:10;
-
 # UnifiedTrader Config
 unifiedTrader.averagePositionCost=500000
 unifiedTrader.leverage=3
 unifiedTrader.adaptiveLeverage.enabled=true
+
+# UnifiedStrategy Config
+unifiedTrader.marketRegimeFilter.enabled=true
+unifiedTrader.marketRegimeFilter.adxTrendThreshold=26.0
+unifiedTrader.marketRegimeFilter.adxRangeThreshold=16.0
 ```
 
 ## Структура проекта
@@ -123,7 +119,7 @@ GoldenDragon/
 │   └── test/
 ├── data/                 # исторические свечи
 ├── images/               # графики equity
-├── docs/                 # документация
+├── scripts/              # скрипты анализа (analyze_strategy.py)
 ├── build.gradle
 └── README.md
 ```
