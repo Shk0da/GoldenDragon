@@ -442,7 +442,6 @@ public final class OrderBookTradingEngine implements MarketTickListener {
                 + summary.getSkipReasons()
                 + ", closeReasons="
                 + summary.getCloseReasons());
-        log(buildDiagnosticsAnalysisPrompt(summary));
 
         Map<String, Object> metrics = new HashMap<>();
         metrics.put("session_opened", summary.getOpenedCount());
@@ -457,7 +456,6 @@ public final class OrderBookTradingEngine implements MarketTickListener {
         metrics.put("session_skipReasons", summary.getSkipReasons().toString());
         metrics.put("session_closeReasons", summary.getCloseReasons().toString());
         metrics.put("session_skippedTickers", summary.getSkippedTickers().toString());
-        metrics.put("analysis_prompt", buildDiagnosticsAnalysisPrompt(summary));
 
         emitDiagnostic(OrderBookDiagnosticEventType.SUMMARY, strategyName, "session_end", metrics);
       }
@@ -2891,55 +2889,6 @@ public final class OrderBookTradingEngine implements MarketTickListener {
       recommendations.add("no_immediate_strategy_change_recommended");
     }
     return strategyName + " recommendation [last_10m]: " + recommendations;
-  }
-
-  private String buildDiagnosticsAnalysisPrompt(OrderBookDiagnosticsSummary summary) {
-    return "ORDER_BOOK_DIAGNOSTICS_ANALYSIS_PROMPT\n"
-               + "Analyze the following long-run order-book strategy diagnostics and explain why"
-               + " performance is weak or unstable.\n"
-               + "Focus on entry quality, exit quality, fee drag, stream recovery impact, weak flow"
-               + " conviction, and whether thresholds are too loose or too strict.\n"
-               + "Provide:\n"
-               + "1. root causes of poor performance\n"
-               + "2. the most suspicious skip/close patterns\n"
-               + "3. whether commissions dominate the expected edge\n"
-               + "4. whether holding time and reversals suggest premature exits or bad entries\n"
-               + "5. concrete parameter tuning recommendations\n"
-               + "6. what additional diagnostics should be added next\n"
-               + "\n"
-               + "Diagnostics summary:\n"
-               + "- opened="
-        + summary.getOpenedCount()
-        + "\n"
-        + "- skipped="
-        + summary.getSkippedCount()
-        + "\n"
-        + "- closed="
-        + summary.getClosedCount()
-        + "\n"
-        + "- recoveries="
-        + summary.getRecoveryCount()
-        + "\n"
-        + "- averageEntryQuality="
-        + String.format("%.3f", summary.getAverageEntryQuality())
-        + "\n"
-        + "- grossPnl="
-        + String.format("%.2f", summary.getGrossPnl())
-        + "\n"
-        + "- netPnl="
-        + String.format("%.2f", summary.getNetPnl())
-        + "\n"
-        + "- feeDrag="
-        + String.format("%.2f", summary.getFeeDrag())
-        + "\n"
-        + "- averageHoldSeconds="
-        + String.format("%.1f", summary.getAverageHoldSeconds())
-        + "\n"
-        + "- skipReasons="
-        + summary.getSkipReasons()
-        + "\n"
-        + "- closeReasons="
-        + summary.getCloseReasons();
   }
 
   private void emitDiagnostic(
