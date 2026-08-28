@@ -5,20 +5,29 @@ import java.util.Deque;
 import java.util.Map;
 import java.util.NavigableMap;
 import java.util.TreeMap;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Tracks volume distribution by price levels and computes VWAP, POC, and Value Area.
  * Uses tick-sized buckets for the volume histogram and supports a rolling time window
  * that automatically evicts expired observations.
+ * Maintains separate profiles per ticker.
  */
 public final class VolumeProfileTracker {
 
     private final double tickSize;
     private final long windowMillis;
-    private final TreeMap<Long, Long> volumeByBucket = new TreeMap<>();
-    private final Deque<TradeRecord> records = new ArrayDeque<>();
-    private double sumPriceVolume;
-    private long sumVolume;
+    private final Map<String, TickerProfile> profilesByTicker = new ConcurrentHashMap<>();
+
+    /**
+     * Internal class holding volume profile data for a single ticker.
+     */
+    private final class TickerProfile {
+        final TreeMap<Long, Long> volumeByBucket = new TreeMap<>();
+        final Deque<TradeRecord> records = new ArrayDeque<>();
+        double sumPriceVolume;
+        long sumVolume;
+    }
 
     // single trade observation stored for rolling-window eviction
     private static final class TradeRecord {
@@ -54,99 +63,118 @@ public final class VolumeProfileTracker {
     }
 
     /**
-     * Adds a trade observation to the volume profile.
+     * Adds a trade observation to the volume profile for a specific ticker.
      *
+     * @param ticker          ticker symbol
      * @param price           trade price
      * @param volume          trade volume (quantity)
      * @param timestampMillis trade timestamp in milliseconds
      */
-    public void addTrade(double price, long volume, long timestampMillis) {
+    public void addTrade(String ticker, double price, long volume, long timestampMillis) {
         if (volume <= 0) {
             return;
         }
+        TickerProfile profile = profilesByTicker.computeIfAbsent(ticker, k -> new TickerProfile());
         long bucket = toBucket(price);
-        volumeByBucket.merge(bucket, volume, Long::sum);
-        records.addLast(new TradeRecord(bucket, price, volume, timestampMillis));
-        sumPriceVolume += price * volume;
-        sumVolume += volume;
-        evictExpired(timestampMillis);
+        profile.volumeByBucket.merge(bucket, volume, Long::sum);
+        profile.records.addLast(new TradeRecord(bucket, price, volume, timestampMillis));
+        profile.sumPriceVolume += price * volume;
+        profile.sumVolume += volume;
+        evictExpired(profile, timestampMillis);
     }
 
     /**
-     * Returns the total volume at the given price level (tick-sized bucket).
+     * Returns the total volume at the given price level (tick-sized bucket) for a specific ticker.
      *
+     * @param ticker ticker symbol
      * @param price price to query
      * @return volume at that price level, or 0 if no data
      */
-    public long getVolumeAtPrice(double price) {
+    public long getVolumeAtPrice(String ticker, double price) {
+        TickerProfile profile = profilesByTicker.get(ticker);
+        if (profile == null) {
+            return 0L;
+        }
         long bucket = toBucket(price);
-        return volumeByBucket.getOrDefault(bucket, 0L);
+        return profile.volumeByBucket.getOrDefault(bucket, 0L);
     }
 
     /**
-     * Calculates VWAP (Volume Weighted Average Price) over the current window.
+     * Calculates VWAP (Volume Weighted Average Price) over the current window for a specific ticker.
      *
+     * @param ticker ticker symbol
      * @return VWAP, or 0 if no data
      */
-    public double getVwap() {
-        if (sumVolume <= 0) {
+    public double getVwap(String ticker) {
+        TickerProfile profile = profilesByTicker.get(ticker);
+        if (profile == null || profile.sumVolume <= 0) {
             return 0.0;
         }
-        return sumPriceVolume / sumVolume;
+        return profile.sumPriceVolume / profile.sumVolume;
     }
 
     /**
-     * Returns the Point of Control — the price level with the highest traded volume.
+     * Returns the Point of Control — the price level with the highest traded volume for a specific ticker.
      *
+     * @param ticker ticker symbol
      * @return POC price, or 0 if no data
      */
-    public double getPoc() {
-        if (volumeByBucket.isEmpty()) {
+    public double getPoc(String ticker) {
+        TickerProfile profile = profilesByTicker.get(ticker);
+        if (profile == null || profile.volumeByBucket.isEmpty()) {
             return 0.0;
         }
-        return fromBucket(findPocBucket());
+        return fromBucket(findPocBucket(profile));
     }
 
     /**
      * Returns the Value Area High — upper boundary of the narrowest price range
-     * around POC containing at least 70% of total volume.
+     * around POC containing at least 70% of total volume for a specific ticker.
      *
+     * @param ticker ticker symbol
      * @return Value Area High price, or 0 if no data
      */
-    public double getValueAreaHigh() {
-        return computeValueArea()[1];
+    public double getValueAreaHigh(String ticker) {
+        return computeValueArea(ticker)[1];
     }
 
     /**
      * Returns the Value Area Low — lower boundary of the narrowest price range
-     * around POC containing at least 70% of total volume.
+     * around POC containing at least 70% of total volume for a specific ticker.
      *
+     * @param ticker ticker symbol
      * @return Value Area Low price, or 0 if no data
      */
-    public double getValueAreaLow() {
-        return computeValueArea()[0];
+    public double getValueAreaLow(String ticker) {
+        return computeValueArea(ticker)[0];
     }
 
     /**
-     * Returns the total volume across all price levels in the current window.
+     * Returns the total volume across all price levels in the current window for a specific ticker.
      */
-    public long getTotalVolume() {
-        return sumVolume;
+    public long getTotalVolume(String ticker) {
+        TickerProfile profile = profilesByTicker.get(ticker);
+        return profile != null ? profile.sumVolume : 0L;
     }
 
     /**
-     * Returns the number of distinct price levels with non-zero volume.
+     * Returns the number of distinct price levels with non-zero volume for a specific ticker.
      */
-    public int getLevelCount() {
-        return volumeByBucket.size();
+    public int getLevelCount(String ticker) {
+        TickerProfile profile = profilesByTicker.get(ticker);
+        return profile != null ? profile.volumeByBucket.size() : 0;
     }
 
     /**
-     * Returns a snapshot of the volume profile as a map from price to volume.
+     * Returns a snapshot of the volume profile as a map from price to volume for a specific ticker.
      */
-    public NavigableMap<Double, Long> getVolumeProfile() {
+    public NavigableMap<Double, Long> getVolumeProfile(String ticker) {
         TreeMap<Double, Long> result = new TreeMap<>();
-        for (Map.Entry<Long, Long> entry : volumeByBucket.entrySet()) {
+        TickerProfile profile = profilesByTicker.get(ticker);
+        if (profile == null) {
+            return result;
+        }
+        for (Map.Entry<Long, Long> entry : profile.volumeByBucket.entrySet()) {
             result.put(fromBucket(entry.getKey()), entry.getValue());
         }
         return result;
@@ -162,31 +190,31 @@ public final class VolumeProfileTracker {
         return bucket * tickSize;
     }
 
-    private void evictExpired(long nowMillis) {
+    private void evictExpired(TickerProfile profile, long nowMillis) {
         long cutoff = nowMillis - windowMillis;
-        while (!records.isEmpty() && records.peekFirst().timestampMillis < cutoff) {
-            TradeRecord expired = records.removeFirst();
-            long remaining = volumeByBucket.get(expired.bucket);
+        while (!profile.records.isEmpty() && profile.records.peekFirst().timestampMillis < cutoff) {
+            TradeRecord expired = profile.records.removeFirst();
+            long remaining = profile.volumeByBucket.get(expired.bucket);
             long newVolume = remaining - expired.volume;
             if (newVolume <= 0) {
-                volumeByBucket.remove(expired.bucket);
+                profile.volumeByBucket.remove(expired.bucket);
             } else {
-                volumeByBucket.put(expired.bucket, newVolume);
+                profile.volumeByBucket.put(expired.bucket, newVolume);
             }
-            sumPriceVolume -= expired.price * expired.volume;
-            sumVolume -= expired.volume;
+            profile.sumPriceVolume -= expired.price * expired.volume;
+            profile.sumVolume -= expired.volume;
         }
         // reset to zero when all data evicted to avoid floating-point drift
-        if (sumVolume <= 0) {
-            sumPriceVolume = 0;
-            sumVolume = 0;
+        if (profile.sumVolume <= 0) {
+            profile.sumPriceVolume = 0;
+            profile.sumVolume = 0;
         }
     }
 
-    private long findPocBucket() {
+    private long findPocBucket(TickerProfile profile) {
         long maxVol = 0;
         long pocBucket = 0;
-        for (Map.Entry<Long, Long> entry : volumeByBucket.entrySet()) {
+        for (Map.Entry<Long, Long> entry : profile.volumeByBucket.entrySet()) {
             if (entry.getValue() > maxVol) {
                 maxVol = entry.getValue();
                 pocBucket = entry.getKey();
@@ -197,36 +225,37 @@ public final class VolumeProfileTracker {
 
     /**
      * Computes Value Area [low, high] — the narrowest price range around POC
-     * that contains at least 70% of total volume.
+     * that contains at least 70% of total volume for a specific ticker.
      * Expands outward from POC one occupied bucket at a time,
      * always choosing the side with the larger volume contribution.
      */
-    private double[] computeValueArea() {
-        if (volumeByBucket.isEmpty()) {
+    private double[] computeValueArea(String ticker) {
+        TickerProfile profile = profilesByTicker.get(ticker);
+        if (profile == null || profile.volumeByBucket.isEmpty()) {
             return new double[]{0.0, 0.0};
         }
-        long totalVolume = sumVolume;
+        long totalVolume = profile.sumVolume;
         if (totalVolume <= 0) {
             return new double[]{0.0, 0.0};
         }
 
         long targetVolume = (long) Math.ceil(totalVolume * 0.7);
-        long pocBucket = findPocBucket();
+        long pocBucket = findPocBucket(profile);
 
-        long accumulatedVolume = volumeByBucket.getOrDefault(pocBucket, 0L);
+        long accumulatedVolume = profile.volumeByBucket.getOrDefault(pocBucket, 0L);
         long lowBucket = pocBucket;
         long highBucket = pocBucket;
 
         while (accumulatedVolume < targetVolume) {
-            Long nextLow = volumeByBucket.lowerKey(lowBucket);
-            Long nextHigh = volumeByBucket.higherKey(highBucket);
+            Long nextLow = profile.volumeByBucket.lowerKey(lowBucket);
+            Long nextHigh = profile.volumeByBucket.higherKey(highBucket);
 
             if (nextLow == null && nextHigh == null) {
                 break;
             }
 
-            long volLow = (nextLow != null) ? volumeByBucket.get(nextLow) : 0;
-            long volHigh = (nextHigh != null) ? volumeByBucket.get(nextHigh) : 0;
+            long volLow = (nextLow != null) ? profile.volumeByBucket.get(nextLow) : 0;
+            long volHigh = (nextHigh != null) ? profile.volumeByBucket.get(nextHigh) : 0;
 
             if (volLow >= volHigh && nextLow != null) {
                 lowBucket = nextLow;

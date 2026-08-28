@@ -90,7 +90,7 @@ public final class DynamicTakeProfit {
         }
 
         // Try volume profile POC/value area as secondary source
-        double profileTp = findVolumeProfileTp(entryPrice, isLong);
+        double profileTp = findVolumeProfileTp(entryPrice, isLong, ticker);
         if (profileTp > 0) {
             return profileTp;
         }
@@ -146,11 +146,11 @@ public final class DynamicTakeProfit {
      * <p>For LONG: uses POC or value area high as resistance target.
      * For SHORT: uses POC or value area low as support target.
      */
-    private double findVolumeProfileTp(double entryPrice, boolean isLong) {
+    private double findVolumeProfileTp(double entryPrice, boolean isLong, String ticker) {
         if (volumeProfileTracker == null) {
             return 0.0;
         }
-        if (volumeProfileTracker.getTotalVolume() <= 0) {
+        if (volumeProfileTracker.getTotalVolume(ticker) <= 0) {
             return 0.0;
         }
 
@@ -158,30 +158,30 @@ public final class DynamicTakeProfit {
 
         if (isLong) {
             // Look for POC above entry as a magnet/target
-            double poc = volumeProfileTracker.getPoc();
+            double poc = volumeProfileTracker.getPoc(ticker);
             if (poc > entryPrice && (poc - entryPrice) <= maxDistance) {
                 return poc;
             }
             // Try value area high
-            double vah = volumeProfileTracker.getValueAreaHigh();
+            double vah = volumeProfileTracker.getValueAreaHigh(ticker);
             if (vah > entryPrice && (vah - entryPrice) <= maxDistance) {
                 return vah;
             }
         } else {
             // Look for POC below entry as a magnet/target
-            double poc = volumeProfileTracker.getPoc();
+            double poc = volumeProfileTracker.getPoc(ticker);
             if (poc > 0 && poc < entryPrice && (entryPrice - poc) <= maxDistance) {
                 return poc;
             }
             // Try value area low
-            double val = volumeProfileTracker.getValueAreaLow();
+            double val = volumeProfileTracker.getValueAreaLow(ticker);
             if (val > 0 && val < entryPrice && (entryPrice - val) <= maxDistance) {
                 return val;
             }
         }
 
         // Try to find high-volume price level from the profile as target
-        return findHighVolumeLevelTp(entryPrice, isLong, maxDistance);
+        return findHighVolumeLevelTp(entryPrice, isLong, maxDistance, ticker);
     }
 
     /**
@@ -191,9 +191,10 @@ public final class DynamicTakeProfit {
     private double findHighVolumeLevelTp(
             double entryPrice,
             boolean isLong,
-            double maxDistance) {
+            double maxDistance,
+            String ticker) {
 
-        NavigableMap<Double, Long> profile = volumeProfileTracker.getVolumeProfile();
+        NavigableMap<Double, Long> profile = volumeProfileTracker.getVolumeProfile(ticker);
         if (profile.isEmpty()) {
             return 0.0;
         }

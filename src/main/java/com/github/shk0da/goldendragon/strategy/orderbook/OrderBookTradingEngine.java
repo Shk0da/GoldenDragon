@@ -876,7 +876,7 @@ public final class OrderBookTradingEngine implements MarketTickListener {
     tapeReader.onTrade(runtime.ticker, trade);
     vpinCalculator.onTrade(runtime.ticker, trade);
     volumeProfileTracker.addTrade(
-        trade.getPrice(), trade.getQuantity(),
+        runtime.ticker, trade.getPrice(), trade.getQuantity(),
         trade.getTime() != null ? trade.getTime().toEpochMilli() : System.currentTimeMillis());
   }
 
@@ -2957,19 +2957,19 @@ public final class OrderBookTradingEngine implements MarketTickListener {
     }
     // Volume profile
     if (volumeProfileTracker != null) {
-      double vwap = volumeProfileTracker.getVwap();
+      double vwap = volumeProfileTracker.getVwap(ticker);
       if (vwap > 0.0) {
         metrics.put("vwap", vwap);
       }
-      double poc = volumeProfileTracker.getPoc();
+      double poc = volumeProfileTracker.getPoc(ticker);
       if (poc > 0.0) {
         metrics.put("poc", poc);
       }
-      double vaHigh = volumeProfileTracker.getValueAreaHigh();
+      double vaHigh = volumeProfileTracker.getValueAreaHigh(ticker);
       if (vaHigh > 0.0) {
         metrics.put("valueAreaHigh", vaHigh);
       }
-      double vaLow = volumeProfileTracker.getValueAreaLow();
+      double vaLow = volumeProfileTracker.getValueAreaLow(ticker);
       if (vaLow > 0.0) {
         metrics.put("valueAreaLow", vaLow);
       }
@@ -3056,6 +3056,7 @@ public final class OrderBookTradingEngine implements MarketTickListener {
   /**
    * Loads recent 5-minute candles for a ticker.
    * Used for regime detection and volatility spike analysis.
+   * Loads 6 hours of data to ensure sufficient candles for ATR/ADX calculation.
    */
   private List<Candle> loadCandles(String ticker) {
     try {
@@ -3065,7 +3066,7 @@ public final class OrderBookTradingEngine implements MarketTickListener {
       }
       String figi = info.getFigi();
       Instant now = Instant.now();
-      Instant from = now.minus(2, ChronoUnit.HOURS);
+      Instant from = now.minus(6, ChronoUnit.HOURS);
       List<HistoricCandle> historicCandles = tcsService.getCandles(figi, from, now, CANDLE_INTERVAL_5_MIN);
       return historicCandles.stream()
           .map(hc -> new Candle(
