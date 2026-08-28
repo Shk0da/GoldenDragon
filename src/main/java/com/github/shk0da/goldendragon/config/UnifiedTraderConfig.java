@@ -179,7 +179,7 @@ public class UnifiedTraderConfig {
                         properties.getProperty("unifiedTrader.adaptiveLeverage.enabled", "true"));
         tmonCashParkingEnabled =
                 Boolean.parseBoolean(
-                        properties.getProperty("unifiedTrader.tmonCashParking.enabled", "true"));
+                        properties.getProperty("unifiedTrader.tmonCashParking.enabled", "false"));
         this.tickerParams = loadTickerParams(properties);
     }
 

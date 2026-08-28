@@ -1642,7 +1642,7 @@ public class BacktestRunner {
         // Add TMON@ for cash parking if enabled
         boolean tmonParkingEnabled =
                 Boolean.parseBoolean(
-                        props.getProperty("unifiedTrader.tmonCashParking.enabled", "true"));
+                        props.getProperty("unifiedTrader.tmonCashParking.enabled", "false"));
         if (tmonParkingEnabled) {
             tickers.add(TMON_TICKER);
         }
