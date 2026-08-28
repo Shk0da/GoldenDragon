@@ -109,6 +109,8 @@ public final class OrderBookTradingEngine implements MarketTickListener {
   private final OrderBookDiagnosticsCollector diagnosticsCollector;
   private final OrderBookDiagnosticsReplayWriter diagnosticsReplayWriter;
   private final OrderBookMetricsCsvWriter metricsCsvWriter;
+  private volatile boolean diagnosticsReplayWriterFailed = false;
+  private volatile boolean metricsCsvWriterFailed = false;
   private final Map<String, Long> lastSkipDiagnosticMsByKey = new ConcurrentHashMap<>();
   private final Map<String, CommissionEstimator> commissionEstimators = new ConcurrentHashMap<>();
   private volatile long lastStreamErrorLogMs;
@@ -2968,18 +2970,22 @@ public final class OrderBookTradingEngine implements MarketTickListener {
     String logLine = buildDiagnosticLogLine(event);
     log(logLine);
     System.out.flush();
-    if (diagnosticsReplayWriter != null) {
+    if (diagnosticsReplayWriter != null && !diagnosticsReplayWriterFailed) {
       try {
         diagnosticsReplayWriter.write(event);
       } catch (Exception e) {
-        log("WARN: Failed to write diagnostics replay event: " + e.getMessage());
+        diagnosticsReplayWriterFailed = true;
+        Throwable cause = e.getCause() != null ? e.getCause() : e;
+        log("WARN: Diagnostics replay writer failed, disabling: " + cause.getClass().getSimpleName() + " - " + cause.getMessage());
       }
     }
-    if (metricsCsvWriter != null) {
+    if (metricsCsvWriter != null && !metricsCsvWriterFailed) {
       try {
         metricsCsvWriter.write(event);
       } catch (Exception e) {
-        log("WARN: Failed to write metrics CSV event: " + e.getMessage());
+        metricsCsvWriterFailed = true;
+        Throwable cause = e.getCause() != null ? e.getCause() : e;
+        log("WARN: Metrics CSV writer failed, disabling: " + cause.getClass().getSimpleName() + " - " + cause.getMessage());
       }
     }
   }
