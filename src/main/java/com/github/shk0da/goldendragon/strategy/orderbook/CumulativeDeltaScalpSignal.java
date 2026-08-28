@@ -108,8 +108,49 @@ public final class CumulativeDeltaScalpSignal implements OrderBookSignal {
         // Update cumulative delta from trades
         updateDelta(ticker);
         
-        // Check for Scenario A: Bounce from density
-        densityAnalyzer.findAnomalousDensity(snapshot, ticker, true); // Check bid side for long
+        // Check for Scenario A: Bounce from density (higher priority)
+        DensityAnalyzer.Density density = densityAnalyzer.findAnomalousDensity(snapshot, ticker, true); // Check bid side for long
+        
+        if (density == null) {
+            return OrderBookEntryDecision.none();
+        }
+        
+        // Get delta analysis for divergence detection (using config parameters)
+        CumulativeDeltaTracker.DeltaAnalysis deltaAnalysis = deltaTracker.analyzeDelta(
+            ticker, 1, config.getFadeRatio(), config.getAccelRatio(), config.getDeltaBarsLookback());
+        
+        // Evaluate Scenario A (Bounce) - HIGHER PRIORITY
+        HftScalpDecision.Decision bounceDecision = HftScalpDecision.evaluateBounceEntry(
+            density,
+            currentPrice,
+            deltaAnalysis,
+            context.getSpread(),
+            true, // Long
+            config.getMinNetProfitTicks(),
+            config.getTickSize() > 0 ? config.getTickSize() : 0.0001
+        );
+        
+        if (bounceDecision.isEnter()) {
+            // Log bounce entry signal with detailed metrics
+            String reason = String.format(
+                "Bounce LONG (Scenario A): density=%.2f deltaDecay=%b deltaDivergence=%b spread=%.3fbps tick=%.4f",
+                density.getPrice(),
+                deltaAnalysis.isDecaying(),
+                deltaAnalysis.isDiverging(),
+                context.getSpreadBps(),
+                HftScalpDecision.calculateTickSize(currentPrice)
+            );
+            
+            // Track density volume for breakout scenario
+            densityVolumes.put(ticker, new DensityVolume(
+                density.getPrice(),
+                density.getVolume(),
+                density.isBid()
+            ));
+            
+            logEntry(ticker, "LONG", reason);
+            return OrderBookEntryDecision.enter(reason);
+        }
         
         return OrderBookEntryDecision.none();
     }

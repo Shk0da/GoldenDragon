@@ -7,6 +7,9 @@ import static java.util.stream.Collectors.toSet;
 
 import com.github.shk0da.goldendragon.config.MainConfig;
 import com.github.shk0da.goldendragon.config.OrderBookScalpConfig;
+import com.github.shk0da.goldendragon.filters.CorrelationFilter;
+import com.github.shk0da.goldendragon.filters.VolatilitySpikeFilter;
+import com.github.shk0da.goldendragon.model.Candle;
 import com.github.shk0da.goldendragon.model.MarketDepthSnapshot;
 import com.github.shk0da.goldendragon.model.MarketTickListener;
 import com.github.shk0da.goldendragon.model.MarketTradeTick;
@@ -15,6 +18,7 @@ import com.github.shk0da.goldendragon.model.TickerInfo;
 import com.github.shk0da.goldendragon.model.TickerType;
 import com.github.shk0da.goldendragon.money.KillSwitch;
 import com.github.shk0da.goldendragon.money.RiskManager;
+import com.github.shk0da.goldendragon.repository.TickerRepository;
 import com.github.shk0da.goldendragon.service.TCSService;
 import com.github.shk0da.goldendragon.strategy.OrderBookScalpScreener;
 import com.github.shk0da.goldendragon.strategy.orderbook.diagnostics.OrderBookDiagnosticEvent;
@@ -23,19 +27,24 @@ import com.github.shk0da.goldendragon.strategy.orderbook.diagnostics.OrderBookDi
 import com.github.shk0da.goldendragon.strategy.orderbook.diagnostics.OrderBookDiagnosticsReplayWriter;
 import com.github.shk0da.goldendragon.strategy.orderbook.diagnostics.OrderBookDiagnosticsSummary;
 import com.github.shk0da.goldendragon.strategy.orderbook.diagnostics.OrderBookMetricsCsvWriter;
+import com.github.shk0da.goldendragon.utils.IndicatorsUtil;
 import com.github.shk0da.goldendragon.utils.LoggingUtils;
 import com.github.shk0da.goldendragon.utils.TickerTypeResolver;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalTime;
 import java.time.ZoneId;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import ru.tinkoff.piapi.contract.v1.HistoricCandle;
+import static ru.tinkoff.piapi.contract.v1.CandleInterval.CANDLE_INTERVAL_5_MIN;
 
 /**
  * Shared order-book trading engine: subscriptions, screening, position management and execution.
@@ -120,6 +129,20 @@ public final class OrderBookTradingEngine implements MarketTickListener {
   private final Map<String, Long> lastThrottledLogMs = new ConcurrentHashMap<>();
   private static final ZoneId MSK_ZONE = ZoneId.of("Europe/Moscow");
 
+  // Enhanced engine components (subtask 14)
+  private final MarketRegimeDetector regimeDetector;
+  private final TapeReader tapeReader;
+  private final VpinCalculator vpinCalculator;
+  private final VolumeProfileTracker volumeProfileTracker;
+  private final QueueDynamicsTracker queueDynamicsTracker;
+  private final SignalPerformanceTracker signalPerformanceTracker;
+  private final DynamicTakeProfit dynamicTakeProfit;
+  private final CorrelationFilter correlationFilter;
+  private final VolatilitySpikeFilter volatilitySpikeFilter;
+  private final AdaptiveParameters adaptiveParameters;
+  private final SlippageTracker slippageTracker;
+  private final PartialFillHandler partialFillHandler;
+
   public OrderBookTradingEngine(
       TCSService tcsService,
       MainConfig mainConfig,
@@ -182,6 +205,72 @@ public final class OrderBookTradingEngine implements MarketTickListener {
       this.metricsCsvWriter = null;
       log(strategyName + ": diagnostics DISABLED");
     }
+
+    // Initialize enhanced engine components (subtask 14)
+    this.regimeDetector = new MarketRegimeDetector(
+        config.getRegimeAtrPeriod(),
+        config.getRegimeAdxPeriod(),
+        config.getRegimeAdxTrendThreshold(),
+        config.getRegimeAtrVolatilityMultiplier());
+    this.tapeReader = new TapeReader(
+        config.getTapeWindowSize(),
+        config.getTapeBlockMultiplier());
+    this.vpinCalculator = new VpinCalculator(
+        config.getVpinBucketSize(),
+        config.getVpinBucketHistorySize());
+    double effectiveTickSize = config.getTickSize() > 0.0 ? config.getTickSize() : 0.01;
+    this.volumeProfileTracker = new VolumeProfileTracker(
+        effectiveTickSize,
+        config.getVolumeProfileWindowMillis());
+    this.queueDynamicsTracker = new QueueDynamicsTracker(
+        config.getQueueHistoryWindow(),
+        config.getQueuePriceToleranceBps(),
+        config.getQueueFastFillThreshold());
+    this.signalPerformanceTracker = new SignalPerformanceTracker(
+        config.getSignalPerfWindowSize());
+    DensityAnalyzer densityAnalyzer = new DensityAnalyzer(tcsService, config);
+    this.dynamicTakeProfit = new DynamicTakeProfit(
+        densityAnalyzer,
+        volumeProfileTracker,
+        config.getClusterTicks(),
+        config.getDynamicTpMaxDistanceBps(),
+        config.getDynamicTpMinDistanceBps());
+    this.correlationFilter = new CorrelationFilter(
+        config.isCorrelationFilterEnabled(),
+        config.getCorrelationThreshold(),
+        config.getCorrelationReturnWindow());
+    this.volatilitySpikeFilter = new VolatilitySpikeFilter(
+        config.isVolSpikeFilterEnabled(),
+        config.getVolSpikeSpreadMultiplier(),
+        config.getVolSpikeVolumeMultiplier(),
+        config.getVolSpikeCooldownMs(),
+        config.getVolSpikeLookbackPeriod());
+    AdaptiveParameters.Config adaptiveConfig = AdaptiveParameters.Config.builder()
+        .baseMinDelta(config.getMinTradeFlow())
+        .build();
+    this.adaptiveParameters = new AdaptiveParameters(signalPerformanceTracker, adaptiveConfig);
+    this.slippageTracker = new SlippageTracker(
+        effectiveTickSize,
+        config.getSlippageWindowSize(),
+        config.getSlippageWarningThresholdTicks());
+    this.partialFillHandler = new PartialFillHandler(
+        config.getPartialFillTimeoutMs(),
+        PartialFillHandler.Strategy.CANCEL_REMAINING,
+        config.getPartialFillMaxResubmitAttempts());
+
+    log(strategyName + ": enhanced components initialized"
+        + ", regimeDetector=on"
+        + ", tapeReader=on"
+        + ", vpinCalculator=on"
+        + ", volumeProfileTracker=on"
+        + ", queueDynamicsTracker=on"
+        + ", signalPerformanceTracker=on"
+        + ", dynamicTakeProfit=on"
+        + ", correlationFilter=" + config.isCorrelationFilterEnabled()
+        + ", volatilitySpikeFilter=" + config.isVolSpikeFilterEnabled()
+        + ", adaptiveParameters=" + config.isAdaptiveParamsEnabled()
+        + ", slippageTracker=on"
+        + ", partialFillHandler=on");
   }
 
   public void run() {
@@ -735,6 +824,9 @@ public final class OrderBookTradingEngine implements MarketTickListener {
       return;
     }
 
+    // Update enhanced components with order book data (subtask 14)
+    queueDynamicsTracker.update(runtime.ticker, snapshot);
+
     synchronized (runtime) {
       handleOrderBook(runtime, snapshot);
     }
@@ -743,6 +835,20 @@ public final class OrderBookTradingEngine implements MarketTickListener {
   @Override
   public void onTrade(MarketTradeTick trade) {
     // trade flow is read from TCSService recent trades buffer on each book update
+
+    // Feed enhanced components with trade data (subtask 14)
+    if (trade == null || trade.getFigi() == null) {
+      return;
+    }
+    TickerRuntime runtime = runtimesByFigi.get(trade.getFigi());
+    if (runtime == null) {
+      return;
+    }
+    tapeReader.onTrade(runtime.ticker, trade);
+    vpinCalculator.onTrade(runtime.ticker, trade);
+    volumeProfileTracker.addTrade(
+        trade.getPrice(), trade.getQuantity(),
+        trade.getTime() != null ? trade.getTime().toEpochMilli() : System.currentTimeMillis());
   }
 
   @Override
@@ -757,7 +863,10 @@ public final class OrderBookTradingEngine implements MarketTickListener {
 
   private void handleOrderBook(TickerRuntime runtime, MarketDepthSnapshot snapshot) {
     long startTime = System.nanoTime();
-    
+
+    // Store latest snapshot for DynamicTakeProfit access (subtask 14)
+    runtime.latestSnapshot = snapshot;
+
     Double bestBid = snapshot.getBestBid();
     Double bestAsk = snapshot.getBestAsk();
     if (bestBid == null || bestAsk == null || bestAsk <= bestBid) {
@@ -1245,6 +1354,17 @@ public final class OrderBookTradingEngine implements MarketTickListener {
 
     // Dynamic TP/SL based on volatility
     double[] tpSl = calculateDynamicTpSl(runtime.ticker, entryAsk, true);
+
+    // Override TP with density-based DynamicTakeProfit when snapshot available (subtask 14)
+    MarketDepthSnapshot currentSnapshot = runtime.latestSnapshot;
+    if (currentSnapshot != null && currentSnapshot.isConsistent()) {
+      double densityTp = dynamicTakeProfit.calculateTakeProfit(
+          entryAsk, true, currentSnapshot, runtime.ticker);
+      if (densityTp > entryAsk) {
+        tpSl[0] = densityTp;
+      }
+    }
+
     BracketPrices bracket = new BracketPrices(tpSl[0], tpSl[1]);
 
     log(
@@ -1330,9 +1450,25 @@ public final class OrderBookTradingEngine implements MarketTickListener {
 
     double executedEntry = result.getExecutedPrice() != null ? result.getExecutedPrice() : entryAsk;
     int executedUnits = result.getExecutedCount() > 0 ? result.getExecutedCount() : units;
+
+    // Track slippage on order fill (subtask 14)
+    slippageTracker.recordTrade("LONG", entryAsk, executedEntry);
+
+    // Process partial fills if detected (subtask 14)
+    if (executedUnits < units && executedUnits > 0) {
+      PartialFillHandler.OrderReport report = new PartialFillHandler.OrderReport(
+          runtime.ticker, "ob_" + runtime.ticker + "_" + System.currentTimeMillis(),
+          "BUY", units, executedUnits, executedEntry);
+      PartialFillHandler.FillResult fillResult = partialFillHandler.processExecution(report);
+      log("Partial fill detected for " + runtime.ticker
+          + " LONG: filled=" + fillResult.getFilledQuantity()
+          + ", unfilled=" + fillResult.getUnfilledQuantity()
+          + ", action=" + fillResult.getRecommendedAction());
+    }
+
     BracketPrices executedBracket = buildBracketPrices(runtime.ticker, entryBid, executedEntry);
     double entryValue = executedUnits * executedEntry;
-    
+
     // Place server-side stop-loss order if enabled (not in sandbox mode - server stops not supported there)
     if (config.isServerStopEnabled() && !mainConfig.isTestMode() && !mainConfig.isSandbox()) {
       var stopLossResult = placeServerStopLossOrder(runtime, executedUnits, executedBracket.slPrice, "BUY");
@@ -1507,6 +1643,17 @@ public final class OrderBookTradingEngine implements MarketTickListener {
 
     // Dynamic TP/SL based on volatility
     double[] tpSl = calculateDynamicTpSl(runtime.ticker, entryBid, false);
+
+    // Override TP with density-based DynamicTakeProfit when snapshot available (subtask 14)
+    MarketDepthSnapshot currentSnapshot = runtime.latestSnapshot;
+    if (currentSnapshot != null && currentSnapshot.isConsistent()) {
+      double densityTp = dynamicTakeProfit.calculateTakeProfit(
+          entryBid, false, currentSnapshot, runtime.ticker);
+      if (densityTp > 0 && densityTp < entryBid) {
+        tpSl[0] = densityTp;
+      }
+    }
+
     BracketPrices bracket = new BracketPrices(tpSl[0], tpSl[1]);
 
     log(
@@ -1585,10 +1732,26 @@ public final class OrderBookTradingEngine implements MarketTickListener {
 
     double executedEntry = result.getExecutedPrice() != null ? result.getExecutedPrice() : entryBid;
     int executedUnits = result.getExecutedCount() > 0 ? result.getExecutedCount() : units;
+
+    // Track slippage on order fill (subtask 14)
+    slippageTracker.recordTrade("SHORT", entryBid, executedEntry);
+
+    // Process partial fills if detected (subtask 14)
+    if (executedUnits < units && executedUnits > 0) {
+      PartialFillHandler.OrderReport report = new PartialFillHandler.OrderReport(
+          runtime.ticker, "ob_" + runtime.ticker + "_" + System.currentTimeMillis(),
+          "SELL", units, executedUnits, executedEntry);
+      PartialFillHandler.FillResult fillResult = partialFillHandler.processExecution(report);
+      log("Partial fill detected for " + runtime.ticker
+          + " SHORT: filled=" + fillResult.getFilledQuantity()
+          + ", unfilled=" + fillResult.getUnfilledQuantity()
+          + ", action=" + fillResult.getRecommendedAction());
+    }
+
     BracketPrices executedBracket =
         buildBracketPricesShort(runtime.ticker, entryBid, executedEntry);
     double entryValue = executedUnits * executedEntry;
-    
+
     // Track SL/TP client-side in sandbox mode (server stops not supported)
     String brokerStopLossOrderId = null;
     double brokerStopLossPrice = 0.0;
@@ -1692,6 +1855,13 @@ public final class OrderBookTradingEngine implements MarketTickListener {
       if (riskManager != null) {
         riskManager.registerTrade(netPnl);
       }
+
+      // Update signal performance tracking (subtask 14)
+      signalPerformanceTracker.recordTrade(position.signalId, netPnl);
+      if (config.isAdaptiveParamsEnabled()) {
+        adaptiveParameters.update(position.signalId);
+      }
+
       emitDiagnostic(
           OrderBookDiagnosticEventType.POSITION_CLOSED,
           runtime.ticker,
@@ -1773,8 +1943,15 @@ public final class OrderBookTradingEngine implements MarketTickListener {
     if (riskManager != null) {
       riskManager.registerTrade(netPnl);
     }
+
+    // Update signal performance tracking (subtask 14)
+    signalPerformanceTracker.recordTrade(position.signalId, netPnl);
+    if (config.isAdaptiveParamsEnabled()) {
+      adaptiveParameters.update(position.signalId);
+    }
+
     long holdSeconds = Duration.between(position.entryTime, Instant.now()).getSeconds();
-    
+
     // Cancel server-side stop-loss if it was set
     if (position.brokerStopLossOrderId != null && !position.brokerStopLossOrderId.isEmpty()) {
       try {
@@ -2708,8 +2885,12 @@ public final class OrderBookTradingEngine implements MarketTickListener {
     if (diagnosticsCollector == null) {
       return;
     }
+    // Enrich metrics with advanced component data
+    Map<String, Object> enrichedMetrics = new HashMap<>(metrics);
+    collectAdvancedMetrics(ticker, enrichedMetrics);
+
     OrderBookDiagnosticEvent event =
-        new OrderBookDiagnosticEvent(Instant.now(), type, ticker, reason, metrics);
+        new OrderBookDiagnosticEvent(Instant.now(), type, ticker, reason, enrichedMetrics);
     diagnosticsCollector.record(event);
     String logLine = buildDiagnosticLogLine(event);
     log(logLine);
@@ -2719,6 +2900,170 @@ public final class OrderBookTradingEngine implements MarketTickListener {
     }
     if (metricsCsvWriter != null) {
       metricsCsvWriter.write(event);
+    }
+  }
+
+  /**
+   * Collects metrics from advanced components for diagnostic events.
+   * Loads candles for regime detection and uses cached snapshot for dynamic TP.
+   */
+  private void collectAdvancedMetrics(String ticker, Map<String, Object> metrics) {
+    TickerRuntime runtime = runtimesByTicker.get(ticker);
+
+    // Market regime (requires candles)
+    if (regimeDetector != null) {
+      List<Candle> candles = loadCandles(ticker);
+      if (candles != null && !candles.isEmpty()) {
+        MarketRegimeDetector.RegimeResult regime = regimeDetector.detect(candles);
+        if (regime != null) {
+          metrics.put("regime", regime.regime.name());
+          metrics.put("atr", regime.atr);
+          metrics.put("adx", regime.adx);
+        }
+      }
+    }
+
+    // Tape reader
+    if (tapeReader != null) {
+      List<TapeReader.BlockTrade> recentBlocks = tapeReader.getRecentBlockTrades(ticker, 60_000);
+      if (recentBlocks != null && !recentBlocks.isEmpty()) {
+        metrics.put("blockTradeCount", recentBlocks.size());
+        double totalBlockVolume = recentBlocks.stream()
+            .mapToDouble(b -> b.getVolume())
+            .sum();
+        metrics.put("blockTradeVolume", totalBlockVolume);
+      }
+    }
+    // VPIN
+    if (vpinCalculator != null) {
+      double vpin = vpinCalculator.getVpin(ticker);
+      if (vpin >= 0.0) {
+        metrics.put("vpin", vpin);
+      }
+    }
+    // Volume profile
+    if (volumeProfileTracker != null) {
+      double vwap = volumeProfileTracker.getVwap();
+      if (vwap > 0.0) {
+        metrics.put("vwap", vwap);
+      }
+      double poc = volumeProfileTracker.getPoc();
+      if (poc > 0.0) {
+        metrics.put("poc", poc);
+      }
+      double vaHigh = volumeProfileTracker.getValueAreaHigh();
+      if (vaHigh > 0.0) {
+        metrics.put("valueAreaHigh", vaHigh);
+      }
+      double vaLow = volumeProfileTracker.getValueAreaLow();
+      if (vaLow > 0.0) {
+        metrics.put("valueAreaLow", vaLow);
+      }
+    }
+    // Queue dynamics
+    if (queueDynamicsTracker != null) {
+      double avgFillRateBid = queueDynamicsTracker.getAverageFillRate(ticker, true);
+      double avgFillRateAsk = queueDynamicsTracker.getAverageFillRate(ticker, false);
+      double avgFillRate = Math.max(avgFillRateBid, avgFillRateAsk);
+      if (avgFillRate >= 0.0) {
+        metrics.put("avgFillRate", avgFillRate);
+      }
+      double eatenRatioBid = queueDynamicsTracker.getEatenRatio(ticker, 0.0, true);
+      double eatenRatioAsk = queueDynamicsTracker.getEatenRatio(ticker, 0.0, false);
+      double eatenRatio = Math.max(eatenRatioBid, eatenRatioAsk);
+      if (eatenRatio >= 0.0) {
+        metrics.put("eatenRatio", eatenRatio);
+      }
+    }
+    // Signal performance
+    if (signalPerformanceTracker != null) {
+      if (runtime != null && runtime.openPosition != null) {
+        String signalId = runtime.openPosition.signalId;
+        double winRate = signalPerformanceTracker.getWinRate(signalId);
+        if (winRate >= 0.0) {
+          metrics.put("signalWinRate", winRate);
+        }
+        double avgPnl = signalPerformanceTracker.getAveragePnl(signalId);
+        metrics.put("signalAvgPnl", avgPnl);
+        int tradeCount = signalPerformanceTracker.getTradeCount(signalId);
+        metrics.put("signalTradeCount", tradeCount);
+      }
+    }
+    // Dynamic TP (uses cached snapshot from runtime)
+    if (dynamicTakeProfit != null && runtime != null && runtime.latestSnapshot != null) {
+      double entryPrice = metrics.containsKey("entryPrice")
+          ? ((Number) metrics.get("entryPrice")).doubleValue()
+          : 0.0;
+      if (entryPrice > 0.0) {
+        String direction = metrics.containsKey("direction")
+            ? metrics.get("direction").toString()
+            : "LONG";
+        double dynamicTp = dynamicTakeProfit.calculateTakeProfit(
+            entryPrice, "LONG".equals(direction), runtime.latestSnapshot, ticker);
+        if (dynamicTp > 0.0) {
+          metrics.put("dynamicTpPrice", dynamicTp);
+        }
+      }
+    }
+    // Volatility spike filter
+    if (volatilitySpikeFilter != null) {
+      metrics.put("inCooldown", volatilitySpikeFilter.isInCooldown());
+    }
+    // Adaptive parameters
+    if (adaptiveParameters != null && config.isAdaptiveParamsEnabled()) {
+      String signalId = (runtime != null && runtime.openPosition != null)
+          ? runtime.openPosition.signalId
+          : "default";
+      AdaptiveParameters.AdjustedThresholds thresholds = adaptiveParameters.getAdjustedThresholds(signalId);
+      if (thresholds != null) {
+        metrics.put("adjustedMinDelta", thresholds.getMinDeltaThreshold());
+        metrics.put("adjustedMinDensity", thresholds.getMinDensityThreshold());
+        metrics.put("adjustedConfidence", thresholds.getConfidenceFloor());
+      }
+    }
+    // Slippage tracker
+    if (slippageTracker != null) {
+      double avgSlippage = slippageTracker.getAverageSlippage();
+      metrics.put("avgSlippage", avgSlippage);
+      double maxSlippage = slippageTracker.getMaxSlippage();
+      metrics.put("maxSlippage", maxSlippage);
+    }
+    // Partial fill handler
+    if (partialFillHandler != null) {
+      PartialFillHandler.PendingFill pending = partialFillHandler.getPendingFill(ticker);
+      if (pending != null) {
+        double fillRatio = pending.getFillRatio();
+        metrics.put("fillRatio", fillRatio);
+        metrics.put("unfilledQty", pending.getUnfilledQuantity());
+      }
+    }
+  }
+
+  /**
+   * Loads recent 5-minute candles for a ticker.
+   * Used for regime detection and volatility spike analysis.
+   */
+  private List<Candle> loadCandles(String ticker) {
+    try {
+      TickerInfo info = TickerRepository.INSTANCE.getByName(ticker);
+      if (info == null) {
+        return Collections.emptyList();
+      }
+      String figi = info.getFigi();
+      Instant now = Instant.now();
+      Instant from = now.minus(2, ChronoUnit.HOURS);
+      List<HistoricCandle> historicCandles = tcsService.getCandles(figi, from, now, CANDLE_INTERVAL_5_MIN);
+      return historicCandles.stream()
+          .map(hc -> new Candle(
+              hc.getTime().toString(),
+              IndicatorsUtil.toDouble(hc.getOpen()),
+              IndicatorsUtil.toDouble(hc.getHigh()),
+              IndicatorsUtil.toDouble(hc.getLow()),
+              IndicatorsUtil.toDouble(hc.getClose()),
+              hc.getVolume()))
+          .toList();
+    } catch (Exception e) {
+      return Collections.emptyList();
     }
   }
 
@@ -2990,6 +3335,7 @@ public final class OrderBookTradingEngine implements MarketTickListener {
     final TickerInfo tickerInfo;
     volatile long cooldownUntilMs;
     volatile OpenPosition openPosition;
+    volatile MarketDepthSnapshot latestSnapshot;
 
     TickerRuntime(String ticker, TickerInfo.Key key, String figi, TickerInfo tickerInfo) {
       this.ticker = ticker;

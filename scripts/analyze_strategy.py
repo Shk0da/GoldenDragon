@@ -35,6 +35,21 @@ class Trade:
     quality: float
     entry_time: str
     exit_time: str
+    # Enhanced metrics
+    regime: str = ""
+    atr: float = 0.0
+    adx: float = 0.0
+    vpin: float = 0.0
+    vwap: float = 0.0
+    poc: float = 0.0
+    block_trade_count: int = 0
+    avg_fill_rate: float = 0.0
+    eaten_ratio: float = 0.0
+    avg_slippage: float = 0.0
+    max_slippage: float = 0.0
+    signal_win_rate: float = 0.0
+    adjusted_min_delta: float = 0.0
+    dynamic_tp_price: float = 0.0
 
 
 @dataclass
@@ -113,15 +128,43 @@ def parse_metrics_csv(path: str) -> tuple:
                 reason = row.get("reason", "unknown")
                 direction = row.get("direction", "")
 
-                # Find matching entry for quality/signal
+                # Find matching entry for quality/signal and enhanced metrics
                 quality = 0.0
                 signal = ""
                 entry_time = ""
+                regime = ""
+                atr = 0.0
+                adx = 0.0
+                vpin = 0.0
+                vwap = 0.0
+                poc = 0.0
+                block_trade_count = 0
+                avg_fill_rate = 0.0
+                eaten_ratio = 0.0
+                avg_slippage = 0.0
+                max_slippage = 0.0
+                signal_win_rate = 0.0
+                adjusted_min_delta = 0.0
+                dynamic_tp_price = 0.0
                 for entry in reversed(entry_events):
                     if entry.get("ticker") == ticker:
                         quality = _float_or(entry.get("quality"), 0.0)
                         signal = entry.get("reason", "")
                         entry_time = entry.get("timestamp", "")
+                        regime = entry.get("regime", "")
+                        atr = _float_or(entry.get("atr"), 0.0)
+                        adx = _float_or(entry.get("adx"), 0.0)
+                        vpin = _float_or(entry.get("vpin"), 0.0)
+                        vwap = _float_or(entry.get("vwap"), 0.0)
+                        poc = _float_or(entry.get("poc"), 0.0)
+                        block_trade_count = _int_or(entry.get("blockTradeCount"), 0)
+                        avg_fill_rate = _float_or(entry.get("avgFillRate"), 0.0)
+                        eaten_ratio = _float_or(entry.get("eatenRatio"), 0.0)
+                        avg_slippage = _float_or(entry.get("avgSlippage"), 0.0)
+                        max_slippage = _float_or(entry.get("maxSlippage"), 0.0)
+                        signal_win_rate = _float_or(entry.get("signalWinRate"), 0.0)
+                        adjusted_min_delta = _float_or(entry.get("adjustedMinDelta"), 0.0)
+                        dynamic_tp_price = _float_or(entry.get("dynamicTpPrice"), 0.0)
                         break
 
                 trade = Trade(
@@ -139,6 +182,20 @@ def parse_metrics_csv(path: str) -> tuple:
                     quality=quality,
                     entry_time=entry_time,
                     exit_time=timestamp,
+                    regime=regime,
+                    atr=atr,
+                    adx=adx,
+                    vpin=vpin,
+                    vwap=vwap,
+                    poc=poc,
+                    block_trade_count=block_trade_count,
+                    avg_fill_rate=avg_fill_rate,
+                    eaten_ratio=eaten_ratio,
+                    avg_slippage=avg_slippage,
+                    max_slippage=max_slippage,
+                    signal_win_rate=signal_win_rate,
+                    adjusted_min_delta=adjusted_min_delta,
+                    dynamic_tp_price=dynamic_tp_price,
                 )
                 trades.append(trade)
 
@@ -540,8 +597,137 @@ def analyze(trades: list, skip_reasons: dict, entry_events: list, diag_stats: di
             pct = count / total_skips * 100
             print(f"  {trend:<15} {count:>6}  {pct:>5.1f}%")
 
-    # --- Recommendations ---
+    # --- Enhanced Metrics Analysis ---
     section_num = 14 if density_scalp_skips else 13
+    print_section(f"{section_num}. ENHANCED METRICS ANALYSIS")
+
+    # Market regime distribution
+    print_subsection("Market Regime Distribution")
+    regime_counts = defaultdict(lambda: {"count": 0, "pnl": 0.0, "atr_sum": 0.0, "adx_sum": 0.0})
+    for t in trades:
+        if t.regime:
+            regime_counts[t.regime]["count"] += 1
+            regime_counts[t.regime]["pnl"] += t.net_pnl
+            regime_counts[t.regime]["atr_sum"] += t.atr
+            regime_counts[t.regime]["adx_sum"] += t.adx
+    if regime_counts:
+        print(f"  {'Regime':<12} {'Trades':>7} {'Net P&L':>12} {'Avg P&L':>10} {'Avg ATR':>8} {'Avg ADX':>8}")
+        print(f"  {'-'*12} {'-'*7} {'-'*12} {'-'*10} {'-'*8} {'-'*8}")
+        for regime, data in sorted(regime_counts.items(), key=lambda x: -x[1]["count"]):
+            avg = data["pnl"] / data["count"] if data["count"] else 0
+            avg_atr = data["atr_sum"] / data["count"] if data["count"] else 0
+            avg_adx = data["adx_sum"] / data["count"] if data["count"] else 0
+            print(f"  {regime:<12} {data['count']:>7} {data['pnl']:>12.2f} {avg:>10.2f} {avg_atr:>8.4f} {avg_adx:>8.1f}")
+    else:
+        print("  No regime data available")
+
+    # VPIN (toxicity) analysis
+    print_subsection("VPIN (Order Flow Toxicity)")
+    vpin_values = [t.vpin for t in trades if t.vpin > 0]
+    if vpin_values:
+        avg_vpin = sum(vpin_values) / len(vpin_values)
+        max_vpin = max(vpin_values)
+        # Correlate VPIN with P&L
+        high_toxicity = [t for t in trades if t.vpin > 0.6]
+        low_toxicity = [t for t in trades if t.vpin <= 0.6 and t.vpin > 0]
+        print(f"  Avg VPIN: {avg_vpin:.3f}")
+        print(f"  Max VPIN: {max_vpin:.3f}")
+        print(f"  High toxicity (>0.6): {len(high_toxicity)} trades, P&L={sum(t.net_pnl for t in high_toxicity):.2f}")
+        print(f"  Low toxicity (<=0.6): {len(low_toxicity)} trades, P&L={sum(t.net_pnl for t in low_toxicity):.2f}")
+    else:
+        print("  No VPIN data available")
+
+    # Volume profile analysis
+    print_subsection("Volume Profile (VWAP/POC)")
+    vwap_trades = [t for t in trades if t.vwap > 0]
+    if vwap_trades:
+        # Check if entries are near VWAP
+        near_vwap = sum(1 for t in vwap_trades if abs(t.entry_price - t.vwap) / t.vwap < 0.005)
+        print(f"  Trades with VWAP data: {len(vwap_trades)}")
+        print(f"  Entries within 0.5% of VWAP: {near_vwap} ({near_vwap/len(vwap_trades)*100:.1f}%)")
+        # POC analysis
+        poc_trades = [t for t in trades if t.poc > 0]
+        if poc_trades:
+            near_poc = sum(1 for t in poc_trades if abs(t.entry_price - t.poc) / t.poc < 0.005)
+            print(f"  Trades with POC data: {len(poc_trades)}")
+            print(f"  Entries within 0.5% of POC: {near_poc} ({near_poc/len(poc_trades)*100:.1f}%)")
+    else:
+        print("  No volume profile data available")
+
+    # Block trades analysis
+    print_subsection("Block Trades (Tape Reading)")
+    block_trades = [t for t in trades if t.block_trade_count > 0]
+    if block_trades:
+        avg_blocks = sum(t.block_trade_count for t in block_trades) / len(block_trades)
+        block_pnl = sum(t.net_pnl for t in block_trades)
+        print(f"  Trades with block activity: {len(block_trades)}")
+        print(f"  Avg block trades per entry: {avg_blocks:.1f}")
+        print(f"  P&L from block trade entries: {block_pnl:.2f}")
+    else:
+        print("  No block trade data available")
+
+    # Queue dynamics analysis
+    print_subsection("Queue Dynamics (Fill Rate)")
+    fill_rate_trades = [t for t in trades if t.avg_fill_rate > 0]
+    if fill_rate_trades:
+        avg_fill = sum(t.avg_fill_rate for t in fill_rate_trades) / len(fill_rate_trades)
+        avg_eaten = sum(t.eaten_ratio for t in fill_rate_trades) / len(fill_rate_trades)
+        print(f"  Trades with fill rate data: {len(fill_rate_trades)}")
+        print(f"  Avg fill rate: {avg_fill:.2f} units/sec")
+        print(f"  Avg eaten ratio: {avg_eaten:.2%}")
+    else:
+        print("  No queue dynamics data available")
+
+    # Slippage analysis
+    print_subsection("Execution Quality (Slippage)")
+    slippage_trades = [t for t in trades if t.avg_slippage != 0]
+    if slippage_trades:
+        avg_slip = sum(abs(t.avg_slippage) for t in slippage_trades) / len(slippage_trades)
+        max_slip = max(abs(t.max_slippage) for t in slippage_trades)
+        print(f"  Trades with slippage data: {len(slippage_trades)}")
+        print(f"  Avg absolute slippage: {avg_slip:.4f}")
+        print(f"  Max absolute slippage: {max_slip:.4f}")
+        # Slippage impact on P&L
+        high_slip = [t for t in slippage_trades if abs(t.avg_slippage) > 0.01]
+        if high_slip:
+            print(f"  High slippage (>0.01) trades: {len(high_slip)}, P&L={sum(t.net_pnl for t in high_slip):.2f}")
+    else:
+        print("  No slippage data available")
+
+    # Signal performance tracking
+    print_subsection("Signal Performance (Adaptive)")
+    signal_perf = [t for t in trades if t.signal_win_rate > 0]
+    if signal_perf:
+        print(f"  {'Signal':<15} {'Trades':>7} {'Avg WR':>7} {'Net P&L':>12}")
+        print(f"  {'-'*15} {'-'*7} {'-'*7} {'-'*12}")
+        by_signal_wr = defaultdict(lambda: {"count": 0, "wr_sum": 0.0, "pnl": 0.0})
+        for t in signal_perf:
+            by_signal_wr[t.signal]["count"] += 1
+            by_signal_wr[t.signal]["wr_sum"] += t.signal_win_rate
+            by_signal_wr[t.signal]["pnl"] += t.net_pnl
+        for signal, data in sorted(by_signal_wr.items(), key=lambda x: -x[1]["pnl"]):
+            avg_wr = data["wr_sum"] / data["count"] if data["count"] else 0
+            print(f"  {signal:<15} {data['count']:>7} {avg_wr:>6.1%} {data['pnl']:>12.2f}")
+    else:
+        print("  No signal performance data available")
+
+    # Dynamic TP analysis
+    print_subsection("Dynamic Take Profit")
+    dynamic_tp_trades = [t for t in trades if t.dynamic_tp_price > 0]
+    if dynamic_tp_trades:
+        # Analyze if exits hit dynamic TP
+        hit_dynamic_tp = sum(1 for t in dynamic_tp_trades 
+                            if t.exit_price and abs(t.exit_price - t.dynamic_tp_price) / t.dynamic_tp_price < 0.002)
+        print(f"  Trades with dynamic TP: {len(dynamic_tp_trades)}")
+        print(f"  Exits near dynamic TP (within 0.2%): {hit_dynamic_tp} ({hit_dynamic_tp/len(dynamic_tp_trades)*100:.1f}%)")
+        # P&L comparison
+        dynamic_pnl = sum(t.net_pnl for t in dynamic_tp_trades)
+        print(f"  P&L from dynamic TP trades: {dynamic_pnl:.2f}")
+    else:
+        print("  No dynamic TP data available")
+
+    # --- Recommendations ---
+    section_num += 1
     print_section(f"{section_num}. KEY OBSERVATIONS & RECOMMENDATIONS")
     observations = []
 

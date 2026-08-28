@@ -116,6 +116,36 @@ public class OrderBookScalpConfig {
   private final int microImpulseWindowMs;
   private final double microImpulseVolumeMultiplier;
 
+  // Enhanced engine components config (subtask 14)
+  private final int regimeAtrPeriod;
+  private final int regimeAdxPeriod;
+  private final double regimeAdxTrendThreshold;
+  private final double regimeAtrVolatilityMultiplier;
+  private final int tapeWindowSize;
+  private final double tapeBlockMultiplier;
+  private final int vpinBucketSize;
+  private final int vpinBucketHistorySize;
+  private final long volumeProfileWindowMillis;
+  private final int queueHistoryWindow;
+  private final double queuePriceToleranceBps;
+  private final double queueFastFillThreshold;
+  private final int signalPerfWindowSize;
+  private final double dynamicTpMaxDistanceBps;
+  private final double dynamicTpMinDistanceBps;
+  private final boolean correlationFilterEnabled;
+  private final double correlationThreshold;
+  private final int correlationReturnWindow;
+  private final boolean volSpikeFilterEnabled;
+  private final double volSpikeSpreadMultiplier;
+  private final double volSpikeVolumeMultiplier;
+  private final int volSpikeCooldownMs;
+  private final int volSpikeLookbackPeriod;
+  private final boolean adaptiveParamsEnabled;
+  private final int slippageWindowSize;
+  private final double slippageWarningThresholdTicks;
+  private final long partialFillTimeoutMs;
+  private final int partialFillMaxResubmitAttempts;
+
   public OrderBookScalpConfig() {
     final Properties properties;
     try {
@@ -365,6 +395,64 @@ public class OrderBookScalpConfig {
         Integer.parseInt(properties.getProperty("orderBookScalp.microImpulseWindowMs", "2000"));
     this.microImpulseVolumeMultiplier =
         Double.parseDouble(properties.getProperty("orderBookScalp.microImpulseVolumeMultiplier", "2.0"));
+
+    // Enhanced engine components config (subtask 14)
+    this.regimeAtrPeriod =
+        Integer.parseInt(properties.getProperty("orderBookScalp.regimeAtrPeriod", "14"));
+    this.regimeAdxPeriod =
+        Integer.parseInt(properties.getProperty("orderBookScalp.regimeAdxPeriod", "14"));
+    this.regimeAdxTrendThreshold =
+        Double.parseDouble(properties.getProperty("orderBookScalp.regimeAdxTrendThreshold", "25.0"));
+    this.regimeAtrVolatilityMultiplier =
+        Double.parseDouble(properties.getProperty("orderBookScalp.regimeAtrVolatilityMultiplier", "1.5"));
+    this.tapeWindowSize =
+        Integer.parseInt(properties.getProperty("orderBookScalp.tapeWindowSize", "200"));
+    this.tapeBlockMultiplier =
+        Double.parseDouble(properties.getProperty("orderBookScalp.tapeBlockMultiplier", "3.0"));
+    this.vpinBucketSize =
+        Integer.parseInt(properties.getProperty("orderBookScalp.vpinBucketSize", "50"));
+    this.vpinBucketHistorySize =
+        Integer.parseInt(properties.getProperty("orderBookScalp.vpinBucketHistorySize", "20"));
+    this.volumeProfileWindowMillis =
+        Long.parseLong(properties.getProperty("orderBookScalp.volumeProfileWindowMillis", "300000"));
+    this.queueHistoryWindow =
+        Integer.parseInt(properties.getProperty("orderBookScalp.queueHistoryWindow", "50"));
+    this.queuePriceToleranceBps =
+        Double.parseDouble(properties.getProperty("orderBookScalp.queuePriceToleranceBps", "5.0"));
+    this.queueFastFillThreshold =
+        Double.parseDouble(properties.getProperty("orderBookScalp.queueFastFillThreshold", "500.0"));
+    this.signalPerfWindowSize =
+        Integer.parseInt(properties.getProperty("orderBookScalp.signalPerfWindowSize", "100"));
+    this.dynamicTpMaxDistanceBps =
+        Double.parseDouble(properties.getProperty("orderBookScalp.dynamicTpMaxDistanceBps", "50.0"));
+    this.dynamicTpMinDistanceBps =
+        Double.parseDouble(properties.getProperty("orderBookScalp.dynamicTpMinDistanceBps", "2.0"));
+    this.correlationFilterEnabled =
+        Boolean.parseBoolean(properties.getProperty("orderBookScalp.correlationFilterEnabled", "false"));
+    this.correlationThreshold =
+        Double.parseDouble(properties.getProperty("orderBookScalp.correlationThreshold", "0.8"));
+    this.correlationReturnWindow =
+        Integer.parseInt(properties.getProperty("orderBookScalp.correlationReturnWindow", "20"));
+    this.volSpikeFilterEnabled =
+        Boolean.parseBoolean(properties.getProperty("orderBookScalp.volSpikeFilterEnabled", "false"));
+    this.volSpikeSpreadMultiplier =
+        Double.parseDouble(properties.getProperty("orderBookScalp.volSpikeSpreadMultiplier", "3.0"));
+    this.volSpikeVolumeMultiplier =
+        Double.parseDouble(properties.getProperty("orderBookScalp.volSpikeVolumeMultiplier", "4.0"));
+    this.volSpikeCooldownMs =
+        Integer.parseInt(properties.getProperty("orderBookScalp.volSpikeCooldownMs", "60000"));
+    this.volSpikeLookbackPeriod =
+        Integer.parseInt(properties.getProperty("orderBookScalp.volSpikeLookbackPeriod", "20"));
+    this.adaptiveParamsEnabled =
+        Boolean.parseBoolean(properties.getProperty("orderBookScalp.adaptiveParamsEnabled", "false"));
+    this.slippageWindowSize =
+        Integer.parseInt(properties.getProperty("orderBookScalp.slippageWindowSize", "200"));
+    this.slippageWarningThresholdTicks =
+        Double.parseDouble(properties.getProperty("orderBookScalp.slippageWarningThresholdTicks", "5.0"));
+    this.partialFillTimeoutMs =
+        Long.parseLong(properties.getProperty("orderBookScalp.partialFillTimeoutMs", "5000"));
+    this.partialFillMaxResubmitAttempts =
+        Integer.parseInt(properties.getProperty("orderBookScalp.partialFillMaxResubmitAttempts", "2"));
   }
 
   public List<String> getInstruments() {
@@ -760,5 +848,119 @@ public class OrderBookScalpConfig {
   
   public double getMicroImpulseVolumeMultiplier() {
     return microImpulseVolumeMultiplier;
+  }
+
+  // Enhanced engine components config getters (subtask 14)
+
+  public int getRegimeAtrPeriod() {
+    return regimeAtrPeriod;
+  }
+
+  public int getRegimeAdxPeriod() {
+    return regimeAdxPeriod;
+  }
+
+  public double getRegimeAdxTrendThreshold() {
+    return regimeAdxTrendThreshold;
+  }
+
+  public double getRegimeAtrVolatilityMultiplier() {
+    return regimeAtrVolatilityMultiplier;
+  }
+
+  public int getTapeWindowSize() {
+    return tapeWindowSize;
+  }
+
+  public double getTapeBlockMultiplier() {
+    return tapeBlockMultiplier;
+  }
+
+  public int getVpinBucketSize() {
+    return vpinBucketSize;
+  }
+
+  public int getVpinBucketHistorySize() {
+    return vpinBucketHistorySize;
+  }
+
+  public long getVolumeProfileWindowMillis() {
+    return volumeProfileWindowMillis;
+  }
+
+  public int getQueueHistoryWindow() {
+    return queueHistoryWindow;
+  }
+
+  public double getQueuePriceToleranceBps() {
+    return queuePriceToleranceBps;
+  }
+
+  public double getQueueFastFillThreshold() {
+    return queueFastFillThreshold;
+  }
+
+  public int getSignalPerfWindowSize() {
+    return signalPerfWindowSize;
+  }
+
+  public double getDynamicTpMaxDistanceBps() {
+    return dynamicTpMaxDistanceBps;
+  }
+
+  public double getDynamicTpMinDistanceBps() {
+    return dynamicTpMinDistanceBps;
+  }
+
+  public boolean isCorrelationFilterEnabled() {
+    return correlationFilterEnabled;
+  }
+
+  public double getCorrelationThreshold() {
+    return correlationThreshold;
+  }
+
+  public int getCorrelationReturnWindow() {
+    return correlationReturnWindow;
+  }
+
+  public boolean isVolSpikeFilterEnabled() {
+    return volSpikeFilterEnabled;
+  }
+
+  public double getVolSpikeSpreadMultiplier() {
+    return volSpikeSpreadMultiplier;
+  }
+
+  public double getVolSpikeVolumeMultiplier() {
+    return volSpikeVolumeMultiplier;
+  }
+
+  public int getVolSpikeCooldownMs() {
+    return volSpikeCooldownMs;
+  }
+
+  public int getVolSpikeLookbackPeriod() {
+    return volSpikeLookbackPeriod;
+  }
+
+  public boolean isAdaptiveParamsEnabled() {
+    return adaptiveParamsEnabled;
+  }
+
+  public int getSlippageWindowSize() {
+    return slippageWindowSize;
+  }
+
+  public double getSlippageWarningThresholdTicks() {
+    return slippageWarningThresholdTicks;
+  }
+
+  public long getPartialFillTimeoutMs() {
+    return partialFillTimeoutMs;
+  }
+
+  public int getPartialFillMaxResubmitAttempts() {
+    return partialFillMaxResubmitAttempts;
   }
 }

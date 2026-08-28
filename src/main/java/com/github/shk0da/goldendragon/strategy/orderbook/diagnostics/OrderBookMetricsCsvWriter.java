@@ -16,7 +16,12 @@ import java.time.format.DateTimeFormatter;
  *
  * <p>Columns: timestamp, type, ticker, reason, obi, microEdge, tradeDelta, spreadBps, quality,
  * entryPrice, exitPrice, grossPnl, netPnl, fees, holdSeconds, units, direction,
- * signalId, trend, levelStrength, compressionStrength, impulseStrength, clusterCount, skipReason
+ * signalId, trend, levelStrength, compressionStrength, impulseStrength, clusterCount, skipReason,
+ * regime, atr, adx, blockTradeCount, blockTradeVolume, vpin, vwap, poc, valueAreaHigh, valueAreaLow,
+ * avgFillRate, eatenRatio, signalWinRate, signalAvgPnl, signalTradeCount, dynamicTpPrice, tpSource,
+ * maxCorrelation, correlatedTicker, spreadSpikeRatio, volumeSpikeRatio, inCooldown,
+ * adjustedMinDelta, adjustedMinDensity, adjustedConfidence, avgSlippage, maxSlippage,
+ * fillRatio, unfilledQty
  */
 public class OrderBookMetricsCsvWriter implements AutoCloseable {
 
@@ -26,7 +31,31 @@ public class OrderBookMetricsCsvWriter implements AutoCloseable {
     private static final String HEADER =
             "timestamp,type,ticker,reason,obi,microEdge,tradeDelta,spreadBps,quality,"
                     + "entryPrice,exitPrice,grossPnl,netPnl,fees,holdSeconds,units,direction,"
-                    + "signalId,trend,levelStrength,compressionStrength,impulseStrength,clusterCount,skipReason";
+                    + "signalId,trend,levelStrength,compressionStrength,impulseStrength,clusterCount,skipReason,"
+                    // Market regime
+                    + "regime,atr,adx,"
+                    // Tape reader
+                    + "blockTradeCount,blockTradeVolume,"
+                    // VPIN
+                    + "vpin,"
+                    // Volume profile
+                    + "vwap,poc,valueAreaHigh,valueAreaLow,"
+                    // Queue dynamics
+                    + "avgFillRate,eatenRatio,"
+                    // Signal performance
+                    + "signalWinRate,signalAvgPnl,signalTradeCount,"
+                    // Dynamic TP
+                    + "dynamicTpPrice,tpSource,"
+                    // Correlation filter
+                    + "maxCorrelation,correlatedTicker,"
+                    // Volatility spike filter
+                    + "spreadSpikeRatio,volumeSpikeRatio,inCooldown,"
+                    // Adaptive parameters
+                    + "adjustedMinDelta,adjustedMinDensity,adjustedConfidence,"
+                    // Slippage tracker
+                    + "avgSlippage,maxSlippage,"
+                    // Partial fill handler
+                    + "fillRatio,unfilledQty";
 
     private final BufferedWriter writer;
 
@@ -68,7 +97,7 @@ public class OrderBookMetricsCsvWriter implements AutoCloseable {
         sb.append(',').append(csvEscape(event.getTicker()));
         sb.append(',').append(csvEscape(event.getReason()));
 
-        // metrics
+        // core metrics
         sb.append(',').append(getDouble(event, "obi"));
         sb.append(',').append(getDouble(event, "microEdge"));
         sb.append(',').append(getDouble(event, "tradeDelta"));
@@ -90,6 +119,47 @@ public class OrderBookMetricsCsvWriter implements AutoCloseable {
         sb.append(',').append(getDouble(event, "impulseStrength"));
         sb.append(',').append(getInt(event, "clusterCount"));
         sb.append(',').append(getString(event, "skipReason"));
+        // market regime
+        sb.append(',').append(getString(event, "regime"));
+        sb.append(',').append(getDouble(event, "atr"));
+        sb.append(',').append(getDouble(event, "adx"));
+        // tape reader
+        sb.append(',').append(getInt(event, "blockTradeCount"));
+        sb.append(',').append(getDouble(event, "blockTradeVolume"));
+        // vpin
+        sb.append(',').append(getDouble(event, "vpin"));
+        // volume profile
+        sb.append(',').append(getDouble(event, "vwap"));
+        sb.append(',').append(getDouble(event, "poc"));
+        sb.append(',').append(getDouble(event, "valueAreaHigh"));
+        sb.append(',').append(getDouble(event, "valueAreaLow"));
+        // queue dynamics
+        sb.append(',').append(getDouble(event, "avgFillRate"));
+        sb.append(',').append(getDouble(event, "eatenRatio"));
+        // signal performance
+        sb.append(',').append(getDouble(event, "signalWinRate"));
+        sb.append(',').append(getDouble(event, "signalAvgPnl"));
+        sb.append(',').append(getInt(event, "signalTradeCount"));
+        // dynamic tp
+        sb.append(',').append(getDouble(event, "dynamicTpPrice"));
+        sb.append(',').append(getString(event, "tpSource"));
+        // correlation filter
+        sb.append(',').append(getDouble(event, "maxCorrelation"));
+        sb.append(',').append(getString(event, "correlatedTicker"));
+        // volatility spike filter
+        sb.append(',').append(getDouble(event, "spreadSpikeRatio"));
+        sb.append(',').append(getDouble(event, "volumeSpikeRatio"));
+        sb.append(',').append(getBoolean(event, "inCooldown"));
+        // adaptive parameters
+        sb.append(',').append(getDouble(event, "adjustedMinDelta"));
+        sb.append(',').append(getDouble(event, "adjustedMinDensity"));
+        sb.append(',').append(getDouble(event, "adjustedConfidence"));
+        // slippage tracker
+        sb.append(',').append(getDouble(event, "avgSlippage"));
+        sb.append(',').append(getDouble(event, "maxSlippage"));
+        // partial fill handler
+        sb.append(',').append(getDouble(event, "fillRatio"));
+        sb.append(',').append(getInt(event, "unfilledQty"));
         return sb.toString();
     }
 
@@ -123,6 +193,14 @@ public class OrderBookMetricsCsvWriter implements AutoCloseable {
     private String getString(OrderBookDiagnosticEvent event, String key) {
         Object value = event.getMetrics().get(key);
         return value != null ? value.toString() : "";
+    }
+
+    private String getBoolean(OrderBookDiagnosticEvent event, String key) {
+        Object value = event.getMetrics().get(key);
+        if (value instanceof Boolean) {
+            return value.toString();
+        }
+        return "";
     }
 
     @Override
