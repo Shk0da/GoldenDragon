@@ -145,6 +145,7 @@ public class OrderBookScalpConfig {
   private final double slippageWarningThresholdTicks;
   private final long partialFillTimeoutMs;
   private final int partialFillMaxResubmitAttempts;
+  private final long blocklistDurationMs;
 
   public OrderBookScalpConfig() {
     final Properties properties;
@@ -453,6 +454,8 @@ public class OrderBookScalpConfig {
         Long.parseLong(properties.getProperty("orderBookScalp.partialFillTimeoutMs", "5000"));
     this.partialFillMaxResubmitAttempts =
         Integer.parseInt(properties.getProperty("orderBookScalp.partialFillMaxResubmitAttempts", "2"));
+    this.blocklistDurationMs =
+        Long.parseLong(properties.getProperty("orderBookScalp.blocklistDurationMs", "86400000"));
   }
 
   public List<String> getInstruments() {
@@ -962,5 +965,9 @@ public class OrderBookScalpConfig {
 
   public int getPartialFillMaxResubmitAttempts() {
     return partialFillMaxResubmitAttempts;
+  }
+
+  public long getBlocklistDurationMs() {
+    return blocklistDurationMs;
   }
 }

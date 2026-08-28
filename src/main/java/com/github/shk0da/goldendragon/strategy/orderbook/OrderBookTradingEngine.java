@@ -142,6 +142,7 @@ public final class OrderBookTradingEngine implements MarketTickListener {
   private final AdaptiveParameters adaptiveParameters;
   private final SlippageTracker slippageTracker;
   private final PartialFillHandler partialFillHandler;
+  private final TickerBlocklist tickerBlocklist;
 
   public OrderBookTradingEngine(
       TCSService tcsService,
@@ -257,6 +258,7 @@ public final class OrderBookTradingEngine implements MarketTickListener {
         config.getPartialFillTimeoutMs(),
         PartialFillHandler.Strategy.CANCEL_REMAINING,
         config.getPartialFillMaxResubmitAttempts());
+    this.tickerBlocklist = new TickerBlocklist();
 
     log(strategyName + ": enhanced components initialized"
         + ", regimeDetector=on"
@@ -497,6 +499,15 @@ public final class OrderBookTradingEngine implements MarketTickListener {
         continue;
       }
       if (trackedTickers.contains(position.getTicker())) {
+        continue;
+      }
+      // Skip blocked tickers — broker requires confirmation, retry later
+      if (tickerBlocklist.isBlocked(position.getTicker())) {
+        logThrottled(
+            "_close_untracked_blocked_" + position.getTicker(),
+            "Untracked position for " + position.getTicker()
+                + " skipped: ticker is blocked (" + tickerBlocklist.getRemainingMs(position.getTicker()) / 3600000 + "h remaining)",
+            15);
         continue;
       }
       boolean isShort = position.getBalance() < 0;
@@ -1036,6 +1047,17 @@ public final class OrderBookTradingEngine implements MarketTickListener {
 
     // Capital-aware check: skip signal generation if insufficient capital
     if (!hasSufficientCapital(runtime.ticker, bestAsk)) {
+      return;
+    }
+
+    // Blocklist check: skip if ticker is temporarily blocked due to broker errors
+    if (tickerBlocklist.isBlocked(runtime.ticker)) {
+      emitSkipDiagnostic(
+          runtime.ticker,
+          "ticker_blocked",
+          Map.of(
+              "remainingMs",
+              tickerBlocklist.getRemainingMs(runtime.ticker)));
       return;
     }
 
@@ -1598,6 +1620,13 @@ public final class OrderBookTradingEngine implements MarketTickListener {
       if (result.isSuccess()) {
         return result;
       }
+      // Block ticker on confirmation-required error (code 90001)
+      if (result.getErrorCode() == 90001) {
+        tickerBlocklist.block(runtime.ticker, config.getBlocklistDurationMs());
+        log("Ticker " + runtime.ticker + " blocked for "
+            + (config.getBlocklistDurationMs() / 3600000) + "h due to confirmation required error");
+        return result;
+      }
       if (attempt < ORDER_PLACE_ATTEMPTS) {
         log("OPEN attempt " + attempt + " failed for " + runtime.ticker + ", retrying");
         sleep(ORDER_RETRY_DELAY_MS);
@@ -1636,6 +1665,13 @@ public final class OrderBookTradingEngine implements MarketTickListener {
           tcsService.sellByMarketWithDetails(
               runtime.ticker, runtime.key.getType(), cashToSell, 0.0, 0.0);
       if (result.isSuccess()) {
+        return result;
+      }
+      // Block ticker on confirmation-required error (code 90001)
+      if (result.getErrorCode() == 90001) {
+        tickerBlocklist.block(runtime.ticker, config.getBlocklistDurationMs());
+        log("Ticker " + runtime.ticker + " blocked for "
+            + (config.getBlocklistDurationMs() / 3600000) + "h due to confirmation required error");
         return result;
       }
       if (attempt < ORDER_PLACE_ATTEMPTS) {

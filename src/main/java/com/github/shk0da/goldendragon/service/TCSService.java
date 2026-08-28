@@ -1431,6 +1431,7 @@ public class TCSService {
                     executedPrice, executedCount, executedCommission, bracketPosition);
         } catch (Exception ex) {
             String errorDetail = ex.getClass().getSimpleName();
+            int errorCode = 0;
             if (ex.getMessage() != null && !ex.getMessage().isEmpty()) {
                 errorDetail += ": " + ex.getMessage();
             }
@@ -1441,7 +1442,12 @@ public class TCSService {
             if (ex instanceof ru.tinkoff.piapi.core.exception.ApiRuntimeException) {
                 ru.tinkoff.piapi.core.exception.ApiRuntimeException apiEx =
                         (ru.tinkoff.piapi.core.exception.ApiRuntimeException) ex;
-                errorDetail += " [code=" + apiEx.getCode();
+                try {
+                    errorCode = Integer.parseInt(apiEx.getCode());
+                } catch (NumberFormatException ignored) {
+                    // code is not numeric, leave errorCode as 0
+                }
+                errorDetail += " [code=" + errorCode;
                 if (apiEx.getMessage() != null && !apiEx.getMessage().isEmpty()) {
                     errorDetail += ", message=" + apiEx.getMessage();
                 }
@@ -1463,7 +1469,7 @@ public class TCSService {
             String message = "Failed create order [" + key.getTicker() + "]: " + errorDetail;
             log(message);
             telegramNotifyService.sendMessage(message);
-            return OrderExecutionResult.failed();
+            return errorCode != 0 ? OrderExecutionResult.failed(errorCode) : OrderExecutionResult.failed();
         }
     }
 
@@ -1795,6 +1801,7 @@ public class TCSService {
         private final int executedCount;
         private final double commission;
         private final Position protectivePosition;
+        private final int errorCode;
 
         private OrderExecutionResult(
                 boolean success,
@@ -1802,11 +1809,22 @@ public class TCSService {
                 int executedCount,
                 double commission,
                 Position protectivePosition) {
+            this(success, executedPrice, executedCount, commission, protectivePosition, 0);
+        }
+
+        private OrderExecutionResult(
+                boolean success,
+                Double executedPrice,
+                int executedCount,
+                double commission,
+                Position protectivePosition,
+                int errorCode) {
             this.success = success;
             this.executedPrice = executedPrice;
             this.executedCount = executedCount;
             this.commission = commission;
             this.protectivePosition = protectivePosition;
+            this.errorCode = errorCode;
         }
 
         public static OrderExecutionResult success(
@@ -1824,6 +1842,10 @@ public class TCSService {
 
         public static OrderExecutionResult failed() {
             return new OrderExecutionResult(false, null, 0, 0.0, null);
+        }
+
+        public static OrderExecutionResult failed(int errorCode) {
+            return new OrderExecutionResult(false, null, 0, 0.0, null, errorCode);
         }
 
         public boolean isSuccess() {
@@ -1844,6 +1866,10 @@ public class TCSService {
 
         public Position getProtectivePosition() {
             return protectivePosition;
+        }
+
+        public int getErrorCode() {
+            return errorCode;
         }
     }
     
