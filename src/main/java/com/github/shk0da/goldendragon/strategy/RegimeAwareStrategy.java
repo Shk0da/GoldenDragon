@@ -100,16 +100,6 @@ public class RegimeAwareStrategy extends BaseStrategy {
             }
         }
 
-        log(
-                "REGIME "
-                        + ticker
-                        + ": "
-                        + regime
-                        + " ADX="
-                        + String.format("%.2f", adx)
-                        + " candles="
-                        + (hourCandles == null ? 0 : hourCandles.size()));
-
         if (MarketRegime.RANGE == regime) {
             return new TradingDecision("HOLD", "RANGE_SKIP_ADX" + (int) adx);
         }
@@ -178,8 +168,7 @@ public class RegimeAwareStrategy extends BaseStrategy {
         double atr = trSum / period;
         double diPlus = atr > 0 ? (pdSum / period) / atr * 100 : 0.0;
         double diMinus = atr > 0 ? (mdSum / period) / atr * 100 : 0.0;
-        double adx =
-                (diPlus + diMinus) > 0
+        double adx =  (diPlus + diMinus) > 0
                         ? Math.abs(diPlus - diMinus) / (diPlus + diMinus) * 100
                         : 0.0;
 

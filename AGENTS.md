@@ -68,5 +68,5 @@
 - Verify code changes: `./gradlew check`
 - Run backtest: `./gradlew clean runBacktest`
 - Full build: `./gradlew clean uberJar`
-- Run Strategy: `./gradlew runStrategy -Pstrategy=UnifiedStrategy`
+- Run Strategy: `./gradlew runStrategy -Pstrategy=OrderBookScalpStrategy`
 - Analyze strategy logs: `python scripts/analyze_strategy.py`

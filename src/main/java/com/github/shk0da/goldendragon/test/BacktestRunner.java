@@ -199,8 +199,6 @@ import java.util.concurrent.Future;
  * <h2>Хуки интеграции со стратегией</h2>
  *
  * <ul>
- *   <li>{@link BaseStrategy#recordBacktestTradeEntry} — вызывается при OPEN для записи входа в
- *       ML-pipeline.
  *   <li>{@link BaseStrategy#setPeerCandles} — обновление peer-данных перед каждым принятием
  *       решения.
  * </ul>
@@ -441,13 +439,9 @@ public class BacktestRunner {
 
     public static void main(String[] args) throws IOException {
         double commission = Double.parseDouble(System.getProperty("backtest.commission", "0.0005"));
-        double monthlyDeposit =
-            Double.parseDouble(System.getProperty("backtest.monthlyDeposit", "0.0"));
+        double monthlyDeposit = Double.parseDouble(System.getProperty("backtest.monthlyDeposit", "0.0"));
         BacktestRunner runner = new BacktestRunner("data", 100_000, commission, monthlyDeposit);
         boolean singleStrategyRun = args != null && args.length > 0;
-
-        String dataPath = "data_pipeline/trades.csv";
-        Files.deleteIfExists(Paths.get(dataPath));
 
         // Check if specific strategy is provided via args
         if (singleStrategyRun) {
@@ -488,20 +482,16 @@ public class BacktestRunner {
         String fullEnd = chartPeriods.get(chartPeriods.size() - 1).endExclusive;
 
         if (!activeTickers.isEmpty()) {
-            if ("PrecisionStrategy".equals(strategyName)) {
-                System.out.println("Backtest leverage: 1x fixed (PrecisionStrategy override)");
+            int maxLeverage = config.getTickerParams(activeTickers.get(0)).leverage;
+            if (config.isAdaptiveLeverageEnabled() && maxLeverage > 1) {
+                System.out.println(
+                    "Backtest leverage: adaptive (max "
+                        + maxLeverage
+                        + "x, min "
+                        + config.getLeverageMin()
+                        + "x)");
             } else {
-                int maxLeverage = config.getTickerParams(activeTickers.get(0)).leverage;
-                if (config.isAdaptiveLeverageEnabled() && maxLeverage > 1) {
-                    System.out.println(
-                        "Backtest leverage: adaptive (max "
-                            + maxLeverage
-                            + "x, min "
-                            + config.getLeverageMin()
-                            + "x)");
-                } else {
-                    System.out.println("Backtest leverage: " + maxLeverage + "x");
-                }
+                System.out.println("Backtest leverage: " + maxLeverage + "x");
             }
         }
 
@@ -509,8 +499,7 @@ public class BacktestRunner {
         Map<String, Map<String, TickerPeriodResult>> allData = new LinkedHashMap<>();
         Map<String, PortfolioPeriodResult> portfolioData = new LinkedHashMap<>();
 
-        ExecutionResult continuousResult =
-            execute(strategyName, fullStart, fullEnd, activeTickers, config);
+        ExecutionResult continuousResult = execute(strategyName, fullStart, fullEnd, activeTickers, config);
 
         for (PeriodDefinition period : tablePeriods) {
             periodLabels.add(period.label);
@@ -548,8 +537,7 @@ public class BacktestRunner {
                 new TickerPeriodResult(trades, equity, pnl, dd, initialBalance, winRate));
         }
 
-        List<EquityPoint> portfolioEquity =
-            filterEquityByPeriod(full.portfolioResult.equityCurve, period);
+        List<EquityPoint> portfolioEquity = filterEquityByPeriod(full.portfolioResult.equityCurve, period);
         double portfolioPnl = computePeriodPnlFromEquity(full.portfolioResult.equityCurve, period);
         double portfolioDd = calcMaxDrawdownByEquity(portfolioEquity);
         double portfolioWinRate = totalTrades > 0 ? (double) winningTrades / totalTrades : 0.0;

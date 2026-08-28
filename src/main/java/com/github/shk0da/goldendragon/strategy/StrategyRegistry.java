@@ -106,14 +106,6 @@ public final class StrategyRegistry {
 
     static {
         register(
-                "UnifiedStrategy",
-                runAndNotify(
-                        "UnifiedStrategy",
-                        "Stop UnifiedStrategy",
-                        (mc, tcs, args) ->
-                                new UnifiedStrategy(new UnifiedTraderConfig(), tcs).run()),
-                (config, tcsService) -> new UnifiedStrategy(config, tcsService, new Config(), true));
-        register(
                 "RegimeAwareStrategy",
                 runAndNotify(
                         "RegimeAwareStrategy",
