@@ -14,9 +14,9 @@
  *   <li>{@link com.github.shk0da.goldendragon.test.BacktestRunner} — backtest engine for
  *       candle-based strategies ({@code BaseStrategy} and subclasses). Features:
  *       <ul>
- *         <li><b>Supported Strategies</b>: {@link
- *             com.github.shk0da.goldendragon.strategy.UnifiedStrategy}, {@link
- *             com.github.shk0da.goldendragon.strategy.RegimeAwareStrategy}, {@link
+ *   <li><b>Supported Strategies</b>: {@link
+ *       com.github.shk0da.goldendragon.strategy.UnifiedStrategy}, {@link
+ *       com.github.shk0da.goldendragon.strategy.DataCollector}.
  *         <li><b>Run Modes</b>: {@code "fast"} (6 short periods) or {@code "full"} (6 yearly
  *             periods).
  *         <li><b>Parallel Data Loading</b>: thread pool ({@code backtest.threads}, default {@code

@@ -1,15 +1,16 @@
 package com.github.shk0da.goldendragon.config;
 
-import static java.util.Arrays.stream;
-import static java.util.stream.Collectors.toList;
-
 import com.github.shk0da.goldendragon.filters.BadWeatherFilter;
 import com.github.shk0da.goldendragon.utils.PropertiesUtils;
+
 import java.io.IOException;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
+
+import static java.util.Arrays.stream;
+import static java.util.stream.Collectors.toList;
 
 public class UnifiedTraderConfig {
 
@@ -171,14 +172,14 @@ public class UnifiedTraderConfig {
                         properties.getProperty("unifiedTrader.averagePositionCost", "10000"));
         badWeatherFilterEnabled =
                 Boolean.parseBoolean(
-                        properties.getProperty("unifiedTrader.badWeatherFilter.enabled", "false"));
+                        properties.getProperty("unifiedTrader.badWeatherFilter.enabled", "true"));
         leverageMin = Integer.parseInt(properties.getProperty("unifiedTrader.leverage.min", "1"));
         adaptiveLeverageEnabled =
                 Boolean.parseBoolean(
                         properties.getProperty("unifiedTrader.adaptiveLeverage.enabled", "true"));
         tmonCashParkingEnabled =
                 Boolean.parseBoolean(
-                        properties.getProperty("unifiedTrader.tmonCashParking.enabled", "false"));
+                        properties.getProperty("unifiedTrader.tmonCashParking.enabled", "true"));
         this.tickerParams = loadTickerParams(properties);
     }
 
@@ -214,10 +215,10 @@ public class UnifiedTraderConfig {
 
         double adxRangeThreshold =
                 Double.parseDouble(
-                        properties.getProperty(prefix + "marketRegimeAdxRangeThreshold", "20.0"));
+                        properties.getProperty(prefix + "marketRegimeAdxRangeThreshold", "16.0"));
         double adxUnclearThreshold =
                 Double.parseDouble(
-                        properties.getProperty(prefix + "marketRegimeAdxUnclearThreshold", "25.0"));
+                        properties.getProperty(prefix + "marketRegimeAdxUnclearThreshold", "26.0"));
         double volumeRatioMin =
                 Double.parseDouble(
                         properties.getProperty(prefix + "marketRegimeVolumeRatioMin", "30.0"));

@@ -114,14 +114,6 @@ public final class StrategyRegistry {
                                 new UnifiedStrategy(new UnifiedTraderConfig(), tcs).run()),
                 (config, tcsService) -> new UnifiedStrategy(config, tcsService, new Config(), true));
         register(
-                "RegimeAwareStrategy",
-                runAndNotify(
-                        "RegimeAwareStrategy",
-                        "Stop RegimeAwareStrategy",
-                        (mc, tcs, args) ->
-                                new RegimeAwareStrategy(new UnifiedTraderConfig(), tcs).run()),
-                (config, tcsService) -> new RegimeAwareStrategy(config, tcsService, new Config(), true));
-        register(
                 "DataCollector",
                 runAndNotify(
                         "DataCollector",
