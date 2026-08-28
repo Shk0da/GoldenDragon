@@ -40,7 +40,6 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static com.github.shk0da.goldendragon.model.TickerInfo.Key;
-import static com.github.shk0da.goldendragon.service.TelegramNotifyService.telegramNotifyService;
 import static com.github.shk0da.goldendragon.utils.IndicatorsUtil.INDICATORS_SHIFT;
 import static com.github.shk0da.goldendragon.utils.IndicatorsUtil.calculateATR;
 import static com.github.shk0da.goldendragon.utils.IndicatorsUtil.toDouble;
@@ -147,7 +146,6 @@ public class LevelTrader {
     public void run() {
         var initPortfolioCost = tcsService.getTotalPortfolioCost();
         var infoMessage = "Total Portfolio Cost: " + initPortfolioCost;
-        telegramNotifyService.sendMessage(infoMessage);
         log(infoMessage);
 
         List<CompletableFuture<Void>> tasks = new ArrayList<>();
@@ -168,7 +166,6 @@ public class LevelTrader {
         allOf(tasks.toArray(new CompletableFuture[] {})).join();
         if (!isWorkingHours()) {
             var buyMessage = "Not working hours! Current Time: " + new Date() + ".\n";
-            telegramNotifyService.sendMessage(buyMessage);
             log(buyMessage);
 
             shutdownExecutor(executor);
@@ -271,7 +268,6 @@ public class LevelTrader {
                 }
             }
 
-            telegramNotifyService.sendMessage(statsMessage);
             log(statsMessage);
         }
     }
@@ -378,7 +374,6 @@ public class LevelTrader {
                         var closeMessage = "LONG TP " + expectedYieldMessage;
                         log(closeMessage);
                         tcsService.closeLongByMarket(name, type);
-                        telegramNotifyService.sendMessage(closeMessage);
                         winCounter.incrementAndGet();
                         orders.add(new OrderInfo(name, new Date(), (currentPrice - positionPrice)));
                     }
@@ -388,7 +383,6 @@ public class LevelTrader {
                         var closeMessage = "LONG SL " + expectedYieldMessage;
                         log(closeMessage);
                         tcsService.closeLongByMarket(name, type);
-                        telegramNotifyService.sendMessage(closeMessage);
                         loseCounter.incrementAndGet();
                         orders.add(new OrderInfo(name, new Date(), (currentPrice - positionPrice)));
                     }
@@ -406,7 +400,6 @@ public class LevelTrader {
                         var closeMessage = "SHORT TP " + expectedYieldMessage;
                         log(closeMessage);
                         tcsService.closeShortByMarket(name, type);
-                        telegramNotifyService.sendMessage(closeMessage);
                         winCounter.incrementAndGet();
                         orders.add(new OrderInfo(name, new Date(), (positionPrice - currentPrice)));
                     }
@@ -416,7 +409,6 @@ public class LevelTrader {
                         var closeMessage = "SHORT SL " + expectedYieldMessage;
                         log(closeMessage);
                         tcsService.closeShortByMarket(name, type);
-                        telegramNotifyService.sendMessage(closeMessage);
                         loseCounter.incrementAndGet();
                         orders.add(new OrderInfo(name, new Date(), (positionPrice - currentPrice)));
                     }
@@ -427,7 +419,6 @@ public class LevelTrader {
             tickerCooldown.put(name, cooldownExpiry);
             var message = "Failed handle " + name + ": " + ex.getMessage();
             log(message);
-            telegramNotifyService.sendMessage(message);
         }
     }
 

@@ -110,8 +110,6 @@
  * <h2>Logging and Notifications</h2>
  *
  * <p>Strategies log to {@link java.lang.System#out} with timestamps {@code dd.MM.yyyy HH:mm:ss}.
- * Critical events (position open/close, errors) are duplicated to Telegram via {@link
- * com.github.shk0da.goldendragon.service.TelegramNotifyService}.
  *
  * <h2>Backtesting</h2>
  *

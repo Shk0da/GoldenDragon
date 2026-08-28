@@ -1,0 +1,25 @@
+name,group,description
+timestamp,meta,trade timestamp used for chronological split
+ticker,meta,ticker symbol
+strategy,meta,source strategy name
+adx,trend,adx value at entry
+di_plus,trend,positive directional movement
+di_minus,trend,negative directional movement
+atr,volatility,average true range
+atr_ratio,volatility,current atr divided by rolling atr mean
+rsi,momentum,rsi at entry
+ema_fast,trend,fast ema value
+ema_slow,trend,slow ema value
+ema_ratio,trend,fast ema divided by slow ema
+price_position,price,entry close location in rolling range
+volume_ratio,volume,current volume divided by rolling average volume
+volume_trend,volume,volume slope proxy
+entry_confidence,setup,confidence returned by source strategy
+risk_reward_ratio,setup,target distance divided by stop distance
+stop_distance,setup,stop distance in percent
+hour_of_day,time,hour of entry
+day_of_week,time,day of week
+is_morning,time,morning session flag
+is_afternoon,time,afternoon session flag
+outcome,label,pnl in normalized units
+is_winner,label,binary trade result

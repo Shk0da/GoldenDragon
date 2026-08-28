@@ -56,7 +56,6 @@ import java.util.concurrent.TimeUnit;
 
 import static com.github.shk0da.goldendragon.model.TickerType.FEATURE;
 import static com.github.shk0da.goldendragon.model.TickerType.STOCK;
-import static com.github.shk0da.goldendragon.service.TelegramNotifyService.telegramNotifyService;
 import static com.github.shk0da.goldendragon.utils.TimeUtils.sleep;
 import static java.lang.Math.abs;
 import static java.lang.Math.max;
@@ -321,7 +320,6 @@ public abstract class BaseStrategy {
         var initPortfolioCost = safeGetTotalPortfolioCost();
         var infoMessage =
                 getStrategyName() + " started. Total Portfolio Cost: " + initPortfolioCost;
-        telegramNotifyService.sendMessage(infoMessage);
         log(infoMessage);
 
         List<String> activeTickers = new ArrayList<>();
@@ -356,7 +354,6 @@ public abstract class BaseStrategy {
             var message =
                     getStrategyName() + ": outside working hours, closing positions if needed.";
             log(message);
-            telegramNotifyService.sendMessage(message);
             closeAllPositions(tcsService, unifiedTraderConfig);
             return;
         }
@@ -405,7 +402,6 @@ public abstract class BaseStrategy {
 
             var endPortfolioCost = safeGetTotalPortfolioCost();
             var message = getStrategyName() + " stopped. Total Portfolio Cost: " + endPortfolioCost;
-            telegramNotifyService.sendMessage(message);
             log(message);
         }
     }
@@ -677,7 +673,6 @@ public abstract class BaseStrategy {
             tickerCooldown.put(name, cooldownExpiry);
             String message = getStrategyName() + " error for " + name + ": " + ex.getMessage();
             log(message);
-            telegramNotifyService.sendMessage(message);
         }
     }
 
@@ -881,35 +876,11 @@ public abstract class BaseStrategy {
                                     / executedEntryPrice
                                     * 100
                             : 0.0;
-            telegramNotifyService.sendMessage(
-                    getStrategyName()
-                            + " "
-                            + executedPosition.direction
-                            + " "
-                            + name
-                            + ": qty="
-                            + executedPosition.quantity
-                            + ", entry="
-                            + executedEntryPrice
-                            + ", SL="
-                            + String.format("%.2f", slInfo)
-                            + "%"
-                            + ", TP="
-                            + String.format("%.2f", tpInfo)
-                            + "%");
         } catch (Exception ex) {
             log(
                     "Failed to open "
                             + decision.updatedPosition.direction
                             + " for "
-                            + name
-                            + ": "
-                            + ex.getMessage());
-            telegramNotifyService.sendMessage(
-                    getStrategyName()
-                            + " FAILED "
-                            + decision.updatedPosition.direction
-                            + " "
                             + name
                             + ": "
                             + ex.getMessage());
@@ -993,15 +964,6 @@ public abstract class BaseStrategy {
             if (closedQuantity >= storedPosition.quantity) {
                 positionStore.put(name, getCooldownPosition());
                 lastSeenHourBarByTicker.remove(name);
-                telegramNotifyService.sendMessage(
-                        getStrategyName()
-                                + " CLOSED "
-                                + name
-                                + " (reason: "
-                                + decision.reason
-                                + ", PnL: "
-                                + String.format("%.2f", pnl)
-                                + ")");
             } else {
                 int remainingQuantity = storedPosition.quantity - closedQuantity;
                 positionStore.put(
@@ -1021,18 +983,6 @@ public abstract class BaseStrategy {
                                 + closedQuantity
                                 + ", remaining="
                                 + remainingQuantity);
-                telegramNotifyService.sendMessage(
-                        getStrategyName()
-                                + " PARTIAL CLOSE "
-                                + name
-                                + ": closed="
-                                + closedQuantity
-                                + ", remaining="
-                                + remainingQuantity
-                                + ", reason="
-                                + decision.reason
-                                + ", PnL="
-                                + String.format("%.2f", pnl));
             }
 
             TRADE_DATA_COLLECTOR.recordTradeOutcome(
@@ -1597,13 +1547,6 @@ public abstract class BaseStrategy {
                             position.quantity,
                             position.direction);
                     anyClosed = true;
-                    telegramNotifyService.sendMessage(
-                            getStrategyName()
-                                    + " EOD CLOSED "
-                                    + tickerName
-                                    + " ("
-                                    + position.quantity
-                                    + " shares)");
                 } else {
                     log("Failed to close position for " + tickerName);
                 }

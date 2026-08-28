@@ -5,9 +5,9 @@
  * <h2>Package Purpose</h2>
  *
  * <p>The {@code service} package contains classes responsible for interaction with external APIs
- * and services: broker API (Tinkoff Investments), Telegram bot for notifications, TradingView for
- * market scanning. These classes contain no trading logic — they provide low-level abstractions for
- * working with exchange data, order execution, and message sending.
+ * and services: broker API (Tinkoff Investments), TradingView for market scanning. These classes
+ * contain no trading logic — they provide low-level abstractions for working with exchange data,
+ * order execution, and message sending.
  *
  * <h2>Key Components</h2>
  *
@@ -23,15 +23,6 @@
  *       </ul>
  *       <p>Class encapsulates {@link ru.tinkoff.piapi.core.InvestApi} and provides convenient
  *       interface for strategies. Supports sandbox mode and timestamped logging.
- *   <li>{@link com.github.shk0da.goldendragon.service.TelegramNotifyService} — singleton for
- *       sending Telegram notifications. Used for:
- *       <ul>
- *         <li>Position open/close notifications.
- *         <li>Limit achievement messages (daily loss, errors).
- *         <li>Strategy start/finish messages.
- *       </ul>
- *       <p>Sending is asynchronous via {@link java.util.concurrent.ExecutorService} to avoid
- *       blocking main trading thread. Supports extended notification mode (important events only).
  *   <li>{@link com.github.shk0da.goldendragon.service.TradingViewService} — market scanner via
  *       TradingView API. Allows:
  *       <ul>
@@ -52,8 +43,6 @@
  *   <li>{@code TCSService} — direct call via {@link
  *       com.github.shk0da.goldendragon.service.TCSService} or via {@code TradingGateway} interface
  *       (adapter for easier testing).
- *   <li>{@code TelegramNotifyService} — via static instance {@link
- *       com.github.shk0da.goldendragon.service.TelegramNotifyService#telegramNotifyService}.
  *   <li>{@code TradingViewService} — via {@link
  *       com.github.shk0da.goldendragon.service.TradingViewService#INSTANCE} for market scanning
  *       before strategy start.
@@ -65,8 +54,6 @@
  *   <li>{@code TCSService} — not fully thread-safe. Internal collections ({@code
  *       ConcurrentHashMap}, {@code CopyOnWriteArrayList}) are protected from concurrent access, but
  *       order execution calls must be synchronized at strategy level.
- *   <li>{@code TelegramNotifyService} — thread-safe thanks to {@code ExecutorService} with single
- *       thread (message queue).
  *   <li>{@code TradingViewService} — stateless, thread-safe.
  * </ul>
  *
@@ -78,8 +65,6 @@
  *   <li>{@link com.github.shk0da.goldendragon.config.MainConfig} — API keys, account, sandbox mode.
  *   <li>{@link com.github.shk0da.goldendragon.config.MarketConfig} — base currency, market
  *       parameters.
- *   <li>{@link com.github.shk0da.goldendragon.config.TelegramNotifyConfig} — bot token, chat_id,
- *       notification mode.
  * </ul>
  *
  * <h2>Logging</h2>

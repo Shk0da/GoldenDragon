@@ -1,6 +1,5 @@
 package com.github.shk0da.goldendragon.strategy.orderbook;
 
-import static com.github.shk0da.goldendragon.service.TelegramNotifyService.telegramNotifyService;
 import static com.github.shk0da.goldendragon.utils.TimeUtils.sleep;
 import static java.util.stream.Collectors.toList;
 import static java.util.stream.Collectors.toSet;
@@ -293,7 +292,6 @@ public final class OrderBookTradingEngine implements MarketTickListener {
             + ", signals="
             + signalIds);
 
-    telegramNotifyService.sendMessage(strategyName + " started (paper=" + paper + ")");
 
     tcsService.logAccountTradingEligibility();
     tcsService.logAccountPositions();
@@ -315,7 +313,6 @@ public final class OrderBookTradingEngine implements MarketTickListener {
       } catch (Exception ex) {
         String message = strategyName + " error: " + ex.getMessage();
         log(message);
-        telegramNotifyService.sendMessage(message);
         log(strategyName + " entering cooldown for " + (COOLDOWN_DURATION_MS / 1000L) + "s");
         sleep(COOLDOWN_DURATION_MS);
       }
@@ -342,7 +339,6 @@ public final class OrderBookTradingEngine implements MarketTickListener {
         closeOpenPosition(runtime, "manual_emergency_stop", paper);
       }
     }
-    telegramNotifyService.sendMessage(strategyName + ": EMERGENCY STOP - all positions closed");
   }
 
   private void runTradingSession(boolean paper) {
@@ -467,7 +463,6 @@ public final class OrderBookTradingEngine implements MarketTickListener {
       if (metricsCsvWriter != null) {
         metricsCsvWriter.close();
       }
-      telegramNotifyService.sendMessage(strategyName + " stopped");
       log(strategyName + " stopped");
     }
   }
@@ -1597,18 +1592,6 @@ public final class OrderBookTradingEngine implements MarketTickListener {
             toBps(feeDistanceFraction(runtime.ticker, config.getStopFeeMultiple())),
             "expectedValueBps",
             toBps(expectedValueFraction(runtime.ticker))));
-    telegramNotifyService.sendMessage(
-        strategyName
-            + " OPEN ["
-            + signalId
-            + "] "
-            + runtime.ticker
-            + " entry="
-            + executedEntry
-            + " tp="
-            + executedBracket.tpPrice
-            + " sl="
-            + executedBracket.slPrice);
   }
 
   private TCSService.OrderExecutionResult placeBuyOrderWithRetry(TickerRuntime runtime, String clientOrderId) {
@@ -1903,18 +1886,6 @@ public final class OrderBookTradingEngine implements MarketTickListener {
             toBps(feeDistanceFraction(runtime.ticker, config.getStopFeeMultiple())),
             "expectedValueBps",
             toBps(expectedValueFraction(runtime.ticker))));
-    telegramNotifyService.sendMessage(
-        strategyName
-            + " SHORT ["
-            + signalId
-            + "] "
-            + runtime.ticker
-            + " entry="
-            + executedEntry
-            + " tp="
-            + executedBracket.tpPrice
-            + " sl="
-            + executedBracket.slPrice);
   }
 
   private BracketPrices buildBracketPricesShort(String ticker, double entryBid, double entryAsk) {
@@ -2085,16 +2056,6 @@ public final class OrderBookTradingEngine implements MarketTickListener {
     runtime.openPosition = null;
     positionStore.remove(runtime.ticker);
     runtime.cooldownUntilMs = System.currentTimeMillis() + config.getCooldownSeconds() * 1000L;
-    telegramNotifyService.sendMessage(
-        strategyName
-            + " CLOSE ["
-            + position.signalId
-            + "] "
-            + runtime.ticker
-            + " ("
-            + reason
-            + ") net="
-            + String.format("%.2f", netPnl));
     log(
         "CLOSE ["
             + position.signalId

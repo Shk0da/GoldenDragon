@@ -1,6 +1,5 @@
 package com.github.shk0da.goldendragon.strategy;
 
-import static com.github.shk0da.goldendragon.service.TelegramNotifyService.telegramNotifyService;
 import static com.github.shk0da.goldendragon.utils.IndicatorsUtil.toDouble;
 import static com.github.shk0da.goldendragon.utils.TimeUtils.sleep;
 import static java.lang.System.out;
@@ -49,7 +48,6 @@ public class IndicatorTrader {
                             var orderBook = tcsService.getOrderBook(stock.getFigi(), 10);
                             boolean hasGlassAnomaly = hasGlassAnomaly(orderBook);
                             if (hasGlassAnomaly) {
-                                telegramNotifyService.sendMessage(stock.getName() + ": ANOMALY");
                                 anomalies.put(stock.getFigi(), now());
                             }
                         }
@@ -66,7 +64,6 @@ public class IndicatorTrader {
                                 boolean isM15SignalDown = calculateSignalDown(m15candles);
                                 if (isM15SignalDown) {
                                     purchases.remove(stock.getFigi());
-                                    telegramNotifyService.sendMessage(stock.getName() + ": SELL");
                                 }
                             } else {
                                 List<HistoricCandle> m5candles =
@@ -86,8 +83,6 @@ public class IndicatorTrader {
                                     boolean isH1SignalUp = calculateSignalUp(h1candles, 20.0);
                                     if (isH1SignalUp) {
                                         purchases.add(stock.getFigi());
-                                        telegramNotifyService.sendMessage(
-                                                stock.getName() + ": BUY");
                                     }
                                 }
                             }

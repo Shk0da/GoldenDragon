@@ -1,7 +1,6 @@
 package com.github.shk0da.goldendragon.service;
 
 import static com.github.shk0da.goldendragon.dictionary.CurrenciesDictionary.getTickerName;
-import static com.github.shk0da.goldendragon.service.TelegramNotifyService.telegramNotifyService;
 import static com.github.shk0da.goldendragon.utils.LoggingUtils.log;
 import static com.github.shk0da.goldendragon.utils.PrintUtils.printGlassOfPrices;
 import static com.github.shk0da.goldendragon.utils.TimeUtils.sleep;
@@ -428,7 +427,6 @@ public class TCSService {
                                 if (mainConfig.isTestMode()) {
                                     return;
                                 }
-                                telegramNotifyService.sendMessage(message);
                                 createOrder(new TickerInfo.Key(name, type), 0.0, count, "Sell");
                             }
                             if (count < 0) {
@@ -439,7 +437,6 @@ public class TCSService {
                                 if (mainConfig.isTestMode()) {
                                     return;
                                 }
-                                telegramNotifyService.sendMessage(message);
                                 createOrder(
                                         new TickerInfo.Key(name, type),
                                         0.0,
@@ -1426,7 +1423,6 @@ public class TCSService {
                 placeOrLogProtectiveOrders(figi, executedCount, key, direction, bracketPosition);
             }
 
-            telegramNotifyService.sendMessage(message, true);
             return OrderExecutionResult.success(
                     executedPrice, executedCount, executedCommission, bracketPosition);
         } catch (Exception ex) {
@@ -1468,7 +1464,6 @@ public class TCSService {
             }
             String message = "Failed create order [" + key.getTicker() + "]: " + errorDetail;
             log(message);
-            telegramNotifyService.sendMessage(message);
             return errorCode != 0 ? OrderExecutionResult.failed(errorCode) : OrderExecutionResult.failed();
         }
     }
@@ -1751,7 +1746,6 @@ public class TCSService {
                 } catch (Exception ex) {
                     var error = "Failed create StopLose: " + ex.getMessage();
                     log(error);
-                    telegramNotifyService.sendMessage(error);
                     ex.printStackTrace();
                 }
             }
@@ -1783,7 +1777,6 @@ public class TCSService {
                 } catch (Exception ex) {
                     var error = "Failed create TakeProfit: " + ex.getMessage();
                     log(error);
-                    telegramNotifyService.sendMessage(error);
                     ex.printStackTrace();
                 }
             }
@@ -2018,7 +2011,6 @@ public class TCSService {
                             + ": "
                             + ex.getMessage();
             log(error);
-            telegramNotifyService.sendMessage(error);
             if (isStopLoss) {
                 protectiveOrders.stopLossOrderId = null;
             } else {
@@ -2045,7 +2037,6 @@ public class TCSService {
                             + ": "
                             + ex.getMessage();
             log(error);
-            telegramNotifyService.sendMessage(error);
         }
     }
 

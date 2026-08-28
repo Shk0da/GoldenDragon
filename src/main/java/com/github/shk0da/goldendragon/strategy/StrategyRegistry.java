@@ -16,7 +16,6 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
-import static com.github.shk0da.goldendragon.service.TelegramNotifyService.telegramNotifyService;
 import static java.lang.System.out;
 
 /**
@@ -101,10 +100,10 @@ public final class StrategyRegistry {
         ENTRIES.put(name, new Entry(name, liveRunner, backtestFactory));
     }
 
-    /** Builds a live runner that notifies telegram on start/finish and logs errors. */
+    /** Builds a live runner that logs start/finish and errors. */
     private static LiveRunner runAndNotify(String name, String endMessage, StrategyAction action) {
         return (mainConfig, marketConfig, tcsService, args) -> {
-            telegramNotifyService.sendMessage("Run " + name);
+            out.println("Run " + name);
             try {
                 action.execute(mainConfig, marketConfig, tcsService, args);
             } catch (final Exception ex) {
@@ -112,7 +111,7 @@ public final class StrategyRegistry {
                 ex.printStackTrace();
                 return;
             }
-            telegramNotifyService.sendMessage(endMessage);
+            out.println(endMessage);
         };
     }
 
