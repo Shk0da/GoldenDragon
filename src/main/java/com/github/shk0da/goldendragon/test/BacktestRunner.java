@@ -475,10 +475,6 @@ public class BacktestRunner {
         }
     }
 
-    public void run() throws IOException {
-        run("UnifiedStrategy");
-    }
-
     public void run(String strategyName) throws IOException {
         List<PeriodDefinition> tablePeriods = getPeriods();
         List<PeriodDefinition> chartPeriods = getFullYearlyPeriods();
@@ -532,9 +528,6 @@ public class BacktestRunner {
         runBacktestExpertEvaluation(strategyName, allData, portfolioData);
 
         plotEquityCurveChart(strategyName, continuousResult.portfolioResult.equityCurve);
-
-        // Generate basic buy & hold chart (16% annual)
-        plotBasicBuyAndHoldChart(chartPeriods);
     }
 
     private ExecutionResult splitExecutionByPeriod(ExecutionResult full, PeriodDefinition period) {
@@ -745,202 +738,6 @@ public class BacktestRunner {
             }
         }
         return new ArrayList<>(lastByDay.values());
-    }
-
-    /**
-     * Generates and saves basic buy & hold strategy chart (16% annual return).
-     *
-     * @param periods list of backtest periods (used for start date only)
-     */
-    private void plotBasicBuyAndHoldChart(List<PeriodDefinition> periods) {
-        TimeSeries basicSeries = new TimeSeries("Buy & Hold (16% annual)");
-
-        double annualReturn = 0.16;
-        double monthlyReturn = Math.pow(1 + annualReturn, 1.0 / 12.0) - 1.0;
-
-        double capital = initialBalance;
-        LocalDate currentDate = LocalDate.parse(periods.get(0).start);
-        LocalDate today = LocalDate.now();
-
-        int lastRebalanceMonth = -1;
-        int lastRebalanceYear = -1;
-
-        try {
-            Day startDay =
-                new Day(
-                    java.util.Date.from(
-                        currentDate
-                            .atStartOfDay(java.time.ZoneId.systemDefault())
-                            .toInstant()));
-            basicSeries.add(startDay, capital);
-        } catch (Exception e) {
-            // Skip
-        }
-
-        while (!currentDate.isAfter(today)) {
-            currentDate = currentDate.plusMonths(1);
-            if (currentDate.isAfter(today)) {
-                break;
-            }
-
-            int currentMonth = currentDate.getMonthValue();
-            int currentYear = currentDate.getYear();
-            if (currentMonth != lastRebalanceMonth || currentYear != lastRebalanceYear) {
-                capital += 100_000;
-                lastRebalanceMonth = currentMonth;
-                lastRebalanceYear = currentYear;
-            }
-
-            capital *= (1 + monthlyReturn);
-
-            try {
-                Day day =
-                    new Day(
-                        java.util.Date.from(
-                            currentDate
-                                .atStartOfDay(java.time.ZoneId.systemDefault())
-                                .toInstant()));
-                basicSeries.add(day, capital);
-            } catch (Exception e) {
-                // Skip
-            }
-        }
-
-        if (basicSeries.getItemCount() == 0) {
-            System.out.println("No data available for basic chart generation");
-            return;
-        }
-
-        TimeSeriesCollection dataset = new TimeSeriesCollection(basicSeries);
-
-        JFreeChart chart =
-            ChartFactory.createTimeSeriesChart(
-                "Buy & Hold Strategy (16% Annual + 100K RUB/month)",
-                "Date", "Capital (RUB)", dataset, true, true, false);
-
-        XYPlot plot = (XYPlot) chart.getPlot();
-        DateAxis dateAxis = (DateAxis) plot.getDomainAxis();
-        dateAxis.setDateFormatOverride(new SimpleDateFormat("yyyy-MM"));
-
-        try {
-            Path imagesDir = Paths.get("images");
-            Files.createDirectories(imagesDir);
-            Path outputPath = imagesDir.resolve("Basic.png");
-            try (FileOutputStream out = new FileOutputStream(outputPath.toFile())) {
-                ChartUtilities.writeChartAsPNG(out, chart, 1200, 600);
-            }
-            System.out.println("Basic buy & hold chart saved to: " + outputPath.toAbsolutePath());
-        } catch (Exception e) {
-            System.out.println("Failed to save basic chart: " + e.getMessage());
-        }
-
-        plotBuyAndHoldQQQChart(periods);
-    }
-
-    private void plotBuyAndHoldQQQChart(List<PeriodDefinition> periods) {
-        List<Candle> qqqCandles = loadDailyCandles("QQQ");
-        List<Candle> usdrubCandles = loadDailyCandles("USDRUB");
-        if (qqqCandles.isEmpty()) {
-            System.out.println("No QQQ data for Buy & Hold chart.");
-            return;
-        }
-        if (usdrubCandles.isEmpty()) {
-            System.out.println("No USDRUB data for Buy & Hold chart.");
-            return;
-        }
-
-        Map<String, Double> usdrubRates = new HashMap<>();
-        for (Candle c : usdrubCandles) {
-            String datePart = c.time.contains(" ") ? c.time.split(" ")[0] : c.time;
-            usdrubRates.put(datePart, c.close);
-        }
-
-        TimeSeries qqqSeries = new TimeSeries("Buy & Hold QQQ + 100K RUB/month");
-
-        double cashUsd = initialBalance / usdrubRates.values().iterator().next();
-        int shares = 0;
-        double avgPrice = 0;
-        int lastRebalanceMonth = -1;
-
-        LocalDate startDate = LocalDate.parse(periods.get(0).start);
-        LocalDate today = LocalDate.now();
-
-        for (Candle candle : qqqCandles) {
-            String datePart = candle.time.contains(" ") ? candle.time.split(" ")[0] : candle.time;
-            LocalDate candleDate;
-            try {
-                candleDate = LocalDate.parse(datePart, DATE_FMT);
-            } catch (Exception e) {
-                continue;
-            }
-
-            if (candleDate.isBefore(startDate) || candleDate.isAfter(today)) {
-                continue;
-            }
-
-            double usdrub = usdrubRates.getOrDefault(datePart, 80.0);
-            int currentMonth = candleDate.getMonthValue();
-            if (currentMonth != lastRebalanceMonth) {
-                double depositUsd = 100_000 / usdrub;
-                cashUsd += depositUsd;
-                int buyQty = (int) Math.floor(cashUsd / candle.close);
-                if (buyQty > 0) {
-                    double cost = buyQty * candle.close;
-                    double totalCost = avgPrice * shares + cost;
-                    shares += buyQty;
-                    cashUsd -= cost;
-                    avgPrice = shares > 0 ? totalCost / shares : 0;
-                }
-                lastRebalanceMonth = currentMonth;
-            }
-
-            double equityUsd = cashUsd + shares * candle.close;
-            double equityRub = equityUsd * usdrub;
-            try {
-                Day day =
-                    new Day(
-                        java.util.Date.from(
-                            candleDate
-                                .atStartOfDay(java.time.ZoneId.systemDefault())
-                                .toInstant()));
-                qqqSeries.addOrUpdate(day, equityRub);
-            } catch (Exception e) {
-                // Skip
-            }
-        }
-
-        if (qqqSeries.getItemCount() == 0) {
-            System.out.println("No equity data for QQQ Buy & Hold chart");
-            return;
-        }
-
-        TimeSeriesCollection dataset = new TimeSeriesCollection(qqqSeries);
-
-        JFreeChart chart =
-            ChartFactory.createTimeSeriesChart(
-                "Buy & Hold QQQ + 100K RUB/month",
-                "Date",
-                "Capital (RUB)",
-                dataset,
-                true,
-                true,
-                false);
-
-        XYPlot plot = (XYPlot) chart.getPlot();
-        DateAxis dateAxis = (DateAxis) plot.getDomainAxis();
-        dateAxis.setDateFormatOverride(new SimpleDateFormat("yyyy-MM"));
-
-        try {
-            Path imagesDir = Paths.get("images");
-            Files.createDirectories(imagesDir);
-            Path outputPath = imagesDir.resolve("BasicQQQ.png");
-            try (FileOutputStream out = new FileOutputStream(outputPath.toFile())) {
-                ChartUtilities.writeChartAsPNG(out, chart, 1200, 600);
-            }
-            System.out.println("Buy & Hold QQQ chart saved to: " + outputPath.toAbsolutePath());
-        } catch (Exception e) {
-            System.out.println("Failed to save QQQ chart: " + e.getMessage());
-        }
     }
 
     private List<PeriodDefinition> getPeriods() {
@@ -1840,12 +1637,6 @@ public class BacktestRunner {
 
         // Load traditional instruments (stocks, bonds, etc.)
         for (String s : props.getProperty("datacollector.instruments", "").split(",")) {
-            String t = s.trim();
-            if (!t.isEmpty()) tickers.add(t);
-        }
-
-        // Load crypto instruments
-        for (String s : props.getProperty("datacollector.crypto", "").split(",")) {
             String t = s.trim();
             if (!t.isEmpty()) tickers.add(t);
         }

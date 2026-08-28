@@ -215,10 +215,10 @@ public class UnifiedTraderConfig {
 
         double adxRangeThreshold =
                 Double.parseDouble(
-                        properties.getProperty(prefix + "marketRegimeAdxRangeThreshold", "16.0"));
+                        properties.getProperty(prefix + "marketRegimeAdxRangeThreshold", "20.0"));
         double adxUnclearThreshold =
                 Double.parseDouble(
-                        properties.getProperty(prefix + "marketRegimeAdxUnclearThreshold", "26.0"));
+                        properties.getProperty(prefix + "marketRegimeAdxUnclearThreshold", "25.0"));
         double volumeRatioMin =
                 Double.parseDouble(
                         properties.getProperty(prefix + "marketRegimeVolumeRatioMin", "30.0"));
