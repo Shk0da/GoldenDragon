@@ -76,7 +76,7 @@ public class Config {
         this.cooldownCandles = 3;
 
         // Bad Weather Filter defaults
-        this.marketRegimeFilterEnabled = true;
+        this.marketRegimeFilterEnabled = false; // Disabled by default (RegimeAwareStrategy was merged)
         this.regimeAdxTrendThreshold = 26.0;
         this.regimeAdxRangeThreshold = 16.0;
         this.regimeNormalMinAdx = 18.0;
@@ -142,7 +142,7 @@ public class Config {
         this.atrSpikeWindow = 10;
         this.cooldownCandles = 3;
 
-        this.marketRegimeFilterEnabled = true;
+        this.marketRegimeFilterEnabled = false; // Disabled by default (RegimeAwareStrategy was merged)
         this.regimeAdxTrendThreshold = 26.0;
         this.regimeAdxRangeThreshold = 16.0;
         this.regimeNormalMinAdx = 18.0;
@@ -219,7 +219,7 @@ public class Config {
         this.atrSpikeThreshold = 3.0;
         this.atrSpikeWindow = 10;
         this.cooldownCandles = 3;
-        this.marketRegimeFilterEnabled = true;
+        this.marketRegimeFilterEnabled = false; // Disabled by default (RegimeAwareStrategy was merged)
         this.regimeAdxTrendThreshold = 26.0;
         this.regimeAdxRangeThreshold = 16.0;
         this.regimeNormalMinAdx = 18.0;
