@@ -109,6 +109,8 @@ public final class OrderBookTradingEngine implements MarketTickListener {
   private final OrderBookDiagnosticsCollector diagnosticsCollector;
   private final OrderBookDiagnosticsReplayWriter diagnosticsReplayWriter;
   private final OrderBookMetricsCsvWriter metricsCsvWriter;
+  private volatile boolean diagnosticsReplayWriterFailed = false;
+  private volatile boolean metricsCsvWriterFailed = false;
   private final Map<String, Long> lastSkipDiagnosticMsByKey = new ConcurrentHashMap<>();
   private final Map<String, CommissionEstimator> commissionEstimators = new ConcurrentHashMap<>();
   private volatile long lastStreamErrorLogMs;
@@ -1029,6 +1031,18 @@ public final class OrderBookTradingEngine implements MarketTickListener {
               context.getMicroEdge(),
               "spreadBps",
               context.getSpreadBps()));
+      return;
+    }
+
+    if (isFlowToxic(runtime.ticker)) {
+      emitSkipDiagnostic(
+          runtime.ticker,
+          "vpin_too_high",
+          Map.of(
+              "vpin",
+              vpinCalculator.getVpin(runtime.ticker),
+              "maxVpinEntry",
+              config.getMaxVpinEntry()));
       return;
     }
 
@@ -2126,6 +2140,17 @@ public final class OrderBookTradingEngine implements MarketTickListener {
     return expectedValueFraction(ticker) >= roundTripFeeFraction(ticker) * config.getEvGateBuffer();
   }
 
+  /** Toxic one-sided flow precedes adverse moves; skip entries until flow calms down. */
+  private boolean isFlowToxic(String ticker) {
+    if (vpinCalculator == null) {
+      return false;
+    }
+    if (vpinCalculator.getCompletedBucketCount(ticker) < config.getMinVpinBuckets()) {
+      return false;
+    }
+    return vpinCalculator.getVpin(ticker) > config.getMaxVpinEntry();
+  }
+
   private double roundTripFeeFraction(String ticker) {
     return estimateCommissionRate(ticker) * 2.0;
   }
@@ -2906,11 +2931,23 @@ public final class OrderBookTradingEngine implements MarketTickListener {
     String logLine = buildDiagnosticLogLine(event);
     log(logLine);
     System.out.flush();
-    if (diagnosticsReplayWriter != null) {
-      diagnosticsReplayWriter.write(event);
+    if (diagnosticsReplayWriter != null && !diagnosticsReplayWriterFailed) {
+      try {
+        diagnosticsReplayWriter.write(event);
+      } catch (Exception e) {
+        diagnosticsReplayWriterFailed = true;
+        Throwable cause = e.getCause() != null ? e.getCause() : e;
+        log("WARN: Diagnostics replay writer failed, disabling: " + cause.getClass().getSimpleName() + " - " + cause.getMessage());
+      }
     }
-    if (metricsCsvWriter != null) {
-      metricsCsvWriter.write(event);
+    if (metricsCsvWriter != null && !metricsCsvWriterFailed) {
+      try {
+        metricsCsvWriter.write(event);
+      } catch (Exception e) {
+        metricsCsvWriterFailed = true;
+        Throwable cause = e.getCause() != null ? e.getCause() : e;
+        log("WARN: Metrics CSV writer failed, disabling: " + cause.getClass().getSimpleName() + " - " + cause.getMessage());
+      }
     }
   }
 

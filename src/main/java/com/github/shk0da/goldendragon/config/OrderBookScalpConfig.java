@@ -125,6 +125,8 @@ public class OrderBookScalpConfig {
   private final double tapeBlockMultiplier;
   private final int vpinBucketSize;
   private final int vpinBucketHistorySize;
+  private final double maxVpinEntry;
+  private final int minVpinBuckets;
   private final long volumeProfileWindowMillis;
   private final int queueHistoryWindow;
   private final double queuePriceToleranceBps;
@@ -414,6 +416,10 @@ public class OrderBookScalpConfig {
         Integer.parseInt(properties.getProperty("orderBookScalp.vpinBucketSize", "50"));
     this.vpinBucketHistorySize =
         Integer.parseInt(properties.getProperty("orderBookScalp.vpinBucketHistorySize", "20"));
+    this.maxVpinEntry =
+        Double.parseDouble(properties.getProperty("orderBookScalp.maxVpinEntry", "0.70"));
+    this.minVpinBuckets =
+        Integer.parseInt(properties.getProperty("orderBookScalp.minVpinBuckets", "5"));
     this.volumeProfileWindowMillis =
         Long.parseLong(properties.getProperty("orderBookScalp.volumeProfileWindowMillis", "300000"));
     this.queueHistoryWindow =
@@ -885,6 +891,14 @@ public class OrderBookScalpConfig {
 
   public int getVpinBucketHistorySize() {
     return vpinBucketHistorySize;
+  }
+
+  public double getMaxVpinEntry() {
+    return maxVpinEntry;
+  }
+
+  public int getMinVpinBuckets() {
+    return minVpinBuckets;
   }
 
   public long getVolumeProfileWindowMillis() {
