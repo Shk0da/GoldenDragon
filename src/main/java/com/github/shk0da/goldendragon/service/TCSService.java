@@ -2559,7 +2559,7 @@ public class TCSService {
     public int getCountOfCurrentPositions(TickerType tickerType, String tickerName) {
         return getCurrentPositions(tickerType).values().stream()
                 .filter(it -> it.getTicker().equalsIgnoreCase(tickerName))
-                .map(PositionInfo::getBalance)
+                .map(PositionInfo::getLots)
                 .findFirst()
                 .orElse(0);
     }
