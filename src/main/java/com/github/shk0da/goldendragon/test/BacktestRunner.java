@@ -1801,6 +1801,11 @@ public class BacktestRunner {
     private List<String> filterEnabledTickers(List<String> tickers, UnifiedTraderConfig config) {
         List<String> result = new ArrayList<>();
         for (String ticker : tickers) {
+            // TMON@ is always enabled if cash parking is enabled
+            if (TMON_TICKER.equals(ticker) && config.isTmonCashParkingEnabled()) {
+                result.add(ticker);
+                continue;
+            }
             try {
                 UnifiedTraderConfig.TickerParams params = config.getTickerParams(ticker);
                 if (params.enabled) {
@@ -1853,6 +1858,14 @@ public class BacktestRunner {
                     tickers.add(parts[2]);
                 }
             }
+        }
+
+        // Add TMON@ for cash parking if enabled
+        boolean tmonParkingEnabled =
+                Boolean.parseBoolean(
+                        props.getProperty("unifiedTrader.tmonCashParking.enabled", "true"));
+        if (tmonParkingEnabled) {
+            tickers.add(TMON_TICKER);
         }
 
         return new ArrayList<>(tickers);
