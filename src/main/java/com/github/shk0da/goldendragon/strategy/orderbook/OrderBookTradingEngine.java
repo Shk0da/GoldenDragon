@@ -543,6 +543,27 @@ public final class OrderBookTradingEngine implements MarketTickListener {
               15);
           continue;
         }
+      } else {
+        // LONG position: verify that position actually exists on broker before attempting close
+        TickerInfo.Key posKey = new TickerInfo.Key(position.getTicker(), position.getInstrumentType());
+        double bidPrice = tcsService.getLiveBidPrice(posKey);
+        if (bidPrice <= 0.0) {
+          logThrottled(
+              "_close_untracked_no_price_" + position.getTicker(),
+              "Untracked long position for "
+                  + position.getTicker()
+                  + ", skipping close: no bid price available",
+              15);
+          continue;
+        }
+        int absBalance = Math.abs(position.getBalance());
+        double positionValue = absBalance * bidPrice;
+        log("Untracked long position for "
+            + position.getTicker()
+            + " qty=" + position.getBalance()
+            + ", value=" + String.format("%.2f", positionValue)
+            + ", available=" + String.format("%.2f", availableCash)
+            + ", closing");
       }
       log(
           "Untracked position detected for "
@@ -550,16 +571,26 @@ public final class OrderBookTradingEngine implements MarketTickListener {
               + " qty="
               + position.getBalance()
               + ", closing");
-      TCSService.OrderExecutionResult result =
-          isShort
-              ? tcsService.closeShortByMarketWithDetails(
-                  position.getTicker(), position.getInstrumentType())
-              : tcsService.closeLongByMarketWithDetails(
-                  position.getTicker(), position.getInstrumentType());
-      if (!result.isSuccess()) {
+      try {
+        TCSService.OrderExecutionResult result =
+            isShort
+                ? tcsService.closeShortByMarketWithDetails(
+                    position.getTicker(), position.getInstrumentType())
+                : tcsService.closeLongByMarketWithDetails(
+                    position.getTicker(), position.getInstrumentType());
+        if (!result.isSuccess()) {
+          logThrottled(
+              "_close_untracked_fail_" + position.getTicker(),
+              "Failed to close untracked position for " + position.getTicker(),
+              15);
+        } else {
+          log("Successfully closed untracked position for " + position.getTicker());
+        }
+      } catch (Exception ex) {
         logThrottled(
-            "_close_untracked_fail_" + position.getTicker(),
-            "Failed to close untracked position for " + position.getTicker(),
+            "_close_untracked_exception_" + position.getTicker(),
+            "Exception closing untracked position for " + position.getTicker()
+                + ": " + ex.getMessage(),
             15);
       }
     }
@@ -1352,6 +1383,23 @@ public final class OrderBookTradingEngine implements MarketTickListener {
     // Apply fee-aware cap to prevent excessive commission drag
     units = calculateFeeAwareUnits(units, entryAsk, runtime.ticker);
 
+    // Verify sufficient cash before placing order
+    int lot = runtime.tickerInfo.getLot() != null ? Math.max(1, runtime.tickerInfo.getLot()) : 1;
+    double requiredCash = units * entryAsk * lot;
+    double currentAvailableCash = 0.0;
+    try {
+      currentAvailableCash = tcsService.getAvailableCash();
+    } catch (Exception ex) {
+      log("Cannot fetch available cash for " + runtime.ticker + ": " + ex.getMessage());
+    }
+    if (currentAvailableCash < requiredCash) {
+      log("Skip OPEN " + runtime.ticker + " LONG: insufficient cash"
+          + " (required=" + String.format("%.2f", requiredCash)
+          + ", available=" + String.format("%.2f", currentAvailableCash)
+          + ", units=" + units + ")");
+      return;
+    }
+
     // Dynamic TP/SL based on volatility
     double[] tpSl = calculateDynamicTpSl(runtime.ticker, entryAsk, true);
 
@@ -1637,6 +1685,23 @@ public final class OrderBookTradingEngine implements MarketTickListener {
 
     // Apply fee-aware cap to prevent excessive commission drag
     units = calculateFeeAwareUnits(units, entryBid, runtime.ticker);
+
+    // Verify sufficient cash/margin before placing short order
+    int lot = runtime.tickerInfo.getLot() != null ? Math.max(1, runtime.tickerInfo.getLot()) : 1;
+    double requiredCash = units * entryBid * lot;
+    double currentAvailableCash = 0.0;
+    try {
+      currentAvailableCash = tcsService.getAvailableCash();
+    } catch (Exception ex) {
+      log("Cannot fetch available cash for " + runtime.ticker + ": " + ex.getMessage());
+    }
+    if (currentAvailableCash < requiredCash) {
+      log("Skip SHORT " + runtime.ticker + ": insufficient cash/margin"
+          + " (required=" + String.format("%.2f", requiredCash)
+          + ", available=" + String.format("%.2f", currentAvailableCash)
+          + ", units=" + units + ")");
+      return;
+    }
 
     TCSService.OrderExecutionResult result =
         sellByMarketWithRetry(runtime, adjustedCash, entryBid);
