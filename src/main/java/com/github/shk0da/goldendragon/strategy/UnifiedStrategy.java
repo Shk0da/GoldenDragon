@@ -53,7 +53,7 @@ import java.util.concurrent.ConcurrentMap;
  *   <li><b>RANGE (ADX ≤ 16)</b> — флэт, блокируются все входы
  * </ul>
  *
- * <p>Включается флагом {@code config.marketRegimeFilterEnabled} (по умолчанию true).
+ * <p>Включается флагом {@code config.marketRegimeFilterEnabled} (по умолчанию false).
  *
  * <h2>Сигнальная логика</h2>
  *
