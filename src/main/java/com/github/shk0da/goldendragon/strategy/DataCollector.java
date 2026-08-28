@@ -4,8 +4,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.github.shk0da.goldendragon.config.DataCollectorConfig;
 import com.github.shk0da.goldendragon.config.MainConfig;
-import com.github.shk0da.goldendragon.config.MarketConfig;
-import com.github.shk0da.goldendragon.model.Market;
 import com.github.shk0da.goldendragon.model.TickerCandle;
 import com.github.shk0da.goldendragon.model.TickerInfo;
 import com.github.shk0da.goldendragon.model.TickerType;
@@ -89,10 +87,9 @@ public class DataCollector {
             out.println("Instruments: " + String.join(", ", tickers));
 
             MainConfig mainConfig = new MainConfig();
-            MarketConfig marketConfig = MarketConfig.byMarket(Market.MOEX);
             TCSService tcsService =
                 new TCSService(
-                    mainConfig.withAccountId(mainConfig.getTcsAccountId()), marketConfig);
+                    mainConfig.withAccountId(mainConfig.getTcsAccountId()));
 
             // Update ticker repository (load from disk or fetch from API if empty/stale)
             refreshTickerRepository(tcsService);

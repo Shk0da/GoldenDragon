@@ -2,7 +2,6 @@ package com.github.shk0da.goldendragon.strategy;
 
 import com.github.shk0da.goldendragon.config.DataCollectorConfig;
 import com.github.shk0da.goldendragon.config.MainConfig;
-import com.github.shk0da.goldendragon.config.MarketConfig;
 import com.github.shk0da.goldendragon.config.UnifiedTraderConfig;
 import com.github.shk0da.goldendragon.model.Config;
 import com.github.shk0da.goldendragon.service.TCSService;
@@ -25,7 +24,6 @@ public final class StrategyRegistry {
     public interface LiveRunner {
         void run(
                 MainConfig mainConfig,
-                MarketConfig marketConfig,
                 TCSService tcsService,
                 String[] args)
                 throws Exception;
@@ -41,7 +39,6 @@ public final class StrategyRegistry {
     private interface StrategyAction {
         void execute(
                 MainConfig mainConfig,
-                MarketConfig marketConfig,
                 TCSService tcsService,
                 String[] args)
                 throws Exception;
@@ -73,11 +70,10 @@ public final class StrategyRegistry {
 
         public void runLive(
                 MainConfig mainConfig,
-                MarketConfig marketConfig,
                 TCSService tcsService,
                 String[] args)
                 throws Exception {
-            liveRunner.run(mainConfig, marketConfig, tcsService, args);
+            liveRunner.run(mainConfig, tcsService, args);
         }
 
         public BaseStrategy createBacktest(UnifiedTraderConfig config, TCSService tcsService) {
@@ -98,9 +94,9 @@ public final class StrategyRegistry {
 
     /** Builds a live runner that logs errors. */
     private static LiveRunner runAndNotify(String name, String endMessage, StrategyAction action) {
-        return (mainConfig, marketConfig, tcsService, args) -> {
+        return (mainConfig, tcsService, args) -> {
             try {
-                action.execute(mainConfig, marketConfig, tcsService, args);
+                action.execute(mainConfig, tcsService, args);
             } catch (final Exception ex) {
                 out.printf("%s error: %s%n", name, ex.getMessage());
                 ex.printStackTrace();
@@ -114,7 +110,7 @@ public final class StrategyRegistry {
                 runAndNotify(
                         "UnifiedStrategy",
                         "Stop UnifiedStrategy",
-                        (mc, mkt, tcs, args) ->
+                        (mc, tcs, args) ->
                                 new UnifiedStrategy(new UnifiedTraderConfig(), tcs).run()),
                 (config, tcsService) -> new UnifiedStrategy(config, tcsService, new Config(), true));
         register(
@@ -122,7 +118,7 @@ public final class StrategyRegistry {
                 runAndNotify(
                         "RegimeAwareStrategy",
                         "Stop RegimeAwareStrategy",
-                        (mc, mkt, tcs, args) ->
+                        (mc, tcs, args) ->
                                 new RegimeAwareStrategy(new UnifiedTraderConfig(), tcs).run()),
                 (config, tcsService) -> new RegimeAwareStrategy(config, tcsService, new Config(), true));
         register(
@@ -130,7 +126,7 @@ public final class StrategyRegistry {
                 runAndNotify(
                         "DataCollector",
                         "End DataCollector",
-                        (mc, mkt, tcs, args) ->
+                        (mc, tcs, args) ->
                                 new DataCollector(new DataCollectorConfig(), tcs).run()),
                 null);
     }

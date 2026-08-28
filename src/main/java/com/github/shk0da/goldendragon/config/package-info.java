@@ -12,8 +12,6 @@
  * <ul>
  *   <li>{@link com.github.shk0da.goldendragon.config.MainConfig} — main application configuration:
  *       Tinkoff Invest API keys, sandbox settings, test mode, HTTP client.
- *   <li>{@link com.github.shk0da.goldendragon.config.MarketConfig} — market settings (MOEX):
- *       currency, position limits, market parameters.
  *   <li>{@link com.github.shk0da.goldendragon.config.UnifiedTraderConfig} — UnifiedStrategy
  *       configuration: indicator parameters, limits, money management settings.
  *   <li>{@link com.github.shk0da.goldendragon.config.DataCollectorConfig} — data collection: data

@@ -12,8 +12,6 @@ import static java.nio.charset.StandardCharsets.UTF_8;
 import static java.util.TimeZone.setDefault;
 
 import com.github.shk0da.goldendragon.config.MainConfig;
-import com.github.shk0da.goldendragon.config.MarketConfig;
-import com.github.shk0da.goldendragon.model.Market;
 import com.github.shk0da.goldendragon.model.TickerInfo;
 import com.github.shk0da.goldendragon.repository.Repository;
 import com.github.shk0da.goldendragon.repository.TickerRepository;
@@ -42,10 +40,8 @@ public final class GoldenDragon {
             TickerRepository.INSTANCE;
 
     private static final int DEFAULT_ARG_INDEX = 0;
-    private static final int MARKET_ARG_INDEX = 1;
-    private static final int ACCOUNT_ARG_INDEX = 2;
+    private static final int ACCOUNT_ARG_INDEX = 1;
     private static final String DEFAULT_STRATEGY = "LevelTrader";
-    private static final Market DEFAULT_MARKET = Market.MOEX;
     private static final int SLEEP_MS = 5_000;
 
     private GoldenDragon() {
@@ -60,16 +56,14 @@ public final class GoldenDragon {
         try {
             final MainConfig mainConfig = new MainConfig();
             final String strategy = getStrategy(args);
-            final Market market = getMarket(args);
             final String accountId = getAccountId(args, mainConfig);
-            out.println("Run: " + strategy + " " + market.name() + " [" + accountId + "]");
+            out.println("Run: " + strategy + " [" + accountId + "]");
 
-            final MarketConfig marketConfig = MarketConfig.byMarket(market);
             final TCSService tcsService =
-                    new TCSService(mainConfig.withAccountId(accountId), marketConfig);
+                    new TCSService(mainConfig.withAccountId(accountId));
             updateTickerRepository(tcsService);
 
-            executeStrategy(strategy, mainConfig, marketConfig, tcsService, args);
+            executeStrategy(strategy, mainConfig, tcsService, args);
         } catch (final Exception ex) {
             out.printf("Error: %s%n", ex.getMessage());
             ex.printStackTrace();
@@ -83,12 +77,6 @@ public final class GoldenDragon {
         return args.length > DEFAULT_ARG_INDEX ? args[DEFAULT_ARG_INDEX] : DEFAULT_STRATEGY;
     }
 
-    private static Market getMarket(final String[] args) {
-        return args.length > MARKET_ARG_INDEX
-                ? Market.valueOf(args[MARKET_ARG_INDEX])
-                : DEFAULT_MARKET;
-    }
-
     private static String getAccountId(final String[] args, final MainConfig mainConfig) {
         return args.length > ACCOUNT_ARG_INDEX
                 ? args[ACCOUNT_ARG_INDEX]
@@ -98,7 +86,6 @@ public final class GoldenDragon {
     private static void executeStrategy(
             final String strategy,
             final MainConfig mainConfig,
-            final MarketConfig marketConfig,
             final TCSService tcsService,
             final String[] args)
             throws Exception {
@@ -112,7 +99,7 @@ public final class GoldenDragon {
             out.println("Strategy has no live runner: " + strategy);
             return;
         }
-        entry.runLive(mainConfig, marketConfig, tcsService, args);
+        entry.runLive(mainConfig, tcsService, args);
     }
 
     private static void updateTickerRepository(TCSService tcsService) throws Exception {
