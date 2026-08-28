@@ -100,7 +100,7 @@ public class RegimeAwareStrategy extends BaseStrategy {
             }
         }
 
-        log(
+        logWithBacktest(
                 "REGIME "
                         + ticker
                         + ": "

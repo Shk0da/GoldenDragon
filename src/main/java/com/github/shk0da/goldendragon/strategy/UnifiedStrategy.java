@@ -1210,11 +1210,6 @@ public class UnifiedStrategy extends BaseStrategy {
             double effectivePrice = currentPrice * 1.01;
             double effectiveCostPerLot = effectivePrice * lot;
             if (balance < effectiveCostPerLot) {
-                logWithBacktest(
-                        "TMON@: skipping buy - insufficient cash ("
-                                + String.format("%.2f", balance)
-                                + ") for safe 1-lot entry at "
-                                + String.format("%.2f", effectiveCostPerLot));
                 return new TradingDecision("HOLD", "tmon_insufficient_cash");
             }
             double costPerLot = currentPrice * lot;

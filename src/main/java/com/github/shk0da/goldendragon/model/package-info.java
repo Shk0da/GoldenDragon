@@ -58,8 +58,7 @@
  *       recommendation, debt/equity.
  *   <li>{@link com.github.shk0da.goldendragon.model.TickerJson} — serializable data for
  *       LevelTrader: ticker + support/resistance levels.
- *   <li>{@link com.github.shk0da.goldendragon.model.Config} — configuration for ML strategies
- *       (RegimeAwareStrategyMl).
+ *   <li>{@link com.github.shk0da.goldendragon.model.Config} — configuration for trading strategies.
  * </ul>
  *
  * <h2>Interfaces</h2>

@@ -135,22 +135,6 @@ public final class StrategyRegistry {
                                 new RegimeAwareStrategy(new UnifiedTraderConfig(), tcs).run()),
                 (config, tcsService) -> new RegimeAwareStrategy(config, tcsService, new Config(), true));
         register(
-                "RegimeAwareStrategyMl",
-                runAndNotify(
-                        "RegimeAwareStrategyMl",
-                        "Stop RegimeAwareStrategyMl",
-                        (mc, mkt, tcs, args) ->
-                                new RegimeAwareStrategyMl(new UnifiedTraderConfig(), tcs).run()),
-                (config, tcsService) -> new RegimeAwareStrategyMl(config, tcsService, new Config(), true, true, true));
-        register(
-                "PrecisionStrategy",
-                runAndNotify(
-                        "PrecisionStrategy",
-                        "Stop PrecisionStrategy",
-                        (mc, mkt, tcs, args) ->
-                                new PrecisionStrategy(new UnifiedTraderConfig(), tcs).run()),
-                (config, tcsService) -> new PrecisionStrategy(config, tcsService, new Config(), true));
-        register(
                 "TmonAveragingStrategy",
                 runAndNotify(
                         "TmonAveragingStrategy",

@@ -3,7 +3,6 @@ package com.github.shk0da.goldendragon.strategy;
 import com.github.shk0da.goldendragon.config.UnifiedTraderConfig;
 import com.github.shk0da.goldendragon.filters.BadWeatherFilter;
 import com.github.shk0da.goldendragon.filters.MarketRegimeFilter;
-import com.github.shk0da.goldendragon.market.BacktestOrderExecutor;
 import com.github.shk0da.goldendragon.market.LiveMarketDataProvider;
 import com.github.shk0da.goldendragon.market.LiveOrderExecutor;
 import com.github.shk0da.goldendragon.market.MarketDataProvider;
@@ -251,17 +250,6 @@ public abstract class BaseStrategy {
     protected static final long API_CALL_DELAY_MS = 100;
     protected static final Object API_LOCK = new Object();
 
-    /**
-     * Shared simulated broker for backtest execution.
-     * Set by BacktestRunner before starting simulation.
-     * Allows backtest to use the same broker-dependent code paths as live trading.
-     */
-    protected static com.github.shk0da.goldendragon.test.SimulatedBroker backtestBroker;
-
-    public static void setBacktestBroker(com.github.shk0da.goldendragon.test.SimulatedBroker broker) {
-        BaseStrategy.backtestBroker = broker;
-    }
-
     protected static final LocalTime WORK_START_TIME = LocalTime.of(8, 30);
     protected static final LocalTime EOD_CLOSE_TIME = LocalTime.of(21, 0);
 
@@ -287,19 +275,11 @@ public abstract class BaseStrategy {
 
         // Initialize market data provider and order executor based on mode
         if (isBacktest) {
-            // In backtest mode, use SimulatedBroker as the single source of truth
-            // for both market data (candles) and broker state (cash, positions)
-            if (backtestBroker == null) {
-                String dataDir = unifiedTraderConfig != null
-                        ? unifiedTraderConfig.getDataDir()
-                        : "data";
-                double initialBalance = tcsService != null
-                        ? tcsService.getAvailableCash()
-                        : 100000.0;
-                backtestBroker = new com.github.shk0da.goldendragon.test.SimulatedBroker(initialBalance, dataDir);
+            if (!(tcsService instanceof com.github.shk0da.goldendragon.test.VirtualTCSService)) {
+                throw new IllegalArgumentException("Backtest requires VirtualTCSService");
             }
-            this.marketDataProvider = backtestBroker;
-            this.orderExecutor = new BacktestOrderExecutor(backtestBroker, backtestBroker.getAvailableCash());
+            this.marketDataProvider = (com.github.shk0da.goldendragon.test.VirtualTCSService) tcsService;
+            this.orderExecutor = new com.github.shk0da.goldendragon.market.LiveOrderExecutor(tcsService);
         } else {
             this.marketDataProvider = new LiveMarketDataProvider(tcsService);
             this.orderExecutor = new LiveOrderExecutor(tcsService);
@@ -554,14 +534,10 @@ public abstract class BaseStrategy {
             // so decide() can size a position using cash parked in TMON@
             // Read TMON@ position from broker (not local store) to handle parallel execution
             double effectiveBalance = balance;
-            if (!"TMON@".equals(name) && (tcsService != null || backtestBroker != null)) {
+            if (!"TMON@".equals(name) && tcsService != null) {
                 try {
                     com.github.shk0da.goldendragon.model.PositionInfo tmonInfo =
-                            tcsService != null
-                                    ? tcsService.getCurrentPositions(TickerType.ETF, "TMON@")
-                                    : (backtestBroker != null
-                                            ? backtestBroker.getCurrentPositions(TickerType.ETF, "TMON@")
-                                            : null);
+                            tcsService.getCurrentPositions(TickerType.ETF, "TMON@");
                     if (tmonInfo != null && tmonInfo.getBalance() > 0) {
                         double tmonQty = Math.abs(tmonInfo.getBalance());
                         Double tmonPrice = tmonInfo.getAveragePositionPrice();
@@ -637,9 +613,7 @@ public abstract class BaseStrategy {
                         com.github.shk0da.goldendragon.model.PositionInfo tmonInfo =
                                 tcsService != null
                                         ? tcsService.getCurrentPositions(TickerType.ETF, "TMON@")
-                                        : (backtestBroker != null
-                                                ? backtestBroker.getCurrentPositions(TickerType.ETF, "TMON@")
-                                                : null);
+                                        : null;
                         if (tmonInfo != null && tmonInfo.getBalance() > 0) {
                             int tmonQty = tmonInfo.getBalance();
                             Double tmonPriceDouble = tmonInfo.getAveragePositionPrice();
@@ -665,9 +639,6 @@ public abstract class BaseStrategy {
                                     if (tcsService != null) {
                                         tcsService.sellByMarket(
                                                 "TMON@", TickerType.ETF, cashToFree, 0.0, 0.0);
-                                    } else if (backtestBroker != null) {
-                                        backtestBroker.sellByMarket(
-                                                "TMON@", TickerType.ETF, cashToFree);
                                     }
                                     log(
                                             "PARTIALFREE "
@@ -745,8 +716,6 @@ public abstract class BaseStrategy {
                                         + name);
                         if (tcsService != null) {
                             tcsService.closeLongByMarket("TMON@", TickerType.ETF);
-                        } else if (backtestBroker != null) {
-                            backtestBroker.closeLongByMarket("TMON@", TickerType.ETF);
                         }
                         positionStore.remove("TMON@");
                         log("TMON@ sold, positionStore cleared for new position");

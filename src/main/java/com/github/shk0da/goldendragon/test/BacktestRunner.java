@@ -419,6 +419,7 @@ public class BacktestRunner {
     private final double commission;
     private final double slippage;
     private final double monthlyRebalanceAmount;
+    private VirtualTCSService broker;
 
     public BacktestRunner(
             String dataDir,
@@ -503,20 +504,16 @@ public class BacktestRunner {
         String fullEnd = chartPeriods.get(chartPeriods.size() - 1).endExclusive;
 
         if (!activeTickers.isEmpty()) {
-            if ("PrecisionStrategy".equals(strategyName)) {
-                System.out.println("Backtest leverage: 1x fixed (PrecisionStrategy override)");
+            int maxLeverage = config.getTickerParams(activeTickers.get(0)).leverage;
+            if (config.isAdaptiveLeverageEnabled() && maxLeverage > 1) {
+                System.out.println(
+                        "Backtest leverage: adaptive (max "
+                                + maxLeverage
+                                + "x, min "
+                                + config.getLeverageMin()
+                                + "x)");
             } else {
-                int maxLeverage = config.getTickerParams(activeTickers.get(0)).leverage;
-                if (config.isAdaptiveLeverageEnabled() && maxLeverage > 1) {
-                    System.out.println(
-                            "Backtest leverage: adaptive (max "
-                                    + maxLeverage
-                                    + "x, min "
-                                    + config.getLeverageMin()
-                                    + "x)");
-                } else {
-                    System.out.println("Backtest leverage: " + maxLeverage + "x");
-                }
+                System.out.println("Backtest leverage: " + maxLeverage + "x");
             }
         }
 
@@ -1384,19 +1381,16 @@ public class BacktestRunner {
                     new PortfolioPeriodResult(0.0, 0.0, Collections.emptyList(), 0, 0.0));
         }
 
-        // Create shared simulated broker for backtest parity with live trading
-        SimulatedBroker broker = new SimulatedBroker(initialBalance, dataDir);
+        // Create shared virtual TCS service for backtest parity with live trading
+        broker = new VirtualTCSService(initialBalance, dataDir, commission);
         
-        // Register all tickers in simulated broker
+        // Register all tickers in virtual TCS service
         for (String ticker : marketDataByTicker.keySet()) {
             TickerInfo info = TickerRepository.INSTANCE.getByName(ticker);
             if (info != null) {
                 broker.registerTicker(info);
             }
         }
-        
-        // Set the broker for backtest strategies to use
-        BaseStrategy.setBacktestBroker(broker);
 
         Map<String, BaseStrategy> strategies = new LinkedHashMap<>();
         Map<String, PortfolioPositionState> positionStates = new LinkedHashMap<>();
@@ -1406,7 +1400,7 @@ public class BacktestRunner {
         Map<String, Integer> minuteIndexByTicker = new LinkedHashMap<>();
 
         for (String ticker : marketDataByTicker.keySet()) {
-            BaseStrategy strategy = StrategyRegistry.createBacktest(strategyName, config);
+            BaseStrategy strategy = StrategyRegistry.createBacktest(strategyName, config, broker);
             strategies.put(ticker, strategy);
             positionStates.put(ticker, new PortfolioPositionState());
             tradesByTicker.put(ticker, new ArrayList<>());
@@ -1463,7 +1457,7 @@ public class BacktestRunner {
                                         current.close,
                                         current.time,
                                         "eod_close",
-                                        sharedCash,
+                                        broker,
                                         tradesByTicker.get(ticker),
                                         config);
                         state.lastEodCloseDate = currentTime.toLocalDate();
@@ -1534,7 +1528,8 @@ public class BacktestRunner {
                                     sharedCash,
                                     tradesByTicker.get(ticker),
                                     config,
-                                    positionStates);
+                                    positionStates,
+                                    broker);
                 }
 
                 state.lastSeenHourIdx = state.hourIdx;
@@ -1571,7 +1566,7 @@ public class BacktestRunner {
                                 lastCandle.close,
                                 lastCandle.time,
                                 "period_end",
-                                sharedCash,
+                                broker,
                                 tradesByTicker.get(ticker),
                                 config);
             }
@@ -1784,17 +1779,18 @@ public class BacktestRunner {
             double sharedCash,
             List<TradeResult> trades,
             UnifiedTraderConfig config,
-            Map<String, PortfolioPositionState> positionStates) {
+            Map<String, PortfolioPositionState> positionStates,
+            VirtualTCSService broker) {
         if (decision == null) {
-            return sharedCash;
+            return broker.getAvailableCash();
         }
 
         switch (decision.action) {
             case "OPEN":
-                if (decision.updatedPosition == null || decision.quantity <= 0) return sharedCash;
+                if (decision.updatedPosition == null || decision.quantity <= 0) return broker.getAvailableCash();
                 String openDir = decision.updatedPosition.direction;
                 if ((!"BUY".equals(openDir) && !"SELL".equals(openDir))
-                        || state.position.quantity > 0) return sharedCash;
+                        || state.position.quantity > 0) return broker.getAvailableCash();
 
                 double openEntry =
                         decision.updatedPosition.entryPrice != null
@@ -1811,8 +1807,8 @@ public class BacktestRunner {
                 double entryMargin = getRequiredMargin(ticker, openQty, openEntry, leverage);
                 double entryNotional = getNotionalValue(openQty, openEntry);
                 double entryCommission = entryNotional * getEffectiveCommission(ticker);
-                if (entryMargin + entryCommission > sharedCash) {
-                    return sharedCash;
+                if (entryMargin + entryCommission > broker.getAvailableCash()) {
+                    return broker.getAvailableCash();
                 }
 
                 // check portfolio-level max exposure (80% of equity)
@@ -1829,17 +1825,29 @@ public class BacktestRunner {
                                         psLeverage);
                     }
                 }
-                double currentEquity = sharedCash + totalMarginUsed;
+                double currentEquity = broker.getAvailableCash() + totalMarginUsed;
                 if (currentEquity > 0 && totalMarginUsed / currentEquity > 0.80) {
-                    return sharedCash;
+                    return broker.getAvailableCash();
                 }
 
-                sharedCash -= (entryMargin + entryCommission);
+                // Open position through the simulated broker
+                TickerInfo targetInfo = resolveTickerInfo(ticker);
+                TickerType openType = targetInfo != null ? targetInfo.getType() : TickerType.STOCK;
+                boolean opened = broker.openPosition(
+                        ticker, openType, openDir, openQty, openEntry,
+                        decision.updatedPosition.stopLoss,
+                        decision.updatedPosition.takeProfit,
+                        leverage,
+                        decision.updatedPosition.candlesHeld,
+                        decision.updatedPosition.cooldownRemaining);
+                if (!opened) {
+                    return broker.getAvailableCash();
+                }
                 state.position = decision.updatedPosition;
                 state.entryPrice = openEntry;
                 // Use minute candles for accurate timestamp (5-min precision instead of hourly)
                 strategy.recordBacktestTradeEntry(ticker, minHistory, decision);
-                return sharedCash;
+                return broker.getAvailableCash();
 
             case "CLOSE":
                 if (state.position.quantity <= 0) {
@@ -1847,7 +1855,7 @@ public class BacktestRunner {
                             decision.updatedPosition != null
                                     ? decision.updatedPosition
                                     : state.position;
-                    return sharedCash;
+                    return broker.getAvailableCash();
                 }
 
                 double exitPrice =
@@ -1859,7 +1867,7 @@ public class BacktestRunner {
                         exitPrice,
                         currentTime,
                         decision.reason,
-                        sharedCash,
+                        broker,
                         trades,
                         config);
 
@@ -1867,10 +1875,10 @@ public class BacktestRunner {
                 if (decision.updatedPosition != null) {
                     state.position = decision.updatedPosition;
                 }
-                return sharedCash;
+                return broker.getAvailableCash();
 
             default:
-                return sharedCash;
+                return broker.getAvailableCash();
         }
     }
 
@@ -1881,7 +1889,7 @@ public class BacktestRunner {
             double exitPrice,
             String time,
             String reason,
-            double sharedCash,
+            VirtualTCSService broker,
             List<TradeResult> trades,
             UnifiedTraderConfig config) {
         int quantity = state.position.quantity;
@@ -1889,7 +1897,6 @@ public class BacktestRunner {
         boolean isShort = "SELL".equals(state.position.direction);
         // apply slippage to exit price
         double slippedExit = isShort ? exitPrice * (1.0 + slippage) : exitPrice * (1.0 - slippage);
-        double entryMargin = getRequiredMargin(ticker, quantity, state.entryPrice, leverage);
         double entryNotional = getNotionalValue(quantity, state.entryPrice);
         double exitNotional = getNotionalValue(quantity, slippedExit);
         double grossPnl = calculateGrossPnl(entryNotional, exitNotional, isShort);
@@ -1897,6 +1904,9 @@ public class BacktestRunner {
                 (entryNotional + exitNotional) * getEffectiveCommission(ticker);
         double pnl = grossPnl - roundTripCommission;
         String dir = isShort ? "SELL" : "BUY";
+
+        // Close through the simulated broker to free margin and realize PnL
+        broker.closePosition(ticker, slippedExit, reason);
 
         trades.add(
                 new TradeResult(
@@ -1914,29 +1924,14 @@ public class BacktestRunner {
                 ticker, pnl, state.entryPrice, stopLoss, state.position.quantity);
         state.realizedPnl += pnl;
 
-        double exitCommission = exitNotional * getEffectiveCommission(ticker);
-        // return posted margin plus notional PnL; entry commission was paid at open
-        sharedCash += (entryMargin + grossPnl - exitCommission);
         state.position = new Position();
         state.entryPrice = 0.0;
-        return sharedCash;
+        return broker.getAvailableCash();
     }
 
     private double tickerEquity(String ticker, PortfolioPositionState state, double currentPrice) {
-        double unrealizedPnl = 0.0;
-        if (state.position.quantity > 0) {
-            boolean isShort = "SELL".equals(state.position.direction);
-            double entryNotional = getNotionalValue(state.position.quantity, state.entryPrice);
-            double markNotional = getNotionalValue(state.position.quantity, currentPrice);
-            double grossPnl = calculateGrossPnl(entryNotional, markNotional, isShort);
-            double entryCommission = entryNotional * getEffectiveCommission(ticker);
-            double exitCommission = markNotional * getEffectiveCommission(ticker);
-            // Subtract both entry and exit commission so that equity curve is continuous
-            // at position closure (realizedPnl already includes both commissions).
-            unrealizedPnl = grossPnl - entryCommission - exitCommission;
-        }
-
-        return initialBalance + state.realizedPnl + unrealizedPnl;
+        return broker.getTickerEquity(
+                ticker, state.position, state.entryPrice, state.realizedPnl, currentPrice);
     }
 
     private double positionMarketValue(
@@ -1944,57 +1939,31 @@ public class BacktestRunner {
             PortfolioPositionState state,
             double currentPrice,
             UnifiedTraderConfig config) {
-        if (state.position.quantity <= 0) {
-            return 0.0;
-        }
-
-        int leverage = resolvePositionLeverage(state.position, config, ticker);
-        boolean isShort = "SELL".equals(state.position.direction);
-        double entryMargin =
-                getRequiredMargin(ticker, state.position.quantity, state.entryPrice, leverage);
-        double entryNotional = getNotionalValue(state.position.quantity, state.entryPrice);
-        double markNotional = getNotionalValue(state.position.quantity, currentPrice);
-        double grossPnl = calculateGrossPnl(entryNotional, markNotional, isShort);
-        return entryMargin + grossPnl;
+        return broker.getPositionMarketValue(
+                ticker, state.position, state.entryPrice, currentPrice);
     }
 
     private int resolvePositionLeverage(
             Position position, UnifiedTraderConfig config, String ticker) {
-        if (position != null && position.quantity > 0) {
-            return Math.max(1, position.appliedLeverage);
-        }
-        return Math.max(1, config.getTickerParams(ticker).leverage);
+        int configuredLeverage = Math.max(1, config.getTickerParams(ticker).leverage);
+        return broker.resolvePositionLeverage(position, configuredLeverage);
     }
 
     private double getRequiredMargin(String ticker, int quantity, double price, int leverage) {
-        if (quantity <= 0 || price <= 0.0) {
-            return 0.0;
-        }
-        return getNotionalValue(quantity, price) * getMarginMultiplier(ticker, leverage);
+        return broker.getRequiredMargin(ticker, quantity, price, leverage);
     }
 
     private double getNotionalValue(int quantity, double price) {
-        if (quantity <= 0 || price <= 0.0) {
-            return 0.0;
-        }
-        return quantity * price;
+        return broker.getNotionalValue(quantity, price);
     }
 
     private double getMarginMultiplier(String ticker, int leverage) {
-        double marginMultiplier = 1.0;
-        TickerInfo tickerInfo = resolveTickerInfo(ticker);
-        if (tickerInfo != null && TickerType.FEATURE == tickerInfo.getType()) {
-            marginMultiplier = TCSService.FUTURES_MARGIN_RATE;
-        }
-        if (leverage > 1) {
-            marginMultiplier /= leverage;
-        }
-        return marginMultiplier;
+        return broker.getMarginMultiplier(ticker, leverage);
     }
 
-    private static double calculateGrossPnl(
+    private double calculateGrossPnl(
             double entryNotional, double exitNotional, boolean isShort) {
-        return isShort ? entryNotional - exitNotional : exitNotional - entryNotional;
+        return broker.calculateGrossPnl(entryNotional, exitNotional, isShort);
     }
 
     private TickerInfo resolveTickerInfo(String ticker) {

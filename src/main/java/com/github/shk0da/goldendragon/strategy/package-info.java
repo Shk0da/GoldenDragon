@@ -50,9 +50,6 @@
  *   <li>{@link com.github.shk0da.goldendragon.strategy.RegimeAwareStrategy} — strategy with market
  *       regime adaptation. Detects regime by volatility and volume, switches entry logic and risk
  *       parameters based on regime.
- *   <li>{@link com.github.shk0da.goldendragon.strategy.RegimeAwareStrategyMl} — extension of {@code
- *       RegimeAwareStrategy} using ML model (XGBoost) for regime classification and price movement
- *       prediction.
  *   <li>{@link com.github.shk0da.goldendragon.strategy.DivFlow} — dividend trading strategy.
  *       Analyzes dividend yield, cut-off dates, fundamental indicators.
  *   <li>{@link com.github.shk0da.goldendragon.strategy.LevelTrader} — key level trading

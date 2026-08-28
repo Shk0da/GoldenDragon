@@ -5,7 +5,7 @@
  *
  * <p>The {@code ml} package contains components for collecting labeled data, training
  * classification models (XGBoost), predicting market regimes and trading signals. ML models are
- * used in {@code RegimeAwareStrategyMl} for market adaptation.
+ * used in trading strategies for market adaptation and signal filtering.
  *
  * <h2>Data Collection</h2>
  *
@@ -40,7 +40,6 @@
  *       <b>Run</b>: {@code ./gradlew runMlTraining} or {@code ./gradlew trainAllTickers}.
  *   <li>{@link com.github.shk0da.goldendragon.ml.MlAutoTrainingService} — automatic model
  *       retraining. Checks accumulated data, triggers training when minimum new trades reached.
- *       Used in {@code RegimeAwareStrategyMl}.
  * </ul>
  *
  * <h2>Prediction</h2>
@@ -61,7 +60,7 @@
  *
  * <h2>Strategy Integration</h2>
  *
- * <p>ML components are used in {@code RegimeAwareStrategyMl}:
+ * <p>ML components are used in trading strategies:
  *
  * <ol>
  *   <li>Before entry: create {@code TradeFeatures} with current indicators.
@@ -87,7 +86,6 @@
  * methods, concurrent collections). {@code MlModelTrainer} runs in separate thread during
  * retraining.
  *
- * @see com.github.shk0da.goldendragon.strategy.RegimeAwareStrategyMl
  * @see com.github.shk0da.goldendragon.strategy.BaseStrategy
  */
 package com.github.shk0da.goldendragon.ml;
