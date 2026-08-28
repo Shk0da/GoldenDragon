@@ -165,17 +165,6 @@ public class TCSService {
     }
 
     /**
-     * Returns all tradable MOEX shares denominated in RUB.
-     *
-     * @return list of {@link Share} instruments with currency equal to "rub"
-     */
-    public List<Share> getMoexShares() {
-        return investApi.getInstrumentsService().getTradableSharesSync().stream()
-                .filter(it -> it.getCurrency().equals("rub"))
-                .collect(Collectors.toList());
-    }
-
-    /**
      * Retrieves the current order book (glass of prices) for a given instrument.
      *
      * @param figi FIGI identifier of the instrument

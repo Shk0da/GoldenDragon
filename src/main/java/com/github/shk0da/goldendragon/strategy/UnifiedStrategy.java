@@ -267,10 +267,6 @@ public class UnifiedStrategy extends BaseStrategy {
         }
     }
 
-    public void setFixedEntryLeverage(int leverage) {
-        this.fixedEntryLeverage = Math.max(1, leverage);
-    }
-
     @Override
     protected String getStrategyName() {
         return "UnifiedStrategy";

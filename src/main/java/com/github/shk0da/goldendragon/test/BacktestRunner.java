@@ -479,10 +479,6 @@ public class BacktestRunner {
         }
     }
 
-    public void run() throws IOException {
-        run("UnifiedStrategy");
-    }
-
     public void run(String strategyName) throws IOException {
         List<PeriodDefinition> tablePeriods = getPeriods();
         List<PeriodDefinition> chartPeriods = getFullYearlyPeriods();
