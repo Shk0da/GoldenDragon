@@ -1,6 +1,5 @@
 package com.github.shk0da.goldendragon.test;
 
-import com.github.shk0da.goldendragon.config.TmonAveragingConfig;
 import com.github.shk0da.goldendragon.config.UnifiedTraderConfig;
 import com.github.shk0da.goldendragon.model.Candle;
 import com.github.shk0da.goldendragon.model.Config;
@@ -12,7 +11,6 @@ import com.github.shk0da.goldendragon.repository.TickerRepository;
 import com.github.shk0da.goldendragon.service.TCSService;
 import com.github.shk0da.goldendragon.strategy.BaseStrategy;
 import com.github.shk0da.goldendragon.strategy.StrategyRegistry;
-import com.github.shk0da.goldendragon.strategy.TmonAveragingStrategy;
 import com.github.shk0da.goldendragon.utils.PropertiesUtils;
 import org.jfree.chart.ChartFactory;
 import org.jfree.chart.ChartUtilities;
@@ -491,12 +489,6 @@ public class BacktestRunner {
 
         UnifiedTraderConfig config = new UnifiedTraderConfig();
 
-        // TmonAveragingStrategy uses hourly candles on TMON@ — different execution path
-        if ("TmonAveragingStrategy".equals(strategyName)) {
-            runTmonAveraging(tablePeriods, chartPeriods, config);
-            return;
-        }
-
         List<String> loadedTickers = loadTickers();
         List<String> activeTickers = filterEnabledTickers(loadedTickers, config);
 
@@ -543,169 +535,6 @@ public class BacktestRunner {
 
         // Generate basic buy & hold chart (16% annual)
         plotBasicBuyAndHoldChart(chartPeriods);
-    }
-
-    private void runTmonAveraging(
-            List<PeriodDefinition> tablePeriods,
-            List<PeriodDefinition> chartPeriods,
-            UnifiedTraderConfig config)
-            throws IOException {
-
-        List<String> periodLabels = new ArrayList<>();
-        Map<String, Map<String, TickerPeriodResult>> allData = new LinkedHashMap<>();
-        Map<String, PortfolioPeriodResult> portfolioData = new LinkedHashMap<>();
-
-        List<String> tmonTickers = Collections.singletonList("TMON@");
-        String fullStart = chartPeriods.get(0).start;
-        String fullEnd = chartPeriods.get(chartPeriods.size() - 1).endExclusive;
-        ExecutionResult continuousResult = executeTmonAveraging(fullStart, fullEnd, config);
-
-        for (PeriodDefinition period : tablePeriods) {
-            periodLabels.add(period.label);
-            ExecutionResult periodResult = splitExecutionByPeriod(continuousResult, period);
-            allData.put(period.label, periodResult.tickerResults);
-            portfolioData.put(period.label, periodResult.portfolioResult);
-        }
-
-        printResults("TmonAveragingStrategy", periodLabels, allData, portfolioData, tmonTickers);
-        collectStrategyMetrics("TmonAveragingStrategy", allData, portfolioData);
-
-        // Run BacktestExpert evaluation
-        runBacktestExpertEvaluation("TmonAveragingStrategy", allData, portfolioData);
-
-        plotEquityCurveChart("TmonAveragingStrategy", continuousResult.portfolioResult.equityCurve);
-        plotBuyAndHoldTmonChart(chartPeriods);
-    }
-
-    private ExecutionResult executeTmonAveraging(
-            String start, String endExclusive, UnifiedTraderConfig config) throws IOException {
-
-        List<RawCandle> rawCandles = loadCandles("TMON@", start, endExclusive);
-
-        if (rawCandles.isEmpty()) {
-            System.out.println("ERROR: Missing hourly candle data for TMON@.");
-            return new ExecutionResult(
-                    Collections.emptyMap(),
-                    new PortfolioPeriodResult(0.0, 0.0, Collections.emptyList(), 0, 0.0));
-        }
-
-        List<Candle> tmonCandles = new ArrayList<>(rawCandles.size());
-        for (RawCandle c : rawCandles) {
-            tmonCandles.add(new Candle(c.time, c.open, c.high, c.low, c.close, c.volume));
-        }
-
-        System.out.println(
-                "TmonAveragingStrategy: " + tmonCandles.size() + " TMON@ hourly candles");
-        System.out.println(
-                "Monthly deposit: "
-                        + String.format("%.0f", monthlyRebalanceAmount)
-                        + ", commission: 0.0%");
-
-        TmonAveragingStrategy strategy =
-                new TmonAveragingStrategy(
-                        new TmonAveragingConfig(), null, new Config(), true, initialBalance);
-        List<EquityPoint> equityCurve = new ArrayList<>();
-        List<TradeResult> trades = new ArrayList<>();
-
-        int lastDepositMonth = -1;
-        int warmup = MIN_HOURS_REQUIRED;
-        for (int i = 0; i < tmonCandles.size(); i++) {
-            Candle current = tmonCandles.get(i);
-            String datePart =
-                    current.time.contains(" ") ? current.time.split(" ")[0] : current.time;
-
-            if (i < warmup) {
-                equityCurve.add(new EquityPoint(datePart + " 15:45:00", strategy.getCashBalance()));
-                continue;
-            }
-
-            // Monthly deposit on first candle of each month
-            LocalDateTime candleTime = LocalDateTime.parse(current.time, DATE_TIME_FMT);
-            int currentMonth = candleTime.getMonthValue();
-            int currentYear = candleTime.getYear();
-            int monthKey = currentYear * 100 + currentMonth;
-            if (lastDepositMonth == -1) {
-                lastDepositMonth = monthKey;
-            } else if (monthKey != lastDepositMonth && monthlyRebalanceAmount > 0) {
-                strategy.addMonthlyDeposit(monthlyRebalanceAmount);
-                lastDepositMonth = monthKey;
-            }
-
-            List<Candle> history = tmonCandles.subList(0, i + 1);
-            int preQty = strategy.getPositionQuantity();
-            double preEntry = strategy.getAvgEntryPrice();
-
-            strategy.decide("TMON@", history, history, null, strategy.getCashBalance(), false);
-
-            if (preQty > 0 && strategy.getPositionQuantity() < preQty) {
-                int soldQty = preQty - strategy.getPositionQuantity();
-                double pnl = (current.close - preEntry) * soldQty;
-                String reason =
-                        strategy.getPhase() == TmonAveragingStrategy.Phase.EXITED
-                                ? "exit_complete"
-                                : "scale_out";
-                trades.add(
-                        new TradeResult(
-                                "TMON@",
-                                "BUY",
-                                preEntry,
-                                current.close,
-                                soldQty,
-                                pnl,
-                                reason,
-                                datePart));
-            }
-
-            double equity = strategy.getCashBalance();
-            if (strategy.getPositionQuantity() > 0) {
-                equity += strategy.getPositionQuantity() * current.close;
-            }
-            equityCurve.add(new EquityPoint(datePart + " 15:45:00", equity));
-        }
-
-        if (strategy.getPositionQuantity() > 0 && !tmonCandles.isEmpty()) {
-            Candle last = tmonCandles.get(tmonCandles.size() - 1);
-            String lastDate = last.time.contains(" ") ? last.time.split(" ")[0] : last.time;
-            double pnl =
-                    (last.close - strategy.getAvgEntryPrice()) * strategy.getPositionQuantity();
-            trades.add(
-                    new TradeResult(
-                            "TMON@",
-                            "BUY",
-                            strategy.getAvgEntryPrice(),
-                            last.close,
-                            strategy.getPositionQuantity(),
-                            pnl,
-                            "period_end",
-                            lastDate));
-        }
-
-        double finalEquity =
-                equityCurve.isEmpty()
-                        ? initialBalance
-                        : equityCurve.get(equityCurve.size() - 1).equity;
-        double portfolioPnl = finalEquity - initialBalance;
-        double portfolioDd = calcMaxDrawdownByEquity(equityCurve);
-        int totalTrades = trades.size();
-        long winningTrades = trades.stream().filter(t -> t.pnl > 0).count();
-        double portfolioWinRate = totalTrades > 0 ? (double) winningTrades / totalTrades : 0.0;
-
-        Map<String, TickerPeriodResult> tickerResults = new LinkedHashMap<>();
-        tickerResults.put(
-                "TMON@",
-                new TickerPeriodResult(
-                        trades,
-                        equityCurve,
-                        portfolioPnl,
-                        portfolioDd,
-                        initialBalance,
-                        portfolioWinRate));
-
-        PortfolioPeriodResult portfolioResult =
-                new PortfolioPeriodResult(
-                        portfolioPnl, portfolioDd, equityCurve, totalTrades, portfolioWinRate);
-
-        return new ExecutionResult(tickerResults, portfolioResult);
     }
 
     private ExecutionResult splitExecutionByPeriod(ExecutionResult full, PeriodDefinition period) {
@@ -1109,86 +938,6 @@ public class BacktestRunner {
             System.out.println("Buy & Hold QQQ chart saved to: " + outputPath.toAbsolutePath());
         } catch (Exception e) {
             System.out.println("Failed to save QQQ chart: " + e.getMessage());
-        }
-    }
-
-    private void plotBuyAndHoldTmonChart(List<PeriodDefinition> periods) {
-        String fullStart = periods.get(0).start;
-        String fullEnd = periods.get(periods.size() - 1).endExclusive;
-        List<RawCandle> rawCandles = loadCandles("TMON@", fullStart, fullEnd);
-        if (rawCandles.isEmpty()) {
-            System.out.println("No TMON@ data for buy & hold chart");
-            return;
-        }
-
-        double capital = initialBalance;
-        double totalShares = 0.0;
-        int lastDepositMonth = -1;
-
-        TimeSeries tmonSeries = new TimeSeries("Buy & Hold TMON@");
-
-        for (RawCandle c : rawCandles) {
-            LocalDateTime candleTime = c.dateTime;
-            int monthKey = candleTime.getYear() * 100 + candleTime.getMonthValue();
-
-            if (lastDepositMonth == -1) {
-                lastDepositMonth = monthKey;
-            } else if (monthKey != lastDepositMonth && monthlyRebalanceAmount > 0) {
-                capital += monthlyRebalanceAmount;
-                lastDepositMonth = monthKey;
-            }
-
-            if (totalShares == 0 && capital > c.close) {
-                totalShares = Math.floor(capital / c.close);
-                double cost = totalShares * c.close;
-                capital -= cost;
-            }
-
-            double equity = capital + totalShares * c.close;
-            try {
-                Day day =
-                        new Day(
-                                java.util.Date.from(
-                                        candleTime
-                                                .toLocalDate()
-                                                .atStartOfDay(java.time.ZoneId.systemDefault())
-                                                .toInstant()));
-                tmonSeries.add(day, equity);
-            } catch (Exception e) {
-                // skip duplicate
-            }
-        }
-
-        if (tmonSeries.getItemCount() == 0) {
-            return;
-        }
-
-        TimeSeriesCollection dataset = new TimeSeriesCollection(tmonSeries);
-
-        JFreeChart chart =
-                ChartFactory.createTimeSeriesChart(
-                        "Buy & Hold TMON@ + 100K RUB/month",
-                        "Date",
-                        "Capital (RUB)",
-                        dataset,
-                        true,
-                        true,
-                        false);
-
-        XYPlot plot = (XYPlot) chart.getPlot();
-        DateAxis dateAxis = (DateAxis) plot.getDomainAxis();
-        dateAxis.setDateFormatOverride(new SimpleDateFormat("yyyy-MM"));
-
-        try {
-            Path imagesDir = Paths.get("ml_strategy/images");
-            Files.createDirectories(imagesDir);
-            Path outputPath = imagesDir.resolve("BasicTMON.png");
-            try (FileOutputStream out = new FileOutputStream(outputPath.toFile())) {
-                ChartUtilities.writeChartAsPNG(out, chart, 1200, 600);
-            }
-            System.out.println("Buy & Hold TMON@ chart saved to: " + outputPath.toAbsolutePath());
-        } catch (Exception e) {
-            System.out.println("Failed to save TMON@ chart: " + e.getMessage());
         }
     }
 

@@ -7,7 +7,6 @@ import com.github.shk0da.goldendragon.config.MarketConfig;
 import com.github.shk0da.goldendragon.config.OrderBookScalpConfig;
 import com.github.shk0da.goldendragon.config.RSXConfig;
 import com.github.shk0da.goldendragon.config.RebalanceConfig;
-import com.github.shk0da.goldendragon.config.TmonAveragingConfig;
 import com.github.shk0da.goldendragon.config.UnifiedTraderConfig;
 import com.github.shk0da.goldendragon.model.Config;
 import com.github.shk0da.goldendragon.service.TCSService;
@@ -134,22 +133,6 @@ public final class StrategyRegistry {
                         (mc, mkt, tcs, args) ->
                                 new RegimeAwareStrategy(new UnifiedTraderConfig(), tcs).run()),
                 (config, tcsService) -> new RegimeAwareStrategy(config, tcsService, new Config(), true));
-        register(
-                "TmonAveragingStrategy",
-                runAndNotify(
-                        "TmonAveragingStrategy",
-                        "Stop TmonAveragingStrategy",
-                        (mc, mkt, tcs, args) ->
-                                new TmonAveragingStrategy(
-                                                new TmonAveragingConfig(),
-                                                tcs,
-                                                new Config(),
-                                                false,
-                                                0)
-                                        .run()),
-                (config, tcsService) ->
-                        new TmonAveragingStrategy(
-                                new TmonAveragingConfig(), tcsService, new Config(), true, 1_000_000.0));
         register(
                 "Rebalance",
                 runAndNotify(
