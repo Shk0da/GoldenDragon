@@ -43,7 +43,7 @@ task dataCollect(type: JavaExec) {
 
 task runBacktest(type: JavaExec) {
     main = 'com.github.shk0da.goldendragon.test.BacktestRunner'
-    classpath = sourceSets.test.runtimeClasspath
+    classpath = sourceSets.main.runtimeClasspath
     workingDir = rootDir
     jvmArgs '--add-opens', 'java.base/java.time=ALL-UNNAMED'
 

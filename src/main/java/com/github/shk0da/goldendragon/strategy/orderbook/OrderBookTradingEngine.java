@@ -1,9 +1,5 @@
 package com.github.shk0da.goldendragon.strategy.orderbook;
 
-import static com.github.shk0da.goldendragon.utils.TimeUtils.sleep;
-import static java.util.stream.Collectors.toList;
-import static java.util.stream.Collectors.toSet;
-
 import com.github.shk0da.goldendragon.config.MainConfig;
 import com.github.shk0da.goldendragon.config.OrderBookScalpConfig;
 import com.github.shk0da.goldendragon.filters.CorrelationFilter;
@@ -29,6 +25,8 @@ import com.github.shk0da.goldendragon.strategy.orderbook.diagnostics.OrderBookMe
 import com.github.shk0da.goldendragon.utils.IndicatorsUtil;
 import com.github.shk0da.goldendragon.utils.LoggingUtils;
 import com.github.shk0da.goldendragon.utils.TickerTypeResolver;
+import ru.tinkoff.piapi.contract.v1.HistoricCandle;
+
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalTime;
@@ -42,7 +40,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
-import ru.tinkoff.piapi.contract.v1.HistoricCandle;
+
+import static com.github.shk0da.goldendragon.utils.TimeUtils.sleep;
+import static java.util.stream.Collectors.toList;
+import static java.util.stream.Collectors.toSet;
 import static ru.tinkoff.piapi.contract.v1.CandleInterval.CANDLE_INTERVAL_5_MIN;
 
 /**
@@ -90,7 +91,7 @@ public final class OrderBookTradingEngine implements MarketTickListener {
   private static final long INITIAL_DIAGNOSTICS_SUMMARY_DELAY_MS = 30 * 1000L;
 
   private static final long SKIP_DIAGNOSTIC_THROTTLE_MS = 30 * 1000L;
-  
+
   // Manual emergency stop state (TODO.md Section 5, item 135)
   private volatile boolean manualEmergencyStopRequested = false;
 
@@ -191,7 +192,7 @@ public final class OrderBookTradingEngine implements MarketTickListener {
       if (metricsCsvWriter != null) {
         log(strategyName + ": metrics CSV writer initialized -> " + config.getMetricsCsvFile());
       }
-      
+
       // Setup DensityScalpSignal skip metrics callback
       for (OrderBookSignal signal : this.signals) {
         if (signal instanceof DensityScalpSignal) {
@@ -292,7 +293,6 @@ public final class OrderBookTradingEngine implements MarketTickListener {
             + ", signals="
             + signalIds);
 
-
     tcsService.logAccountTradingEligibility();
     tcsService.logAccountPositions();
 
@@ -306,7 +306,7 @@ public final class OrderBookTradingEngine implements MarketTickListener {
         sleep(COOLDOWN_DURATION_MS);
         continue;
       }
-      
+
       try {
         runTradingSession(paper);
         return;
@@ -318,7 +318,7 @@ public final class OrderBookTradingEngine implements MarketTickListener {
       }
     }
   }
-  
+
   /**
    * Manual emergency stop - immediately closes all positions and stops trading.
    * Can be called externally (e.g., via API, monitoring system, or manual intervention).
@@ -328,7 +328,7 @@ public final class OrderBookTradingEngine implements MarketTickListener {
     log(strategyName + ": MANUAL EMERGENCY STOP REQUESTED by external trigger");
     manualEmergencyStopRequested = true;
   }
-  
+
   /**
    * Emergency close all positions immediately.
    */
@@ -646,11 +646,11 @@ public final class OrderBookTradingEngine implements MarketTickListener {
         continue;
       }
       runtime.openPosition = state.toOpenPosition();
-      
+
       // Apply tighter stop loss for restored positions
       // Restored positions may be stale, so we tighten the stop loss to reduce risk
       applyTighterStopLossForRestoredPosition(runtime);
-      
+
       log(
           "Restored tracked position "
               + runtime.ticker
@@ -794,7 +794,7 @@ public final class OrderBookTradingEngine implements MarketTickListener {
       }
     }
   }
-  
+
   /**
    * Reconciles tracked position with broker position after stream outage (TODO.md Section 5).
    * Ensures internal state matches exchange reality.
@@ -803,7 +803,7 @@ public final class OrderBookTradingEngine implements MarketTickListener {
     try {
       Map<TickerInfo.Key, PositionInfo> brokerPositions = tcsService.getCurrentPositions(TickerType.ALL);
       PositionInfo brokerPosition = brokerPositions.get(runtime.key);
-      
+
       if (brokerPosition != null && brokerPosition.getBalance() != 0) {
         log("WARN: Position closed but broker still shows " + runtime.ticker + " qty=" + brokerPosition.getBalance());
         // This could indicate a failed close - trigger emergency investigation
@@ -962,7 +962,7 @@ public final class OrderBookTradingEngine implements MarketTickListener {
     long latencyNs = System.nanoTime() - startTime;
     lastProcessingLatencyNs.put(runtime.ticker, latencyNs);
     recordLatencySample(runtime.ticker, latencyNs);
-    
+
     // Log slow processing events (> 50ms threshold)
     if (latencyNs > 50_000_000) { // 50ms in nanoseconds
       logThrottled(
@@ -1502,7 +1502,7 @@ public final class OrderBookTradingEngine implements MarketTickListener {
     String brokerOrderId = "ob_" + runtime.ticker + "_" + System.currentTimeMillis();
     String brokerStopLossOrderId = null;
     double brokerStopLossPrice = 0.0;
-    
+
     TCSService.OrderExecutionResult result = placeBuyOrderWithRetry(runtime, brokerOrderId);
 
     if (!result.isSuccess()) {
@@ -1547,7 +1547,7 @@ public final class OrderBookTradingEngine implements MarketTickListener {
       brokerStopLossPrice = executedBracket.slPrice;
       log("Sandbox mode: SL tracked client-side for " + runtime.ticker + ", price=" + brokerStopLossPrice);
     }
-    
+
     runtime.openPosition =
         new OpenPosition(
             signalId,
@@ -1617,7 +1617,7 @@ public final class OrderBookTradingEngine implements MarketTickListener {
     }
     return result;
   }
-  
+
   /**
    * Places server-side stop-loss order for position protection (TODO.md Section 5).
    * @return OrderId if successful, null otherwise
@@ -1841,7 +1841,7 @@ public final class OrderBookTradingEngine implements MarketTickListener {
       brokerStopLossPrice = executedBracket.slPrice;
       log("Sandbox mode: SHORT SL tracked client-side for " + runtime.ticker + ", price=" + brokerStopLossPrice);
     }
-    
+
     runtime.openPosition =
         new OpenPosition(
             signalId,
@@ -2031,10 +2031,10 @@ public final class OrderBookTradingEngine implements MarketTickListener {
         log("Failed to cancel server SL for " + runtime.ticker + ": " + e.getMessage());
       }
     }
-    
+
     // Record realized PnL for reporting (TODO.md Section 6)
     position.realizedPnl = netPnl;
-    
+
     Map<String, Object> closeMetrics = new HashMap<>();
     closeMetrics.put("signalId", position.signalId);
     closeMetrics.put("direction", position.direction);
@@ -2047,7 +2047,7 @@ public final class OrderBookTradingEngine implements MarketTickListener {
     closeMetrics.put("units", position.units);
     closeMetrics.put("realizedPnl", netPnl);
     closeMetrics.put("serverSlCancelled", position.brokerStopLossOrderId != null);
-    
+
     emitDiagnostic(
         OrderBookDiagnosticEventType.POSITION_CLOSED,
         runtime.ticker,
@@ -2288,17 +2288,17 @@ public final class OrderBookTradingEngine implements MarketTickListener {
     if (runtime.openPosition == null) {
       return;
     }
-    
+
     OpenPosition pos = runtime.openPosition;
     double entryPrice = pos.entryPrice;
     double currentSl = pos.stopLossPrice;
-    
+
     // Calculate original SL distance
     double slDistance = Math.abs(entryPrice - currentSl);
-    
+
     // Apply 50% tighter stop loss
     double tighterSlDistance = slDistance * 0.5;
-    
+
     // Calculate new SL price based on direction
     double newSlPrice;
     if ("LONG".equals(pos.direction)) {
@@ -2306,11 +2306,11 @@ public final class OrderBookTradingEngine implements MarketTickListener {
     } else { // SHORT
       newSlPrice = entryPrice + tighterSlDistance;
     }
-    
+
     // Update stop loss
     pos.stopLossPrice = newSlPrice;
-    
-    log("Tightened SL for restored " + runtime.ticker + ": " + 
+
+    log("Tightened SL for restored " + runtime.ticker + ": " +
         String.format("%.2f", currentSl) + " → " + String.format("%.2f", newSlPrice));
   }
 
@@ -2331,17 +2331,17 @@ public final class OrderBookTradingEngine implements MarketTickListener {
   private double getTimeAdjustedMinTradeFlow() {
     double baseFlow = config.getMinTradeFlow();
     LocalTime now = LocalTime.now(MSK_ZONE);
-    
+
     // Lunch break: 14:00-15:00 MSK (low liquidity)
     if (now.isAfter(LocalTime.of(14, 0)) && now.isBefore(LocalTime.of(15, 0))) {
       return baseFlow * 1.5;
     }
-    
+
     // Evening session: 18:45-23:50 MSK (reduced liquidity)
     if (now.isAfter(LocalTime.of(18, 45)) && now.isBefore(LocalTime.of(23, 50))) {
       return baseFlow * 1.25;
     }
-    
+
     return baseFlow;
   }
 
@@ -2357,21 +2357,21 @@ public final class OrderBookTradingEngine implements MarketTickListener {
    */
   private double calculateDynamicQualityThreshold(String ticker, double currentSpreadBps) {
     double baseThreshold = ENTRY_QUALITY_THRESHOLD;
-    
+
     // Use current spread as volatility proxy
     // Higher spread → higher volatility → lower threshold
     double targetSpreadBps = config.getVolatilityTargetSpreadBps();
     double volRatio = currentSpreadBps / targetSpreadBps;
-    
+
     // Adjust threshold based on volatility
     // High vol (volRatio > 1.0) → lower threshold (down to 0.25)
     // Low vol (volRatio < 1.0) → higher threshold (up to 0.40)
     double minThreshold = 0.25;
     double maxThreshold = 0.40;
-    
+
     // Inverse relationship: higher vol → lower threshold
     double adjustedThreshold = baseThreshold / Math.max(0.7, Math.min(1.3, volRatio));
-    
+
     // Clamp to bounds
     return Math.max(minThreshold, Math.min(maxThreshold, adjustedThreshold));
   }
@@ -2393,22 +2393,22 @@ public final class OrderBookTradingEngine implements MarketTickListener {
 
     try {
       double availableCash = tcsService.getAvailableCash();
-      
+
       // getAvailableCash() from Tinkoff API already returns free cash after margin blocking,
       // so we don't need to subtract reservedCapital again (was causing double deduction).
       // Just protect against negative values from API.
       double effectiveAvailableCash = Math.max(0.0, availableCash);
-      
+
       // Calculate minimum capital required for one lot
-      TickerInfo.Key key = runtimesByTicker.get(ticker) != null 
-          ? runtimesByTicker.get(ticker).key 
+      TickerInfo.Key key = runtimesByTicker.get(ticker) != null
+          ? runtimesByTicker.get(ticker).key
           : new TickerInfo.Key(ticker, TickerType.FEATURE);
-      
+
       TickerInfo tickerInfo = tcsService.searchTicker(key);
       int lot = tickerInfo.getLot() != null ? Math.max(1, tickerInfo.getLot()) : 1;
       // price is per unit, lot is units per lot — price * lot = notional per lot
       double minLotCost = price * lot;
-      
+
       // For futures, use margin requirement
       if (tickerInfo.getType() == TickerType.FEATURE) {
         minLotCost *= 0.25;
@@ -2419,8 +2419,8 @@ public final class OrderBookTradingEngine implements MarketTickListener {
 
       if (effectiveAvailableCash < requiredCapital) {
         logThrottled(ticker + "_insufficient_capital",
-            "Skip " + ticker + ": insufficient capital (available=" + 
-            String.format("%.0f", effectiveAvailableCash) + 
+            "Skip " + ticker + ": insufficient capital (available=" +
+            String.format("%.0f", effectiveAvailableCash) +
             ", required=" + String.format("%.0f", requiredCapital) + ")", 5);
         return false;
       }
@@ -2629,7 +2629,7 @@ public final class OrderBookTradingEngine implements MarketTickListener {
               + " RUB futures, "
               + futuresCandidates.size()
               + " tradable for current account");
-      
+
       // Load stocks if enabled
       List<TickerInfo> allCandidates = new ArrayList<>(futuresCandidates);
       if (config.isStocksEnabled()) {
@@ -2648,7 +2648,7 @@ public final class OrderBookTradingEngine implements MarketTickListener {
                 + " tradable for current account");
         allCandidates.addAll(stockCandidates);
       }
-      
+
       return OrderBookScalpScreener.selectTop(tcsService, allCandidates, config);
     }
 
@@ -2701,7 +2701,7 @@ public final class OrderBookTradingEngine implements MarketTickListener {
   private static void log(String message) {
     LoggingUtils.log(message);
   }
-  
+
   /**
    * Record latency sample for processing order book events.
    * Maintains rolling window of samples for statistical analysis.
@@ -2716,7 +2716,7 @@ public final class OrderBookTradingEngine implements MarketTickListener {
       }
     }
   }
-  
+
   /**
    * Get average latency for ticker in milliseconds.
    */
@@ -3170,7 +3170,7 @@ public final class OrderBookTradingEngine implements MarketTickListener {
     final boolean isRestored;
     volatile int microReversalTicks;
     volatile int flowReversalTicks;
-    
+
     // TODO.md Section 5: Server-side stop-loss and order idempotency
     final String brokerOrderId;          // Client-provided unique order ID for idempotency
     final String brokerStopLossOrderId;  // Broker-side stop-loss order ID
@@ -3207,7 +3207,7 @@ public final class OrderBookTradingEngine implements MarketTickListener {
       this(signalId, direction, entryPrice, spreadAtEntry, entryTime, takeProfitPrice,
            stopLossPrice, units, entryValue, entryCommission, isRestored, null, null, 0.0);
     }
-    
+
     // Full constructor with server-side stop and idempotency
     OpenPosition(
         String signalId,

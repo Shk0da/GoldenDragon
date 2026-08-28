@@ -17,6 +17,7 @@ import static ru.tinkoff.piapi.contract.v1.StopOrderType.STOP_ORDER_TYPE_STOP_LO
 import static ru.tinkoff.piapi.contract.v1.StopOrderType.STOP_ORDER_TYPE_TAKE_PROFIT;
 
 import com.github.shk0da.goldendragon.config.MainConfig;
+import com.github.shk0da.goldendragon.config.MarketConfig;
 import com.github.shk0da.goldendragon.model.MarketDepthLevel;
 import com.github.shk0da.goldendragon.model.MarketDepthSnapshot;
 import com.github.shk0da.goldendragon.model.MarketTickListener;
@@ -93,7 +94,7 @@ public class TCSService {
             DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm:ss");
 
     private final MainConfig mainConfig;
-    private final String baseCurrency;
+    private final MarketConfig marketConfig;
     private final InvestApi investApi;
     private final boolean writeMarketDepthTicks;
 
@@ -130,11 +131,11 @@ public class TCSService {
      * MainConfig#isSandbox()} and pre-loads common currency FIGI mappings.
      *
      * @param mainConfig application configuration containing API credentials and account settings
-     * @param baseCurrency base currency for the market (e.g., "RUB" for MOEX)
+     * @param marketConfig market configuration containing base currency and other market settings
      */
-    public TCSService(MainConfig mainConfig, String baseCurrency) {
+    public TCSService(MainConfig mainConfig, MarketConfig marketConfig) {
         this.mainConfig = mainConfig;
-        this.baseCurrency = baseCurrency;
+        this.marketConfig = marketConfig;
         this.investApi =
                 mainConfig.isSandbox()
                         ? InvestApi.createSandbox(mainConfig.getTcsApiKey())
@@ -162,6 +163,17 @@ public class TCSService {
             throttledLogLastTime.put(key, now);
             log(message);
         }
+    }
+
+    /**
+     * Returns all tradable MOEX shares denominated in RUB.
+     *
+     * @return list of {@link Share} instruments with currency equal to "rub"
+     */
+    public List<Share> getMoexShares() {
+        return investApi.getInstrumentsService().getTradableSharesSync().stream()
+                .filter(it -> it.getCurrency().equals("rub"))
+                .collect(Collectors.toList());
     }
 
     /**
@@ -683,7 +695,7 @@ public class TCSService {
         }
 
         var key = new TickerInfo.Key(name, type);
-        String basicCurrency = baseCurrency;
+        String basicCurrency = marketConfig.getCurrency();
         String currency = searchTicker(key).getCurrency();
         if (!basicCurrency.equals(currency)) {
             cashToSell = convertCurrencies(currency, basicCurrency, cashToSell);
@@ -764,7 +776,7 @@ public class TCSService {
             boolean isFullPrice) {
         var key = new TickerInfo.Key(name, type);
 
-        String basicCurrency = baseCurrency;
+        String basicCurrency = marketConfig.getCurrency();
         String currency = searchTicker(key).getCurrency();
         if (!basicCurrency.equals(currency)) {
             cashToSell = convertCurrencies(currency, basicCurrency, cashToSell);
@@ -843,7 +855,7 @@ public class TCSService {
 
         var key = new TickerInfo.Key(name, type);
 
-        String basicCurrency = baseCurrency;
+        String basicCurrency = marketConfig.getCurrency();
         String currency = searchTicker(key).getCurrency();
         if (!basicCurrency.equals(currency)) {
             cost = convertCurrencies(currency, basicCurrency, cost);
@@ -965,7 +977,7 @@ public class TCSService {
 
         var key = new TickerInfo.Key(name, type);
         TickerInfo tickerInfo = searchTicker(key);
-        String basicCurrency = baseCurrency;
+        String basicCurrency = marketConfig.getCurrency();
         String currency = tickerInfo.getCurrency();
 
         // Calculate full notional and margin requirement (20% for short)
@@ -1059,7 +1071,7 @@ public class TCSService {
         }
 
         var key = new TickerInfo.Key(name, type);
-        String basicCurrency = baseCurrency;
+        String basicCurrency = marketConfig.getCurrency();
         String currency = searchTicker(key).getCurrency();
         if (!basicCurrency.equals(currency)) {
             cashToBuy = convertCurrencies(currency, basicCurrency, cashToBuy);
@@ -1120,7 +1132,7 @@ public class TCSService {
             boolean isFullPrice) {
         var key = new TickerInfo.Key(name, type);
 
-        String basicCurrency = baseCurrency;
+        String basicCurrency = marketConfig.getCurrency();
         String currency = searchTicker(key).getCurrency();
         if (!basicCurrency.equals(currency)) {
             double convertedCashToBuy = convertCurrencies(basicCurrency, currency, cashToBuy);
@@ -1853,7 +1865,7 @@ public class TCSService {
             return errorCode;
         }
     }
-    
+
     /**
      * Result of a server-side stop-loss order placement.
      * Used by TODO.md Section 5: server-side stops for real account trading.
@@ -1861,29 +1873,29 @@ public class TCSService {
     public static class StopLossOrderResult {
         public final String orderId;
         private final boolean success;
-        
+
         public StopLossOrderResult(String orderId, boolean success) {
             this.orderId = orderId;
             this.success = success;
         }
-        
+
         public String getOrderId() {
             return orderId;
         }
-        
+
         public boolean isSuccess() {
             return success;
         }
-        
+
         public static StopLossOrderResult success(String orderId) {
             return new StopLossOrderResult(orderId, true);
         }
-        
+
         public static StopLossOrderResult failed() {
             return new StopLossOrderResult(null, false);
         }
     }
-    
+
     /**
      * Places a server-side stop-loss order for a position (TODO.md Section 5).
      * This is a separate order from the bracket order placed in createOrder.
@@ -1897,27 +1909,27 @@ public class TCSService {
         if (mainConfig.isTestMode()) {
             return StopLossOrderResult.success("test-stop-");
         }
-        
+
         // In sandbox mode, server-side stop orders are not supported.
         // Return success with a virtual order ID to indicate client-side tracking.
         if (mainConfig.isSandbox()) {
             log("Sandbox mode: skipping server SL for " + key.getTicker() + " (will track client-side)");
             return StopLossOrderResult.success("sandbox-stop-");
         }
-        
+
         try {
             String figi = figiByName(key);
             TickerInfo tickerInfo = searchTicker(key);
             int lotSize = tickerInfo.getLot();
             int normalizedCount = normalizeOrderCount(units, lotSize);
             int contractUnits = getContractUnits(tickerInfo);
-            
-            StopOrderDirection stopOrderDirection = 
+
+            StopOrderDirection stopOrderDirection =
                 "Sell".equals(operation) ? STOP_ORDER_DIRECTION_BUY : STOP_ORDER_DIRECTION_SELL;
             Quotation stopPrice = createQuotation(stopLossPrice);
-            
+
             log("Placing server SL order for " + key.getTicker() + ": price=" + stopLossPrice + ", units=" + units);
-            
+
             String stopOrderId = investApi
                 .getStopOrdersService()
                 .postStopOrderGoodTillCancelSync(
@@ -1928,7 +1940,7 @@ public class TCSService {
                     stopOrderDirection,
                     mainConfig.getTcsAccountId(),
                     STOP_ORDER_TYPE_STOP_LOSS);
-            
+
             log("Server SL placed for " + key.getTicker() + ": orderId=" + stopOrderId);
             return StopLossOrderResult.success(stopOrderId);
         } catch (Exception e) {
@@ -2056,7 +2068,7 @@ public class TCSService {
         // Safety margin (1%) for market order slippage to avoid INSUFFICIENT_FUNDS (error 30049)
         double effectivePrice = price * 1.01;
         double tradeUnitCost = effectivePrice * lot;
-        
+
         // For futures (FEATURE), use margin requirement instead of full notional
         // MOEX futures typically require 20-25% margin
         // price is per unit, lot is units per lot — price * lot = notional per lot
@@ -2064,7 +2076,7 @@ public class TCSService {
             double futuresMarginRate = 0.25; // Conservative 25% margin
             tradeUnitCost = effectivePrice * lot * futuresMarginRate;
         }
-        
+
         if (availableCash < tradeUnitCost) {
             return 0;
         }
@@ -2429,7 +2441,7 @@ public class TCSService {
     }
 
     /**
-     * Returns the available cash balance in the base currency.
+     * Returns the available cash balance in the base currency configured in {@link MarketConfig}.
      *
      * @return available cash amount
      */
@@ -2438,7 +2450,7 @@ public class TCSService {
         Positions positions =
                 investApi.getOperationsService().getPositionsSync(mainConfig.getTcsAccountId());
         return positions.getMoney().stream()
-                .filter(it -> baseCurrency.equalsIgnoreCase(it.getCurrency()))
+                .filter(it -> marketConfig.getCurrency().equalsIgnoreCase(it.getCurrency()))
                 .map(Money::getValue)
                 .findFirst()
                 .orElse(BigDecimal.ZERO)
@@ -2618,7 +2630,9 @@ public class TCSService {
                             }
                             TickerInfo tickerInfo = searchTicker(tickerKey.get());
                             if (null != tickerInfo
-                                    && baseCurrency.equals(tickerInfo.getCurrency())) {
+                                    && marketConfig
+                                            .getCurrency()
+                                            .equals(tickerInfo.getCurrency())) {
                                 var expectedYield = it.getExpectedYield().doubleValue();
                                 if (0.0 == expectedYield) {
                                     var currentPrice =

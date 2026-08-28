@@ -12,20 +12,12 @@
  * <ul>
  *   <li>{@link com.github.shk0da.goldendragon.config.MainConfig} — main application configuration:
  *       Tinkoff Invest API keys, sandbox settings, test mode, HTTP client.
- *   <li>{@link com.github.shk0da.goldendragon.config.LevelTraderConfig} — LevelTrader parameters:
- *       stop-loss, take-profit, level confirmation, instrument list.
+ *   <li>{@link com.github.shk0da.goldendragon.config.MarketConfig} — market settings (MOEX):
+ *       currency, position limits, market parameters.
  *   <li>{@link com.github.shk0da.goldendragon.config.UnifiedTraderConfig} — UnifiedStrategy
  *       configuration: indicator parameters, limits, money management settings.
- *   <li>{@link com.github.shk0da.goldendragon.config.RSXConfig} — RSX strategy settings: trend
- *       ticker, maximum portfolio size.
- *   <li>{@link com.github.shk0da.goldendragon.config.DivFlowConfig} — DivFlow constants: dividend
- *       calendar URLs (Smart-Lab, Dohod, Investing.com).
- *   <li>{@link com.github.shk0da.goldendragon.config.TelegramNotifyConfig} — Telegram
- *       notifications: bot token, chat_id, extended notification mode.
  *   <li>{@link com.github.shk0da.goldendragon.config.DataCollectorConfig} — data collection: data
  *       directory, instrument list, replace mode.
- *   <li>{@link com.github.shk0da.goldendragon.config.RebalanceConfig} — portfolio rebalancing:
- *       target position weights, rebalancing percentages.
  * </ul>
  *
  * <h2>Configuration Loading</h2>

@@ -1,7 +1,8 @@
 package com.github.shk0da.goldendragon.strategy;
 
+import com.github.shk0da.goldendragon.config.DataCollectorConfig;
 import com.github.shk0da.goldendragon.config.MainConfig;
-import com.github.shk0da.goldendragon.config.OrderBookScalpConfig;
+import com.github.shk0da.goldendragon.config.MarketConfig;
 import com.github.shk0da.goldendragon.config.UnifiedTraderConfig;
 import com.github.shk0da.goldendragon.model.Config;
 import com.github.shk0da.goldendragon.service.TCSService;
@@ -22,7 +23,12 @@ public final class StrategyRegistry {
     /** Runs a strategy live against the market. */
     @FunctionalInterface
     public interface LiveRunner {
-        void run(MainConfig mainConfig, TCSService tcsService, String[] args) throws Exception;
+        void run(
+                MainConfig mainConfig,
+                MarketConfig marketConfig,
+                TCSService tcsService,
+                String[] args)
+                throws Exception;
     }
 
     /** Creates a strategy instance for the backtest simulation engine. */
@@ -33,7 +39,12 @@ public final class StrategyRegistry {
 
     @FunctionalInterface
     private interface StrategyAction {
-        void execute(MainConfig mainConfig, TCSService tcsService, String[] args) throws Exception;
+        void execute(
+                MainConfig mainConfig,
+                MarketConfig marketConfig,
+                TCSService tcsService,
+                String[] args)
+                throws Exception;
     }
 
     /** Registered strategy with its optional live runner and backtest factory. */
@@ -60,9 +71,13 @@ public final class StrategyRegistry {
             return backtestFactory != null;
         }
 
-        public void runLive(MainConfig mainConfig, TCSService tcsService, String[] args)
+        public void runLive(
+                MainConfig mainConfig,
+                MarketConfig marketConfig,
+                TCSService tcsService,
+                String[] args)
                 throws Exception {
-            liveRunner.run(mainConfig, tcsService, args);
+            liveRunner.run(mainConfig, marketConfig, tcsService, args);
         }
 
         public BaseStrategy createBacktest(UnifiedTraderConfig config, TCSService tcsService) {
@@ -81,18 +96,15 @@ public final class StrategyRegistry {
         ENTRIES.put(name, new Entry(name, liveRunner, backtestFactory));
     }
 
-    /** Builds a live runner that logs start/finish and errors. */
+    /** Builds a live runner that logs errors. */
     private static LiveRunner runAndNotify(String name, String endMessage, StrategyAction action) {
-        return (mainConfig, tcsService, args) -> {
-            out.println("Run " + name);
+        return (mainConfig, marketConfig, tcsService, args) -> {
             try {
-                action.execute(mainConfig, tcsService, args);
+                action.execute(mainConfig, marketConfig, tcsService, args);
             } catch (final Exception ex) {
                 out.printf("%s error: %s%n", name, ex.getMessage());
                 ex.printStackTrace();
-                return;
             }
-            out.println(endMessage);
         };
     }
 
@@ -102,16 +114,24 @@ public final class StrategyRegistry {
                 runAndNotify(
                         "UnifiedStrategy",
                         "Stop UnifiedStrategy",
-                        (mc, tcs, args) -> new UnifiedStrategy(new UnifiedTraderConfig(), tcs).run()),
+                        (mc, mkt, tcs, args) ->
+                                new UnifiedStrategy(new UnifiedTraderConfig(), tcs).run()),
                 (config, tcsService) -> new UnifiedStrategy(config, tcsService, new Config(), true));
         register(
-                "OrderBookScalpStrategy",
+                "RegimeAwareStrategy",
                 runAndNotify(
-                        "OrderBookScalpStrategy",
-                        "Stop OrderBookScalpStrategy",
-                        (mc, tcs, args) ->
-                                new OrderBookScalpStrategy(tcs, mc, new OrderBookScalpConfig())
-                                        .run()),
+                        "RegimeAwareStrategy",
+                        "Stop RegimeAwareStrategy",
+                        (mc, mkt, tcs, args) ->
+                                new RegimeAwareStrategy(new UnifiedTraderConfig(), tcs).run()),
+                (config, tcsService) -> new RegimeAwareStrategy(config, tcsService, new Config(), true));
+        register(
+                "DataCollector",
+                runAndNotify(
+                        "DataCollector",
+                        "End DataCollector",
+                        (mc, mkt, tcs, args) ->
+                                new DataCollector(new DataCollectorConfig(), tcs).run()),
                 null);
     }
 

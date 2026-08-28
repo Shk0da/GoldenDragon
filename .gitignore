@@ -93,8 +93,8 @@ Thumbs.db
 /td/
 /telegram_session/
 tickers.json
-/ml_strategy/data_pipeline/
-/ml_strategy/reports/
+/data_pipeline/
+/reports/
 /.vscode/
 /.github/
 .mimocode

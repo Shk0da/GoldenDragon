@@ -23,16 +23,6 @@
  *       </ul>
  *       <p>Class encapsulates {@link ru.tinkoff.piapi.core.InvestApi} and provides convenient
  *       interface for strategies. Supports sandbox mode and timestamped logging.
- *   <li>{@link com.github.shk0da.goldendragon.service.TradingViewService} — market scanner via
- *       TradingView API. Allows:
- *       <ul>
- *         <li>Filter stocks by fundamental indicators (debt/equity, analyst recommendation, market
- *             cap, revenue).
- *         <li>Get MOEX ticker list for further analysis.
- *         <li>Scan market by arbitrary filters and ticker lists.
- *       </ul>
- *       <p>Used in pre-trading analysis for selecting liquid instruments with acceptable financial
- *       health.
  * </ul>
  *
  * <h2>Strategy Interaction</h2>
@@ -43,9 +33,6 @@
  *   <li>{@code TCSService} — direct call via {@link
  *       com.github.shk0da.goldendragon.service.TCSService} or via {@code TradingGateway} interface
  *       (adapter for easier testing).
- *   <li>{@code TradingViewService} — via {@link
- *       com.github.shk0da.goldendragon.service.TradingViewService#INSTANCE} for market scanning
- *       before strategy start.
  * </ul>
  *
  * <h2>Thread Safety</h2>
@@ -54,6 +41,8 @@
  *   <li>{@code TCSService} — not fully thread-safe. Internal collections ({@code
  *       ConcurrentHashMap}, {@code CopyOnWriteArrayList}) are protected from concurrent access, but
  *       order execution calls must be synchronized at strategy level.
+ *   <li>{@code TelegramNotifyService} — thread-safe thanks to {@code ExecutorService} with single
+ *       thread (message queue).
  *   <li>{@code TradingViewService} — stateless, thread-safe.
  * </ul>
  *
@@ -63,6 +52,8 @@
  *
  * <ul>
  *   <li>{@link com.github.shk0da.goldendragon.config.MainConfig} — API keys, account, sandbox mode.
+ *   <li>{@link com.github.shk0da.goldendragon.config.MarketConfig} — base currency, market
+ *       parameters.
  * </ul>
  *
  * <h2>Logging</h2>

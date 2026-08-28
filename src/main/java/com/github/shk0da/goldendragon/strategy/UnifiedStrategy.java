@@ -32,8 +32,7 @@ import java.util.concurrent.ConcurrentMap;
 
 /**
  * Унифицированная торговая стратегия, объединяющая трендовые, контртрендовые (FX) и смешанные
- * подходы с интегрированной системой управления капиталом (Money Management) и режимом фильтрации
- * рыночных условий (Regime-Aware Filter).
+ * подходы с интегрированной системой управления капиталом (Money Management).
  *
  * <h2>Общее описание</h2>
  *
@@ -41,19 +40,6 @@ import java.util.concurrent.ConcurrentMap;
  * входа/выхода под группу инструмента ({@link Group#TREND}, {@link Group#FX}, {@link Group#MIXED})
  * и текущий рыночный режим. Поддерживает работу как в режиме реальной торговли, так и в режиме
  * бэктеста.
- *
- * <h2>Regime-Aware Filter (бывший RegimeAwareStrategy)</h2>
- *
- * <p>Фильтрует входы на основе рыночного режима, определяемого через ADX:
- *
- * <ul>
- *   <li><b>TREND (ADX ≥ 26)</b> — сильный тренд, разрешены все сигналы
- *   <li><b>NORMAL (ADX 18-26)</b> — неопределённый режим, разрешены только сильные сигналы,
- *       блокируются FX (контртрендовые) сигналы
- *   <li><b>RANGE (ADX ≤ 16)</b> — флэт, блокируются все входы
- * </ul>
- *
- * <p>Включается флагом {@code config.marketRegimeFilterEnabled} (по умолчанию false).
  *
  * <h2>Сигнальная логика</h2>
  *
@@ -165,18 +151,8 @@ public class UnifiedStrategy extends BaseStrategy {
 
     // Minimum votes required for a trend signal (out of 6 indicators)
     private static final int TREND_SIGNAL_MIN_VOTES = 5;
-    // Skip entry after this many consecutive losses
+    // Skip entries after this many consecutive losses
     private static final int LOSS_STREAK_SKIP_THRESHOLD = 2;
-
-    // Regime-aware strategy thresholds (from former RegimeAwareStrategy)
-    private static final double REGIME_ADX_TREND_THRESHOLD = 26.0;
-    private static final double REGIME_ADX_RANGE_THRESHOLD = 16.0;
-    private static final double REGIME_NORMAL_MIN_ADX = 18.0;
-
-    // Regime tracking
-    private int trendBars = 0;
-    private int rangeBars = 0;
-    private int normalBars = 0;
 
     // Money Management components
     private final RiskManager riskManager;
@@ -267,6 +243,10 @@ public class UnifiedStrategy extends BaseStrategy {
         }
     }
 
+    public void setFixedEntryLeverage(int leverage) {
+        this.fixedEntryLeverage = Math.max(1, leverage);
+    }
+
     @Override
     protected String getStrategyName() {
         return "UnifiedStrategy";
@@ -290,34 +270,6 @@ public class UnifiedStrategy extends BaseStrategy {
         // Money Management: Check KillSwitch
         if (mmEnabled && killSwitch != null && !killSwitch.isTradingAllowed()) {
             return new TradingDecision("HOLD", "KILL_SWITCH_" + killSwitch.getTriggerReason());
-        }
-
-        // Regime-Aware Filter: Detect market regime and filter trades
-        MarketRegime regime = MarketRegime.UNKNOWN;
-        double adx = 0.0;
-        if (config.marketRegimeFilterEnabled) {
-            regime = detectRegime(hourCandles);
-            adx = calculateAdx(hourCandles, 14);
-            
-            logWithBacktest(
-                    "REGIME "
-                            + ticker
-                            + ": "
-                            + regime
-                            + " ADX="
-                            + String.format("%.2f", adx)
-                            + " candles="
-                            + hourCandles.size());
-
-            // Skip RANGE regime (ADX < 16) - market is choppy
-            if (MarketRegime.RANGE == regime) {
-                return new TradingDecision("HOLD", "RANGE_SKIP_ADX" + (int) adx);
-            }
-
-            // Skip weak NORMAL regime (ADX < 18) - trend too weak
-            if (MarketRegime.NORMAL == regime && adx < REGIME_NORMAL_MIN_ADX) {
-                return new TradingDecision("HOLD", "NORMAL_WEAK_ADX" + (int) adx);
-            }
         }
 
         UnifiedTraderConfig.TickerParams tpCfg = unifiedTraderConfig.getTickerParams(ticker);
@@ -584,10 +536,7 @@ public class UnifiedStrategy extends BaseStrategy {
             return new TradingDecision("HOLD", "ATRspike", 0.0, 0, null, null, null, p);
         }
 
-        // Use ADX from regime detection if available, otherwise calculate
-        if (!config.marketRegimeFilterEnabled || adx == 0.0) {
-            adx = adxVal(hourCandles, config.adxPeriod);
-        }
+        double adx = adxVal(hourCandles, config.adxPeriod);
         double rsi = rsiVal(hourCandles, config.rsiPeriod);
 
         String signal;
@@ -605,10 +554,6 @@ public class UnifiedStrategy extends BaseStrategy {
         if (signal == null) {
             return new TradingDecision("HOLD", "noSig", 0.0, 0, null, null, null, p);
         }
-
-        // Regime-Aware Filter: Filter signals based on regime
-        // Only apply to OPEN signals (after all filters passed)
-        // This will be applied later when we know it's an OPEN decision
 
         boolean strongTrend = adx >= STRONG_TREND_ADX;
         boolean rangeRegime = adx > 0.0 && adx <= RANGE_ADX;
@@ -788,26 +733,9 @@ public class UnifiedStrategy extends BaseStrategy {
         double tradeConfidence =
                 mmEnabled ? adaptiveCapital.getCurrentRiskPercent() / config.mmRiskPercent : 1.0;
 
-        // Regime-Aware Filter: Final filter on OPEN signals
-        if (config.marketRegimeFilterEnabled && MarketRegime.NORMAL == regime) {
-            // In NORMAL regime, skip FX signals (counter-trend)
-            if (signal.startsWith("FX")) {
-                return new TradingDecision("HOLD", "NORMAL_SKIP_FX_" + signal);
-            }
-            // In NORMAL regime with weak ADX, skip weak trend signals
-            if (adx < REGIME_ADX_TREND_THRESHOLD && signal.startsWith("TB_4")) {
-                return new TradingDecision("HOLD", "WEAK_TREND_SKIP_" + signal);
-            }
-        }
-
-        // Wrap signal with regime info for logging
-        String finalReason = config.marketRegimeFilterEnabled && regime != MarketRegime.UNKNOWN
-                ? regime + "_ADX" + (int) adx + "_" + signal
-                : signal;
-
         return new TradingDecision(
                 "OPEN",
-                finalReason,
+                signal,
                 tradeConfidence,
                 qty,
                 sl,
@@ -1282,6 +1210,11 @@ public class UnifiedStrategy extends BaseStrategy {
             double effectivePrice = currentPrice * 1.01;
             double effectiveCostPerLot = effectivePrice * lot;
             if (balance < effectiveCostPerLot) {
+                logWithBacktest(
+                        "TMON@: skipping buy - insufficient cash ("
+                                + String.format("%.2f", balance)
+                                + ") for safe 1-lot entry at "
+                                + String.format("%.2f", effectiveCostPerLot));
                 return new TradingDecision("HOLD", "tmon_insufficient_cash");
             }
             double costPerLot = currentPrice * lot;
@@ -1328,99 +1261,5 @@ public class UnifiedStrategy extends BaseStrategy {
     @Override
     protected void onDailyReset() {
         dailyReset();
-        
-        // Regime tracking statistics
-        int total = trendBars + rangeBars + normalBars;
-        if (total > 0 && config.marketRegimeFilterEnabled) {
-            logWithBacktest(
-                    "RegimeFilter v2: Daily - Trend:"
-                            + trendBars
-                            + "("
-                            + (trendBars * 100 / total)
-                            + "%), Range:"
-                            + rangeBars
-                            + "("
-                            + (rangeBars * 100 / total)
-                            + "%), Normal:"
-                            + normalBars
-                            + "("
-                            + (normalBars * 100 / total)
-                            + "%)");
-        }
-    }
-
-    /**
-     * Calculate ADX(14) for regime detection.
-     * Used by regime-aware strategy to filter trades based on market conditions.
-     */
-    private double calculateAdx(List<Candle> candles, int period) {
-        if (candles.size() < period * 2 + 10) {
-            return 0.0;
-        }
-
-        int start = candles.size() - period;
-        double trSum = 0.0, pdSum = 0.0, mdSum = 0.0;
-
-        for (int i = start; i < candles.size(); i++) {
-            Candle c = candles.get(i);
-            Candle p = candles.get(i - 1);
-
-            double tr =
-                    Math.max(
-                            Math.max(c.high - c.low, Math.abs(c.high - p.close)),
-                            Math.abs(c.low - p.close));
-            trSum += tr;
-
-            double up = c.high - p.high;
-            double dn = p.low - c.low;
-
-            pdSum += (up > dn && up > 0) ? up : 0.0;
-            mdSum += (dn > up && dn > 0) ? dn : 0.0;
-        }
-
-        double atr = trSum / period;
-        double diPlus = atr > 0 ? (pdSum / period) / atr * 100 : 0.0;
-        double diMinus = atr > 0 ? (mdSum / period) / atr * 100 : 0.0;
-        double adx =
-                (diPlus + diMinus) > 0
-                        ? Math.abs(diPlus - diMinus) / (diPlus + diMinus) * 100
-                        : 0.0;
-
-        return adx;
-    }
-
-    /**
-     * Detect market regime based on ADX.
-     * @return TREND if ADX >= 26, RANGE if ADX <= 16, NORMAL otherwise
-     */
-    private MarketRegime detectRegime(List<Candle> hourCandles) {
-        MarketRegime regime = MarketRegime.UNKNOWN;
-        
-        if (hourCandles != null && hourCandles.size() >= 60) {
-            double adx = calculateAdx(hourCandles, 14);
-
-            if (adx >= REGIME_ADX_TREND_THRESHOLD) {
-                regime = MarketRegime.TREND;
-                trendBars++;
-            } else if (adx <= REGIME_ADX_RANGE_THRESHOLD) {
-                regime = MarketRegime.RANGE;
-                rangeBars++;
-            } else {
-                regime = MarketRegime.NORMAL;
-                normalBars++;
-            }
-        }
-        
-        return regime;
-    }
-
-    /**
-     * Market regime classification for regime-aware filtering.
-     */
-    private enum MarketRegime {
-        TREND,
-        RANGE,
-        NORMAL,
-        UNKNOWN
     }
 }

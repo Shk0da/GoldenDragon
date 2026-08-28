@@ -3,6 +3,7 @@ package com.github.shk0da.goldendragon.strategy;
 import com.github.shk0da.goldendragon.config.UnifiedTraderConfig;
 import com.github.shk0da.goldendragon.filters.BadWeatherFilter;
 import com.github.shk0da.goldendragon.filters.MarketRegimeFilter;
+import com.github.shk0da.goldendragon.market.BacktestOrderExecutor;
 import com.github.shk0da.goldendragon.market.LiveMarketDataProvider;
 import com.github.shk0da.goldendragon.market.LiveOrderExecutor;
 import com.github.shk0da.goldendragon.market.MarketDataProvider;
@@ -38,7 +39,6 @@ import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.OffsetDateTime;
-import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Calendar;
 import java.util.Date;
@@ -132,9 +132,8 @@ import static java.util.concurrent.CompletableFuture.runAsync;
  *   <li>Calculate SL/TP as percentage of entry price (defaults 2%/4% if not set).
  *   <li>Call {@code tcsService.buyByMarket} / {@code sellByMarket} with market order and automatic
  *       SL/TP setup.
- *   <li>Save position, record entry bar, write to {@link TradeDataCollector} (for ML-pipeline),
- *       Telegram notification.
- * </ul>
+  *   <li>Save position, record entry bar for backtest metrics.
+  * </ul>
  *
  * <h2>Position Close ({@link #closePosition})</h2>
  *
@@ -198,8 +197,6 @@ import static java.util.concurrent.CompletableFuture.runAsync;
  *
  * <ul>
  *   <li>{@link #logWithBacktest} — silent-логирование в backtest-режиме.
- *   <li>{@link #recordBacktestTradeEntry} / {@link #recordBacktestTradeOutcome} — специальные
- *       методы записи сделок с парсингом времени из свечей.
  * </ul>
  *
  * <h2>Параллелизм и потокобезопасность</h2>
@@ -216,12 +213,10 @@ import static java.util.concurrent.CompletableFuture.runAsync;
  * <ul>
  *   <li>{@link TCSService} — брокерский API (Tinkoff Invest).
  *   <li>{@code TelegramNotifyService} — уведомления о запуске, сделках, ошибках.
- *   <li>{@link TradeDataCollector} — запись сделок в CSV ({@code
- *       ml_strategy/data_pipeline/trades.csv}) для обучения ML-моделей.
- *   <li>{@link TickerRepository} — справочник инструментов.
- * </ul>
- */
-public abstract class BaseStrategy {
+  *   <li>{@link TickerRepository} — справочник инструментов.
+  * </ul>
+  */
+ public abstract class BaseStrategy {
 
     /**
      * Controls whether trades are recorded during backtest. Default: true.
@@ -244,6 +239,17 @@ public abstract class BaseStrategy {
     protected static final long COOLDOWN_DURATION_MS = 5 * 60 * 1000L;
     protected static final long API_CALL_DELAY_MS = 100;
     protected static final Object API_LOCK = new Object();
+
+    /**
+     * Shared simulated broker for backtest execution.
+     * Set by BacktestRunner before starting simulation.
+     * Allows backtest to use the same broker-dependent code paths as live trading.
+     */
+    protected static com.github.shk0da.goldendragon.test.SimulatedBroker backtestBroker;
+
+    public static void setBacktestBroker(com.github.shk0da.goldendragon.test.SimulatedBroker broker) {
+        BaseStrategy.backtestBroker = broker;
+    }
 
     protected static final LocalTime WORK_START_TIME = LocalTime.of(8, 30);
     protected static final LocalTime EOD_CLOSE_TIME = LocalTime.of(21, 0);
@@ -270,11 +276,19 @@ public abstract class BaseStrategy {
 
         // Initialize market data provider and order executor based on mode
         if (isBacktest) {
-            if (!(tcsService instanceof com.github.shk0da.goldendragon.test.VirtualTCSService)) {
-                throw new IllegalArgumentException("Backtest requires VirtualTCSService");
+            // In backtest mode, use SimulatedBroker as the single source of truth
+            // for both market data (candles) and broker state (cash, positions)
+            if (backtestBroker == null) {
+                String dataDir = unifiedTraderConfig != null
+                        ? unifiedTraderConfig.getDataDir()
+                        : "data";
+                double initialBalance = tcsService != null
+                        ? tcsService.getAvailableCash()
+                        : 100000.0;
+                backtestBroker = new com.github.shk0da.goldendragon.test.SimulatedBroker(initialBalance, dataDir);
             }
-            this.marketDataProvider = (com.github.shk0da.goldendragon.test.VirtualTCSService) tcsService;
-            this.orderExecutor = new com.github.shk0da.goldendragon.market.LiveOrderExecutor(tcsService);
+            this.marketDataProvider = backtestBroker;
+            this.orderExecutor = new BacktestOrderExecutor(backtestBroker, backtestBroker.getAvailableCash());
         } else {
             this.marketDataProvider = new LiveMarketDataProvider(tcsService);
             this.orderExecutor = new LiveOrderExecutor(tcsService);
@@ -526,10 +540,14 @@ public abstract class BaseStrategy {
             // so decide() can size a position using cash parked in TMON@
             // Read TMON@ position from broker (not local store) to handle parallel execution
             double effectiveBalance = balance;
-            if (!"TMON@".equals(name) && tcsService != null) {
+            if (!"TMON@".equals(name) && (tcsService != null || backtestBroker != null)) {
                 try {
                     com.github.shk0da.goldendragon.model.PositionInfo tmonInfo =
-                            tcsService.getCurrentPositions(TickerType.ETF, "TMON@");
+                            tcsService != null
+                                    ? tcsService.getCurrentPositions(TickerType.ETF, "TMON@")
+                                    : (backtestBroker != null
+                                            ? backtestBroker.getCurrentPositions(TickerType.ETF, "TMON@")
+                                            : null);
                     if (tmonInfo != null && tmonInfo.getBalance() > 0) {
                         double tmonQty = Math.abs(tmonInfo.getBalance());
                         Double tmonPrice = tmonInfo.getAveragePositionPrice();
@@ -605,7 +623,9 @@ public abstract class BaseStrategy {
                         com.github.shk0da.goldendragon.model.PositionInfo tmonInfo =
                                 tcsService != null
                                         ? tcsService.getCurrentPositions(TickerType.ETF, "TMON@")
-                                        : null;
+                                        : (backtestBroker != null
+                                                ? backtestBroker.getCurrentPositions(TickerType.ETF, "TMON@")
+                                                : null);
                         if (tmonInfo != null && tmonInfo.getBalance() > 0) {
                             int tmonQty = tmonInfo.getBalance();
                             Double tmonPriceDouble = tmonInfo.getAveragePositionPrice();
@@ -631,6 +651,9 @@ public abstract class BaseStrategy {
                                     if (tcsService != null) {
                                         tcsService.sellByMarket(
                                                 "TMON@", TickerType.ETF, cashToFree, 0.0, 0.0);
+                                    } else if (backtestBroker != null) {
+                                        backtestBroker.sellByMarket(
+                                                "TMON@", TickerType.ETF, cashToFree);
                                     }
                                     log(
                                             "PARTIALFREE "
@@ -707,6 +730,8 @@ public abstract class BaseStrategy {
                                         + name);
                         if (tcsService != null) {
                             tcsService.closeLongByMarket("TMON@", TickerType.ETF);
+                        } else if (backtestBroker != null) {
+                            backtestBroker.closeLongByMarket("TMON@", TickerType.ETF);
                         }
                         positionStore.remove("TMON@");
                         log("TMON@ sold, positionStore cleared for new position");
@@ -843,26 +868,6 @@ public abstract class BaseStrategy {
 
             positionStore.put(name, executedPosition);
             lastSeenHourBarByTicker.put(name, candles.get(candles.size() - 1).time);
-            if (executedPosition.entryPrice != null
-                    && executedPosition.stopLoss != null
-                    && executedPosition.takeProfit != null) {
-                // ML trade recording removed
-            }
-
-            double executedEntryPrice =
-                    executedPosition.entryPrice != null ? executedPosition.entryPrice : entryPrice;
-            double slInfo =
-                    executedPosition.stopLoss != null
-                            ? abs(executedEntryPrice - executedPosition.stopLoss)
-                                    / executedEntryPrice
-                                    * 100
-                            : 0.0;
-            double tpInfo =
-                    executedPosition.takeProfit != null
-                            ? abs(executedPosition.takeProfit - executedEntryPrice)
-                                    / executedEntryPrice
-                                    * 100
-                            : 0.0;
         } catch (Exception ex) {
             log(
                     "Failed to open "
@@ -971,7 +976,6 @@ public abstract class BaseStrategy {
                                 + ", remaining="
                                 + remainingQuantity);
             }
-
             onTradeClosed(
                     name, pnl, entryPrice, exitPrice, closedQuantity, storedPosition.direction);
         } else {
@@ -1065,33 +1069,6 @@ public abstract class BaseStrategy {
             int quantity,
             String direction) {
         // Default: no-op. Override in UnifiedStrategy for MM integration.
-    }
-
-    public void recordBacktestTradeEntry(
-            String ticker, List<Candle> hourCandles, TradingDecision decision) {
-        if (!recordTradesInBacktest) {
-            return;
-        }
-        LocalDateTime entryTime = null;
-        if (hourCandles != null && !hourCandles.isEmpty()) {
-            try {
-                Date date =
-                        CANDLE_TIME_FORMAT
-                                .get()
-                                .parse(hourCandles.get(hourCandles.size() - 1).time);
-                entryTime = LocalDateTime.ofInstant(date.toInstant(), ZoneId.systemDefault());
-            } catch (Exception ignored) {
-            }
-        }
-        // ML trade recording removed
-    }
-
-    public void recordBacktestTradeOutcome(
-            String ticker, double pnl, double entryPrice, double stopLoss, int quantity) {
-        if (!recordTradesInBacktest) {
-            return;
-        }
-        // ML trade outcome recording removed
     }
 
     /**
@@ -1377,8 +1354,28 @@ public abstract class BaseStrategy {
     }
 
     protected List<Candle> readCachedCandles(String name, String dataDir, CandleInterval interval) {
-        // DataCollector removed - returning null
-        return null;
+        try {
+            List<TickerCandle> cached = DataCollector.readCandlesFile(name, dataDir, interval);
+            if (cached == null || cached.isEmpty()) {
+                return null;
+            }
+
+            List<Candle> candles = new ArrayList<>(cached.size());
+            for (TickerCandle tc : cached) {
+                candles.add(
+                        new Candle(
+                                tc.getDate(),
+                                tc.getOpen(),
+                                tc.getHigh(),
+                                tc.getLow(),
+                                tc.getClose(),
+                                tc.getVolume()));
+            }
+            return candles;
+        } catch (Exception ex) {
+            log("Failed to read cached candles for " + name + ": " + ex.getMessage());
+            return null;
+        }
     }
 
     protected boolean isCandleDataFresh(List<Candle> candles, CandleInterval interval) {
@@ -1494,8 +1491,6 @@ public abstract class BaseStrategy {
                                     new TickerInfo.Key(tickerName, ticker.getType()));
                     double entryPrice = position.entryPrice != null ? position.entryPrice : 0.0;
                     double pnl = calculatePnl(position, exitPrice);
-                    double stopLoss = position.stopLoss != null ? position.stopLoss : entryPrice;
-                    // ML trade recording removed
                     onTradeClosed(
                             tickerName,
                             pnl,
