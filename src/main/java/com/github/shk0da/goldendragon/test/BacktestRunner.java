@@ -1384,6 +1384,20 @@ public class BacktestRunner {
                     new PortfolioPeriodResult(0.0, 0.0, Collections.emptyList(), 0, 0.0));
         }
 
+        // Create shared simulated broker for backtest parity with live trading
+        SimulatedBroker broker = new SimulatedBroker(initialBalance, dataDir);
+        
+        // Register all tickers in simulated broker
+        for (String ticker : marketDataByTicker.keySet()) {
+            TickerInfo info = TickerRepository.INSTANCE.getByName(ticker);
+            if (info != null) {
+                broker.registerTicker(info);
+            }
+        }
+        
+        // Set the broker for backtest strategies to use
+        BaseStrategy.setBacktestBroker(broker);
+
         Map<String, BaseStrategy> strategies = new LinkedHashMap<>();
         Map<String, PortfolioPositionState> positionStates = new LinkedHashMap<>();
         Map<String, List<TradeResult>> tradesByTicker = new LinkedHashMap<>();

@@ -1,7 +1,6 @@
 package com.github.shk0da.goldendragon.market;
 
 import com.github.shk0da.goldendragon.model.TickerInfo;
-import com.github.shk0da.goldendragon.model.TickerType;
 import com.github.shk0da.goldendragon.repository.TickerRepository;
 import com.github.shk0da.goldendragon.service.TCSService;
 
@@ -10,6 +9,12 @@ import com.github.shk0da.goldendragon.service.TCSService;
  * Sends real orders to the Tinkoff Invest API.
  */
 public class LiveOrderExecutor implements OrderExecutor {
+
+    /**
+     * Safety margin matching TCSService.calculateTradeCount() (1%) to prevent
+     * insufficient funds (error 30049) and silent partial fills on market orders.
+     */
+    private static final double ORDER_QUANTITY_SAFETY_MARGIN = 1.01;
 
     private final TCSService tcsService;
     private final TickerRepository tickerRepository;
@@ -30,8 +35,10 @@ public class LiveOrderExecutor implements OrderExecutor {
             TickerInfo.Key key = new TickerInfo.Key(ticker, info.getType());
             double cash = tcsService.getAvailableCash();
             double askPrice = tcsService.getLiveAskPrice(key);
-            
-            double value = quantity * askPrice * info.getLot();
+
+            // Apply the same 1% safety margin as TCSService.calculateTradeCount() so the
+            // executed quantity matches the requested quantity (avoids silently buying fewer).
+            double value = quantity * askPrice * info.getLot() * ORDER_QUANTITY_SAFETY_MARGIN;
             if (value > cash) {
                 return ExecutionResult.failed("Insufficient cash: needed " + value + ", available " + cash);
             }
@@ -96,7 +103,7 @@ public class LiveOrderExecutor implements OrderExecutor {
             }
 
             TCSService.OrderExecutionResult result = tcsService.closeLongByMarketWithDetails(ticker, info.getType());
-            
+
             if (!result.isSuccess()) {
                 return ExecutionResult.failed("Close failed");
             }
@@ -116,7 +123,7 @@ public class LiveOrderExecutor implements OrderExecutor {
             }
 
             TCSService.OrderExecutionResult result = tcsService.closeShortByMarketWithDetails(ticker, info.getType());
-            
+
             if (!result.isSuccess()) {
                 return ExecutionResult.failed("Close failed");
             }

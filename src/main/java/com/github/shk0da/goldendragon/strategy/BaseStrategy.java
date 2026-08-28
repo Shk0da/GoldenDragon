@@ -3,14 +3,13 @@ package com.github.shk0da.goldendragon.strategy;
 import com.github.shk0da.goldendragon.config.UnifiedTraderConfig;
 import com.github.shk0da.goldendragon.filters.BadWeatherFilter;
 import com.github.shk0da.goldendragon.filters.MarketRegimeFilter;
-import com.github.shk0da.goldendragon.ml.TradeDataCollector;
-import com.github.shk0da.goldendragon.market.BacktestMarketDataProvider;
 import com.github.shk0da.goldendragon.market.BacktestOrderExecutor;
 import com.github.shk0da.goldendragon.market.LiveMarketDataProvider;
 import com.github.shk0da.goldendragon.market.LiveOrderExecutor;
 import com.github.shk0da.goldendragon.market.MarketDataProvider;
 import com.github.shk0da.goldendragon.market.MarketPrices;
 import com.github.shk0da.goldendragon.market.OrderExecutor;
+import com.github.shk0da.goldendragon.ml.TradeDataCollector;
 import com.github.shk0da.goldendragon.model.Candle;
 import com.github.shk0da.goldendragon.model.Config;
 import com.github.shk0da.goldendragon.model.MarketDepthSnapshot;
@@ -252,6 +251,17 @@ public abstract class BaseStrategy {
     protected static final long API_CALL_DELAY_MS = 100;
     protected static final Object API_LOCK = new Object();
 
+    /**
+     * Shared simulated broker for backtest execution.
+     * Set by BacktestRunner before starting simulation.
+     * Allows backtest to use the same broker-dependent code paths as live trading.
+     */
+    protected static com.github.shk0da.goldendragon.test.SimulatedBroker backtestBroker;
+
+    public static void setBacktestBroker(com.github.shk0da.goldendragon.test.SimulatedBroker broker) {
+        BaseStrategy.backtestBroker = broker;
+    }
+
     protected static final LocalTime WORK_START_TIME = LocalTime.of(8, 30);
     protected static final LocalTime EOD_CLOSE_TIME = LocalTime.of(21, 0);
 
@@ -274,27 +284,27 @@ public abstract class BaseStrategy {
         this.tcsService = tcsService;
         this.unifiedTraderConfig = unifiedTraderConfig;
         this.isBacktest = isBacktest;
-        
-        // Initialize market data provider based on mode
+
+        // Initialize market data provider and order executor based on mode
         if (isBacktest) {
-            String dataDir = unifiedTraderConfig != null 
-                    ? unifiedTraderConfig.getDataDir() 
-                    : "data";
-            this.marketDataProvider = new BacktestMarketDataProvider(dataDir);
+            // In backtest mode, use SimulatedBroker as the single source of truth
+            // for both market data (candles) and broker state (cash, positions)
+            if (backtestBroker == null) {
+                String dataDir = unifiedTraderConfig != null
+                        ? unifiedTraderConfig.getDataDir()
+                        : "data";
+                double initialBalance = tcsService != null
+                        ? tcsService.getAvailableCash()
+                        : 100000.0;
+                backtestBroker = new com.github.shk0da.goldendragon.test.SimulatedBroker(initialBalance, dataDir);
+            }
+            this.marketDataProvider = backtestBroker;
+            this.orderExecutor = new BacktestOrderExecutor(backtestBroker, backtestBroker.getAvailableCash());
         } else {
             this.marketDataProvider = new LiveMarketDataProvider(tcsService);
-        }
-        
-        // Initialize order executor based on mode
-        if (isBacktest) {
-            double initialBalance = tcsService != null 
-                    ? tcsService.getAvailableCash() 
-                    : 100000.0;
-            this.orderExecutor = new BacktestOrderExecutor(marketDataProvider, initialBalance);
-        } else {
             this.orderExecutor = new LiveOrderExecutor(tcsService);
         }
-        
+
         boolean bwFilterEnabled =
                 unifiedTraderConfig != null
                         ? unifiedTraderConfig.isBadWeatherFilterEnabled()
@@ -540,8 +550,76 @@ public abstract class BaseStrategy {
             double balance =
                     allocatedBalance > 0.0 ? allocatedBalance : orderExecutor.getAvailableCash();
 
+            // Include TMON@ parking value into effective cash for position sizing,
+            // so decide() can size a position using cash parked in TMON@
+            // Read TMON@ position from broker (not local store) to handle parallel execution
+            double effectiveBalance = balance;
+            if (!"TMON@".equals(name) && (tcsService != null || backtestBroker != null)) {
+                try {
+                    com.github.shk0da.goldendragon.model.PositionInfo tmonInfo =
+                            tcsService != null
+                                    ? tcsService.getCurrentPositions(TickerType.ETF, "TMON@")
+                                    : (backtestBroker != null
+                                            ? backtestBroker.getCurrentPositions(TickerType.ETF, "TMON@")
+                                            : null);
+                    if (tmonInfo != null && tmonInfo.getBalance() > 0) {
+                        double tmonQty = Math.abs(tmonInfo.getBalance());
+                        Double tmonPrice = tmonInfo.getAveragePositionPrice();
+                        if (tmonPrice != null && tmonPrice > 0) {
+                            double tmonValue = tmonQty * tmonPrice;
+                            effectiveBalance = balance + tmonValue;
+                            log(
+                                    "EFFECTIVE-BALANCE "
+                                            + name
+                                            + ": cash="
+                                            + String.format("%.2f", balance)
+                                            + " + tmon="
+                                            + String.format("%.2f", tmonValue)
+                                            + " = "
+                                            + String.format("%.2f", effectiveBalance));
+                        }
+                    }
+                } catch (Exception ignored) {
+                    // no TMON@ position in broker
+                }
+            }
+
             TradingDecision decision =
-                    decide(name, hourCandles, minuteCandles, storedPosition, balance, hourChanged);
+                    decide(name, hourCandles, minuteCandles, storedPosition, effectiveBalance, hourChanged);
+
+            logThrottled(
+                    "decision_" + name,
+                    "DECISION "
+                            + name
+                            + ": hourCandles="
+                            + hourCandles.size()
+                            + " minuteCandles="
+                            + minuteCandles.size()
+                            + " action="
+                            + decision.action
+                            + " reason="
+                            + decision.reason
+                            + " quantity="
+                            + decision.quantity
+                            + " balance="
+                            + String.format("%.2f", balance),
+                    5);
+
+            log(
+                    "CASH_DIAG "
+                            + name
+                            + ": action="
+                            + decision.action
+                            + " reason="
+                            + decision.reason
+                            + " qty="
+                            + decision.quantity
+                            + " balance="
+                            + String.format("%.2f", balance)
+                            + " availableCash="
+                            + String.format("%.2f", orderExecutor.getAvailableCash())
+                            + " allocatedBalance="
+                            + String.format("%.2f", allocatedBalance));
 
             if (decision.updatedPosition != null && "HOLD".equals(decision.action)) {
                 positionStore.put(name, decision.updatedPosition);
@@ -550,6 +628,73 @@ public abstract class BaseStrategy {
             }
 
             if ("OPEN".equals(decision.action)) {
+                // Free cash from TMON@ parking only for the amount missing for the trade
+                if (!"TMON@".equals(name)
+                        && decision.quantity > 0
+                        && decision.entryPrice != null) {
+                    try {
+                        // read TMON@ position from broker (not local store) to get actual qty
+                        com.github.shk0da.goldendragon.model.PositionInfo tmonInfo =
+                                tcsService != null
+                                        ? tcsService.getCurrentPositions(TickerType.ETF, "TMON@")
+                                        : (backtestBroker != null
+                                                ? backtestBroker.getCurrentPositions(TickerType.ETF, "TMON@")
+                                                : null);
+                        if (tmonInfo != null && tmonInfo.getBalance() > 0) {
+                            int tmonQty = tmonInfo.getBalance();
+                            Double tmonPriceDouble = tmonInfo.getAveragePositionPrice();
+                            double tmonPrice =
+                                    tmonPriceDouble != null && tmonPriceDouble > 0
+                                            ? tmonPriceDouble
+                                            : decision.entryPrice;
+                            int lotSize = ticker.getLot() != null ? Math.max(1, ticker.getLot()) : 1;
+                            double positionValue = decision.quantity * decision.entryPrice * lotSize;
+                            double availableCash0 = orderExecutor.getAvailableCash();
+                            double missing = positionValue - availableCash0;
+                            if (missing > 0 && tmonQty > 0 && tmonPrice > 0) {
+                                // sell only the required TMON@ value to free cash for the trade
+                                int tmonLots = tmonInfo.getLots() > 0
+                                        ? tmonInfo.getLots()
+                                        : 1;
+                                double tmonLotCost = tmonPrice * tmonLots;
+                                // whole lots needed to cover the missing amount
+                                int neededLots = (int) Math.ceil(missing / tmonLotCost);
+                                int tmonLotsToSell = Math.min(neededLots, tmonQty);
+                                if (tmonLotsToSell > 0) {
+                                    double cashToFree = tmonLotsToSell * tmonLotCost;
+                                    if (tcsService != null) {
+                                        tcsService.sellByMarket(
+                                                "TMON@", TickerType.ETF, cashToFree, 0.0, 0.0);
+                                    } else if (backtestBroker != null) {
+                                        backtestBroker.sellByMarket(
+                                                "TMON@", TickerType.ETF, cashToFree);
+                                    }
+                                    log(
+                                            "PARTIALFREE "
+                                                    + name
+                                                    + ": sold TMON@ value="
+                                                    + String.format("%.2f", cashToFree)
+                                                    + " ("
+                                                    + tmonLotsToSell
+                                                    + " lots) to cover missing "
+                                                    + String.format("%.2f", missing)
+                                                    + ", positionValue="
+                                                    + String.format("%.2f", positionValue)
+                                                    + ", availableCash="
+                                                    + String.format("%.2f", availableCash0)
+                                                    + ", TMON@ remaining (est.)="
+                                                    + (tmonQty - tmonLotsToSell));
+                                }
+                            }
+                        }
+                    } catch (Exception ex) {
+                        log(
+                                "PARTIALFREE_FAIL: "
+                                        + name
+                                        + ": "
+                                        + ex.getMessage());
+                    }
+                }
                 openPosition(name, ticker, hourCandles, decision);
             }
 
@@ -579,6 +724,41 @@ public abstract class BaseStrategy {
             logOpenCandidateSkipped(name, "invalid_direction", decision);
             log("Invalid direction for " + name + ", skipping.");
             return;
+        }
+
+        // Pre-trade: sell TMON@ parking to free cash for new positions
+        if (positionStore != null) {
+            Position tmonPos = positionStore.get("TMON@");
+            if (tmonPos != null
+                    && tmonPos.quantity > 0
+                    && !"TMON@".equals(name)
+                    && "BUY".equals(decision.updatedPosition.direction)) {
+                try {
+                    TickerInfo tmonInfo = findTickerInfo("TMON@");
+                    if (tmonInfo != null) {
+                        log(
+                                "CASH_FREETRIGGER "
+                                        + name
+                                        + ": TMON@ parked="
+                                        + tmonPos.quantity
+                                        + " selling to free cash for "
+                                        + name);
+                        if (tcsService != null) {
+                            tcsService.closeLongByMarket("TMON@", TickerType.ETF);
+                        } else if (backtestBroker != null) {
+                            backtestBroker.closeLongByMarket("TMON@", TickerType.ETF);
+                        }
+                        positionStore.remove("TMON@");
+                        log("TMON@ sold, positionStore cleared for new position");
+                    }
+                } catch (Exception ex) {
+                    log(
+                            "CASH_FREEFAIL: Failed to sell TMON@ for "
+                                    + name
+                                    + ": "
+                                    + ex.getMessage());
+                }
+            }
         }
 
         // Проверяем максимальное количество одновременных позиций

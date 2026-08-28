@@ -40,7 +40,7 @@ public final class StrategyRegistry {
     /** Creates a strategy instance for the backtest simulation engine. */
     @FunctionalInterface
     public interface BacktestFactory {
-        BaseStrategy create(UnifiedTraderConfig config);
+        BaseStrategy create(UnifiedTraderConfig config, TCSService tcsService);
     }
 
     @FunctionalInterface
@@ -86,8 +86,8 @@ public final class StrategyRegistry {
             liveRunner.run(mainConfig, marketConfig, tcsService, args);
         }
 
-        public BaseStrategy createBacktest(UnifiedTraderConfig config) {
-            return backtestFactory.create(config);
+        public BaseStrategy createBacktest(UnifiedTraderConfig config, TCSService tcsService) {
+            return backtestFactory.create(config, tcsService);
         }
     }
 
@@ -125,7 +125,7 @@ public final class StrategyRegistry {
                         "Stop UnifiedStrategy",
                         (mc, mkt, tcs, args) ->
                                 new UnifiedStrategy(new UnifiedTraderConfig(), tcs).run()),
-                config -> new UnifiedStrategy(config, null, new Config(), true));
+                (config, tcsService) -> new UnifiedStrategy(config, tcsService, new Config(), true));
         register(
                 "RegimeAwareStrategy",
                 runAndNotify(
@@ -133,7 +133,7 @@ public final class StrategyRegistry {
                         "Stop RegimeAwareStrategy",
                         (mc, mkt, tcs, args) ->
                                 new RegimeAwareStrategy(new UnifiedTraderConfig(), tcs).run()),
-                config -> new RegimeAwareStrategy(config, null, new Config(), true));
+                (config, tcsService) -> new RegimeAwareStrategy(config, tcsService, new Config(), true));
         register(
                 "RegimeAwareStrategyMl",
                 runAndNotify(
@@ -141,7 +141,7 @@ public final class StrategyRegistry {
                         "Stop RegimeAwareStrategyMl",
                         (mc, mkt, tcs, args) ->
                                 new RegimeAwareStrategyMl(new UnifiedTraderConfig(), tcs).run()),
-                config -> new RegimeAwareStrategyMl(config, null, new Config(), true, true, true));
+                (config, tcsService) -> new RegimeAwareStrategyMl(config, tcsService, new Config(), true, true, true));
         register(
                 "PrecisionStrategy",
                 runAndNotify(
@@ -149,7 +149,7 @@ public final class StrategyRegistry {
                         "Stop PrecisionStrategy",
                         (mc, mkt, tcs, args) ->
                                 new PrecisionStrategy(new UnifiedTraderConfig(), tcs).run()),
-                config -> new PrecisionStrategy(config, null, new Config(), true));
+                (config, tcsService) -> new PrecisionStrategy(config, tcsService, new Config(), true));
         register(
                 "TmonAveragingStrategy",
                 runAndNotify(
@@ -163,9 +163,9 @@ public final class StrategyRegistry {
                                                 false,
                                                 0)
                                         .run()),
-                config ->
+                (config, tcsService) ->
                         new TmonAveragingStrategy(
-                                new TmonAveragingConfig(), null, new Config(), true, 1_000_000.0));
+                                new TmonAveragingConfig(), tcsService, new Config(), true, 1_000_000.0));
         register(
                 "Rebalance",
                 runAndNotify(
@@ -240,11 +240,15 @@ public final class StrategyRegistry {
     }
 
     public static BaseStrategy createBacktest(String name, UnifiedTraderConfig config) {
+        return createBacktest(name, config, null);
+    }
+
+    public static BaseStrategy createBacktest(String name, UnifiedTraderConfig config, TCSService tcsService) {
         Entry entry = ENTRIES.get(name);
         if (entry == null || !entry.hasBacktestFactory()) {
             throw new IllegalArgumentException("Unknown backtest strategy: " + name);
         }
-        return entry.createBacktest(config);
+        return entry.createBacktest(config, tcsService);
     }
 
     /** Names of strategies supported by the backtest simulation engine, in registration order. */

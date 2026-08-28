@@ -100,6 +100,16 @@ public class RegimeAwareStrategy extends BaseStrategy {
             }
         }
 
+        log(
+                "REGIME "
+                        + ticker
+                        + ": "
+                        + regime
+                        + " ADX="
+                        + String.format("%.2f", adx)
+                        + " candles="
+                        + (hourCandles == null ? 0 : hourCandles.size()));
+
         if (MarketRegime.RANGE == regime) {
             return new TradingDecision("HOLD", "RANGE_SKIP_ADX" + (int) adx);
         }

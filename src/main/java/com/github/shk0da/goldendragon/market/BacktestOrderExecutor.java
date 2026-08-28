@@ -3,8 +3,6 @@ package com.github.shk0da.goldendragon.market;
 import com.github.shk0da.goldendragon.model.TickerInfo;
 import com.github.shk0da.goldendragon.repository.TickerRepository;
 
-import java.util.concurrent.ThreadLocalRandom;
-
 /**
  * Backtest order executor that simulates order execution.
  * Uses historical data to simulate fills with realistic slippage.
@@ -38,7 +36,7 @@ public class BacktestOrderExecutor implements OrderExecutor {
 
             double askPrice = prices.getAsk();
             double value = quantity * askPrice * info.getLot();
-            
+
             if (value > balance) {
                 return ExecutionResult.failed("Insufficient balance: needed " + value + ", available " + balance);
             }

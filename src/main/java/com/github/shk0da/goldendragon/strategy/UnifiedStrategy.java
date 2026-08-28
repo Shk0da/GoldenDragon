@@ -22,6 +22,7 @@ import com.github.shk0da.goldendragon.money.StopLossManager;
 import com.github.shk0da.goldendragon.money.VolatilityAdjustedSizing;
 import com.github.shk0da.goldendragon.repository.TickerRepository;
 import com.github.shk0da.goldendragon.service.TCSService;
+
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -1204,15 +1205,33 @@ public class UnifiedStrategy extends BaseStrategy {
                 return new TradingDecision("HOLD", "tmon_ticker_not_found");
             }
             int lot = tickerInfo.getLot() != null ? tickerInfo.getLot() : 1;
+            // Align TMON@ sizing with TCSService.calculateTradeCount(), which applies
+            // a 1% safety margin to avoid insufficient funds for market orders.
+            double effectivePrice = currentPrice * 1.01;
+            double effectiveCostPerLot = effectivePrice * lot;
+            if (balance < effectiveCostPerLot) {
+                logWithBacktest(
+                        "TMON@: skipping buy - insufficient cash ("
+                                + String.format("%.2f", balance)
+                                + ") for safe 1-lot entry at "
+                                + String.format("%.2f", effectiveCostPerLot));
+                return new TradingDecision("HOLD", "tmon_insufficient_cash");
+            }
             double costPerLot = currentPrice * lot;
-            int buyQty = costPerLot > 0.0 ? (int) Math.floor(balance / costPerLot) * lot : 0;
+            int buyQty =
+                    effectiveCostPerLot > 0.0
+                            ? (int) Math.floor(balance / effectiveCostPerLot) * lot
+                            : 0;
             if (buyQty > 0) {
                 double totalCost = buyQty * currentPrice;
                 logWithBacktest(
                         "TMON@: buying "
                                 + buyQty
                                 + " with idle cash "
-                                + String.format("%.2f", totalCost));
+                                + String.format("%.2f", totalCost)
+                                + " (safe lot cost="
+                                + String.format("%.2f", effectiveCostPerLot)
+                                + ")");
                 return new TradingDecision(
                         "OPEN",
                         "tmon_cash_parking",
