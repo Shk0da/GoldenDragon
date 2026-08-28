@@ -1037,6 +1037,18 @@ public final class OrderBookTradingEngine implements MarketTickListener {
       return;
     }
 
+    if (isFlowToxic(runtime.ticker)) {
+      emitSkipDiagnostic(
+          runtime.ticker,
+          "vpin_too_high",
+          Map.of(
+              "vpin",
+              vpinCalculator.getVpin(runtime.ticker),
+              "maxVpinEntry",
+              config.getMaxVpinEntry()));
+      return;
+    }
+
     if (riskManager != null && !riskManager.canTrade(initialEquity + tradeStats.netPnl)) {
       return;
     }
@@ -2165,6 +2177,17 @@ public final class OrderBookTradingEngine implements MarketTickListener {
     return expectedValueFraction(ticker) >= roundTripFeeFraction(ticker) * config.getEvGateBuffer();
   }
 
+  /** Toxic one-sided flow precedes adverse moves; skip entries until flow calms down. */
+  private boolean isFlowToxic(String ticker) {
+    if (vpinCalculator == null) {
+      return false;
+    }
+    if (vpinCalculator.getCompletedBucketCount(ticker) < config.getMinVpinBuckets()) {
+      return false;
+    }
+    return vpinCalculator.getVpin(ticker) > config.getMaxVpinEntry();
+  }
+
   private double roundTripFeeFraction(String ticker) {
     return estimateCommissionRate(ticker) * 2.0;
   }
@@ -2946,10 +2969,18 @@ public final class OrderBookTradingEngine implements MarketTickListener {
     log(logLine);
     System.out.flush();
     if (diagnosticsReplayWriter != null) {
-      diagnosticsReplayWriter.write(event);
+      try {
+        diagnosticsReplayWriter.write(event);
+      } catch (Exception e) {
+        log("WARN: Failed to write diagnostics replay event: " + e.getMessage());
+      }
     }
     if (metricsCsvWriter != null) {
-      metricsCsvWriter.write(event);
+      try {
+        metricsCsvWriter.write(event);
+      } catch (Exception e) {
+        log("WARN: Failed to write metrics CSV event: " + e.getMessage());
+      }
     }
   }
 

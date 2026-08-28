@@ -99,4 +99,5 @@ tickers.json
 /.github/
 .mimocode
 /.codegraph/
+/.opencode/
 /docs/superpowers

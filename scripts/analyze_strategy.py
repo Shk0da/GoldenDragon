@@ -706,8 +706,9 @@ def analyze(trades: list, skip_reasons: dict, entry_events: list, diag_stats: di
             by_signal_wr[t.signal]["wr_sum"] += t.signal_win_rate
             by_signal_wr[t.signal]["pnl"] += t.net_pnl
         for signal, data in sorted(by_signal_wr.items(), key=lambda x: -x[1]["pnl"]):
+            # signalWinRate is stored as a percentage (0-100), not a fraction
             avg_wr = data["wr_sum"] / data["count"] if data["count"] else 0
-            print(f"  {signal:<15} {data['count']:>7} {avg_wr:>6.1%} {data['pnl']:>12.2f}")
+            print(f"  {signal:<15} {data['count']:>7} {avg_wr:>6.1f}% {data['pnl']:>12.2f}")
     else:
         print("  No signal performance data available")
 
