@@ -272,12 +272,6 @@ public class UnifiedStrategy extends BaseStrategy {
             return new TradingDecision("HOLD", "KILL_SWITCH_" + killSwitch.getTriggerReason());
         }
 
-        // Regime-aware filtering (from RegimeAwareStrategy - priority filter)
-        TradingDecision regimeDecision = applyRegimeFilter(ticker, hourCandles);
-        if (regimeDecision != null) {
-            return regimeDecision;
-        }
-
         UnifiedTraderConfig.TickerParams tpCfg = unifiedTraderConfig.getTickerParams(ticker);
         if (!tpCfg.enabled) {
             return new TradingDecision("HOLD", "ticker_disabled");
@@ -559,17 +553,6 @@ public class UnifiedStrategy extends BaseStrategy {
 
         if (signal == null) {
             return new TradingDecision("HOLD", "noSig", 0.0, 0, null, null, null, p);
-        }
-
-        // Regime-aware signal filtering (from RegimeAwareStrategy)
-        // NORMAL regime (ADX 18-26): block FX signals
-        if ("NORMAL".equals(currentRegime) && signal.startsWith("FX")) {
-            return new TradingDecision("HOLD", "NORMAL_SKIP_FX_" + signal);
-        }
-
-        // WEAK TREND (ADX < 26): block TB_4 signals (weak trend breakouts)
-        if (currentAdx < 26.0 && signal.startsWith("TB_4")) {
-            return new TradingDecision("HOLD", "WEAK_TREND_SKIP_" + signal);
         }
 
         boolean strongTrend = adx >= STRONG_TREND_ADX;
@@ -1279,87 +1262,4 @@ public class UnifiedStrategy extends BaseStrategy {
     protected void onDailyReset() {
         dailyReset();
     }
-
-    /**
-     * Regime-aware filtering (from RegimeAwareStrategy).
-     * Applies priority ADX-based filtering before any signal generation.
-     *
-     * <p>Market regime detection via ADX(14):
-     * <ul>
-     *   <li>RANGE (ADX &lt; 16): Block all entries
-     *   <li>WEAK_NORMAL (ADX 16-18): Block all entries
-     *   <li>NORMAL (ADX 18-26): Allow signals, but block FX
-     *   <li>TREND (ADX &gt;= 26): Allow all signals including TB_4
-     * </ul>
-     *
-     * @return TradingDecision with HOLD if regime blocks entry, null if trading allowed
-     */
-    private TradingDecision applyRegimeFilter(String ticker, List<Candle> hourCandles) {
-        if (hourCandles == null || hourCandles.size() < 60) {
-            return null; // Not enough data, let other logic decide
-        }
-
-        double adx = calculateAdx(hourCandles, 14);
-        boolean isTrend = adx >= 26.0;
-        boolean isRange = adx <= 16.0;
-        boolean isWeakNormal = adx > 16.0 && adx < 18.0;
-        boolean isNormal = adx >= 18.0 && adx < 26.0;
-
-        // RANGE: Block all entries
-        if (isRange) {
-            return new TradingDecision("HOLD", "RANGE_SKIP_ADX" + (int) adx);
-        }
-
-        // WEAK_NORMAL: Block all entries
-        if (isWeakNormal) {
-            return new TradingDecision("HOLD", "NORMAL_WEAK_ADX" + (int) adx);
-        }
-
-        // Store regime for later use in signal filtering
-        this.currentAdx = adx;
-        this.currentRegime = isTrend ? "TREND" : "NORMAL";
-
-        return null; // Allow trading
-    }
-
-    /**
-     * Calculate ADX(14) for regime detection.
-     */
-    private double calculateAdx(List<Candle> candles, int period) {
-        if (candles.size() < period * 2 + 10) {
-            return 0.0;
-        }
-
-        int start = candles.size() - period;
-        double trSum = 0.0, pdSum = 0.0, mdSum = 0.0;
-
-        for (int i = start; i < candles.size(); i++) {
-            Candle c = candles.get(i);
-            Candle p = candles.get(i - 1);
-
-            double tr = Math.max(
-                    Math.max(c.high - c.low, Math.abs(c.high - p.close)),
-                    Math.abs(c.low - p.close));
-            trSum += tr;
-
-            double up = c.high - p.high;
-            double dn = p.low - c.low;
-
-            pdSum += (up > dn && up > 0) ? up : 0.0;
-            mdSum += (dn > up && dn > 0) ? dn : 0.0;
-        }
-
-        double atr = trSum / period;
-        double diPlus = atr > 0 ? (pdSum / period) / atr * 100 : 0.0;
-        double diMinus = atr > 0 ? (mdSum / period) / atr * 100 : 0.0;
-        double adx = (diPlus + diMinus) > 0
-                ? Math.abs(diPlus - diMinus) / (diPlus + diMinus) * 100
-                : 0.0;
-
-        return adx;
-    }
-
-    // Current regime state for signal filtering
-    private double currentAdx = 0.0;
-    private String currentRegime = "UNKNOWN";
 }
