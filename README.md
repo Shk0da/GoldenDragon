@@ -7,7 +7,7 @@
 - Многопоточный движок стратегий с пулом на каждый тикер
 - Money management с адаптивным сайзингом, risk manager и kill switch
 - Полноценный backtest-движок с метриками качества
-- Сбор исторических данных с Tinkoff, Yahoo Finance, MOEX ISS
+- Сбор исторических данных с Tinkoff
 - Кеширование свечей и уровней на диске
 
 ## Стратегии
@@ -76,7 +76,7 @@ cd GoldenDragon
 ./gradlew runStrategy -Pstrategy=UnifiedStrategy
 ```
 
-Доступные стратегии: `UnifiedStrategy`, `Rebalance`, `OrderBookScalpStrategy`.
+Доступные стратегии: `UnifiedStrategy`, `OrderBookScalpStrategy`.
 
 ### Backtest
 
@@ -119,7 +119,7 @@ GoldenDragon/
 │   └── test/
 ├── data/                 # исторические свечи
 ├── images/               # графики equity
-├── scripts/              # скрипты анализа (analyze_strategy.py)
+├── scripts/              # скрипты дополнительные
 ├── build.gradle
 └── README.md
 ```
