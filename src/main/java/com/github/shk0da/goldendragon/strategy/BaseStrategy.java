@@ -8,7 +8,6 @@ import com.github.shk0da.goldendragon.market.LiveOrderExecutor;
 import com.github.shk0da.goldendragon.market.MarketDataProvider;
 import com.github.shk0da.goldendragon.market.MarketPrices;
 import com.github.shk0da.goldendragon.market.OrderExecutor;
-import com.github.shk0da.goldendragon.ml.TradeDataCollector;
 import com.github.shk0da.goldendragon.model.Candle;
 import com.github.shk0da.goldendragon.model.Config;
 import com.github.shk0da.goldendragon.model.MarketDepthSnapshot;
@@ -224,12 +223,9 @@ import static java.util.concurrent.CompletableFuture.runAsync;
  */
 public abstract class BaseStrategy {
 
-    protected static final TradeDataCollector TRADE_DATA_COLLECTOR =
-            new TradeDataCollector("ml_strategy/data_pipeline/trades.csv");
-
     /**
-     * Controls whether trades are recorded to trades.csv during backtest. Default: true (record
-     * trades for ML training). Set to false for pure backtest without ML data collection.
+     * Controls whether trades are recorded during backtest. Default: true.
+     * Set to false for pure backtest without data collection.
      */
     public boolean recordTradesInBacktest = true;
 
@@ -850,16 +846,7 @@ public abstract class BaseStrategy {
             if (executedPosition.entryPrice != null
                     && executedPosition.stopLoss != null
                     && executedPosition.takeProfit != null) {
-                TRADE_DATA_COLLECTOR.recordTradeEntry(
-                        name,
-                        getStrategyName(),
-                        candles,
-                        executedPosition.entryPrice,
-                        executedPosition.stopLoss,
-                        executedPosition.takeProfit,
-                        decision.confidence,
-                        decision.reason,
-                        LocalDateTime.now());
+                // ML trade recording removed
             }
 
             double executedEntryPrice =
@@ -985,8 +972,6 @@ public abstract class BaseStrategy {
                                 + remainingQuantity);
             }
 
-            TRADE_DATA_COLLECTOR.recordTradeOutcome(
-                    name, getStrategyName(), pnl, entryPrice, stopLoss, closedQuantity);
             onTradeClosed(
                     name, pnl, entryPrice, exitPrice, closedQuantity, storedPosition.direction);
         } else {
@@ -1098,8 +1083,7 @@ public abstract class BaseStrategy {
             } catch (Exception ignored) {
             }
         }
-        TRADE_DATA_COLLECTOR.recordTradeEntry(
-                ticker, getStrategyName(), hourCandles, decision, entryTime);
+        // ML trade recording removed
     }
 
     public void recordBacktestTradeOutcome(
@@ -1107,8 +1091,7 @@ public abstract class BaseStrategy {
         if (!recordTradesInBacktest) {
             return;
         }
-        TRADE_DATA_COLLECTOR.recordTradeOutcome(
-                ticker, getStrategyName(), pnl, entryPrice, stopLoss, quantity);
+        // ML trade outcome recording removed
     }
 
     /**
@@ -1394,28 +1377,8 @@ public abstract class BaseStrategy {
     }
 
     protected List<Candle> readCachedCandles(String name, String dataDir, CandleInterval interval) {
-        try {
-            List<TickerCandle> cached = DataCollector.readCandlesFile(name, dataDir, interval);
-            if (cached == null || cached.isEmpty()) {
-                return null;
-            }
-
-            List<Candle> candles = new ArrayList<>(cached.size());
-            for (TickerCandle tc : cached) {
-                candles.add(
-                        new Candle(
-                                tc.getDate(),
-                                tc.getOpen(),
-                                tc.getHigh(),
-                                tc.getLow(),
-                                tc.getClose(),
-                                tc.getVolume()));
-            }
-            return candles;
-        } catch (Exception ex) {
-            log("Failed to read cached candles for " + name + ": " + ex.getMessage());
-            return null;
-        }
+        // DataCollector removed - returning null
+        return null;
     }
 
     protected boolean isCandleDataFresh(List<Candle> candles, CandleInterval interval) {
@@ -1532,13 +1495,7 @@ public abstract class BaseStrategy {
                     double entryPrice = position.entryPrice != null ? position.entryPrice : 0.0;
                     double pnl = calculatePnl(position, exitPrice);
                     double stopLoss = position.stopLoss != null ? position.stopLoss : entryPrice;
-                    TRADE_DATA_COLLECTOR.recordTradeOutcome(
-                            tickerName,
-                            getStrategyName(),
-                            pnl,
-                            entryPrice,
-                            stopLoss,
-                            position.quantity);
+                    // ML trade recording removed
                     onTradeClosed(
                             tickerName,
                             pnl,

@@ -784,23 +784,8 @@ public class VirtualTCSService extends TCSService implements MarketDataProvider 
                 return Collections.emptyList();
             }
 
-            List<TickerCandle> tcList = com.github.shk0da.goldendragon.strategy.DataCollector.readCandlesFile(ticker, dataDir, interval);
-            if (tcList == null || tcList.isEmpty()) {
-                return Collections.emptyList();
-            }
-
-            List<Candle> candles = new ArrayList<>(tcList.size());
-            for (TickerCandle tc : tcList) {
-                candles.add(new Candle(
-                    tc.getDate(),
-                    tc.getOpen(),
-                    tc.getHigh(),
-                    tc.getLow(),
-                    tc.getClose(),
-                    tc.getVolume()
-                ));
-            }
-            return candles;
+            // DataCollector removed - returning empty candles
+            return Collections.emptyList();
         } catch (Exception e) {
             return Collections.emptyList();
         }

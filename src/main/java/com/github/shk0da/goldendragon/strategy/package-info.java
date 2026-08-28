@@ -50,18 +50,8 @@
  *   <li>{@link com.github.shk0da.goldendragon.strategy.RegimeAwareStrategy} — strategy with market
  *       regime adaptation. Detects regime by volatility and volume, switches entry logic and risk
  *       parameters based on regime.
- *   <li>{@link com.github.shk0da.goldendragon.strategy.DivFlow} — dividend trading strategy.
- *       Analyzes dividend yield, cut-off dates, fundamental indicators.
- *   <li>{@link com.github.shk0da.goldendragon.strategy.LevelTrader} — key level trading
- *       (support/resistance). Uses historical extremes, volume profiles.
- *   <li>{@link com.github.shk0da.goldendragon.strategy.IndicatorTrader} — indicator strategy,
- *       focuses on technical indicators without pattern dependency.
  *   <li>{@link com.github.shk0da.goldendragon.strategy.Rebalance} — strategy for periodic portfolio
  *       rebalancing by target weights.
- *   <li>{@link com.github.shk0da.goldendragon.strategy.RSX} — RSI with exponential smoothing (RSX =
- *       RSI Smoothed).
- *   <li>{@link com.github.shk0da.goldendragon.strategy.DataCollector} — ML model data collection:
- *       save candles, positions, decisions in training format.
  * </ul>
  *
  * <h2>Interfaces and Abstractions</h2>

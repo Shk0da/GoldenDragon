@@ -1,11 +1,8 @@
 package com.github.shk0da.goldendragon.strategy;
 
-import com.github.shk0da.goldendragon.config.DataCollectorConfig;
-import com.github.shk0da.goldendragon.config.LevelTraderConfig;
 import com.github.shk0da.goldendragon.config.MainConfig;
 import com.github.shk0da.goldendragon.config.MarketConfig;
 import com.github.shk0da.goldendragon.config.OrderBookScalpConfig;
-import com.github.shk0da.goldendragon.config.RSXConfig;
 import com.github.shk0da.goldendragon.config.RebalanceConfig;
 import com.github.shk0da.goldendragon.config.UnifiedTraderConfig;
 import com.github.shk0da.goldendragon.model.Config;
@@ -139,43 +136,6 @@ public final class StrategyRegistry {
                         "End Rebalance",
                         (mc, mkt, tcs, args) ->
                                 new Rebalance(mkt, new RebalanceConfig(), tcs).run()),
-                null);
-        register(
-                "RSX",
-                runAndNotify(
-                        "RSX",
-                        "End RSX",
-                        (mc, mkt, tcs, args) -> new RSX(mc, mkt, new RSXConfig(), tcs).run()),
-                null);
-        register(
-                "DivFlow",
-                runAndNotify(
-                        "DivFlow",
-                        "End DivFlow",
-                        (mc, mkt, tcs, args) -> new DivFlow(mc, mkt, tcs).run()),
-                null);
-        register(
-                "IndicatorTrader",
-                runAndNotify(
-                        "IndicatorTrader",
-                        "End IndicatorTrader",
-                        (mc, mkt, tcs, args) -> new IndicatorTrader(tcs).run()),
-                null);
-        register(
-                "DataCollector",
-                runAndNotify(
-                        "DataCollector",
-                        "End DataCollector",
-                        (mc, mkt, tcs, args) ->
-                                new DataCollector(new DataCollectorConfig(), tcs).run()),
-                null);
-        register(
-                "LevelTrader",
-                runAndNotify(
-                        "LevelTrader",
-                        "Stop LevelTrader",
-                        (mc, mkt, tcs, args) ->
-                                new LevelTrader(new LevelTraderConfig(), tcs).run()),
                 null);
         register(
                 "OrderBookScalpStrategy",

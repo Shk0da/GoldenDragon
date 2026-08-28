@@ -1,10 +1,7 @@
 package com.github.shk0da.goldendragon.market;
 
 import com.github.shk0da.goldendragon.model.Candle;
-import com.github.shk0da.goldendragon.model.TickerCandle;
-import com.github.shk0da.goldendragon.strategy.DataCollector;
 
-import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -26,37 +23,8 @@ public class BacktestMarketDataProvider implements MarketDataProvider {
 
     @Override
     public List<Candle> getCandles(String ticker, String interval) {
-        try {
-            List<TickerCandle> cached;
-            if ("HOUR".equals(interval)) {
-                cached = DataCollector.readCandlesFile(ticker, dataDir, 
-                        ru.tinkoff.piapi.contract.v1.CandleInterval.CANDLE_INTERVAL_HOUR);
-            } else if ("5_MIN".equals(interval)) {
-                cached = DataCollector.readCandlesFile(ticker, dataDir, 
-                        ru.tinkoff.piapi.contract.v1.CandleInterval.CANDLE_INTERVAL_5_MIN);
-            } else {
-                return Collections.emptyList();
-            }
-
-            if (cached == null || cached.isEmpty()) {
-                return Collections.emptyList();
-            }
-
-            List<Candle> candles = new ArrayList<>(cached.size());
-            for (TickerCandle tc : cached) {
-                candles.add(new Candle(
-                        tc.getDate(),
-                        tc.getOpen(),
-                        tc.getHigh(),
-                        tc.getLow(),
-                        tc.getClose(),
-                        tc.getVolume()
-                ));
-            }
-            return candles;
-        } catch (Exception e) {
-            return Collections.emptyList();
-        }
+        // DataCollector removed - returning empty candles for backtest
+        return Collections.emptyList();
     }
 
     @Override
