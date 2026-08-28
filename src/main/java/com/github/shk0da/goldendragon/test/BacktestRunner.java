@@ -216,8 +216,6 @@ import java.util.concurrent.Future;
  */
 public class BacktestRunner {
 
-    private static final String TMON_TICKER = "TMON@";
-
     private static final DateTimeFormatter DATE_FMT = DateTimeFormatter.ofPattern("dd.MM.yyyy");
     private static final DateTimeFormatter DATE_TIME_FMT =
         DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm:ss");
@@ -1030,11 +1028,6 @@ public class BacktestRunner {
                     List<Candle> hourHistory = marketData.hourCandles.subList(0, state.hourIdx + 1);
                     List<Candle> minHistory = marketData.minuteCandles.subList(0, idx + 1);
 
-                    // TMON@ Cash Parking: sync non-TMON positions into TMON@ strategy
-                    if (TMON_TICKER.equals(ticker) && config.isTmonCashParkingEnabled()) {
-                        syncNonTmonPositionsToStrategy(strategies.get(TMON_TICKER), positionStates);
-                    }
-
                     Map<String, List<Candle>> currentPeerCandles =
                         buildCurrentPeerCandles(
                             ticker,
@@ -1285,26 +1278,7 @@ public class BacktestRunner {
         return new ArrayList<>(timeline);
     }
 
-    /**
-     * Syncs non-TMON positions from portfolio state into the TMON@ strategy's positionStore, so
-     * that TMON@ cash parking logic can see positions held by other tickers.
-     */
-    private void syncNonTmonPositionsToStrategy(
-        BaseStrategy tmonStrategy, Map<String, PortfolioPositionState> positionStates) {
-        for (Map.Entry<String, PortfolioPositionState> entry : positionStates.entrySet()) {
-            String ticker = entry.getKey();
-            if (TMON_TICKER.equals(ticker)) {
-                continue;
-            }
-            PortfolioPositionState state = entry.getValue();
-            tmonStrategy.setPosition(ticker, state.position);
-        }
-    }
-
     private double getEffectiveCommission(String ticker) {
-        if (TMON_TICKER.equals(ticker)) {
-            return 0.0;
-        }
         return commission;
     }
 
@@ -1586,11 +1560,6 @@ public class BacktestRunner {
     private List<String> filterEnabledTickers(List<String> tickers, UnifiedTraderConfig config) {
         List<String> result = new ArrayList<>();
         for (String ticker : tickers) {
-            // TMON@ is always enabled if cash parking is enabled
-            if (TMON_TICKER.equals(ticker) && config.isTmonCashParkingEnabled()) {
-                result.add(ticker);
-                continue;
-            }
             try {
                 UnifiedTraderConfig.TickerParams params = config.getTickerParams(ticker);
                 if (params.enabled) {
@@ -1637,14 +1606,6 @@ public class BacktestRunner {
                     tickers.add(parts[2]);
                 }
             }
-        }
-
-        // Add TMON@ for cash parking if enabled
-        boolean tmonParkingEnabled =
-                Boolean.parseBoolean(
-                        props.getProperty("unifiedTrader.tmonCashParking.enabled", "false"));
-        if (tmonParkingEnabled) {
-            tickers.add(TMON_TICKER);
         }
 
         return new ArrayList<>(tickers);
