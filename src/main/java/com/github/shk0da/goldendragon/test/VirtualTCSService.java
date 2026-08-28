@@ -1,7 +1,6 @@
 package com.github.shk0da.goldendragon.test;
 
 import com.github.shk0da.goldendragon.config.MainConfig;
-import com.github.shk0da.goldendragon.config.MarketConfig;
 import com.github.shk0da.goldendragon.market.MarketDataProvider;
 import com.github.shk0da.goldendragon.market.MarketPrices;
 import com.github.shk0da.goldendragon.model.*;
@@ -36,7 +35,7 @@ public class VirtualTCSService extends TCSService implements MarketDataProvider 
      * @param commissionRate commission rate (e.g., 0.0005)
      */
     public VirtualTCSService(double initialBalance, String dataDir, double commissionRate) {
-        super(createMockConfig(), createMockMarketConfig());
+        super(createMockConfig(), "RUB");
         this.initialBalance = initialBalance;
         this.availableCash = initialBalance;
         this.commissionRate = commissionRate;
@@ -63,10 +62,6 @@ public class VirtualTCSService extends TCSService implements MarketDataProvider 
         } catch (Exception e) {
             throw new RuntimeException("Failed to create mock MainConfig", e);
         }
-    }
-
-    private static MarketConfig createMockMarketConfig() {
-        return MarketConfig.byMarket(Market.MOEX);
     }
 
     // ========== Overridden Portfolio Methods ==========

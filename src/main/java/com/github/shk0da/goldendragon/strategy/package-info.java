@@ -47,11 +47,6 @@
  *         <li>Portfolio capital management (ticker distribution).
  *         <li>Group confirmation — correlated instrument validation.
  *       </ul>
- *   <li>{@link com.github.shk0da.goldendragon.strategy.RegimeAwareStrategy} — strategy with market
- *       regime adaptation. Detects regime by volatility and volume, switches entry logic and risk
- *       parameters based on regime.
- *   <li>{@link com.github.shk0da.goldendragon.strategy.Rebalance} — strategy for periodic portfolio
- *       rebalancing by target weights.
  * </ul>
  *
  * <h2>Interfaces and Abstractions</h2>

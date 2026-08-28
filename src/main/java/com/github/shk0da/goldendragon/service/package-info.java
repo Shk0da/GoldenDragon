@@ -63,8 +63,6 @@
  *
  * <ul>
  *   <li>{@link com.github.shk0da.goldendragon.config.MainConfig} — API keys, account, sandbox mode.
- *   <li>{@link com.github.shk0da.goldendragon.config.MarketConfig} — base currency, market
- *       parameters.
  * </ul>
  *
  * <h2>Logging</h2>

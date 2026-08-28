@@ -38,8 +38,6 @@
  *       quantity, entry price.
  *   <li>{@link com.github.shk0da.goldendragon.model.PositionInfo} — position info from API:
  *       balance, lots, expected yield.
- *   <li>{@link com.github.shk0da.goldendragon.model.PortfolioPosition} — target portfolio position:
- *       name, type, portfolio percentage.
  * </ul>
  *
  * <h2>Trading Decisions</h2>
@@ -47,18 +45,6 @@
  * <ul>
  *   <li>{@link com.github.shk0da.goldendragon.model.TradingDecision} — strategy decision: action
  *       (BUY/SELL/HOLD/CLOSE), signal, quantity, prices.
- * </ul>
- *
- * <h2>Specialized Models</h2>
- *
- * <ul>
- *   <li>{@link com.github.shk0da.goldendragon.model.DiviTicker} — dividend information: ticker,
- *       cut-off date, dividend, yield.
- *   <li>{@link com.github.shk0da.goldendragon.model.TickerScan} — TradingView scan result: analyst
- *       recommendation, debt/equity.
- *   <li>{@link com.github.shk0da.goldendragon.model.TickerJson} — serializable data for
- *       LevelTrader: ticker + support/resistance levels.
- *   <li>{@link com.github.shk0da.goldendragon.model.Config} — configuration for trading strategies.
  * </ul>
  *
  * <h2>Interfaces</h2>

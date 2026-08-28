@@ -29,39 +29,11 @@
  *       millis)} with {@code InterruptedException} handling.
  * </ul>
  *
- * <h2>Predicates</h2>
- *
- * <ul>
- *   <li>{@link com.github.shk0da.goldendragon.utils.PredicateUtils} — predicate utilities: {@code
- *       distinctByKey()} for duplicate filtering in streams.
- * </ul>
- *
  * <h2>Technical Indicators</h2>
  *
  * <ul>
  *   <li>{@link com.github.shk0da.goldendragon.utils.IndicatorsUtil} — technical indicator
  *       calculation: RSI, MACD, ATR, moving averages (SMA, EMA). Uses TA-Lib library.
- * </ul>
- *
- * <h2>HTTP Requests</h2>
- *
- * <ul>
- *   <li>{@link com.github.shk0da.goldendragon.utils.RequestUtils} — HTTP requests with retries:
- *       {@code requestWithRetry()} for stable external API work (TradingView, Telegram).
- * </ul>
- *
- * <h2>Levels (LevelUtils)</h2>
- *
- * <ul>
- *   <li>{@link com.github.shk0da.goldendragon.utils.LevelUtils} — support/resistance level
- *       handling: {@code Level} classes, level breakout detection methods.
- * </ul>
- *
- * <h2>GerchikUtils</h2>
- *
- * <ul>
- *   <li>{@link com.github.shk0da.goldendragon.utils.GerchikUtils} — Gerchik system methods: level
- *       calculation, entry patterns, position management.
  * </ul>
  *
  * <h2>TickerTypeResolver</h2>

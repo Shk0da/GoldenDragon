@@ -17,7 +17,6 @@ import static ru.tinkoff.piapi.contract.v1.StopOrderType.STOP_ORDER_TYPE_STOP_LO
 import static ru.tinkoff.piapi.contract.v1.StopOrderType.STOP_ORDER_TYPE_TAKE_PROFIT;
 
 import com.github.shk0da.goldendragon.config.MainConfig;
-import com.github.shk0da.goldendragon.config.MarketConfig;
 import com.github.shk0da.goldendragon.model.MarketDepthLevel;
 import com.github.shk0da.goldendragon.model.MarketDepthSnapshot;
 import com.github.shk0da.goldendragon.model.MarketTickListener;
@@ -94,7 +93,7 @@ public class TCSService {
             DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm:ss");
 
     private final MainConfig mainConfig;
-    private final MarketConfig marketConfig;
+    private final String baseCurrency;
     private final InvestApi investApi;
     private final boolean writeMarketDepthTicks;
 
@@ -131,11 +130,11 @@ public class TCSService {
      * MainConfig#isSandbox()} and pre-loads common currency FIGI mappings.
      *
      * @param mainConfig application configuration containing API credentials and account settings
-     * @param marketConfig market configuration containing base currency and other market settings
+     * @param baseCurrency base currency for the market (e.g., "RUB" for MOEX)
      */
-    public TCSService(MainConfig mainConfig, MarketConfig marketConfig) {
+    public TCSService(MainConfig mainConfig, String baseCurrency) {
         this.mainConfig = mainConfig;
-        this.marketConfig = marketConfig;
+        this.baseCurrency = baseCurrency;
         this.investApi =
                 mainConfig.isSandbox()
                         ? InvestApi.createSandbox(mainConfig.getTcsApiKey())
@@ -695,7 +694,7 @@ public class TCSService {
         }
 
         var key = new TickerInfo.Key(name, type);
-        String basicCurrency = marketConfig.getCurrency();
+        String basicCurrency = baseCurrency;
         String currency = searchTicker(key).getCurrency();
         if (!basicCurrency.equals(currency)) {
             cashToSell = convertCurrencies(currency, basicCurrency, cashToSell);
@@ -776,7 +775,7 @@ public class TCSService {
             boolean isFullPrice) {
         var key = new TickerInfo.Key(name, type);
 
-        String basicCurrency = marketConfig.getCurrency();
+        String basicCurrency = baseCurrency;
         String currency = searchTicker(key).getCurrency();
         if (!basicCurrency.equals(currency)) {
             cashToSell = convertCurrencies(currency, basicCurrency, cashToSell);
@@ -855,7 +854,7 @@ public class TCSService {
 
         var key = new TickerInfo.Key(name, type);
 
-        String basicCurrency = marketConfig.getCurrency();
+        String basicCurrency = baseCurrency;
         String currency = searchTicker(key).getCurrency();
         if (!basicCurrency.equals(currency)) {
             cost = convertCurrencies(currency, basicCurrency, cost);
@@ -977,7 +976,7 @@ public class TCSService {
 
         var key = new TickerInfo.Key(name, type);
         TickerInfo tickerInfo = searchTicker(key);
-        String basicCurrency = marketConfig.getCurrency();
+        String basicCurrency = baseCurrency;
         String currency = tickerInfo.getCurrency();
 
         // Calculate full notional and margin requirement (20% for short)
@@ -1071,7 +1070,7 @@ public class TCSService {
         }
 
         var key = new TickerInfo.Key(name, type);
-        String basicCurrency = marketConfig.getCurrency();
+        String basicCurrency = baseCurrency;
         String currency = searchTicker(key).getCurrency();
         if (!basicCurrency.equals(currency)) {
             cashToBuy = convertCurrencies(currency, basicCurrency, cashToBuy);
@@ -1132,7 +1131,7 @@ public class TCSService {
             boolean isFullPrice) {
         var key = new TickerInfo.Key(name, type);
 
-        String basicCurrency = marketConfig.getCurrency();
+        String basicCurrency = baseCurrency;
         String currency = searchTicker(key).getCurrency();
         if (!basicCurrency.equals(currency)) {
             double convertedCashToBuy = convertCurrencies(basicCurrency, currency, cashToBuy);
@@ -2441,7 +2440,7 @@ public class TCSService {
     }
 
     /**
-     * Returns the available cash balance in the base currency configured in {@link MarketConfig}.
+     * Returns the available cash balance in the base currency.
      *
      * @return available cash amount
      */
@@ -2450,7 +2449,7 @@ public class TCSService {
         Positions positions =
                 investApi.getOperationsService().getPositionsSync(mainConfig.getTcsAccountId());
         return positions.getMoney().stream()
-                .filter(it -> marketConfig.getCurrency().equalsIgnoreCase(it.getCurrency()))
+                .filter(it -> baseCurrency.equalsIgnoreCase(it.getCurrency()))
                 .map(Money::getValue)
                 .findFirst()
                 .orElse(BigDecimal.ZERO)
@@ -2630,9 +2629,7 @@ public class TCSService {
                             }
                             TickerInfo tickerInfo = searchTicker(tickerKey.get());
                             if (null != tickerInfo
-                                    && marketConfig
-                                            .getCurrency()
-                                            .equals(tickerInfo.getCurrency())) {
+                                    && baseCurrency.equals(tickerInfo.getCurrency())) {
                                 var expectedYield = it.getExpectedYield().doubleValue();
                                 if (0.0 == expectedYield) {
                                     var currentPrice =
