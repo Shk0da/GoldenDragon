@@ -107,7 +107,7 @@ task trainAllTickers {
     doLast {
         def tradesFile = file('ml_strategy/data_pipeline/trades.csv')
         if (!tradesFile.exists()) {
-            throw new GradleException('Trades file not found. Run generateModel first.')
+            throw new GradleException('Trades file not found. Run runMlTraining first.')
         }
 
         // Extract unique tickers from trades.csv
@@ -148,12 +148,6 @@ task trainAllTickers {
         println "Successful: $successful, Failed: $failed"
         println "=========================================="
     }
-}
-
-task generateModel {
-    group = 'ml'
-    description = 'Run backtest and train ML model.'
-    dependsOn 'runBacktest', 'runMlTraining', 'trainAllTickers'
 }
 
 runMlTraining.mustRunAfter runBacktest

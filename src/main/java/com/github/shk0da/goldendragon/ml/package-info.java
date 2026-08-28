@@ -77,7 +77,6 @@
  *   <li>{@code ./gradlew runMlTraining -Pdata=... -Poutput=...} — custom paths.
  *   <li>{@code ./gradlew runMlTraining -Pticker=SBER} — model for specific ticker.
  *   <li>{@code ./gradlew trainAllTickers} — models for all tickers.
- *   <li>{@code ./gradlew generateModel} — full pipeline (backtest + training).
  * </ul>
  *
  * <h2>Thread Safety</h2>

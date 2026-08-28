@@ -187,19 +187,6 @@ public final class StrategyRegistry {
                                 new OrderBookScalpStrategy(tcs, mc, new OrderBookScalpConfig())
                                         .run()),
                 null);
-        register(
-                "GenerateModel",
-                (mc, mkt, tcs, args) -> {
-                    telegramNotifyService.sendMessage("Run GenerateModel");
-                    try {
-                        new ModelGenerator().runGenerateModel(args);
-                    } catch (final Exception ex) {
-                        out.printf("GenerateModel error: %s%n", ex.getMessage());
-                        ex.printStackTrace();
-                    }
-                    telegramNotifyService.sendMessage("Stop GenerateModel");
-                },
-                null);
     }
 
     public static Entry get(String name) {

@@ -58,8 +58,6 @@
  *       focuses on technical indicators without pattern dependency.
  *   <li>{@link com.github.shk0da.goldendragon.strategy.Rebalance} — strategy for periodic portfolio
  *       rebalancing by target weights.
- *   <li>{@link com.github.shk0da.goldendragon.strategy.ModelGenerator} — trading model generation
- *       and validation (hyperparameters, cross-validation).
  *   <li>{@link com.github.shk0da.goldendragon.strategy.RSX} — RSI with exponential smoothing (RSX =
  *       RSI Smoothed).
  *   <li>{@link com.github.shk0da.goldendragon.strategy.DataCollector} — ML model data collection:
