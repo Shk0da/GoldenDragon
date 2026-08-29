@@ -53,18 +53,6 @@ public interface MarketDataProvider {
     }
 
     /**
-     * Buy position by quantity (backtest only).
-     *
-     * @param name ticker name
-     * @param type ticker type
-     * @param quantity quantity to buy
-     * @return true if successful
-     */
-    default boolean buyByQuantity(String name, TickerType type, int quantity) {
-        return false; // Default implementation for live mode
-    }
-
-    /**
      * Close long position by market (backtest only).
      *
      * @param ticker ticker name
@@ -73,17 +61,5 @@ public interface MarketDataProvider {
      */
     default boolean closeLongByMarket(String ticker, TickerType type) {
         return false; // Default implementation for live mode
-    }
-
-    /**
-     * Get current price for order execution (backtest only).
-     *
-     * @param name ticker name
-     * @param type ticker type
-     * @param isAsk true for ask price (buy), false for bid (sell)
-     * @return price or null
-     */
-    default Double getCurrentPrice(String name, TickerType type, boolean isAsk) {
-        return null; // Default implementation for live mode
     }
 }

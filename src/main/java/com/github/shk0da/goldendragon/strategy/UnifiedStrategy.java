@@ -173,15 +173,14 @@ public class UnifiedStrategy extends BaseStrategy {
     private final ConcurrentMap<String, Integer> consecutiveLossTracker = new ConcurrentHashMap<>();
 
     public UnifiedStrategy(UnifiedTraderConfig unifiedTraderConfig, TCSService tcsService) {
-        this(unifiedTraderConfig, tcsService, new Config(), false);
+        this(unifiedTraderConfig, tcsService, new Config());
     }
 
     public UnifiedStrategy(
             UnifiedTraderConfig unifiedTraderConfig,
             TCSService tcsService,
-            Config config,
-            boolean isBacktest) {
-        super(unifiedTraderConfig, tcsService, config, isBacktest);
+            Config config) {
+        super(unifiedTraderConfig, tcsService, config);
 
         this.mmEnabled = config.mmEnabled;
 
@@ -239,10 +238,6 @@ public class UnifiedStrategy extends BaseStrategy {
             this.performanceTracker = null;
             log("Money Management disabled");
         }
-    }
-
-    public void setFixedEntryLeverage(int leverage) {
-        this.fixedEntryLeverage = Math.max(1, leverage);
     }
 
     @Override

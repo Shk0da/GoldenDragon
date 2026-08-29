@@ -28,19 +28,6 @@ import java.io.FileWriter;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.text.SimpleDateFormat;
-import java.time.DayOfWeek;
-import java.time.LocalDate;
-import java.time.LocalDateTime;
-import java.time.LocalTime;
-import java.time.format.DateTimeFormatter;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.locks.ReentrantLock;
 import java.nio.file.Paths;
 import java.sql.Timestamp;
 import java.text.SimpleDateFormat;
@@ -61,6 +48,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.locks.ReentrantLock;
 
 import static com.github.shk0da.goldendragon.model.TickerType.FEATURE;
 import static com.github.shk0da.goldendragon.model.TickerType.STOCK;
@@ -234,16 +222,6 @@ import static java.util.concurrent.CompletableFuture.runAsync;
     protected OrderExecutor orderExecutor;
     protected final BadWeatherFilter badWeatherFilter;
     protected final MarketRegimeFilter marketRegimeFilter;
-    protected static boolean isBacktest;
-
-    /**
-     * Set market data provider and order executor for backtest mode.
-     * Called by BacktestRunner after strategy creation.
-     */
-    public void setBacktestProviders(MarketDataProvider marketDataProvider, OrderExecutor orderExecutor) {
-        this.marketDataProvider = marketDataProvider;
-        this.orderExecutor = orderExecutor;
-    }
 
     protected static final ThreadLocal<SimpleDateFormat> CANDLE_TIME_FORMAT =
             ThreadLocal.withInitial(() -> new SimpleDateFormat("dd.MM.yyyy HH:mm:ss"));
@@ -251,12 +229,6 @@ import static java.util.concurrent.CompletableFuture.runAsync;
     protected static final long COOLDOWN_DURATION_MS = 5 * 60 * 1000L;
     protected static final long API_CALL_DELAY_MS = 100;
     protected static final Object API_LOCK = new Object();
-
-    protected static LocalDateTime backtestCurrentTime;
-
-    public static void setBacktestCurrentTime(LocalDateTime time) {
-        BaseStrategy.backtestCurrentTime = time;
-    }
 
     protected static final LocalTime WORK_START_TIME = LocalTime.of(8, 30);
     protected static final LocalTime EOD_CLOSE_TIME = LocalTime.of(21, 0);
@@ -275,23 +247,13 @@ import static java.util.concurrent.CompletableFuture.runAsync;
     protected BaseStrategy(
             UnifiedTraderConfig unifiedTraderConfig,
             TCSService tcsService,
-            Config config,
-            boolean isBacktest) {
+            Config config) {
         this.config = config;
         this.tcsService = tcsService;
         this.unifiedTraderConfig = unifiedTraderConfig;
-        this.isBacktest = isBacktest;
 
-        // Initialize market data provider and order executor based on mode
-        if (isBacktest) {
-            // In backtest mode, providers will be set by BacktestRunner via setBacktestProviders()
-            // This avoids main->test package dependency
-            this.marketDataProvider = null;
-            this.orderExecutor = null;
-        } else {
-            this.marketDataProvider = new LiveMarketDataProvider(tcsService);
-            this.orderExecutor = new LiveOrderExecutor(tcsService);
-        }
+        this.marketDataProvider = new LiveMarketDataProvider(tcsService);
+        this.orderExecutor = new LiveOrderExecutor(tcsService);
 
         boolean bwFilterEnabled =
                 unifiedTraderConfig != null
@@ -299,66 +261,6 @@ import static java.util.concurrent.CompletableFuture.runAsync;
                         : config.badWeatherFilterEnabled;
         this.badWeatherFilter = new BadWeatherFilter(bwFilterEnabled);
         this.marketRegimeFilter = new MarketRegimeFilter(config.marketRegimeFilterEnabled);
-    }
-
-    /**
-     * Synchronizes positionStore with actual broker positions.
-     * Call this before making decisions to ensure positionStore reflects reality.
-     * Used in backtest to sync with SimulatedBroker state.
-     */
-    public void syncPositionStoreFromBroker() {
-        if (marketDataProvider == null) {
-            return;
-        }
-
-        // Get all positions from broker
-        for (TickerType type : TickerType.values()) {
-            if (type == TickerType.ALL || type == TickerType.UNKNOWN) {
-                continue;
-            }
-            try {
-                // Get all positions for this type
-                // Note: this requires broker to expose getAllPositions() or similar
-                // For now, sync known tickers from config
-                for (String tickerName : unifiedTraderConfig.getStocks()) {
-                    com.github.shk0da.goldendragon.model.PositionInfo brokerPos =
-                            marketDataProvider.getCurrentPositions(TickerType.ALL, tickerName);
-                    boolean brokerHasPosition = brokerPos != null && brokerPos.getBalance() > 0;
-                    Position storedPosition = positionStore.getOrDefault(tickerName, new Position());
-                    boolean storeHasPosition = storedPosition.quantity > 0;
-
-                    if (storeHasPosition && !brokerHasPosition) {
-                        // Position was closed outside strategy (e.g. EOD), reset store
-                        positionStore.remove(tickerName);
-                    } else if (!storeHasPosition && brokerHasPosition) {
-                        // Position exists in broker but not in store, restore it
-                        Position restored = new Position(
-                                "BUY",
-                                brokerPos.getAveragePositionPrice(),
-                                null,
-                                null,
-                                Math.abs(brokerPos.getBalance()),
-                                0,
-                                0);
-                        positionStore.put(tickerName, restored);
-                    } else if (storeHasPosition && brokerHasPosition
-                            && Math.abs(brokerPos.getBalance()) != storedPosition.quantity) {
-                        // Quantity mismatch: use broker quantity
-                        Position updated = new Position(
-                                storedPosition.direction,
-                                storedPosition.entryPrice != null ? storedPosition.entryPrice : brokerPos.getAveragePositionPrice(),
-                                storedPosition.stopLoss,
-                                storedPosition.takeProfit,
-                                Math.abs(brokerPos.getBalance()),
-                                storedPosition.candlesHeld,
-                                storedPosition.cooldownRemaining);
-                        positionStore.put(tickerName, updated);
-                    }
-                }
-            } catch (Exception ex) {
-                // Ignore sync errors for this type
-            }
-        }
     }
 
     public void setPeerCandles(Map<String, List<Candle>> peerCandles) {
@@ -1342,7 +1244,7 @@ import static java.util.concurrent.CompletableFuture.runAsync;
     }
 
     protected boolean isTradingDay() {
-        DayOfWeek day = (backtestCurrentTime != null) ? backtestCurrentTime.getDayOfWeek() : LocalDateTime.now().getDayOfWeek();
+        DayOfWeek day = LocalDateTime.now().getDayOfWeek();
         return day != DayOfWeek.SATURDAY && day != DayOfWeek.SUNDAY;
     }
 
@@ -1350,7 +1252,7 @@ import static java.util.concurrent.CompletableFuture.runAsync;
         if (!isTradingDay()) {
             return false;
         }
-        LocalTime now = backtestCurrentTime != null ? backtestCurrentTime.toLocalTime() : LocalTime.now();
+        LocalTime now = LocalTime.now();
         return !now.isBefore(WORK_START_TIME) && now.isBefore(EOD_CLOSE_TIME);
     }
 
@@ -1498,7 +1400,7 @@ import static java.util.concurrent.CompletableFuture.runAsync;
     }
 
     protected static void log(String message) {
-        log(message, isBacktest);
+        log(message, false);
     }
 
     protected static void log(String message, boolean silent) {

@@ -6,7 +6,6 @@
 
 - Многопоточный движок стратегий с пулом на каждый тикер
 - Money management с адаптивным сайзингом, risk manager и kill switch
-- Полноценный backtest-движок с метриками качества
 - Сбор исторических данных с Tinkoff
 - Кеширование свечей и уровней на диске
 
@@ -14,7 +13,7 @@
 
 | Стратегия | Описание |
 |---|---|
-| `UnifiedStrategy` | Основная стратегия с тремя типами сигналов (trend, fx, mixed), свечными паттернами, голосованием и режимом фильтрации рынка (Regime-Aware Filter) |
+| `RegimeAwareStrategy` | Основная стратегия с тремя типами сигналов (trend, fx, mixed), свечными паттернами, голосованием и режимом фильтрации рынка (Regime-Aware Filter) |
 | `OrderBookScalpStrategy` | Скальпинг на основе анализа стакана и дельты |
 
 ## Архитектура
@@ -48,14 +47,6 @@ src/main/java/com/github/shk0da/goldendragon/
     ├── BaseStrategy          # базовый класс (жизненный цикл, индикаторы, кэш)
     ├── UnifiedStrategy       # основная стратегия с режимом фильтрации рынка
     └── OrderBookScalpStrategy # скальпинг по стакану
-
-src/test/java/com/github/shk0da/goldendragon/
-├── test/                     # backtest движок и утилиты
-│   ├── BacktestRunner        # движок backtest
-│   ├── SimulatedBroker       # симулированный брокер (кэш, позиции, свечи)
-│   ├── BacktestOrderExecutor # исполнение ордеров в backtest
-│   └── BacktestExpertEvaluator # экспертная оценка качества backtest
-└── resources/                # тестовые ресурсы
 ```
 
 ## Быстрый старт
@@ -77,18 +68,10 @@ cd GoldenDragon
 ### Запуск стратегии
 
 ```bash
-./gradlew runStrategy -Pstrategy=UnifiedStrategy
+./gradlew runStrategy -Pstrategy=RegimeAwareStrategy
 ```
 
-Доступные стратегии: `UnifiedStrategy`, `OrderBookScalpStrategy`.
-
-### Backtest
-
-```bash
-./gradlew runBacktest
-```
-
-Поддерживается: `UnifiedStrategy`.
+Доступные стратегии: `RegimeAwareStrategy`, `OrderBookScalpStrategy`.
 
 ## Конфигурация
 

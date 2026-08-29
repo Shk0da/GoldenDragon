@@ -45,19 +45,17 @@ public class RegimeAwareStrategy extends BaseStrategy {
     }
 
     public RegimeAwareStrategy(UnifiedTraderConfig unifiedTraderConfig, TCSService tcsService) {
-        this(unifiedTraderConfig, tcsService, new Config(), false);
+        this(unifiedTraderConfig, tcsService, new Config());
     }
 
     public RegimeAwareStrategy(
             UnifiedTraderConfig unifiedTraderConfig,
             TCSService tcsService,
-            Config config,
-            boolean isBacktest) {
-        super(unifiedTraderConfig, tcsService, config, isBacktest);
+            Config config) {
+        super(unifiedTraderConfig, tcsService, config);
 
         // Single UnifiedStrategy instance
-        this.unifiedStrategy =
-                new UnifiedStrategy(unifiedTraderConfig, tcsService, config, isBacktest);
+        this.unifiedStrategy = new UnifiedStrategy(unifiedTraderConfig, tcsService, config);
 
         log(
                 "RegimeAwareStrategy: Regime filter (TREND:ADX>"

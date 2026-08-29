@@ -96,12 +96,6 @@
  *
  * <p>Strategies log to {@link java.lang.System#out} with timestamps {@code dd.MM.yyyy HH:mm:ss}.
  *
- * <h2>Backtesting</h2>
- *
- * <p>Strategies can be run in backtest mode via {@code
- * com.github.shk0da.goldendragon.test.BacktestRunner} which executes order simulation on historical
- * data with commissions, trading hours, and portfolio management.
- *
  * <h2>Extension</h2>
  *
  * <p>To create a new strategy:
