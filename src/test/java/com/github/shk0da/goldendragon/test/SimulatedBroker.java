@@ -40,8 +40,6 @@ public class SimulatedBroker implements MarketDataProvider {
     // Cache parsed LocalDateTime for each candle (parsed once at load time)
     private final Map<String, List<LocalDateTime>> cachedHourCandleTimes = new ConcurrentHashMap<>();
     private final Map<String, List<LocalDateTime>> cachedMinuteCandleTimes = new ConcurrentHashMap<>();
-    // Incremental filter cache: ticker -> (interval -> lastFilteredIndex)
-    private final Map<String, Map<String, Integer>> lastFilteredIndex = new ConcurrentHashMap<>();
     private volatile LocalDateTime currentTime;
     // Read-write lock: buy/sell mutate cash + positions (write), all reads take shared lock.
     private final ReentrantReadWriteLock readWriteLock = new ReentrantReadWriteLock();
@@ -357,7 +355,6 @@ public class SimulatedBroker implements MarketDataProvider {
         try {
             List<Candle> allCandles;
             List<LocalDateTime> parsedTimes;
-            String cacheKey = interval.equals("HOUR") ? "HOUR" : "5_MIN";
 
             if ("HOUR".equals(interval)) {
                 if (!cachedHourCandles.containsKey(ticker)) {
@@ -383,30 +380,39 @@ public class SimulatedBroker implements MarketDataProvider {
                 return Collections.emptyList();
             }
 
-            // Incremental filter: find new cutoff index starting from last known
+            // Filter candles to only include those up to current simulation time.
+            // Use binary search (deterministic, no mutable cache state) to be safe
+            // under parallel execution and any currentTime ordering.
             if (currentTime == null || allCandles.isEmpty()) {
                 return Collections.unmodifiableList(new ArrayList<>(allCandles));
             }
 
-            Map<String, Integer> tickerIndexMap = lastFilteredIndex.computeIfAbsent(ticker, k -> new HashMap<>());
-            int startIndex = tickerIndexMap.getOrDefault(cacheKey, 0);
-            if (startIndex < 0) startIndex = 0;
-            if (startIndex >= allCandles.size()) {
+            int endIdx = binarySearchCutoff(parsedTimes, currentTime);
+            if (endIdx <= 0) {
                 return Collections.emptyList();
             }
-
-            // Binary search for efficiency, then linear scan from last index
-            int endIdx = startIndex;
-            while (endIdx < allCandles.size() && parsedTimes.get(endIdx).compareTo(currentTime) <= 0) {
-                endIdx++;
-            }
-            tickerIndexMap.put(cacheKey, endIdx);
-
-            // Return sublist (no copy) wrapped as unmodifiable
-            return Collections.unmodifiableList(allCandles.subList(0, endIdx));
+            // Return a defensive copy so callers never share a mutable view.
+            return Collections.unmodifiableList(new ArrayList<>(allCandles.subList(0, endIdx)));
         } catch (Exception e) {
             return Collections.emptyList();
         }
+    }
+
+    /**
+     * Returns the number of candle times that are &lt;= cutoff (parsedTimes is sorted ascending).
+     */
+    private static int binarySearchCutoff(List<LocalDateTime> parsedTimes, LocalDateTime cutoff) {
+        int low = 0;
+        int high = parsedTimes.size();
+        while (low < high) {
+            int mid = (low + high) >>> 1;
+            if (parsedTimes.get(mid).compareTo(cutoff) <= 0) {
+                low = mid + 1;
+            } else {
+                high = mid;
+            }
+        }
+        return low;
     }
 
     @Override
