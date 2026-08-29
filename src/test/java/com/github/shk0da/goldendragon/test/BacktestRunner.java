@@ -1,6 +1,7 @@
 package com.github.shk0da.goldendragon.test;
 
 import com.github.shk0da.goldendragon.config.UnifiedTraderConfig;
+import com.github.shk0da.goldendragon.market.BacktestOrderExecutor;
 import com.github.shk0da.goldendragon.model.Candle;
 import com.github.shk0da.goldendragon.model.Position;
 import com.github.shk0da.goldendragon.model.TickerInfo;
@@ -8,7 +9,6 @@ import com.github.shk0da.goldendragon.model.TickerType;
 import com.github.shk0da.goldendragon.model.TradingDecision;
 import com.github.shk0da.goldendragon.repository.TickerRepository;
 import com.github.shk0da.goldendragon.service.TCSService;
-import com.github.shk0da.goldendragon.market.BacktestOrderExecutor;
 import com.github.shk0da.goldendragon.strategy.BaseStrategy;
 import com.github.shk0da.goldendragon.strategy.StrategyRegistry;
 import com.github.shk0da.goldendragon.utils.PropertiesUtils;
@@ -418,7 +418,21 @@ public class BacktestRunner {
     private TimeSeries equityTimeSeries;
     private JFreeChart equityChart;
     private Path chartOutputPath;
-    private static final long CHART_UPDATE_INTERVAL_MS = 0; // Update chart on every equity point (no throttling)
+    private long lastChartUpdateTime = 0;
+    // Interval between chart PNG writes in ms. 0 = write on every equity point (continuous live view).
+    // Override via system property: -Dbacktest.chart.interval=1000
+    private static final long CHART_UPDATE_INTERVAL_MS = parseChartUpdateInterval();
+
+    private static long parseChartUpdateInterval() {
+        try {
+            String value = System.getProperty("backtest.chart.interval", "10000");
+            long parsed = Long.parseLong(value.trim());
+            return Math.max(0, parsed);
+        } catch (NumberFormatException ex) {
+            System.err.println("Invalid backtest.chart.interval, using 0 (every point): " + ex.getMessage());
+            return 0;
+        }
+    }
 
     public BacktestRunner(
         String dataDir,
@@ -2015,10 +2029,10 @@ public class BacktestRunner {
      */
     private void initRealTimeChart(String strategyName) {
         equityTimeSeries = new TimeSeries("Capital");
-        
+
         org.jfree.chart.axis.NumberAxis rangeAxis = new org.jfree.chart.axis.NumberAxis("Capital (RUB)");
         rangeAxis.setStandardTickUnits(org.jfree.chart.axis.NumberAxis.createStandardTickUnits());
-        
+
         equityChart = ChartFactory.createTimeSeriesChart(
             "Equity Curve - " + strategyName,
             "Date",
@@ -2047,7 +2061,7 @@ public class BacktestRunner {
 
     /**
      * Updates equity curve chart in real-time during backtest.
-     * Writes to disk on every equity point for continuous live viewing.
+     * Writes to disk every CHART_UPDATE_INTERVAL_MS (0 = every point).
      */
     private synchronized void updateRealTimeChart(String strategyName, EquityPoint equityPoint) {
         if (equityTimeSeries == null) {
@@ -2063,14 +2077,28 @@ public class BacktestRunner {
             );
             equityTimeSeries.addOrUpdate(day, equityPoint.equity);
 
-            // Write chart on every equity point for continuous live viewing
+            // Write chart according to configured interval (0 = every equity point)
             if (chartOutputPath != null) {
-                try (FileOutputStream out = new FileOutputStream(chartOutputPath.toFile())) {
-                    ChartUtilities.writeChartAsPNG(out, equityChart, 1200, 600);
+                if (CHART_UPDATE_INTERVAL_MS == 0) {
+                    writeChartPng();
+                } else {
+                    long now = System.currentTimeMillis();
+                    if (now - lastChartUpdateTime >= CHART_UPDATE_INTERVAL_MS) {
+                        writeChartPng();
+                        lastChartUpdateTime = now;
+                    }
                 }
             }
         } catch (Exception e) {
             // Silently ignore chart update errors
+        }
+    }
+
+    private void writeChartPng() {
+        try (FileOutputStream out = new FileOutputStream(chartOutputPath.toFile())) {
+            ChartUtilities.writeChartAsPNG(out, equityChart, 1200, 600);
+        } catch (IOException e) {
+            // Silently ignore chart write errors
         }
     }
 }
