@@ -103,34 +103,4 @@ public class LiveMarketDataProvider implements MarketDataProvider {
             return new MarketPrices(null, null);
         }
     }
-
-    @Override
-    public boolean isLive() {
-        return true;
-    }
-
-    @Override
-    public int getAvailableLiquidity(String ticker, String side) {
-        TickerInfo info = tickerRepository.getByName(ticker);
-        if (info == null) {
-            return 0;
-        }
-
-        try {
-            Map<String, Map<Double, Integer>> prices = tcsService.getCurrentPrices(
-                    new TickerInfo.Key(ticker, info.getType()), false);
-            Map<Double, Integer> levels = prices.get(side);
-            if (levels == null || levels.isEmpty()) {
-                return 0;
-            }
-            return levels.values().stream().mapToInt(Integer::intValue).sum();
-        } catch (Exception e) {
-            return 0;
-        }
-    }
-
-    @Override
-    public String getCurrentTime() {
-        return java.time.LocalDateTime.now().toString();
-    }
 }

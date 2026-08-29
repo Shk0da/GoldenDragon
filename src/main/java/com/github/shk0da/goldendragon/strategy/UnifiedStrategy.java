@@ -205,12 +205,10 @@ public class UnifiedStrategy extends BaseStrategy {
             this.positionSizer = new PositionSizer(sizingStrategy);
             this.riskManager =
                     new RiskManager(
-                            config.mmRiskPercent,
                             config.mmMaxDailyLossPercent,
                             config.mmMaxConsecutiveLosses);
             this.stopLossManager =
                     new StopLossManager(
-                            config.mmAtrStopMultiplier,
                             config.mmTrailingActivationR,
                             config.mmTrailingMultiplier,
                             config.mmBreakevenActivationR,
@@ -224,7 +222,7 @@ public class UnifiedStrategy extends BaseStrategy {
             this.killSwitch = new KillSwitch(config.mmCriticalDrawdownPercent);
             this.performanceTracker = new PerformanceTracker();
 
-            logWithBacktest(
+            log(
                     "Money Management initialized: risk="
                             + (config.mmRiskPercent * 100)
                             + "%, dailyLoss="
@@ -239,7 +237,7 @@ public class UnifiedStrategy extends BaseStrategy {
             this.adaptiveCapital = null;
             this.killSwitch = null;
             this.performanceTracker = null;
-            logWithBacktest("Money Management disabled");
+            log("Money Management disabled");
         }
     }
 
@@ -402,7 +400,7 @@ public class UnifiedStrategy extends BaseStrategy {
                                     p.quantity,
                                     p.candlesHeld,
                                     p.cooldownRemaining);
-                    logWithBacktest(
+                    log(
                             "MM: Updated stop loss for "
                                     + ticker
                                     + " to "
@@ -689,26 +687,23 @@ public class UnifiedStrategy extends BaseStrategy {
             }
 
         } else {
-            // Legacy sizing (fallback if MM disabled)
-            double confidenceK = Math.max(0.35, regimeResult.confidence / 100.0);
+            // Use balance as direct position cost (averagePositionCost from config)
+            // Calculate quantity to invest the full balance amount
+            // qty is in LOTS (consistent with Position.quantity and SimulatedBroker.buyByQuantity)
+            TickerInfo tickerInfo = resolveTickerInfo(ticker);
+            int lotSize = tickerInfo != null && tickerInfo.getLot() != null
+                ? Math.max(1, tickerInfo.getLot())
+                : 1;
 
-            double signalStrengthK = 1.0;
-            if (signal.startsWith("TB_4")) signalStrengthK = 0.75;
-            if (signal.startsWith("TB_5")) signalStrengthK = 0.90;
-            if (signal.startsWith("TB_6")) signalStrengthK = 1.00;
-            if (signal.startsWith("MX")) signalStrengthK = Math.max(signalStrengthK, 0.85);
-            if (signal.startsWith("FX")) signalStrengthK = Math.max(signalStrengthK, 0.80);
+            double positionValue = balance;
+            double maxLotsByCapital = positionValue / (entry * lotSize);
 
-            double finalRiskMultiplier =
-                    regimeResult.positionMultiplier * confidenceK * signalStrengthK;
-            double maxRisk = balance * riskP * finalRiskMultiplier;
+            // maxAffordableQty is in UNITS (shares), convert to lots
+            double maxLotsAffordable = maxAffordableQty / (double) lotSize;
+            // maxAskQty is in LOTS
+            double maxLots = Math.min(maxLotsAffordable, maxAskQty);
 
-            double maxQty = Math.min(maxAffordableQty, maxAskQty);
-            qty = (int) Math.min(Math.max(1, Math.floor(maxRisk / slDist)), maxQty);
-            if (effectiveLeverage > 1) {
-                qty = (int) Math.min((long) qty * effectiveLeverage, maxAffordableQty);
-            }
-            qty = Math.min(qty, (int) maxQty);
+            qty = (int) Math.floor(Math.min(maxLotsByCapital, maxLots));
 
             if (qty <= 0) {
                 return new TradingDecision("HOLD", "qty0", 0.0, 0, null, null, null, p);
@@ -718,7 +713,7 @@ public class UnifiedStrategy extends BaseStrategy {
         if (effectiveLeverage > 1
                 && fixedEntryLeverage == null
                 && unifiedTraderConfig.isAdaptiveLeverageEnabled()) {
-            logWithBacktest(
+            log(
                     "Adaptive leverage for "
                             + ticker
                             + ": "
@@ -908,7 +903,7 @@ public class UnifiedStrategy extends BaseStrategy {
 
             return levels.values().stream().mapToInt(Integer::intValue).sum();
         } catch (Exception ex) {
-            logWithBacktest("Failed to read " + side + " for " + ticker + ": " + ex.getMessage());
+            log("Failed to read " + side + " for " + ticker + ": " + ex.getMessage());
             return 0;
         }
     }
@@ -1128,24 +1123,18 @@ public class UnifiedStrategy extends BaseStrategy {
             consecutiveLossTracker.replaceAll((ticker, count) -> Math.max(0, count - 1));
             consecutiveLossTracker.entrySet().removeIf(e -> e.getValue() <= 0);
 
-            logWithBacktest("MM: Daily reset completed");
+            log("MM: Daily reset completed");
         }
     }
 
     /** Register trade result with MM components (called on position close). */
-    public void registerTradeResult(
-            String ticker,
-            double pnl,
-            double entryPrice,
-            double exitPrice,
-            int quantity,
-            String direction) {
+    public void registerTradeResult(String ticker, double pnl) {
         if (mmEnabled) {
             if (riskManager != null) {
                 riskManager.registerTrade(pnl);
             }
             if (performanceTracker != null) {
-                performanceTracker.registerTrade(pnl, ticker, direction, entryPrice, exitPrice);
+                performanceTracker.registerTrade(pnl);
             }
             if (adaptiveCapital != null) {
                 if (pnl >= 0) {
@@ -1166,7 +1155,7 @@ public class UnifiedStrategy extends BaseStrategy {
                 consecutiveLossTracker.remove(ticker);
             }
 
-            logWithBacktest(
+            log(
                     "MM: Registered trade for "
                             + ticker
                             + ": PnL="
@@ -1184,7 +1173,7 @@ public class UnifiedStrategy extends BaseStrategy {
             double balance, Position position, double currentPrice) {
         if (position.quantity > 0) {
             if (hasActiveNonTmonPositions()) {
-                logWithBacktest("TMON@: selling to free cash for other positions");
+                log("TMON@: selling to free cash for other positions");
                 return new TradingDecision(
                         "CLOSE",
                         "tmon_sell_for_cash",
@@ -1201,7 +1190,7 @@ public class UnifiedStrategy extends BaseStrategy {
         if (!hasActiveNonTmonPositions() && balance > 0.0) {
             TickerInfo tickerInfo = resolveTickerInfo("TMON@");
             if (tickerInfo == null) {
-                logWithBacktest("TMON@: ticker info not found, skipping buy");
+                log("TMON@: ticker info not found, skipping buy");
                 return new TradingDecision("HOLD", "tmon_ticker_not_found");
             }
             int lot = tickerInfo.getLot() != null ? tickerInfo.getLot() : 1;
@@ -1210,7 +1199,7 @@ public class UnifiedStrategy extends BaseStrategy {
             double effectivePrice = currentPrice * 1.01;
             double effectiveCostPerLot = effectivePrice * lot;
             if (balance < effectiveCostPerLot) {
-                logWithBacktest(
+                log(
                         "TMON@: skipping buy - insufficient cash ("
                                 + String.format("%.2f", balance)
                                 + ") for safe 1-lot entry at "
@@ -1224,7 +1213,7 @@ public class UnifiedStrategy extends BaseStrategy {
                             : 0;
             if (buyQty > 0) {
                 double totalCost = buyQty * currentPrice;
-                logWithBacktest(
+                log(
                         "TMON@: buying "
                                 + buyQty
                                 + " with idle cash "
@@ -1255,7 +1244,7 @@ public class UnifiedStrategy extends BaseStrategy {
             double exitPrice,
             int quantity,
             String direction) {
-        registerTradeResult(ticker, pnl, entryPrice, exitPrice, quantity, direction);
+        registerTradeResult(ticker, pnl);
     }
 
     @Override

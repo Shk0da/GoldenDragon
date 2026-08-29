@@ -1,6 +1,8 @@
 package com.github.shk0da.goldendragon.market;
 
 import com.github.shk0da.goldendragon.model.Candle;
+import com.github.shk0da.goldendragon.model.PositionInfo;
+import com.github.shk0da.goldendragon.model.TickerType;
 
 import java.util.List;
 
@@ -28,25 +30,60 @@ public interface MarketDataProvider {
     MarketPrices getLivePrices(String ticker);
 
     /**
-     * Check if provider is live (real-time) or backtest (historical).
+     * Get current position for a ticker (backtest only).
      *
-     * @return true if live, false if backtest
+     * @param tickerType ticker type
+     * @param tickerName ticker name
+     * @return position info, or null if not found (live mode always returns null)
      */
-    boolean isLive();
+    default PositionInfo getCurrentPositions(TickerType tickerType, String tickerName) {
+        return null; // Default implementation for live mode
+    }
 
     /**
-     * Get available liquidity for buying a ticker.
+     * Sell position by market price (backtest only).
      *
-     * @param ticker ticker symbol
-     * @param side "bid" for buying (sell orders in book)
-     * @return available quantity, 0 if unavailable
+     * @param name ticker name
+     * @param type ticker type
+     * @param cashToSell cash amount to sell
+     * @return true if successful
      */
-    int getAvailableLiquidity(String ticker, String side);
+    default boolean sellByMarket(String name, TickerType type, double cashToSell) {
+        return false; // Default implementation for live mode
+    }
 
     /**
-     * Get current time from the data provider.
+     * Buy position by quantity (backtest only).
      *
-     * @return current time as string
+     * @param name ticker name
+     * @param type ticker type
+     * @param quantity quantity to buy
+     * @return true if successful
      */
-    String getCurrentTime();
+    default boolean buyByQuantity(String name, TickerType type, int quantity) {
+        return false; // Default implementation for live mode
+    }
+
+    /**
+     * Close long position by market (backtest only).
+     *
+     * @param ticker ticker name
+     * @param type ticker type
+     * @return true if successful
+     */
+    default boolean closeLongByMarket(String ticker, TickerType type) {
+        return false; // Default implementation for live mode
+    }
+
+    /**
+     * Get current price for order execution (backtest only).
+     *
+     * @param name ticker name
+     * @param type ticker type
+     * @param isAsk true for ask price (buy), false for bid (sell)
+     * @return price or null
+     */
+    default Double getCurrentPrice(String name, TickerType type, boolean isAsk) {
+        return null; // Default implementation for live mode
+    }
 }

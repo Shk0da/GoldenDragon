@@ -2,7 +2,6 @@ package com.github.shk0da.goldendragon.strategy.orderbook;
 
 import com.github.shk0da.goldendragon.config.MainConfig;
 import com.github.shk0da.goldendragon.config.OrderBookScalpConfig;
-import com.github.shk0da.goldendragon.filters.CorrelationFilter;
 import com.github.shk0da.goldendragon.filters.VolatilitySpikeFilter;
 import com.github.shk0da.goldendragon.model.Candle;
 import com.github.shk0da.goldendragon.model.MarketDepthSnapshot;
@@ -139,7 +138,6 @@ public final class OrderBookTradingEngine implements MarketTickListener {
   private final QueueDynamicsTracker queueDynamicsTracker;
   private final SignalPerformanceTracker signalPerformanceTracker;
   private final DynamicTakeProfit dynamicTakeProfit;
-  private final CorrelationFilter correlationFilter;
   private final VolatilitySpikeFilter volatilitySpikeFilter;
   private final AdaptiveParameters adaptiveParameters;
   private final SlippageTracker slippageTracker;
@@ -173,7 +171,6 @@ public final class OrderBookTradingEngine implements MarketTickListener {
       this.killSwitch = new KillSwitch(config.getCriticalDrawdownPercent());
       this.riskManager =
           new RiskManager(
-              config.getRiskPerTradePercent(),
               config.getMaxDailyLossPercent(),
               config.getMaxConsecutiveLosses());
     } else {
@@ -238,16 +235,9 @@ public final class OrderBookTradingEngine implements MarketTickListener {
         config.getClusterTicks(),
         config.getDynamicTpMaxDistanceBps(),
         config.getDynamicTpMinDistanceBps());
-    this.correlationFilter = new CorrelationFilter(
-        config.isCorrelationFilterEnabled(),
-        config.getCorrelationThreshold(),
-        config.getCorrelationReturnWindow());
     this.volatilitySpikeFilter = new VolatilitySpikeFilter(
         config.isVolSpikeFilterEnabled(),
-        config.getVolSpikeSpreadMultiplier(),
-        config.getVolSpikeVolumeMultiplier(),
-        config.getVolSpikeCooldownMs(),
-        config.getVolSpikeLookbackPeriod());
+        config.getVolSpikeCooldownMs());
     AdaptiveParameters.Config adaptiveConfig = AdaptiveParameters.Config.builder()
         .baseMinDelta(config.getMinTradeFlow())
         .build();

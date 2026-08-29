@@ -52,20 +52,6 @@ public interface OrderExecutor {
     double getAvailableCash();
 
     /**
-     * Get total portfolio value.
-     *
-     * @return total portfolio value
-     */
-    double getPortfolioValue();
-
-    /**
-     * Check if executor is live or backtest.
-     *
-     * @return true if live, false if backtest
-     */
-    boolean isLive();
-
-    /**
      * Container for order execution results.
      */
     class ExecutionResult {

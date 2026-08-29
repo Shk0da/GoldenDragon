@@ -13,15 +13,6 @@ public class FixedRiskSizing implements SizingStrategy {
     private final double maxPositionSize; // Max % of balance per position
 
     /**
-     * Create fixed risk sizing strategy.
-     *
-     * @param riskPercent risk per trade as decimal (e.g., 0.005 for 0.5%)
-     */
-    public FixedRiskSizing(double riskPercent) {
-        this(riskPercent, 0.15); // Default max 15% of capital per position
-    }
-
-    /**
      * Create fixed risk sizing strategy with position size limit.
      *
      * @param riskPercent risk per trade as decimal (e.g., 0.01 for 1%)
@@ -57,14 +48,5 @@ public class FixedRiskSizing implements SizingStrategy {
         qty = Math.min(qty, maxQtyByCapital);
 
         return (int) Math.floor(qty);
-    }
-
-    /**
-     * Get risk percent parameter.
-     *
-     * @return risk per trade as decimal
-     */
-    public double getRiskPercent() {
-        return riskPercent;
     }
 }

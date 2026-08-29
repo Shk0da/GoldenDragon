@@ -9,8 +9,7 @@ import java.util.concurrent.atomic.AtomicReference;
  */
 public class PerformanceTracker {
 
-    private final AtomicReference<SessionStats> sessionStats =
-            new AtomicReference<>(new SessionStats());
+    private final AtomicReference<SessionStats> sessionStats = new AtomicReference<>(new SessionStats());
     private final AtomicLong peakEquity = new AtomicLong(0);
     private final AtomicLong currentEquity = new AtomicLong(0);
 
@@ -18,35 +17,11 @@ public class PerformanceTracker {
     public PerformanceTracker() {}
 
     /**
-     * Update equity and track peak.
-     *
-     * @param equity current equity value
-     */
-    public void updateEquity(long equity) {
-        currentEquity.set(equity);
-        peakEquity.updateAndGet(peak -> Math.max(peak, equity));
-    }
-
-    /**
-     * Update equity and track peak (double version).
-     *
-     * @param equity current equity value
-     */
-    public void updateEquity(double equity) {
-        updateEquity((long) (equity * 100));
-    }
-
-    /**
      * Register trade result.
      *
      * @param pnl trade PnL
-     * @param ticker ticker symbol
-     * @param direction trade direction ("BUY" or "SELL")
-     * @param entryPrice entry price
-     * @param exitPrice exit price
      */
-    public void registerTrade(
-            double pnl, String ticker, String direction, double entryPrice, double exitPrice) {
+    public void registerTrade(double pnl) {
         SessionStats oldStats = sessionStats.get();
         int newWins = pnl >= 0 ? oldStats.wins + 1 : oldStats.wins;
         int newLosses = pnl < 0 ? oldStats.losses + 1 : oldStats.losses;

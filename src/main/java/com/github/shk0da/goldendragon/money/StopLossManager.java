@@ -9,7 +9,6 @@ import com.github.shk0da.goldendragon.model.Position;
  */
 public class StopLossManager {
 
-    private final double atrStopMultiplier;
     private final double trailingActivationR;
     private final double trailingMultiplier;
     private final double breakevenActivationR;
@@ -18,44 +17,20 @@ public class StopLossManager {
     /**
      * Create stop loss manager with specified parameters.
      *
-     * @param atrStopMultiplier ATR multiplier for initial stop (e.g., 2.0)
      * @param trailingActivationR activate trailing after X R profit (e.g., 1.0)
      * @param trailingMultiplier trailing stop distance in ATR (e.g., 1.0)
      * @param breakevenActivationR move to breakeven after X R profit (e.g., 0.5)
      * @param breakevenBuffer buffer above entry for breakeven (e.g., 0.001)
      */
     public StopLossManager(
-            double atrStopMultiplier,
             double trailingActivationR,
             double trailingMultiplier,
             double breakevenActivationR,
             double breakevenBuffer) {
-        this.atrStopMultiplier = atrStopMultiplier;
         this.trailingActivationR = trailingActivationR;
         this.trailingMultiplier = trailingMultiplier;
         this.breakevenActivationR = breakevenActivationR;
         this.breakevenBuffer = breakevenBuffer;
-    }
-
-    /**
-     * Calculate initial stop loss level.
-     *
-     * @param entry entry price
-     * @param atr current ATR value
-     * @param direction position direction ("BUY" or "SELL")
-     * @return stop loss price
-     */
-    public double calculateInitialStop(double entry, double atr, String direction) {
-        if (entry <= 0 || atr <= 0) {
-            return entry;
-        }
-
-        double stopDistance = atr * atrStopMultiplier;
-        if ("BUY".equals(direction)) {
-            return entry - stopDistance;
-        } else {
-            return entry + stopDistance;
-        }
     }
 
     /**
@@ -142,32 +117,5 @@ public class StopLossManager {
         } else {
             return newStop < currentStop;
         }
-    }
-
-    /**
-     * Get ATR stop multiplier.
-     *
-     * @return ATR multiplier for initial stop
-     */
-    public double getAtrStopMultiplier() {
-        return atrStopMultiplier;
-    }
-
-    /**
-     * Get trailing activation R.
-     *
-     * @return R multiple to activate trailing
-     */
-    public double getTrailingActivationR() {
-        return trailingActivationR;
-    }
-
-    /**
-     * Get trailing multiplier.
-     *
-     * @return ATR multiplier for trailing stop
-     */
-    public double getTrailingMultiplier() {
-        return trailingMultiplier;
     }
 }

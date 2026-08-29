@@ -98,9 +98,9 @@
  *
  * <h2>Backtesting</h2>
  *
- * <p>Strategies can be run in backtest mode via {@link
- * com.github.shk0da.goldendragon.test.BacktestRunner} order execution on historical data with
- * commissions, trading hours, and portfolio management.
+ * <p>Strategies can be run in backtest mode via {@code
+ * com.github.shk0da.goldendragon.test.BacktestRunner} which executes order simulation on historical
+ * data with commissions, trading hours, and portfolio management.
  *
  * <h2>Extension</h2>
  *
@@ -117,7 +117,6 @@
  * </ol>
  *
  * @see com.github.shk0da.goldendragon.service
- * @see com.github.shk0da.goldendragon.test
  * @see com.github.shk0da.goldendragon.model
  * @see com.github.shk0da.goldendragon.config
  */

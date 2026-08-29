@@ -8,6 +8,7 @@ import com.github.shk0da.goldendragon.model.TickerType;
 import com.github.shk0da.goldendragon.model.TradingDecision;
 import com.github.shk0da.goldendragon.repository.TickerRepository;
 import com.github.shk0da.goldendragon.service.TCSService;
+import com.github.shk0da.goldendragon.market.BacktestOrderExecutor;
 import com.github.shk0da.goldendragon.strategy.BaseStrategy;
 import com.github.shk0da.goldendragon.strategy.StrategyRegistry;
 import com.github.shk0da.goldendragon.utils.PropertiesUtils;
@@ -918,7 +919,7 @@ public class BacktestRunner {
         }
 
         // Create shared simulated broker for backtest parity with live trading
-        SimulatedBroker broker = new SimulatedBroker(initialBalance, dataDir);
+        SimulatedBroker broker = new SimulatedBroker(initialBalance, dataDir, commission);
 
         // Register all tickers in simulated broker
         for (String ticker : marketDataByTicker.keySet()) {
@@ -927,9 +928,6 @@ public class BacktestRunner {
                 broker.registerTicker(info);
             }
         }
-
-        // Set the broker for backtest strategies to use
-        BaseStrategy.setBacktestBroker(broker);
 
         Map<String, BaseStrategy> strategies = new LinkedHashMap<>();
         Map<String, PortfolioPositionState> positionStates = new LinkedHashMap<>();
@@ -940,6 +938,9 @@ public class BacktestRunner {
 
         for (String ticker : marketDataByTicker.keySet()) {
             BaseStrategy strategy = StrategyRegistry.createBacktest(strategyName, config);
+            // Set market data provider and order executor for backtest mode
+            BacktestOrderExecutor orderExecutor = new BacktestOrderExecutor(broker);
+            strategy.setBacktestProviders(broker, orderExecutor);
             strategies.put(ticker, strategy);
             positionStates.put(ticker, new PortfolioPositionState());
             tradesByTicker.put(ticker, new ArrayList<>());
@@ -953,6 +954,13 @@ public class BacktestRunner {
         double sharedCash = initialBalance;
         List<EquityPoint> portfolioEquity = new ArrayList<>();
 
+        // Use averagePositionCost as target position size instead of equal distribution
+        // If cash is insufficient, use all available cash (TMON@ will be sold to cover the difference)
+        double targetPositionCost = config.getAveragePositionCost() != null
+            ? config.getAveragePositionCost()
+            : 10000.0; // default fallback
+        double allocatedBalance = Math.min(targetPositionCost, sharedCash);
+
         // Track monthly rebalance
         int lastRebalanceMonth = -1;
 
@@ -964,6 +972,8 @@ public class BacktestRunner {
             if (currentMonth != lastRebalanceMonth) {
                 sharedCash += monthlyRebalanceAmount;
                 lastRebalanceMonth = currentMonth;
+                // Recalculate allocated balance after monthly rebalance using averagePositionCost
+                allocatedBalance = Math.min(targetPositionCost, sharedCash);
             }
 
             for (String ticker : marketDataByTicker.keySet()) {
@@ -985,20 +995,24 @@ public class BacktestRunner {
 
                 if (!isTradingDay(currentTime.toLocalDate())
                     || !isWithinWorkingHours(currentTime.toLocalTime())) {
+                    // Update current price for broker before any calculation
+                    broker.setCurrentTime(currentTime);
+                    broker.updateCurrentPrice(ticker, current.close);
+
                     if (state.position.quantity > 0
                         && !currentTime.toLocalTime().isBefore(EOD_CLOSE_TIME)
                         && !currentTime.toLocalDate().equals(state.lastEodCloseDate)) {
-                        sharedCash =
-                            closePortfolioPosition(
-                                ticker,
-                                strategy,
-                                state,
-                                current.close,
-                                current.time,
-                                "eod_close",
-                                sharedCash,
-                                tradesByTicker.get(ticker),
-                                config);
+                        // EOD close: sync positionStore with broker, then let strategy decide
+                        strategy.syncPositionStoreFromBroker();
+
+                        // Now process ticker - strategy will see the position and can decide CLOSE
+                        BaseStrategy.setBacktestCurrentTime(currentTime);
+                        broker.setCurrentTime(currentTime);
+                        broker.updateCurrentPrice(ticker, current.close);
+                        strategy.processTicker(ticker, null, config, 0.0);
+
+                        // Update position state after strategy processed
+                        syncPositionStatesFromBroker(ticker, state, broker);
                         state.lastEodCloseDate = currentTime.toLocalDate();
                     }
 
@@ -1007,7 +1021,7 @@ public class BacktestRunner {
                         .add(
                             new EquityPoint(
                                 current.time,
-                                tickerEquity(ticker, state, current.close)));
+                                broker.getPortfolioValue()));
                     minuteIndexByTicker.put(ticker, idx + 1);
                     continue;
                 }
@@ -1017,107 +1031,60 @@ public class BacktestRunner {
                     state.hourIdx++;
                 }
 
-                boolean hourChanged = state.hourIdx != state.lastSeenHourIdx;
+                broker.setCurrentTime(currentTime);
+                broker.updateCurrentPrice(ticker, current.close);
                 equityByTicker
                     .get(ticker)
                     .add(
                         new EquityPoint(
-                            current.time, tickerEquity(ticker, state, current.close)));
+                            current.time, broker.getPortfolioValue()));
 
                 if (state.hourIdx + 1 >= MIN_HOURS_REQUIRED) {
-                    List<Candle> hourHistory = marketData.hourCandles.subList(0, state.hourIdx + 1);
-                    List<Candle> minHistory = marketData.minuteCandles.subList(0, idx + 1);
+                    // Use processTicker instead of decide() + applyPortfolioDecision()
+                    // This ensures full parity with live trading: effectiveBalance, PARTIALFREE,
+                    // openPosition/closePosition via SimulatedBroker, etc.
+                    BaseStrategy.setBacktestCurrentTime(currentTime);
+                    broker.setCurrentTime(currentTime);
 
-                    Map<String, List<Candle>> currentPeerCandles =
-                        buildCurrentPeerCandles(
-                            ticker,
-                            currentTime,
-                            allHourlyCandles,
-                            groupTickers,
-                            peerTimesMap,
-                            hourHistory,
-                            config);
-                    strategy.setPeerCandles(
-                        currentPeerCandles.isEmpty()
-                            ? Collections.emptyMap()
-                            : currentPeerCandles);
+                    // Update current price in broker for accurate order execution
+                    broker.updateCurrentPrice(ticker, current.close);
 
-                    TradingDecision decision =
-                        strategy.decide(
-                            ticker,
-                            hourHistory,
-                            minHistory,
-                            state.position,
-                            sharedCash,
-                            hourChanged);
-                    sharedCash =
-                        applyPortfolioDecision(
-                            ticker,
-                            strategy,
-                            state,
-                            decision,
-                            current,
-                            current.time,
-                            minHistory,
-                            sharedCash,
-                            tradesByTicker.get(ticker),
-                            config,
-                            positionStates);
+                    strategy.processTicker(ticker, null, config, allocatedBalance);
+
+                    // Sync positionStates from broker positions after processTicker
+                    syncPositionStatesFromBroker(ticker, state, broker);
+                } else {
+                    state.lastSeenHourIdx = state.hourIdx;
                 }
 
                 state.lastSeenHourIdx = state.hourIdx;
                 minuteIndexByTicker.put(ticker, idx + 1);
             }
 
-            double totalEquity = sharedCash;
-            for (Map.Entry<String, PortfolioPositionState> entry : positionStates.entrySet()) {
-                String ticker = entry.getKey();
-                PortfolioPositionState state = entry.getValue();
-                if (state.position.quantity > 0) {
-                    totalEquity +=
-                        positionMarketValue(
-                            ticker,
-                            state,
-                            lastPriceByTicker.getOrDefault(ticker, state.entryPrice),
-                            config);
-                }
-            }
+            double totalEquity = broker.getPortfolioValue();
             portfolioEquity.add(new EquityPoint(time, totalEquity));
         }
 
+        // Close all remaining positions at period end via broker
+        // Use strategy.processTicker() to ensure positionStore stays in sync
         for (String ticker : marketDataByTicker.keySet()) {
             MarketData marketData = marketDataByTicker.get(ticker);
             PortfolioPositionState state = positionStates.get(ticker);
+            BaseStrategy strategy = strategies.get(ticker);
             if (state.position.quantity > 0 && !marketData.minuteCandles.isEmpty()) {
                 Candle lastCandle =
                     marketData.minuteCandles.get(marketData.minuteCandles.size() - 1);
-                sharedCash =
-                    closePortfolioPosition(
-                        ticker,
-                        strategies.get(ticker),
-                        state,
-                        lastCandle.close,
-                        lastCandle.time,
-                        "period_end",
-                        sharedCash,
-                        tradesByTicker.get(ticker),
-                        config);
+                broker.setCurrentTime(LocalDateTime.parse(lastCandle.time, DATE_TIME_FMT));
+                broker.updateCurrentPrice(ticker, lastCandle.close);
+                // Sync positionStore first, then let strategy decide
+                BaseStrategy.setBacktestCurrentTime(LocalDateTime.parse(lastCandle.time, DATE_TIME_FMT));
+                strategy.syncPositionStoreFromBroker();
+                strategy.processTicker(ticker, null, config, 0.0);
+                syncPositionStatesFromBroker(ticker, state, broker);
             }
         }
 
-        double finalPortfolioValue = sharedCash;
-        for (Map.Entry<String, PortfolioPositionState> entry : positionStates.entrySet()) {
-            String ticker = entry.getKey();
-            PortfolioPositionState state = entry.getValue();
-            if (state.position.quantity > 0) {
-                finalPortfolioValue +=
-                    positionMarketValue(
-                        ticker,
-                        state,
-                        lastPriceByTicker.getOrDefault(ticker, state.entryPrice),
-                        config);
-            }
-        }
+        double finalPortfolioValue = broker.getAvailableCash();
 
         int totalTrades = 0;
         int winningTrades = 0;
@@ -1148,50 +1115,6 @@ public class BacktestRunner {
                 portfolioPnl, portfolioDd, portfolioEquity, totalTrades, portfolioWinRate);
 
         return new ExecutionResult(tickerResults, portfolioResult);
-    }
-
-    private List<Candle> loadDailyCandles(String ticker) {
-        File file = new File(dataDir, ticker + "/candlesDAY.txt");
-        if (!file.exists()) {
-            return Collections.emptyList();
-        }
-        try {
-            List<String> lines = Files.readAllLines(file.toPath());
-            List<Candle> candles = new ArrayList<>();
-            for (int i = 1; i < lines.size(); i++) {
-                String line = lines.get(i).trim();
-                if (line.isEmpty()) {
-                    continue;
-                }
-                try {
-                    String[] parts = line.split(",");
-                    if (parts.length < 6) {
-                        continue;
-                    }
-                    candles.add(
-                        new Candle(
-                            parts[0].trim(),
-                            Double.parseDouble(parts[1]),
-                            Double.parseDouble(parts[2]),
-                            Double.parseDouble(parts[3]),
-                            Double.parseDouble(parts[4]),
-                            Long.parseLong(parts[5])));
-                } catch (Exception ignored) {
-                }
-            }
-            candles.sort(
-                Comparator.comparing(
-                    c -> {
-                        try {
-                            return LocalDateTime.parse(c.time, DATE_TIME_FMT);
-                        } catch (Exception e) {
-                            return LocalDateTime.MIN;
-                        }
-                    }));
-            return candles;
-        } catch (IOException e) {
-            return Collections.emptyList();
-        }
     }
 
     private List<MarketDataLoadResult> loadMarketDataParallel(
@@ -1279,7 +1202,73 @@ public class BacktestRunner {
     }
 
     private double getEffectiveCommission(String ticker) {
+        // TMON@ is a money-market cash parking instrument; broker charges no
+        // commission on it, so parking idle cash must not erode returns.
+        if ("TMON@".equals(ticker)) {
+            return 0.0;
+        }
         return commission;
+    }
+
+    /** Returns the slippage applied to a given ticker (0 for commission-free TMON@ parking). */
+    private double getEffectiveSlippage(String ticker) {
+        if ("TMON@".equals(ticker)) {
+            return 0.0;
+        }
+        return slippage;
+    }
+
+    /**
+     * Sells part of the TMON@ parking position to free cash for opening another position.
+     * Mirrors the live PARTIALFREE logic in BaseStrategy.processTicker().
+     *
+     * @return updated sharedCash after selling TMON@ (or unchanged if nothing sold)
+     */
+    private double sellTmonForCash(
+            double sharedCash,
+            double cashNeeded,
+            double exitPrice,
+            Map<String, PortfolioPositionState> positionStates,
+            List<TradeResult> trades) {
+        PortfolioPositionState tmonState = positionStates.get("TMON@");
+        if (tmonState == null || tmonState.position.quantity <= 0) {
+            return sharedCash;
+        }
+
+        // Get TMON@ lot size from repository
+        TickerInfo tmonInfo = TickerRepository.INSTANCE.getByName("TMON@");
+        int lotSize = tmonInfo != null && tmonInfo.getLot() != null ? tmonInfo.getLot() : 1;
+        double lotValue = exitPrice * lotSize;
+
+        // Sell whole lots only — find the number of lots to cover the missing amount
+        int lotsToSell = (int) Math.ceil(cashNeeded / lotValue);
+        if (lotsToSell <= 0) {
+            return sharedCash;
+        }
+        int available = Math.abs(tmonState.position.quantity);
+        lotsToSell = Math.min(lotsToSell, available);
+        if (lotsToSell <= 0) {
+            return sharedCash;
+        }
+
+        // Partial close: sell lotsToSell units
+        int sellQty = lotsToSell;
+        double entryNotional = sellQty * tmonState.entryPrice * lotSize;
+        double exitNotional = sellQty * exitPrice * lotSize;
+        // TMON@: no commission, no slippage
+        double pnl = exitNotional - entryNotional;
+
+        sharedCash += exitNotional;
+        tmonState.position = new Position(
+            tmonState.position.direction,
+            tmonState.entryPrice,
+            tmonState.position.stopLoss,
+            tmonState.position.takeProfit,
+            tmonState.position.quantity - sellQty,
+            tmonState.position.candlesHeld);
+        tmonState.realizedPnl += pnl;
+
+        return sharedCash;
     }
 
     private double applyPortfolioDecision(
@@ -1311,15 +1300,29 @@ public class BacktestRunner {
                         : current.close;
                 // apply slippage to entry price
                 if ("BUY".equals(openDir)) {
-                    openEntry *= (1.0 + slippage);
+                    openEntry *= (1.0 + getEffectiveSlippage(ticker));
                 } else {
-                    openEntry *= (1.0 - slippage);
+                    openEntry *= (1.0 - getEffectiveSlippage(ticker));
                 }
                 int openQty = decision.quantity;
                 int leverage = resolvePositionLeverage(decision.updatedPosition, config, ticker);
                 double entryMargin = getRequiredMargin(ticker, openQty, openEntry, leverage);
                 double entryNotional = getNotionalValue(openQty, openEntry);
                 double entryCommission = entryNotional * getEffectiveCommission(ticker);
+
+                // Free cash from TMON@ parking if not enough sharedCash for this trade
+                if ((entryMargin + entryCommission) > sharedCash) {
+                    double cashNeeded = (entryMargin + entryCommission) - sharedCash;
+                    sharedCash =
+                        sellTmonForCash(
+                            sharedCash,
+                            cashNeeded,
+                            current.close,
+                            positionStates,
+                            trades);
+                }
+
+                // Re-check after freeing cash from TMON@
                 if (entryMargin + entryCommission > sharedCash) {
                     return sharedCash;
                 }
@@ -1395,7 +1398,10 @@ public class BacktestRunner {
         int leverage = resolvePositionLeverage(state.position, config, ticker);
         boolean isShort = "SELL".equals(state.position.direction);
         // apply slippage to exit price
-        double slippedExit = isShort ? exitPrice * (1.0 + slippage) : exitPrice * (1.0 - slippage);
+        double slippedExit =
+            isShort
+                ? exitPrice * (1.0 + getEffectiveSlippage(ticker))
+                : exitPrice * (1.0 - getEffectiveSlippage(ticker));
         double entryMargin = getRequiredMargin(ticker, quantity, state.entryPrice, leverage);
         double entryNotional = getNotionalValue(quantity, state.entryPrice);
         double exitNotional = getNotionalValue(quantity, slippedExit);
@@ -1942,4 +1948,32 @@ public class BacktestRunner {
 
         BacktestExpertEvaluator.printEvaluationReport(result, strategyName);
     }
+
+    /**
+     * Syncs positionStates from SimulatedBroker positions after processTicker execution.
+     * This ensures positionStates reflects the actual broker state (cash, positions).
+     */
+    private void syncPositionStatesFromBroker(
+            String ticker,
+            PortfolioPositionState state,
+            SimulatedBroker broker) {
+        com.github.shk0da.goldendragon.model.PositionInfo brokerPos =
+            broker.getCurrentPositions(TickerType.ALL, ticker);
+        if (brokerPos != null && brokerPos.getBalance() > 0) {
+            // Convert PositionInfo to Position
+            state.position = new Position(
+                "BUY", // Direction from broker position
+                brokerPos.getAveragePositionPrice(),
+                null, // stopLoss - not tracked in broker
+                null, // takeProfit
+                brokerPos.getBalance(),
+                0, // candlesHeld
+                0 // cooldownRemaining
+            );
+        } else if (state.position.quantity > 0 && (brokerPos == null || brokerPos.getBalance() <= 0)) {
+            // Position was closed
+            state.position = new Position();
+        }
+    }
 }
+

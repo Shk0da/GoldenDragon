@@ -9,7 +9,6 @@ import java.util.concurrent.atomic.AtomicReference;
  */
 public class RiskManager {
 
-    private final double riskPerTradePercent;
     private final double maxDailyLossPercent;
     private final int maxConsecutiveLosses;
 
@@ -20,13 +19,10 @@ public class RiskManager {
     /**
      * Create risk manager with specified parameters.
      *
-     * @param riskPerTradePercent risk per trade as decimal (e.g., 0.01 for 1%)
      * @param maxDailyLossPercent maximum daily loss as decimal (e.g., 0.03 for 3%)
      * @param maxConsecutiveLosses maximum consecutive losing trades before halt
      */
-    public RiskManager(
-            double riskPerTradePercent, double maxDailyLossPercent, int maxConsecutiveLosses) {
-        this.riskPerTradePercent = riskPerTradePercent;
+    public RiskManager(double maxDailyLossPercent, int maxConsecutiveLosses) {
         this.maxDailyLossPercent = maxDailyLossPercent;
         this.maxConsecutiveLosses = maxConsecutiveLosses;
     }

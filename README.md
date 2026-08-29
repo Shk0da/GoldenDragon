@@ -39,19 +39,23 @@ src/main/java/com/github/shk0da/goldendragon/
 ├── market/                   # рыночные данные и исполнение ордеров
 │   ├── MarketDataProvider    # интерфейс: получение свечей и цен
 │   ├── LiveMarketDataProvider # live-данные от брокера
-│   ├── BacktestMarketDataProvider # исторические данные из CSV
 │   ├── OrderExecutor         # интерфейс: исполнение ордеров
 │   └── LiveOrderExecutor     # live-исполнение через брокера
 ├── repository/               # кеширование FIGI и цен
 ├── service/                  # внешние сервисы
 │   └── TCSService            # Tinkoff Invest API (ордера, стакан, свечи, портфель)
-├── strategy/                 # торговые стратегии
-│   ├── BaseStrategy          # базовый класс (жизненный цикл, индикаторы, кэш)
-│   ├── UnifiedStrategy       # основная стратегия с режимом фильтрации рынка
-│   └── OrderBookScalpStrategy # скальпинг по стакану
-└── test/                     # backtest и утилиты
-    ├── BacktestRunner        # движок backtest
-    └── VirtualTCSService     # виртуальный брокер для backtest
+└── strategy/                 # торговые стратегии
+    ├── BaseStrategy          # базовый класс (жизненный цикл, индикаторы, кэш)
+    ├── UnifiedStrategy       # основная стратегия с режимом фильтрации рынка
+    └── OrderBookScalpStrategy # скальпинг по стакану
+
+src/test/java/com/github/shk0da/goldendragon/
+├── test/                     # backtest движок и утилиты
+│   ├── BacktestRunner        # движок backtest
+│   ├── SimulatedBroker       # симулированный брокер (кэш, позиции, свечи)
+│   ├── BacktestOrderExecutor # исполнение ордеров в backtest
+│   └── BacktestExpertEvaluator # экспертная оценка качества backtest
+└── resources/                # тестовые ресурсы
 ```
 
 ## Быстрый старт

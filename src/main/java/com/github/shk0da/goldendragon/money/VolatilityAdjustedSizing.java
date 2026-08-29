@@ -19,22 +19,6 @@ public class VolatilityAdjustedSizing implements SizingStrategy {
     /**
      * Create volatility-adjusted sizing strategy.
      *
-     * @param riskPercent risk per trade as decimal (e.g., 0.01 for 1%)
-     * @param baseVolatility baseline ATR for volatility adjustment
-     * @param minVolatilityAdjustment minimum volatility adjustment factor (e.g., 0.5)
-     * @param maxVolatilityAdjustment maximum volatility adjustment factor (e.g., 1.5)
-     */
-    public VolatilityAdjustedSizing(
-            double riskPercent,
-            double baseVolatility,
-            double minVolatilityAdjustment,
-            double maxVolatilityAdjustment) {
-        this(riskPercent, baseVolatility, minVolatilityAdjustment, maxVolatilityAdjustment, 0.25);
-    }
-
-    /**
-     * Create volatility-adjusted sizing strategy.
-     *
      * @param riskPercent risk per trade as decimal (e.g., 0.005 for 0.5%)
      * @param baseVolatility baseline ATR for volatility adjustment
      * @param minVolatilityAdjustment minimum volatility adjustment factor (e.g., 0.5)
@@ -85,23 +69,5 @@ public class VolatilityAdjustedSizing implements SizingStrategy {
         qty = Math.min(qty, maxQtyByCapital);
 
         return (int) Math.floor(qty);
-    }
-
-    /**
-     * Get risk percent parameter.
-     *
-     * @return risk per trade as decimal
-     */
-    public double getRiskPercent() {
-        return riskPercent;
-    }
-
-    /**
-     * Get base volatility parameter.
-     *
-     * @return baseline ATR for volatility adjustment
-     */
-    public double getBaseVolatility() {
-        return baseVolatility;
     }
 }

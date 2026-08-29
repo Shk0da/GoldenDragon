@@ -24,8 +24,6 @@
  *       </ul>
  *   <li>{@link com.github.shk0da.goldendragon.market.LiveMarketDataProvider} — live market data
  *       provider backed by TCSService. Fetches real-time data from broker API.
- *   <li>{@link com.github.shk0da.goldendragon.market.BacktestMarketDataProvider} — historical data
- *       provider for backtesting. Reads candles from CSV files and simulates live prices.
  *   <li>{@link com.github.shk0da.goldendragon.market.OrderExecutor} — interface for order
  *       execution. Provides methods for:
  *       <ul>
@@ -47,7 +45,7 @@
  *   <li>Interfaces ({@code MarketDataProvider}, {@code OrderExecutor}) define contracts
  *   <li>Implementations ({@code LiveMarketDataProvider}, {@code LiveOrderExecutor}) provide live
  *       functionality
- *   <li>Backtest implementations ({@code BacktestMarketDataProvider}) provide historical simulation
+ *   <li>Backtest implementations live in the test source set
  * </ul>
  *
  * <h2>Usage</h2>
@@ -61,23 +59,19 @@
  *
  * List<Candle> candles = dataProvider.getCandles("SBER", "HOUR");
  * MarketPrices prices = dataProvider.getLivePrices("SBER");
- * executor.buyByMarket("SBER", quantity, price);
  * }</pre>
  *
  * <h2>Backtest Mode</h2>
  *
- * <p>In backtest mode, strategies use:
- *
- * <ul>
- *   <li>{@code BacktestMarketDataProvider} — reads historical candles from CSV files
- *   <li>{@code LiveOrderExecutor} — simulates order execution against historical data
- * </ul>
+ * <p>In backtest mode, strategies use backtest-specific implementations of {@code
+ * MarketDataProvider} and {@code OrderExecutor} (see {@code
+ * com.github.shk0da.goldendragon.test} package). A simulated broker delegates to these to ensure
+ * parity with live trading.
  *
  * <h2>Thread Safety</h2>
  *
  * <ul>
  *   <li>{@code LiveMarketDataProvider} — thread-safe (delegates to thread-safe TCSService)
- *   <li>{@code BacktestMarketDataProvider} — thread-safe (uses concurrent collections)
  *   <li>{@code LiveOrderExecutor} — not thread-safe (order execution must be synchronized at
  *       strategy level)
  * </ul>

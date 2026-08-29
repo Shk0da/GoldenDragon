@@ -9,17 +9,6 @@ import java.util.List;
  */
 public class BadWeatherFilter {
 
-    // Filter parameters (configurable)
-    private final double lowVolumeThreshold; // Low volume threshold (multiplier of average)
-    private final double lowAtrThreshold; // Low ATR threshold (multiplier of average)
-    private final double minRangePercent; // Minimum candle range in %
-    private final double highAtrThreshold; // High ATR threshold (multiplier of average)
-    private final double maxSpreadPercent; // Maximum spread in %
-    private final double maxWickRatio; // Maximum wick ratio
-    private final double panicVolumeThreshold; // Panic volume threshold
-    private final double minAvgDailyVolume; // Minimum average daily volume
-    private final double atrSpikeThreshold; // ATR spike threshold
-
     // Whether filter is enabled
     private final boolean enabled;
 
@@ -61,43 +50,8 @@ public class BadWeatherFilter {
         }
     }
 
-    public BadWeatherFilter(
-            boolean enabled,
-            double lowVolumeThreshold,
-            double lowAtrThreshold,
-            double minRangePercent,
-            double highAtrThreshold,
-            double maxSpreadPercent,
-            double maxWickRatio,
-            double panicVolumeThreshold,
-            double minAvgDailyVolume,
-            double atrSpikeThreshold) {
-        this.enabled = enabled;
-        this.lowVolumeThreshold = lowVolumeThreshold;
-        this.lowAtrThreshold = lowAtrThreshold;
-        this.minRangePercent = minRangePercent;
-        this.highAtrThreshold = highAtrThreshold;
-        this.maxSpreadPercent = maxSpreadPercent;
-        this.maxWickRatio = maxWickRatio;
-        this.panicVolumeThreshold = panicVolumeThreshold;
-        this.minAvgDailyVolume = minAvgDailyVolume;
-        this.atrSpikeThreshold = atrSpikeThreshold;
-    }
-
-    /** Создаёт фильтр с параметрами по умолчанию. */
     public BadWeatherFilter(boolean enabled) {
-        this(
-                enabled,
-                0.5, // lowVolumeThreshold
-                0.7, // lowAtrThreshold
-                0.005, // minRangePercent (0.5%)
-                2.0, // highAtrThreshold
-                0.01, // maxSpreadPercent (1%)
-                0.4, // maxWickRatio
-                3.0, // panicVolumeThreshold
-                100000, // minAvgDailyVolume
-                2.5 // atrSpikeThreshold
-                );
+        this.enabled = enabled;
     }
 
     /**
@@ -105,22 +59,6 @@ public class BadWeatherFilter {
      *
      * @return true if trading is allowed, false if "bad weather"
      */
-    public boolean canTrade(List<Candle> candles, double currentPrice) {
-        return canTrade(
-                candles,
-                currentPrice,
-                new Params(
-                        lowVolumeThreshold,
-                        lowAtrThreshold,
-                        minRangePercent,
-                        highAtrThreshold,
-                        maxSpreadPercent,
-                        maxWickRatio,
-                        panicVolumeThreshold,
-                        minAvgDailyVolume,
-                        atrSpikeThreshold));
-    }
-
     public boolean canTrade(List<Candle> candles, double currentPrice, Params params) {
         if (!enabled) {
             return true;
@@ -321,22 +259,6 @@ public class BadWeatherFilter {
     }
 
     /** Возвращает описание причины запрета торговли (для отладки) */
-    public String getBlockReason(List<Candle> candles, double currentPrice) {
-        return getBlockReason(
-                candles,
-                currentPrice,
-                new Params(
-                        lowVolumeThreshold,
-                        lowAtrThreshold,
-                        minRangePercent,
-                        highAtrThreshold,
-                        maxSpreadPercent,
-                        maxWickRatio,
-                        panicVolumeThreshold,
-                        minAvgDailyVolume,
-                        atrSpikeThreshold));
-    }
-
     public String getBlockReason(List<Candle> candles, double currentPrice, Params params) {
         if (!enabled) {
             return null;

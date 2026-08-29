@@ -142,18 +142,4 @@ public class LiveOrderExecutor implements OrderExecutor {
             return 0.0;
         }
     }
-
-    @Override
-    public double getPortfolioValue() {
-        try {
-            return tcsService.getTotalPortfolioCost();
-        } catch (Exception e) {
-            return 0.0;
-        }
-    }
-
-    @Override
-    public boolean isLive() {
-        return true;
-    }
 }

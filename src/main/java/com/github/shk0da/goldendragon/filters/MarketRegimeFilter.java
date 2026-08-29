@@ -41,10 +41,6 @@ public class MarketRegimeFilter {
         }
     }
 
-    public FilterResult evaluate(List<Candle> candles) {
-        return evaluate(candles, 20.0, 25.0, 30.0, 50.0, 4);
-    }
-
     public FilterResult evaluate(
             List<Candle> candles,
             double adxRangeThreshold,

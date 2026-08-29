@@ -3,7 +3,6 @@ package com.github.shk0da.goldendragon.strategy;
 import com.github.shk0da.goldendragon.config.UnifiedTraderConfig;
 import com.github.shk0da.goldendragon.filters.BadWeatherFilter;
 import com.github.shk0da.goldendragon.filters.MarketRegimeFilter;
-import com.github.shk0da.goldendragon.market.BacktestOrderExecutor;
 import com.github.shk0da.goldendragon.market.LiveMarketDataProvider;
 import com.github.shk0da.goldendragon.market.LiveOrderExecutor;
 import com.github.shk0da.goldendragon.market.MarketDataProvider;
@@ -11,8 +10,6 @@ import com.github.shk0da.goldendragon.market.MarketPrices;
 import com.github.shk0da.goldendragon.market.OrderExecutor;
 import com.github.shk0da.goldendragon.model.Candle;
 import com.github.shk0da.goldendragon.model.Config;
-import com.github.shk0da.goldendragon.model.MarketDepthSnapshot;
-import com.github.shk0da.goldendragon.model.MarketTradeTick;
 import com.github.shk0da.goldendragon.model.Position;
 import com.github.shk0da.goldendragon.model.TickerCandle;
 import com.github.shk0da.goldendragon.model.TickerInfo;
@@ -35,7 +32,6 @@ import java.nio.file.Paths;
 import java.sql.Timestamp;
 import java.text.SimpleDateFormat;
 import java.time.DayOfWeek;
-import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.OffsetDateTime;
@@ -196,7 +192,7 @@ import static java.util.concurrent.CompletableFuture.runAsync;
  * <p>Флаг {@code isBacktest} переключает поведение:
  *
  * <ul>
- *   <li>{@link #logWithBacktest} — silent-логирование в backtest-режиме.
+ *   <li>{@link #log} — silent-логирование в backtest-режиме.
  * </ul>
  *
  * <h2>Параллелизм и потокобезопасность</h2>
@@ -218,20 +214,23 @@ import static java.util.concurrent.CompletableFuture.runAsync;
   */
  public abstract class BaseStrategy {
 
-    /**
-     * Controls whether trades are recorded during backtest. Default: true.
-     * Set to false for pure backtest without data collection.
-     */
-    public boolean recordTradesInBacktest = true;
-
     protected final Config config;
     protected final TCSService tcsService;
     protected final UnifiedTraderConfig unifiedTraderConfig;
-    protected final MarketDataProvider marketDataProvider;
-    protected final OrderExecutor orderExecutor;
+    protected MarketDataProvider marketDataProvider;
+    protected OrderExecutor orderExecutor;
     protected final BadWeatherFilter badWeatherFilter;
     protected final MarketRegimeFilter marketRegimeFilter;
-    protected final boolean isBacktest;
+    protected static boolean isBacktest;
+
+    /**
+     * Set market data provider and order executor for backtest mode.
+     * Called by BacktestRunner after strategy creation.
+     */
+    public void setBacktestProviders(MarketDataProvider marketDataProvider, OrderExecutor orderExecutor) {
+        this.marketDataProvider = marketDataProvider;
+        this.orderExecutor = orderExecutor;
+    }
 
     protected static final ThreadLocal<SimpleDateFormat> CANDLE_TIME_FORMAT =
             ThreadLocal.withInitial(() -> new SimpleDateFormat("dd.MM.yyyy HH:mm:ss"));
@@ -240,15 +239,10 @@ import static java.util.concurrent.CompletableFuture.runAsync;
     protected static final long API_CALL_DELAY_MS = 100;
     protected static final Object API_LOCK = new Object();
 
-    /**
-     * Shared simulated broker for backtest execution.
-     * Set by BacktestRunner before starting simulation.
-     * Allows backtest to use the same broker-dependent code paths as live trading.
-     */
-    protected static com.github.shk0da.goldendragon.test.SimulatedBroker backtestBroker;
+    protected static LocalDateTime backtestCurrentTime;
 
-    public static void setBacktestBroker(com.github.shk0da.goldendragon.test.SimulatedBroker broker) {
-        BaseStrategy.backtestBroker = broker;
+    public static void setBacktestCurrentTime(LocalDateTime time) {
+        BaseStrategy.backtestCurrentTime = time;
     }
 
     protected static final LocalTime WORK_START_TIME = LocalTime.of(8, 30);
@@ -276,19 +270,10 @@ import static java.util.concurrent.CompletableFuture.runAsync;
 
         // Initialize market data provider and order executor based on mode
         if (isBacktest) {
-            // In backtest mode, use SimulatedBroker as the single source of truth
-            // for both market data (candles) and broker state (cash, positions)
-            if (backtestBroker == null) {
-                String dataDir = unifiedTraderConfig != null
-                        ? unifiedTraderConfig.getDataDir()
-                        : "data";
-                double initialBalance = tcsService != null
-                        ? tcsService.getAvailableCash()
-                        : 100000.0;
-                backtestBroker = new com.github.shk0da.goldendragon.test.SimulatedBroker(initialBalance, dataDir);
-            }
-            this.marketDataProvider = backtestBroker;
-            this.orderExecutor = new BacktestOrderExecutor(backtestBroker, backtestBroker.getAvailableCash());
+            // In backtest mode, providers will be set by BacktestRunner via setBacktestProviders()
+            // This avoids main->test package dependency
+            this.marketDataProvider = null;
+            this.orderExecutor = null;
         } else {
             this.marketDataProvider = new LiveMarketDataProvider(tcsService);
             this.orderExecutor = new LiveOrderExecutor(tcsService);
@@ -298,19 +283,68 @@ import static java.util.concurrent.CompletableFuture.runAsync;
                 unifiedTraderConfig != null
                         ? unifiedTraderConfig.isBadWeatherFilterEnabled()
                         : config.badWeatherFilterEnabled;
-        this.badWeatherFilter =
-                new BadWeatherFilter(
-                        bwFilterEnabled,
-                        config.badWeatherLowVolumeThreshold,
-                        config.badWeatherLowAtrThreshold,
-                        config.badWeatherMinRangePercent,
-                        config.badWeatherHighAtrThreshold,
-                        config.badWeatherMaxSpreadPercent,
-                        config.badWeatherMaxWickRatio,
-                        config.badWeatherPanicVolumeThreshold,
-                        config.badWeatherMinAvgDailyVolume,
-                        config.badWeatherAtrSpikeThreshold);
+        this.badWeatherFilter = new BadWeatherFilter(bwFilterEnabled);
         this.marketRegimeFilter = new MarketRegimeFilter(config.marketRegimeFilterEnabled);
+    }
+
+    /**
+     * Synchronizes positionStore with actual broker positions.
+     * Call this before making decisions to ensure positionStore reflects reality.
+     * Used in backtest to sync with SimulatedBroker state.
+     */
+    public void syncPositionStoreFromBroker() {
+        if (marketDataProvider == null) {
+            return;
+        }
+
+        // Get all positions from broker
+        for (TickerType type : TickerType.values()) {
+            if (type == TickerType.ALL || type == TickerType.UNKNOWN) {
+                continue;
+            }
+            try {
+                // Get all positions for this type
+                // Note: this requires broker to expose getAllPositions() or similar
+                // For now, sync known tickers from config
+                for (String tickerName : unifiedTraderConfig.getStocks()) {
+                    com.github.shk0da.goldendragon.model.PositionInfo brokerPos =
+                            marketDataProvider.getCurrentPositions(TickerType.ALL, tickerName);
+                    boolean brokerHasPosition = brokerPos != null && brokerPos.getBalance() > 0;
+                    Position storedPosition = positionStore.getOrDefault(tickerName, new Position());
+                    boolean storeHasPosition = storedPosition.quantity > 0;
+
+                    if (storeHasPosition && !brokerHasPosition) {
+                        // Position was closed outside strategy (e.g. EOD), reset store
+                        positionStore.remove(tickerName);
+                    } else if (!storeHasPosition && brokerHasPosition) {
+                        // Position exists in broker but not in store, restore it
+                        Position restored = new Position(
+                                "BUY",
+                                brokerPos.getAveragePositionPrice(),
+                                null,
+                                null,
+                                Math.abs(brokerPos.getBalance()),
+                                0,
+                                0);
+                        positionStore.put(tickerName, restored);
+                    } else if (storeHasPosition && brokerHasPosition
+                            && Math.abs(brokerPos.getBalance()) != storedPosition.quantity) {
+                        // Quantity mismatch: use broker quantity
+                        Position updated = new Position(
+                                storedPosition.direction,
+                                storedPosition.entryPrice != null ? storedPosition.entryPrice : brokerPos.getAveragePositionPrice(),
+                                storedPosition.stopLoss,
+                                storedPosition.takeProfit,
+                                Math.abs(brokerPos.getBalance()),
+                                storedPosition.candlesHeld,
+                                storedPosition.cooldownRemaining);
+                        positionStore.put(tickerName, updated);
+                    }
+                }
+            } catch (Exception ex) {
+                // Ignore sync errors for this type
+            }
+        }
     }
 
     public void setPeerCandles(Map<String, List<Candle>> peerCandles) {
@@ -518,7 +552,7 @@ import static java.util.concurrent.CompletableFuture.runAsync;
                 minuteCandles = hourCandles;
             }
 
-            Position storedPosition = positionStore.getOrDefault(name, new Position());
+                        Position storedPosition = positionStore.getOrDefault(name, new Position());
 
             boolean hourChanged = false;
             if (storedPosition.quantity > 0) {
@@ -533,21 +567,18 @@ import static java.util.concurrent.CompletableFuture.runAsync;
                 lastSeenHourBarByTicker.remove(name);
             }
 
-            double balance =
-                    allocatedBalance > 0.0 ? allocatedBalance : orderExecutor.getAvailableCash();
+            double balance = allocatedBalance > 0.0 ? allocatedBalance : orderExecutor.getAvailableCash();
 
             // Include TMON@ parking value into effective cash for position sizing,
             // so decide() can size a position using cash parked in TMON@
             // Read TMON@ position from broker (not local store) to handle parallel execution
             double effectiveBalance = balance;
-            if (!"TMON@".equals(name) && (tcsService != null || backtestBroker != null)) {
+            if (!"TMON@".equals(name) && (tcsService != null || marketDataProvider != null)) {
                 try {
                     com.github.shk0da.goldendragon.model.PositionInfo tmonInfo =
                             tcsService != null
                                     ? tcsService.getCurrentPositions(TickerType.ETF, "TMON@")
-                                    : (backtestBroker != null
-                                            ? backtestBroker.getCurrentPositions(TickerType.ETF, "TMON@")
-                                            : null);
+                                    : marketDataProvider.getCurrentPositions(TickerType.ETF, "TMON@");
                     if (tmonInfo != null && tmonInfo.getBalance() > 0) {
                         double tmonQty = Math.abs(tmonInfo.getBalance());
                         Double tmonPrice = tmonInfo.getAveragePositionPrice();
@@ -591,22 +622,6 @@ import static java.util.concurrent.CompletableFuture.runAsync;
                             + String.format("%.2f", balance),
                     5);
 
-            log(
-                    "CASH_DIAG "
-                            + name
-                            + ": action="
-                            + decision.action
-                            + " reason="
-                            + decision.reason
-                            + " qty="
-                            + decision.quantity
-                            + " balance="
-                            + String.format("%.2f", balance)
-                            + " availableCash="
-                            + String.format("%.2f", orderExecutor.getAvailableCash())
-                            + " allocatedBalance="
-                            + String.format("%.2f", allocatedBalance));
-
             if (decision.updatedPosition != null && "HOLD".equals(decision.action)) {
                 positionStore.put(name, decision.updatedPosition);
                 syncProtectiveOrdersIfNeeded(
@@ -623,9 +638,7 @@ import static java.util.concurrent.CompletableFuture.runAsync;
                         com.github.shk0da.goldendragon.model.PositionInfo tmonInfo =
                                 tcsService != null
                                         ? tcsService.getCurrentPositions(TickerType.ETF, "TMON@")
-                                        : (backtestBroker != null
-                                                ? backtestBroker.getCurrentPositions(TickerType.ETF, "TMON@")
-                                                : null);
+                                        : marketDataProvider.getCurrentPositions(TickerType.ETF, "TMON@");
                         if (tmonInfo != null && tmonInfo.getBalance() > 0) {
                             int tmonQty = tmonInfo.getBalance();
                             Double tmonPriceDouble = tmonInfo.getAveragePositionPrice();
@@ -651,8 +664,8 @@ import static java.util.concurrent.CompletableFuture.runAsync;
                                     if (tcsService != null) {
                                         tcsService.sellByMarket(
                                                 "TMON@", TickerType.ETF, cashToFree, 0.0, 0.0);
-                                    } else if (backtestBroker != null) {
-                                        backtestBroker.sellByMarket(
+                                    } else {
+                                        marketDataProvider.sellByMarket(
                                                 "TMON@", TickerType.ETF, cashToFree);
                                     }
                                     log(
@@ -730,8 +743,8 @@ import static java.util.concurrent.CompletableFuture.runAsync;
                                         + name);
                         if (tcsService != null) {
                             tcsService.closeLongByMarket("TMON@", TickerType.ETF);
-                        } else if (backtestBroker != null) {
-                            backtestBroker.closeLongByMarket("TMON@", TickerType.ETF);
+                        } else {
+                            marketDataProvider.closeLongByMarket("TMON@", TickerType.ETF);
                         }
                         positionStore.remove("TMON@");
                         log("TMON@ sold, positionStore cleared for new position");
@@ -1005,39 +1018,9 @@ import static java.util.concurrent.CompletableFuture.runAsync;
         return (position.entryPrice - exitPrice) * quantity;
     }
 
-    private Position mergeExecutedPosition(
-            Position requestedPosition, TCSService.OrderExecutionResult orderResult) {
-        Position protectivePosition = orderResult.getProtectivePosition();
-        Double executedEntryPrice =
-                orderResult.getExecutedPrice() != null
-                        ? orderResult.getExecutedPrice()
-                        : requestedPosition.entryPrice;
-        Double stopLoss =
-                protectivePosition != null && protectivePosition.stopLoss != null
-                        ? protectivePosition.stopLoss
-                        : requestedPosition.stopLoss;
-        Double takeProfit =
-                protectivePosition != null && protectivePosition.takeProfit != null
-                        ? protectivePosition.takeProfit
-                        : requestedPosition.takeProfit;
-        int quantity =
-                orderResult.getExecutedCount() > 0
-                        ? orderResult.getExecutedCount()
-                        : requestedPosition.quantity;
-
-        return new Position(
-                requestedPosition.direction,
-                executedEntryPrice,
-                stopLoss,
-                takeProfit,
-                quantity,
-                requestedPosition.candlesHeld,
-                requestedPosition.cooldownRemaining);
-    }
-
     private void syncProtectiveOrdersIfNeeded(
             String name, TickerInfo ticker, Position previousPosition, Position updatedPosition) {
-        if (ticker == null || updatedPosition == null || updatedPosition.quantity <= 0) {
+        if (tcsService == null || ticker == null || updatedPosition == null || updatedPosition.quantity <= 0) {
             return;
         }
 
@@ -1098,15 +1081,6 @@ import static java.util.concurrent.CompletableFuture.runAsync;
             }
         }
         return false;
-    }
-
-    /**
-     * Allows external code (e.g., BacktestRunner) to set a position into this strategy's position
-     * store. Used for TMON@ cash parking where the TMON@ strategy needs to see positions held by
-     * other tickers.
-     */
-    public void setPosition(String ticker, Position position) {
-        positionStore.put(ticker, position);
     }
 
     protected Double safeGetTotalPortfolioCost() {
@@ -1237,69 +1211,6 @@ import static java.util.concurrent.CompletableFuture.runAsync;
         log(report.toString());
     }
 
-    /**
-     * Refreshes the last candle with fresh live market data from TCSService. In live trading mode,
-     * gets the current price from the order book or recent trades and updates the last candle's
-     * close/high/low to reflect real-time market state.
-     *
-     * @param candles the candle list to refresh (modified in place)
-     * @param ticker the ticker info for the instrument
-     * @param isBacktest true if running in backtest mode (no refresh)
-     */
-    protected void refreshLastCandleWithLivePrice(
-            List<Candle> candles, TickerInfo ticker, boolean isBacktest) {
-        if (candles == null || candles.isEmpty() || tcsService == null) {
-            return;
-        }
-
-        try {
-            TickerInfo.Key key = ticker.getKey();
-            Double livePrice = null;
-
-            // Try to get price from order book first (most accurate)
-            MarketDepthSnapshot snapshot = tcsService.getLastMarketDepth(key);
-            if (snapshot != null && snapshot.getMidPrice() != null) {
-                livePrice = snapshot.getMidPrice();
-            } else if (snapshot != null && snapshot.getBestBid() != null) {
-                livePrice = snapshot.getBestBid();
-            } else if (snapshot != null && snapshot.getBestAsk() != null) {
-                livePrice = snapshot.getBestAsk();
-            }
-
-            // Fallback to recent trades if no order book data
-            if (livePrice == null) {
-                List<MarketTradeTick> recentTrades =
-                        tcsService.getRecentTrades(key, Duration.ofSeconds(60));
-                if (recentTrades != null && !recentTrades.isEmpty()) {
-                    livePrice = recentTrades.get(recentTrades.size() - 1).getPrice();
-                }
-            }
-
-            // Update last candle if we got a live price
-            if (livePrice != null) {
-                Candle lastCandle = candles.get(candles.size() - 1);
-                double newHigh = livePrice > lastCandle.high ? livePrice : lastCandle.high;
-                double newLow = livePrice < lastCandle.low ? livePrice : lastCandle.low;
-                // Candle fields are final, so create a new Candle with updated values
-                Candle updated =
-                        new Candle(
-                                lastCandle.time,
-                                lastCandle.open,
-                                newHigh,
-                                newLow,
-                                livePrice,
-                                lastCandle.volume);
-                candles.set(candles.size() - 1, updated);
-            }
-        } catch (Exception ex) {
-            log(
-                    "Failed to refresh last candle with live price for "
-                            + ticker.getTicker()
-                            + ": "
-                            + ex.getMessage());
-        }
-    }
-
     protected List<Candle> loadOrRefreshCandles(
             String name, String figi, String dataDir, OffsetDateTime now, CandleInterval interval) {
         if (tcsService == null) {
@@ -1413,7 +1324,7 @@ import static java.util.concurrent.CompletableFuture.runAsync;
     }
 
     protected boolean isTradingDay() {
-        DayOfWeek day = LocalDateTime.now().getDayOfWeek();
+        DayOfWeek day = (backtestCurrentTime != null) ? backtestCurrentTime.getDayOfWeek() : LocalDateTime.now().getDayOfWeek();
         return day != DayOfWeek.SATURDAY && day != DayOfWeek.SUNDAY;
     }
 
@@ -1421,7 +1332,7 @@ import static java.util.concurrent.CompletableFuture.runAsync;
         if (!isTradingDay()) {
             return false;
         }
-        LocalTime now = LocalTime.now();
+        LocalTime now = backtestCurrentTime != null ? backtestCurrentTime.toLocalTime() : LocalTime.now();
         return !now.isBefore(WORK_START_TIME) && now.isBefore(EOD_CLOSE_TIME);
     }
 
@@ -1569,10 +1480,6 @@ import static java.util.concurrent.CompletableFuture.runAsync;
     }
 
     protected static void log(String message) {
-        log(message, false);
-    }
-
-    protected void logWithBacktest(String message) {
         log(message, isBacktest);
     }
 

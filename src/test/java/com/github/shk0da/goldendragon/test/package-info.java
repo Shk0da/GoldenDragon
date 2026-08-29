@@ -30,6 +30,15 @@
  *       </ul>
  *       <p>Backtest simulates real trading: checks trading hours, closes positions at EOD, applies
  *       commission, respects position and portfolio limits.
+ *   <li>{@link com.github.shk0da.goldendragon.test.SimulatedBroker} — simulated broker for backtest
+ *       mode. Acts as single source of truth for cash, positions, and historical candles. Implements
+ *       {@code MarketDataProvider} and provides methods for order execution simulation.
+ *   <li>{@link com.github.shk0da.goldendragon.test.BacktestOrderExecutor} — order executor for
+ *       backtest mode. Delegates all operations to {@code SimulatedBroker}, ensuring parity with
+ *       live trading execution flow.
+ *   <li>{@link com.github.shk0da.goldendragon.test.BacktestExpertEvaluator} — expert evaluation
+ *       system for backtest results. Analyzes trade quality, sample size, win rate, drawdown, and
+ *       provides diagnostic reports.
  * </ul>
  *
  * <h2>Backtest Data Structure</h2>
@@ -53,14 +62,18 @@
  *       unifiedTrader.ticker.<NAME>.*}). Filter by {@code params.enabled} flag.
  *   <li><b>Load Data</b>: parallel CSV reading per ticker via {@link
  *       java.util.concurrent.ExecutorService}. Sort by time, filter by date range.
+ *   <li><b>Create SimulatedBroker</b>: single broker instance for all tickers (shared cash and
+ *       positions).
  *   <li><b>Create Strategy Instances</b>: one instance per ticker (for state isolation).
+ *   <li><b>Inject Providers</b>: call {@code strategy.setBacktestProviders(broker, orderExecutor)}
+ *       to wire broker and order executor into each strategy.
  *   <li><b>Build Timeline</b>: merge all timestamps into {@code TreeSet} for synchronized
  *       processing.
  *   <li><b>Main Loop</b>: for each timestamp:
  *       <ul>
- *         <li>Update candles/order books for tickers with data.
- *         <li>Call strategy method ({@code onTick()}, {@code onOrderBook()}, {@code onTrade()}).
- *         <li>Check signals, execute orders via {@code TradingGateway}.
+ *         <li>Update current time in broker (filters candles to prevent look-ahead bias).
+ *         <li>Call {@code strategy.processTicker()} for each ticker with matching timestamp.
+ *         <li>Strategy executes orders via {@code BacktestOrderExecutor} → {@code SimulatedBroker}.
  *         <li>Update positions, PnL, cash.
  *       </ul>
  *   <li><b>Finalization</b>: close positions, calculate statistics, output report.

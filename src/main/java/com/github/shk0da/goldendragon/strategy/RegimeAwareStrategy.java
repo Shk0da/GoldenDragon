@@ -59,7 +59,7 @@ public class RegimeAwareStrategy extends BaseStrategy {
         this.unifiedStrategy =
                 new UnifiedStrategy(unifiedTraderConfig, tcsService, config, isBacktest);
 
-        logWithBacktest(
+        log(
                 "RegimeAwareStrategy: Regime filter (TREND:ADX>"
                         + ADX_TREND_THRESHOLD
                         + ", RANGE:ADX<"
@@ -181,7 +181,7 @@ public class RegimeAwareStrategy extends BaseStrategy {
 
         int total = trendBars + rangeBars + normalBars;
         if (total > 0) {
-            logWithBacktest(
+            log(
                     "RegimeAwareStrategy v4: Daily - Trend:"
                             + trendBars
                             + "("
