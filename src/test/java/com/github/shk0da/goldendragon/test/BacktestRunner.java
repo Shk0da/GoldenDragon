@@ -425,12 +425,12 @@ public class BacktestRunner {
 
     private static long parseChartUpdateInterval() {
         try {
-            String value = System.getProperty("backtest.chart.interval", "10000");
+            String value = System.getProperty("backtest.chart.interval", "2000");
             long parsed = Long.parseLong(value.trim());
             return Math.max(0, parsed);
         } catch (NumberFormatException ex) {
-            System.err.println("Invalid backtest.chart.interval, using 0 (every point): " + ex.getMessage());
-            return 0;
+            System.err.println("Invalid backtest.chart.interval, using 2000ms: " + ex.getMessage());
+            return 2000;
         }
     }
 

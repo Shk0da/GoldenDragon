@@ -36,6 +36,11 @@ public class SimulatedBroker implements MarketDataProvider {
     private final Map<TickerInfo.Key, TickerInfo> tickerInfo;
     private final Map<String, List<Candle>> cachedHourCandles = new ConcurrentHashMap<>();
     private final Map<String, List<Candle>> cachedMinuteCandles = new ConcurrentHashMap<>();
+    // Cache parsed LocalDateTime for each candle (parsed once at load time)
+    private final Map<String, List<LocalDateTime>> cachedHourCandleTimes = new ConcurrentHashMap<>();
+    private final Map<String, List<LocalDateTime>> cachedMinuteCandleTimes = new ConcurrentHashMap<>();
+    // Incremental filter cache: ticker -> (interval -> lastFilteredIndex)
+    private final Map<String, Map<String, Integer>> lastFilteredIndex = new ConcurrentHashMap<>();
     private volatile LocalDateTime currentTime;
 
     public SimulatedBroker(double initialCash, String dataDir, double commissionRate) {
@@ -51,13 +56,13 @@ public class SimulatedBroker implements MarketDataProvider {
      * Sets the current simulation time. All candle queries will be filtered to return
      * only candles with time <= this value (prevents look-ahead bias in backtest).
      */
-    public synchronized void setCurrentTime(LocalDateTime currentTime) {
+    public void setCurrentTime(LocalDateTime currentTime) {
         this.currentTime = currentTime;
     }
 
     // ========== Broker State Methods ==========
 
-    public synchronized double getAvailableCash() {
+    public double getAvailableCash() {
         return availableCash;
     }
 
@@ -65,7 +70,7 @@ public class SimulatedBroker implements MarketDataProvider {
      * Calculates total portfolio value: available cash + market value of all positions.
      * Uses the last known prices for positions (from currentPrices or candle data).
      */
-    public synchronized double getPortfolioValue() {
+    public double getPortfolioValue() {
         double totalValue = availableCash;
         for (PositionInfo pos : positions.values()) {
             if (pos.getBalance() > 0) {
@@ -89,7 +94,7 @@ public class SimulatedBroker implements MarketDataProvider {
         return totalValue;
     }
 
-    public synchronized PositionInfo getCurrentPositions(TickerType tickerType, String tickerName) {
+    public PositionInfo getCurrentPositions(TickerType tickerType, String tickerName) {
         for (Map.Entry<TickerInfo.Key, PositionInfo> entry : positions.entrySet()) {
             if (entry.getKey().getTicker().equalsIgnoreCase(tickerName) &&
                 (tickerType == TickerType.ALL || entry.getKey().getType() == tickerType)) {
@@ -304,7 +309,7 @@ public class SimulatedBroker implements MarketDataProvider {
     /**
      * Updates the current price for a ticker (called on each tick in backtest).
      */
-    public synchronized void updateCurrentPrice(String ticker, double price) {
+    public void updateCurrentPrice(String ticker, double price) {
         TickerInfo info = tickerInfo.get(new TickerInfo.Key(ticker, TickerType.STOCK));
         if (info == null) {
             info = tickerInfo.get(new TickerInfo.Key(ticker, TickerType.ETF));
@@ -323,39 +328,54 @@ public class SimulatedBroker implements MarketDataProvider {
     public List<Candle> getCandles(String ticker, String interval) {
         try {
             List<Candle> allCandles;
+            List<LocalDateTime> parsedTimes;
+            String cacheKey = interval.equals("HOUR") ? "HOUR" : "5_MIN";
+
             if ("HOUR".equals(interval)) {
                 if (!cachedHourCandles.containsKey(ticker)) {
                     cachedHourCandles.put(ticker, loadCandlesFromCsv(ticker, "HOUR"));
                 }
                 allCandles = cachedHourCandles.get(ticker);
+                if (!cachedHourCandleTimes.containsKey(ticker)) {
+                    cachedHourCandleTimes.put(ticker,
+                        allCandles.stream().map(c -> LocalDateTime.parse(c.time, DATE_TIME_FMT)).toList());
+                }
+                parsedTimes = cachedHourCandleTimes.get(ticker);
             } else if ("5_MIN".equals(interval)) {
                 if (!cachedMinuteCandles.containsKey(ticker)) {
                     cachedMinuteCandles.put(ticker, loadCandlesFromCsv(ticker, "5_MIN"));
                 }
                 allCandles = cachedMinuteCandles.get(ticker);
+                if (!cachedMinuteCandleTimes.containsKey(ticker)) {
+                    cachedMinuteCandleTimes.put(ticker,
+                        allCandles.stream().map(c -> LocalDateTime.parse(c.time, DATE_TIME_FMT)).toList());
+                }
+                parsedTimes = cachedMinuteCandleTimes.get(ticker);
             } else {
                 return Collections.emptyList();
             }
 
-            // Filter candles to only include those up to current simulation time
+            // Incremental filter: find new cutoff index starting from last known
             if (currentTime == null || allCandles.isEmpty()) {
                 return Collections.unmodifiableList(new ArrayList<>(allCandles));
             }
 
-            List<Candle> filtered = new ArrayList<>();
-            for (Candle candle : allCandles) {
-                try {
-                    LocalDateTime candleTime = LocalDateTime.parse(candle.time, DATE_TIME_FMT);
-                    if (!candleTime.isAfter(currentTime)) {
-                        filtered.add(candle);
-                    } else {
-                        break; // candles are sorted
-                    }
-                } catch (Exception e) {
-                    // skip unparseable candle
-                }
+            Map<String, Integer> tickerIndexMap = lastFilteredIndex.computeIfAbsent(ticker, k -> new HashMap<>());
+            int startIndex = tickerIndexMap.getOrDefault(cacheKey, 0);
+            if (startIndex < 0) startIndex = 0;
+            if (startIndex >= allCandles.size()) {
+                return Collections.emptyList();
             }
-            return Collections.unmodifiableList(filtered);
+
+            // Binary search for efficiency, then linear scan from last index
+            int endIdx = startIndex;
+            while (endIdx < allCandles.size() && parsedTimes.get(endIdx).compareTo(currentTime) <= 0) {
+                endIdx++;
+            }
+            tickerIndexMap.put(cacheKey, endIdx);
+
+            // Return sublist (no copy) wrapped as unmodifiable
+            return Collections.unmodifiableList(allCandles.subList(0, endIdx));
         } catch (Exception e) {
             return Collections.emptyList();
         }
@@ -410,7 +430,7 @@ public class SimulatedBroker implements MarketDataProvider {
         }
     }
 
-    public synchronized boolean closeLongByMarket(String ticker, TickerType type) {
+    public boolean closeLongByMarket(String ticker, TickerType type) {
         // Find position by ticker name regardless of type (handles type mismatches)
         PositionInfo pos = getCurrentPositions(TickerType.ALL, ticker);
         if (pos == null || pos.getBalance() <= 0) {
