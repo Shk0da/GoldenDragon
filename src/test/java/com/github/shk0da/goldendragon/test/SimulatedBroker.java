@@ -126,19 +126,23 @@ public class SimulatedBroker implements MarketDataProvider {
             return false;
         }
 
-        int lots = pos.getLots() > 0 ? pos.getLots() : 1;
-        double lotValue = price * lots;
-        int lotsToSell = (int) Math.floor(cashToSell / lotValue);
-        if (lotsToSell <= 0) {
-            lotsToSell = 1;
+        // Position balance is stored in UNITS (shares), consistent with buyByQuantity
+        int balanceUnits = pos.getBalance();
+        // Determine max units to sell: either full position (close) or based on cashToSell
+        int unitsToSell;
+        if (cashToSell >= Double.MAX_VALUE / 2) {
+            // Full close: sell entire position
+            unitsToSell = balanceUnits;
+        } else {
+            // Partial sell based on cash amount: units = cash / price
+            int unitsAffordable = (int) Math.floor(cashToSell / price);
+            unitsToSell = Math.min(unitsAffordable, balanceUnits);
         }
-        lotsToSell = Math.min(lotsToSell, pos.getBalance());
-
-        if (lotsToSell <= 0) {
+        if (unitsToSell <= 0) {
             return false;
         }
 
-        double proceeds = lotsToSell * lotValue;
+        double proceeds = unitsToSell * price;
         double commission = proceeds * commissionRate;
         double netProceeds = proceeds - commission;
         availableCash += netProceeds;
@@ -148,7 +152,7 @@ public class SimulatedBroker implements MarketDataProvider {
             pos.getTicker(),
             pos.getIsin(),
             pos.getInstrumentType().name(),
-            pos.getBalance() - lotsToSell,
+            balanceUnits - unitsToSell,
             pos.getExpectedYield(),
             pos.getLots(),
             pos.getAveragePositionPrice(),
