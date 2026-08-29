@@ -51,13 +51,13 @@ public class SimulatedBroker implements MarketDataProvider {
      * Sets the current simulation time. All candle queries will be filtered to return
      * only candles with time <= this value (prevents look-ahead bias in backtest).
      */
-    public void setCurrentTime(LocalDateTime currentTime) {
+    public synchronized void setCurrentTime(LocalDateTime currentTime) {
         this.currentTime = currentTime;
     }
 
     // ========== Broker State Methods ==========
 
-    public double getAvailableCash() {
+    public synchronized double getAvailableCash() {
         return availableCash;
     }
 
@@ -65,7 +65,7 @@ public class SimulatedBroker implements MarketDataProvider {
      * Calculates total portfolio value: available cash + market value of all positions.
      * Uses the last known prices for positions (from currentPrices or candle data).
      */
-    public double getPortfolioValue() {
+    public synchronized double getPortfolioValue() {
         double totalValue = availableCash;
         for (PositionInfo pos : positions.values()) {
             if (pos.getBalance() > 0) {
@@ -89,7 +89,7 @@ public class SimulatedBroker implements MarketDataProvider {
         return totalValue;
     }
 
-    public PositionInfo getCurrentPositions(TickerType tickerType, String tickerName) {
+    public synchronized PositionInfo getCurrentPositions(TickerType tickerType, String tickerName) {
         for (Map.Entry<TickerInfo.Key, PositionInfo> entry : positions.entrySet()) {
             if (entry.getKey().getTicker().equalsIgnoreCase(tickerName) &&
                 (tickerType == TickerType.ALL || entry.getKey().getType() == tickerType)) {
@@ -99,7 +99,7 @@ public class SimulatedBroker implements MarketDataProvider {
         return null;
     }
 
-    public boolean sellByMarket(String name, TickerType type, double cashToSell) {
+    public synchronized boolean sellByMarket(String name, TickerType type, double cashToSell) {
         TickerInfo.Key key = new TickerInfo.Key(name, type);
         PositionInfo pos = positions.get(key);
 
@@ -176,7 +176,7 @@ public class SimulatedBroker implements MarketDataProvider {
      * @param quantity number of units to buy
      * @return true if purchase was successful, false otherwise
      */
-    public boolean buyByQuantity(String name, TickerType type, int quantity) {
+    public synchronized boolean buyByQuantity(String name, TickerType type, int quantity) {
         if (quantity <= 0) {
             return false;
         }
@@ -304,7 +304,7 @@ public class SimulatedBroker implements MarketDataProvider {
     /**
      * Updates the current price for a ticker (called on each tick in backtest).
      */
-    public void updateCurrentPrice(String ticker, double price) {
+    public synchronized void updateCurrentPrice(String ticker, double price) {
         TickerInfo info = tickerInfo.get(new TickerInfo.Key(ticker, TickerType.STOCK));
         if (info == null) {
             info = tickerInfo.get(new TickerInfo.Key(ticker, TickerType.ETF));
@@ -410,7 +410,7 @@ public class SimulatedBroker implements MarketDataProvider {
         }
     }
 
-    public boolean closeLongByMarket(String ticker, TickerType type) {
+    public synchronized boolean closeLongByMarket(String ticker, TickerType type) {
         // Find position by ticker name regardless of type (handles type mismatches)
         PositionInfo pos = getCurrentPositions(TickerType.ALL, ticker);
         if (pos == null || pos.getBalance() <= 0) {

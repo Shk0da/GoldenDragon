@@ -45,6 +45,8 @@ import java.util.Properties;
 import java.util.Set;
 import java.util.TreeSet;
 import java.util.concurrent.Callable;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -936,12 +938,12 @@ public class BacktestRunner {
             }
         }
 
-        Map<String, BaseStrategy> strategies = new LinkedHashMap<>();
-        Map<String, PortfolioPositionState> positionStates = new LinkedHashMap<>();
-        Map<String, List<TradeResult>> tradesByTicker = new LinkedHashMap<>();
-        Map<String, List<EquityPoint>> equityByTicker = new LinkedHashMap<>();
-        Map<String, Double> lastPriceByTicker = new LinkedHashMap<>();
-        Map<String, Integer> minuteIndexByTicker = new LinkedHashMap<>();
+        Map<String, BaseStrategy> strategies = new ConcurrentHashMap<>();
+        Map<String, PortfolioPositionState> positionStates = new ConcurrentHashMap<>();
+        Map<String, List<TradeResult>> tradesByTicker = new ConcurrentHashMap<>();
+        Map<String, List<EquityPoint>> equityByTicker = new ConcurrentHashMap<>();
+        Map<String, Double> lastPriceByTicker = new ConcurrentHashMap<>();
+        Map<String, Integer> minuteIndexByTicker = new ConcurrentHashMap<>();
 
         for (String ticker : marketDataByTicker.keySet()) {
             BaseStrategy strategy = StrategyRegistry.createBacktest(strategyName, config);
@@ -974,6 +976,11 @@ public class BacktestRunner {
         // Track monthly rebalance
         int lastRebalanceMonth = -1;
 
+        // Create thread pool for parallel ticker processing
+        int numThreads = Math.max(2, Runtime.getRuntime().availableProcessors() - 1);
+        ExecutorService executor = Executors.newFixedThreadPool(numThreads);
+
+        try {
         for (String time : globalTimeline) {
             LocalDateTime currentTime = LocalDateTime.parse(time, DATE_TIME_FMT);
 
@@ -986,95 +993,106 @@ public class BacktestRunner {
                 allocatedBalance = Math.min(targetPositionCost, sharedCash);
             }
 
+            // Process all tickers in parallel for this time point
+            List<CompletableFuture<Void>> tickerFutures = new ArrayList<>();
+            final double currentAllocatedBalance = allocatedBalance;
             for (String ticker : marketDataByTicker.keySet()) {
-                MarketData marketData = marketDataByTicker.get(ticker);
-                int idx = minuteIndexByTicker.get(ticker);
-                if (idx >= marketData.minuteTimes.size()) {
-                    continue;
-                }
-
-                LocalDateTime tickerTime = marketData.minuteTimes.get(idx);
-                if (!tickerTime.equals(currentTime)) {
-                    continue;
-                }
-
-                BaseStrategy strategy = strategies.get(ticker);
-                PortfolioPositionState state = positionStates.get(ticker);
-                Candle current = marketData.minuteCandles.get(idx);
-                lastPriceByTicker.put(ticker, current.close);
-
-                if (!isTradingDay(currentTime.toLocalDate())
-                    || !isWithinWorkingHours(currentTime.toLocalTime())) {
-                    // Update current price for broker before any calculation
-                    broker.setCurrentTime(currentTime);
-                    broker.updateCurrentPrice(ticker, current.close);
-
-                    if (state.position.quantity > 0
-                        && !currentTime.toLocalTime().isBefore(EOD_CLOSE_TIME)
-                        && !currentTime.toLocalDate().equals(state.lastEodCloseDate)) {
-                        // EOD close: sync positionStore with broker, then let strategy decide
-                        strategy.syncPositionStoreFromBroker();
-
-                        // Now process ticker - strategy will see the position and can decide CLOSE
-                        BaseStrategy.setBacktestCurrentTime(currentTime);
-                        broker.setCurrentTime(currentTime);
-                        broker.updateCurrentPrice(ticker, current.close);
-                        strategy.processTicker(ticker, null, config, 0.0);
-
-                        // Update position state after strategy processed
-                        syncPositionStatesFromBroker(ticker, state, broker);
-                        state.lastEodCloseDate = currentTime.toLocalDate();
+                final String currentTicker = ticker;
+                CompletableFuture<Void> future = CompletableFuture.runAsync(() -> {
+                    MarketData marketData = marketDataByTicker.get(currentTicker);
+                    int idx = minuteIndexByTicker.get(currentTicker);
+                    if (idx >= marketData.minuteTimes.size()) {
+                        return;
                     }
 
+                    LocalDateTime tickerTime = marketData.minuteTimes.get(idx);
+                    if (!tickerTime.equals(currentTime)) {
+                        return;
+                    }
+
+                    BaseStrategy strategy = strategies.get(currentTicker);
+                    PortfolioPositionState state = positionStates.get(currentTicker);
+                    Candle current = marketData.minuteCandles.get(idx);
+                    lastPriceByTicker.put(currentTicker, current.close);
+
+                    if (!isTradingDay(currentTime.toLocalDate())
+                        || !isWithinWorkingHours(currentTime.toLocalTime())) {
+                        // Update current price for broker before any calculation
+                        broker.setCurrentTime(currentTime);
+                        broker.updateCurrentPrice(currentTicker, current.close);
+
+                        if (state.position.quantity > 0
+                            && !currentTime.toLocalTime().isBefore(EOD_CLOSE_TIME)
+                            && !currentTime.toLocalDate().equals(state.lastEodCloseDate)) {
+                            // EOD close: sync positionStore with broker, then let strategy decide
+                            strategy.syncPositionStoreFromBroker();
+
+                            // Now process ticker - strategy will see the position and can decide CLOSE
+                            BaseStrategy.setBacktestCurrentTime(currentTime);
+                            broker.setCurrentTime(currentTime);
+                            broker.updateCurrentPrice(currentTicker, current.close);
+                            strategy.processTicker(currentTicker, null, config, 0.0);
+
+                            // Update position state after strategy processed
+                            syncPositionStatesFromBroker(currentTicker, state, broker);
+                            state.lastEodCloseDate = currentTime.toLocalDate();
+                        }
+
+                        equityByTicker
+                            .get(currentTicker)
+                            .add(
+                                new EquityPoint(
+                                    current.time,
+                                    broker.getPortfolioValue()));
+                        minuteIndexByTicker.put(currentTicker, idx + 1);
+                        return;
+                    }
+
+                    while (state.hourIdx + 1 < marketData.hourTimes.size()
+                        && !marketData.hourTimes.get(state.hourIdx + 1).isAfter(currentTime)) {
+                        state.hourIdx++;
+                    }
+
+                    broker.setCurrentTime(currentTime);
+                    broker.updateCurrentPrice(currentTicker, current.close);
                     equityByTicker
-                        .get(ticker)
+                        .get(currentTicker)
                         .add(
                             new EquityPoint(
-                                current.time,
-                                broker.getPortfolioValue()));
-                    minuteIndexByTicker.put(ticker, idx + 1);
-                    continue;
-                }
+                                current.time, broker.getPortfolioValue()));
 
-                while (state.hourIdx + 1 < marketData.hourTimes.size()
-                    && !marketData.hourTimes.get(state.hourIdx + 1).isAfter(currentTime)) {
-                    state.hourIdx++;
-                }
+                    if (state.hourIdx + 1 >= MIN_HOURS_REQUIRED) {
+                        // Use processTicker instead of decide() + applyPortfolioDecision()
+                        // This ensures full parity with live trading: effectiveBalance, PARTIALFREE,
+                        // openPosition/closePosition via SimulatedBroker, etc.
+                        BaseStrategy.setBacktestCurrentTime(currentTime);
+                        broker.setCurrentTime(currentTime);
 
-                broker.setCurrentTime(currentTime);
-                broker.updateCurrentPrice(ticker, current.close);
-                equityByTicker
-                    .get(ticker)
-                    .add(
-                        new EquityPoint(
-                            current.time, broker.getPortfolioValue()));
+                        // Update current price in broker for accurate order execution
+                        broker.updateCurrentPrice(currentTicker, current.close);
 
-                if (state.hourIdx + 1 >= MIN_HOURS_REQUIRED) {
-                    // Use processTicker instead of decide() + applyPortfolioDecision()
-                    // This ensures full parity with live trading: effectiveBalance, PARTIALFREE,
-                    // openPosition/closePosition via SimulatedBroker, etc.
-                    BaseStrategy.setBacktestCurrentTime(currentTime);
-                    broker.setCurrentTime(currentTime);
+                        strategy.processTicker(currentTicker, null, config, currentAllocatedBalance);
 
-                    // Update current price in broker for accurate order execution
-                    broker.updateCurrentPrice(ticker, current.close);
+                        // Sync positionStates from broker positions after processTicker
+                        syncPositionStatesFromBroker(currentTicker, state, broker);
+                    } else {
+                        state.lastSeenHourIdx = state.hourIdx;
+                    }
 
-                    strategy.processTicker(ticker, null, config, allocatedBalance);
-
-                    // Sync positionStates from broker positions after processTicker
-                    syncPositionStatesFromBroker(ticker, state, broker);
-                } else {
                     state.lastSeenHourIdx = state.hourIdx;
-                }
-
-                state.lastSeenHourIdx = state.hourIdx;
-                minuteIndexByTicker.put(ticker, idx + 1);
+                    minuteIndexByTicker.put(currentTicker, idx + 1);
+                }, executor);
+                tickerFutures.add(future);
             }
 
+            // Wait for all tickers to complete for this time point
+            CompletableFuture.allOf(tickerFutures.toArray(new CompletableFuture[0])).join();
+
+            // After all tickers processed, compute total portfolio equity
             double totalEquity = broker.getPortfolioValue();
             EquityPoint equityPoint = new EquityPoint(time, totalEquity);
             portfolioEquity.add(equityPoint);
-            
+
             // Update real-time chart
             updateRealTimeChart(strategyName, equityPoint);
         }
@@ -1129,6 +1147,9 @@ public class BacktestRunner {
                 portfolioPnl, portfolioDd, portfolioEquity, totalTrades, portfolioWinRate);
 
         return new ExecutionResult(tickerResults, portfolioResult);
+        } finally {
+            executor.shutdown();
+        }
     }
 
     private List<MarketDataLoadResult> loadMarketDataParallel(
