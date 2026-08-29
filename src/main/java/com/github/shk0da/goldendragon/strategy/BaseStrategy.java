@@ -28,6 +28,19 @@ import java.io.FileWriter;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.text.SimpleDateFormat;
+import java.time.DayOfWeek;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.LocalTime;
+import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.locks.ReentrantLock;
 import java.nio.file.Paths;
 import java.sql.Timestamp;
 import java.text.SimpleDateFormat;
@@ -252,6 +265,7 @@ import static java.util.concurrent.CompletableFuture.runAsync;
 
     protected final Map<String, Long> tickerCooldown = new ConcurrentHashMap<>();
     protected final Map<String, Position> positionStore = new ConcurrentHashMap<>();
+    private final Map<String, ReentrantLock> tickerLocks = new ConcurrentHashMap<>();
     protected final Map<String, String> lastSeenHourBarByTicker = new ConcurrentHashMap<>();
     protected volatile Map<String, List<Candle>> peerCandles = new ConcurrentHashMap<>();
     protected final Map<String, Long> throttledLogLastTime = new ConcurrentHashMap<>();
@@ -515,6 +529,8 @@ import static java.util.concurrent.CompletableFuture.runAsync;
             }
         }
 
+        ReentrantLock lock = tickerLocks.computeIfAbsent(name, k -> new ReentrantLock());
+        lock.lock();
         try {
             if (!isWorkingHours()) {
                 return;
@@ -705,6 +721,8 @@ import static java.util.concurrent.CompletableFuture.runAsync;
             tickerCooldown.put(name, cooldownExpiry);
             String message = getStrategyName() + " error for " + name + ": " + ex.getMessage();
             log(message);
+        } finally {
+            lock.unlock();
         }
     }
 
