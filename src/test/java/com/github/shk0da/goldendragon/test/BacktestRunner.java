@@ -412,6 +412,13 @@ public class BacktestRunner {
     private final double slippage;
     private final double monthlyRebalanceAmount;
 
+    // Real-time chart state
+    private TimeSeries equityTimeSeries;
+    private JFreeChart equityChart;
+    private Path chartOutputPath;
+    private long lastChartUpdateTime = 0;
+    private static final long CHART_UPDATE_INTERVAL_MS = 5000; // Update chart every 5 seconds
+
     public BacktestRunner(
         String dataDir,
         double initialBalance,
@@ -954,6 +961,9 @@ public class BacktestRunner {
         double sharedCash = initialBalance;
         List<EquityPoint> portfolioEquity = new ArrayList<>();
 
+        // Initialize real-time chart
+        initRealTimeChart(strategyName);
+
         // Use averagePositionCost as target position size instead of equal distribution
         // If cash is insufficient, use all available cash (TMON@ will be sold to cover the difference)
         double targetPositionCost = config.getAveragePositionCost() != null
@@ -1062,7 +1072,11 @@ public class BacktestRunner {
             }
 
             double totalEquity = broker.getPortfolioValue();
-            portfolioEquity.add(new EquityPoint(time, totalEquity));
+            EquityPoint equityPoint = new EquityPoint(time, totalEquity);
+            portfolioEquity.add(equityPoint);
+            
+            // Update real-time chart
+            updateRealTimeChart(strategyName, equityPoint);
         }
 
         // Close all remaining positions at period end via broker
@@ -1973,6 +1987,72 @@ public class BacktestRunner {
         } else if (state.position.quantity > 0 && (brokerPos == null || brokerPos.getBalance() <= 0)) {
             // Position was closed
             state.position = new Position();
+        }
+    }
+
+    /**
+     * Initializes the real-time equity chart for live updating during backtest.
+     */
+    private void initRealTimeChart(String strategyName) {
+        equityTimeSeries = new TimeSeries("Capital");
+        
+        org.jfree.chart.axis.NumberAxis rangeAxis = new org.jfree.chart.axis.NumberAxis("Capital (RUB)");
+        rangeAxis.setStandardTickUnits(org.jfree.chart.axis.NumberAxis.createStandardTickUnits());
+        
+        equityChart = ChartFactory.createTimeSeriesChart(
+            "Equity Curve - " + strategyName,
+            "Date",
+            "Capital (RUB)",
+            new TimeSeriesCollection(equityTimeSeries),
+            true,
+            true,
+            false
+        );
+
+        XYPlot plot = (XYPlot) equityChart.getPlot();
+        DateAxis dateAxis = (DateAxis) plot.getDomainAxis();
+        dateAxis.setDateFormatOverride(new SimpleDateFormat("yyyy-MM"));
+        plot.setRangeAxis(rangeAxis);
+
+        try {
+            Path imagesDir = Paths.get("images");
+            Files.createDirectories(imagesDir);
+            chartOutputPath = imagesDir.resolve(strategyName + ".png");
+            System.out.println("Real-time chart enabled: " + chartOutputPath);
+        } catch (IOException e) {
+            System.err.println("Failed to initialize chart: " + e.getMessage());
+            chartOutputPath = null;
+        }
+    }
+
+    /**
+     * Updates equity curve chart in real-time during backtest.
+     * Throttled to write every CHART_UPDATE_INTERVAL_MS to avoid excessive disk I/O.
+     */
+    private synchronized void updateRealTimeChart(String strategyName, EquityPoint equityPoint) {
+        if (equityTimeSeries == null) {
+            return;
+        }
+
+        try {
+            LocalDateTime localDateTime = LocalDateTime.parse(equityPoint.time, DATE_TIME_FMT);
+            Day day = new Day(
+                java.util.Date.from(
+                    localDateTime.atZone(java.time.ZoneId.systemDefault()).toInstant()
+                )
+            );
+            equityTimeSeries.addOrUpdate(day, equityPoint.equity);
+
+            // Throttle file writes to avoid excessive I/O
+            long now = System.currentTimeMillis();
+            if (chartOutputPath != null && now - lastChartUpdateTime >= CHART_UPDATE_INTERVAL_MS) {
+                try (FileOutputStream out = new FileOutputStream(chartOutputPath.toFile())) {
+                    ChartUtilities.writeChartAsPNG(out, equityChart, 1200, 600);
+                }
+                lastChartUpdateTime = now;
+            }
+        } catch (Exception e) {
+            // Silently ignore chart update errors
         }
     }
 }
