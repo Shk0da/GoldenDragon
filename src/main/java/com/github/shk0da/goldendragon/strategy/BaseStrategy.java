@@ -17,6 +17,8 @@ import com.github.shk0da.goldendragon.model.TickerType;
 import com.github.shk0da.goldendragon.model.TradingDecision;
 import com.github.shk0da.goldendragon.repository.TickerRepository;
 import com.github.shk0da.goldendragon.service.TCSService;
+import com.github.shk0da.goldendragon.time.LiveTimeProvider;
+import com.github.shk0da.goldendragon.time.TimeProvider;
 import com.github.shk0da.goldendragon.utils.IndicatorsUtil;
 import com.github.shk0da.goldendragon.utils.LoggingUtils;
 import ru.tinkoff.piapi.contract.v1.CandleInterval;
@@ -32,7 +34,6 @@ import java.nio.file.Paths;
 import java.sql.Timestamp;
 import java.text.SimpleDateFormat;
 import java.time.DayOfWeek;
-import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
@@ -220,6 +221,10 @@ import static java.util.concurrent.CompletableFuture.runAsync;
     protected final UnifiedTraderConfig unifiedTraderConfig;
     protected MarketDataProvider marketDataProvider;
     protected OrderExecutor orderExecutor;
+    protected TimeProvider timeProvider;
+
+    /** Backtest broker for parity with live trading (injected via setBacktestBroker). */
+    protected static com.github.shk0da.goldendragon.backtest.SimulatedBroker backtestBroker;
     protected final BadWeatherFilter badWeatherFilter;
     protected final MarketRegimeFilter marketRegimeFilter;
 
@@ -242,15 +247,47 @@ import static java.util.concurrent.CompletableFuture.runAsync;
     protected volatile Map<String, List<Candle>> peerCandles = new ConcurrentHashMap<>();
     protected final Map<String, Long> throttledLogLastTime = new ConcurrentHashMap<>();
 
+    /**
+     * Get position store for backtest access.
+     */
+    public Map<String, Position> getPositionStore() {
+        return positionStore;
+    }
+
     protected static final int MAX_CONCURRENT_POSITIONS = 8; // Максимум 8 одновременных позиций
+
+    /**
+     * Set backtest broker for all strategies.
+     * Called by BacktestRunner before starting simulation.
+     */
+    public static void setBacktestBroker(com.github.shk0da.goldendragon.backtest.SimulatedBroker broker) {
+        BaseStrategy.backtestBroker = broker;
+    }
+
+    /**
+     * Check if currently running in backtest mode.
+     * @return true if backtest broker is set (backtest is running)
+     */
+    protected static boolean isBacktestMode() {
+        return backtestBroker != null;
+    }
 
     protected BaseStrategy(
             UnifiedTraderConfig unifiedTraderConfig,
             TCSService tcsService,
             Config config) {
+        this(unifiedTraderConfig, tcsService, config, null);
+    }
+
+    protected BaseStrategy(
+            UnifiedTraderConfig unifiedTraderConfig,
+            TCSService tcsService,
+            Config config,
+            TimeProvider timeProvider) {
         this.config = config;
         this.tcsService = tcsService;
         this.unifiedTraderConfig = unifiedTraderConfig;
+        this.timeProvider = timeProvider != null ? timeProvider : new LiveTimeProvider();
 
         this.marketDataProvider = new LiveMarketDataProvider(tcsService);
         this.orderExecutor = new LiveOrderExecutor(tcsService);
@@ -268,6 +305,13 @@ import static java.util.concurrent.CompletableFuture.runAsync;
                 peerCandles != null
                         ? new ConcurrentHashMap<>(peerCandles)
                         : new ConcurrentHashMap<>();
+    }
+
+    /**
+     * Set position for a ticker (used in backtest for TMON@ cash parking sync).
+     */
+    public void setPosition(String ticker, Position position) {
+        positionStore.put(ticker, position);
     }
 
     public void run() {
@@ -394,7 +438,7 @@ import static java.util.concurrent.CompletableFuture.runAsync;
                                 ticker,
                                 info.getFigi(),
                                 dataDir,
-                                OffsetDateTime.now(),
+                                timeProvider != null ? timeProvider.nowOffset() : OffsetDateTime.now(),
                                 CandleInterval.CANDLE_INTERVAL_HOUR);
                 if (hourCandles != null && !hourCandles.isEmpty()) {
                     snapshot.put(ticker, hourCandles);
@@ -416,7 +460,7 @@ import static java.util.concurrent.CompletableFuture.runAsync;
             double allocatedBalance) {
         Long cooldownUntil = tickerCooldown.get(name);
         if (cooldownUntil != null) {
-            long remaining = cooldownUntil - System.currentTimeMillis();
+            long remaining = cooldownUntil - timeProvider.currentTimeMillis();
             if (remaining > 0) {
                 log(
                         "Ticker "
@@ -619,7 +663,7 @@ import static java.util.concurrent.CompletableFuture.runAsync;
                 closePosition(name, ticker, storedPosition, decision);
             }
         } catch (Exception ex) {
-            long cooldownExpiry = System.currentTimeMillis() + COOLDOWN_DURATION_MS;
+            long cooldownExpiry = timeProvider.currentTimeMillis() + COOLDOWN_DURATION_MS;
             tickerCooldown.put(name, cooldownExpiry);
             String message = getStrategyName() + " error for " + name + ": " + ex.getMessage();
             log(message);
@@ -1097,7 +1141,7 @@ import static java.util.concurrent.CompletableFuture.runAsync;
                             ticker,
                             tickerInfo.getFigi(),
                             unifiedTraderConfig.getDataDir(),
-                            OffsetDateTime.now(),
+                            timeProvider != null ? timeProvider.nowOffset() : OffsetDateTime.now(),
                             CandleInterval.CANDLE_INTERVAL_HOUR);
             if (hourCandles != null && !hourCandles.isEmpty()) {
                 lastSeenHourBarByTicker.put(ticker, hourCandles.get(hourCandles.size() - 1).time);
@@ -1133,6 +1177,10 @@ import static java.util.concurrent.CompletableFuture.runAsync;
 
     protected List<Candle> loadOrRefreshCandles(
             String name, String figi, String dataDir, OffsetDateTime now, CandleInterval interval) {
+        // Use timeProvider if 'now' is null (for backtest compatibility)
+        if (now == null && timeProvider != null) {
+            now = timeProvider.nowOffset();
+        }
         if (tcsService == null) {
             return readCachedCandles(name, dataDir, interval);
         }
@@ -1244,7 +1292,7 @@ import static java.util.concurrent.CompletableFuture.runAsync;
     }
 
     protected boolean isTradingDay() {
-        DayOfWeek day = LocalDateTime.now().getDayOfWeek();
+        DayOfWeek day = timeProvider.now().getDayOfWeek();
         return day != DayOfWeek.SATURDAY && day != DayOfWeek.SUNDAY;
     }
 
@@ -1252,7 +1300,7 @@ import static java.util.concurrent.CompletableFuture.runAsync;
         if (!isTradingDay()) {
             return false;
         }
-        LocalTime now = LocalTime.now();
+        LocalTime now = timeProvider.now().toLocalTime();
         return !now.isBefore(WORK_START_TIME) && now.isBefore(EOD_CLOSE_TIME);
     }
 
@@ -1260,17 +1308,17 @@ import static java.util.concurrent.CompletableFuture.runAsync;
         if (!isTradingDay()) {
             return true;
         }
-        LocalTime now = LocalTime.now();
+        LocalTime now = timeProvider.now().toLocalTime();
         return !now.isBefore(EOD_CLOSE_TIME);
     }
 
     protected void throttleApiCall() {
         synchronized (API_LOCK) {
-            long waitTime = API_CALL_DELAY_MS - (System.currentTimeMillis() - lastApiCallTime);
+            long waitTime = API_CALL_DELAY_MS - (timeProvider.currentTimeMillis() - lastApiCallTime);
             if (waitTime > 0) {
                 sleep(waitTime);
             }
-            lastApiCallTime = System.currentTimeMillis();
+            lastApiCallTime = timeProvider.currentTimeMillis();
         }
     }
 
@@ -1400,7 +1448,7 @@ import static java.util.concurrent.CompletableFuture.runAsync;
     }
 
     protected static void log(String message) {
-        log(message, false);
+        log(message, isBacktestMode());
     }
 
     protected static void log(String message, boolean silent) {
@@ -1419,7 +1467,7 @@ import static java.util.concurrent.CompletableFuture.runAsync;
      * @param throttleMinutes minutes to wait between logs for the same key
      */
     protected void logThrottled(String key, String message, long throttleMinutes) {
-        long now = System.currentTimeMillis();
+        long now = timeProvider.currentTimeMillis();
         long throttleMs = throttleMinutes * 60 * 1000L;
         Long lastTime = throttledLogLastTime.get(key);
         if (lastTime == null || (now - lastTime) >= throttleMs) {

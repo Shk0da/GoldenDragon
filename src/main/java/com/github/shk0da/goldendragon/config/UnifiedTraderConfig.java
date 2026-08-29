@@ -147,7 +147,6 @@ public class UnifiedTraderConfig {
 
     private String dataDir;
     private List<String> stocks;
-    private Double averagePositionCost;
     private boolean badWeatherFilterEnabled;
     private final int leverageMin;
     private final boolean adaptiveLeverageEnabled;
@@ -167,9 +166,6 @@ public class UnifiedTraderConfig {
                                                 properties.getProperty("datacollector.instruments"))
                                         .split(","))
                         .collect(toList());
-        averagePositionCost =
-                Double.valueOf(
-                        properties.getProperty("unifiedTrader.averagePositionCost", "10000"));
         badWeatherFilterEnabled =
                 Boolean.parseBoolean(
                         properties.getProperty("unifiedTrader.badWeatherFilter.enabled", "true"));
@@ -382,10 +378,6 @@ public class UnifiedTraderConfig {
         return stocks;
     }
 
-    public Double getAveragePositionCost() {
-        return averagePositionCost;
-    }
-
     public boolean isBadWeatherFilterEnabled() {
         return badWeatherFilterEnabled;
     }
@@ -400,6 +392,15 @@ public class UnifiedTraderConfig {
 
     public boolean isTmonCashParkingEnabled() {
         return tmonCashParkingEnabled;
+    }
+
+    /**
+     * Cooldown in candles after closing a position. Mirrors live {@code Config.cooldownCandles}.
+     * Reads the same property key as live.
+     */
+    public int getCooldownCandles() {
+        return Integer.parseInt(
+                properties.getProperty("unifiedTrader.cooldownCandles", "3"));
     }
 
     @Override

@@ -54,7 +54,7 @@ public interface OrderExecutor {
     /**
      * Container for order execution results.
      */
-    class ExecutionResult {
+    public static class ExecutionResult {
         private final boolean success;
         private final int executedQuantity;
         private final Double executedPrice;

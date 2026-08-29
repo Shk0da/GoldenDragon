@@ -682,7 +682,7 @@ public class UnifiedStrategy extends BaseStrategy {
             }
 
         } else {
-            // Use balance as direct position cost (averagePositionCost from config)
+            // Use balance as direct position cost (full balance invested)
             // Calculate quantity to invest the full balance amount
             // qty is in LOTS (consistent with Position.quantity and SimulatedBroker.buyByQuantity)
             TickerInfo tickerInfo = resolveTickerInfo(ticker);
