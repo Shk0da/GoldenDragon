@@ -17,6 +17,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 /**
  * Simulated broker and market data provider for backtest.
@@ -42,6 +43,8 @@ public class SimulatedBroker implements MarketDataProvider {
     // Incremental filter cache: ticker -> (interval -> lastFilteredIndex)
     private final Map<String, Map<String, Integer>> lastFilteredIndex = new ConcurrentHashMap<>();
     private volatile LocalDateTime currentTime;
+    // Read-write lock: buy/sell mutate cash + positions (write), all reads take shared lock.
+    private final ReentrantReadWriteLock readWriteLock = new ReentrantReadWriteLock();
 
     public SimulatedBroker(double initialCash, String dataDir, double commissionRate) {
         this.dataDir = dataDir != null ? dataDir : "data";
@@ -63,7 +66,12 @@ public class SimulatedBroker implements MarketDataProvider {
     // ========== Broker State Methods ==========
 
     public double getAvailableCash() {
-        return availableCash;
+        readWriteLock.readLock().lock();
+        try {
+            return availableCash;
+        } finally {
+            readWriteLock.readLock().unlock();
+        }
     }
 
     /**
@@ -71,106 +79,121 @@ public class SimulatedBroker implements MarketDataProvider {
      * Uses the last known prices for positions (from currentPrices or candle data).
      */
     public double getPortfolioValue() {
-        double totalValue = availableCash;
-        for (PositionInfo pos : positions.values()) {
-            if (pos.getBalance() > 0) {
-                // Reconstruct key from ticker and instrument type
-                TickerInfo.Key key = new TickerInfo.Key(pos.getTicker(), pos.getInstrumentType());
-                Double price = currentPrices.get(key);
-                if (price == null || price <= 0) {
-                    // Fallback to last candle
-                    List<Candle> candles = getCandles(pos.getTicker(), "HOUR");
-                    if (!candles.isEmpty()) {
-                        price = candles.get(candles.size() - 1).close;
-                    } else {
-                        price = pos.getAveragePositionPrice();
+        readWriteLock.readLock().lock();
+        try {
+            double totalValue = availableCash;
+            for (PositionInfo pos : positions.values()) {
+                if (pos.getBalance() > 0) {
+                    // Reconstruct key from ticker and instrument type
+                    TickerInfo.Key key = new TickerInfo.Key(pos.getTicker(), pos.getInstrumentType());
+                    Double price = currentPrices.get(key);
+                    if (price == null || price <= 0) {
+                        // Fallback to last candle
+                        List<Candle> candles = getCandles(pos.getTicker(), "HOUR");
+                        if (!candles.isEmpty()) {
+                            price = candles.get(candles.size() - 1).close;
+                        } else {
+                            price = pos.getAveragePositionPrice();
+                        }
+                    }
+                    if (price != null && price > 0) {
+                        totalValue += pos.getBalance() * price;
                     }
                 }
-                if (price != null && price > 0) {
-                    totalValue += pos.getBalance() * price;
-                }
             }
+            return totalValue;
+        } finally {
+            readWriteLock.readLock().unlock();
         }
-        return totalValue;
     }
 
     public PositionInfo getCurrentPositions(TickerType tickerType, String tickerName) {
-        for (Map.Entry<TickerInfo.Key, PositionInfo> entry : positions.entrySet()) {
-            if (entry.getKey().getTicker().equalsIgnoreCase(tickerName) &&
-                (tickerType == TickerType.ALL || entry.getKey().getType() == tickerType)) {
-                return entry.getValue();
-            }
-        }
-        return null;
-    }
-
-    public synchronized boolean sellByMarket(String name, TickerType type, double cashToSell) {
-        TickerInfo.Key key = new TickerInfo.Key(name, type);
-        PositionInfo pos = positions.get(key);
-
-        // If not found with given type, try all types (handles type mismatches)
-        if (pos == null || pos.getBalance() <= 0) {
+        readWriteLock.readLock().lock();
+        try {
             for (Map.Entry<TickerInfo.Key, PositionInfo> entry : positions.entrySet()) {
-                if (entry.getKey().getTicker().equalsIgnoreCase(name) &&
-                    entry.getValue().getBalance() > 0) {
-                    pos = entry.getValue();
-                    key = entry.getKey();
-                    break;
+                if (entry.getKey().getTicker().equalsIgnoreCase(tickerName) &&
+                    (tickerType == TickerType.ALL || entry.getKey().getType() == tickerType)) {
+                    return entry.getValue();
                 }
             }
+            return null;
+        } finally {
+            readWriteLock.readLock().unlock();
         }
-        if (pos == null || pos.getBalance() <= 0) {
-            return false;
-        }
+    }
 
-        Double price = currentPrices.get(key);
-        if (price == null || price <= 0) {
-            price = pos.getAveragePositionPrice();
-        }
-        if (price == null || price <= 0) {
-            return false;
-        }
+    public boolean sellByMarket(String name, TickerType type, double cashToSell) {
+        readWriteLock.writeLock().lock();
+        try {
+            TickerInfo.Key key = new TickerInfo.Key(name, type);
+            PositionInfo pos = positions.get(key);
 
-        // Position balance is stored in UNITS (shares), consistent with buyByQuantity
-        int balanceUnits = pos.getBalance();
-        // Determine max units to sell: either full position (close) or based on cashToSell
-        int unitsToSell;
-        if (cashToSell >= Double.MAX_VALUE / 2) {
-            // Full close: sell entire position
-            unitsToSell = balanceUnits;
-        } else {
-            // Partial sell based on cash amount: units = cash / price
-            int unitsAffordable = (int) Math.floor(cashToSell / price);
-            unitsToSell = Math.min(unitsAffordable, balanceUnits);
+            // If not found with given type, try all types (handles type mismatches)
+            if (pos == null || pos.getBalance() <= 0) {
+                for (Map.Entry<TickerInfo.Key, PositionInfo> entry : positions.entrySet()) {
+                    if (entry.getKey().getTicker().equalsIgnoreCase(name) &&
+                        entry.getValue().getBalance() > 0) {
+                        pos = entry.getValue();
+                        key = entry.getKey();
+                        break;
+                    }
+                }
+            }
+            if (pos == null || pos.getBalance() <= 0) {
+                return false;
+            }
+
+            Double price = currentPrices.get(key);
+            if (price == null || price <= 0) {
+                price = pos.getAveragePositionPrice();
+            }
+            if (price == null || price <= 0) {
+                return false;
+            }
+
+            // Position balance is stored in UNITS (shares), consistent with buyByQuantity
+            int balanceUnits = pos.getBalance();
+            // Determine max units to sell: either full position (close) or based on cashToSell
+            int unitsToSell;
+            if (cashToSell >= Double.MAX_VALUE / 2) {
+                // Full close: sell entire position
+                unitsToSell = balanceUnits;
+            } else {
+                // Partial sell based on cash amount: units = cash / price
+                int unitsAffordable = (int) Math.floor(cashToSell / price);
+                unitsToSell = Math.min(unitsAffordable, balanceUnits);
+            }
+            if (unitsToSell <= 0) {
+                return false;
+            }
+
+            double proceeds = unitsToSell * price;
+            double commission = proceeds * commissionRate;
+            double netProceeds = proceeds - commission;
+            availableCash += netProceeds;
+
+            PositionInfo newPos = new PositionInfo(
+                pos.getFigi(),
+                pos.getTicker(),
+                pos.getIsin(),
+                pos.getInstrumentType().name(),
+                balanceUnits - unitsToSell,
+                pos.getExpectedYield(),
+                pos.getLots(),
+                pos.getAveragePositionPrice(),
+                pos.getName()
+            );
+
+            if (newPos.getBalance() <= 0) {
+                positions.remove(key);
+            } else {
+                positions.put(key, newPos);
+            }
+
+            return true;
+        } finally {
+            readWriteLock.writeLock().unlock();
         }
-        if (unitsToSell <= 0) {
-            return false;
-        }
-
-        double proceeds = unitsToSell * price;
-        double commission = proceeds * commissionRate;
-        double netProceeds = proceeds - commission;
-        availableCash += netProceeds;
-
-        PositionInfo newPos = new PositionInfo(
-            pos.getFigi(),
-            pos.getTicker(),
-            pos.getIsin(),
-            pos.getInstrumentType().name(),
-            balanceUnits - unitsToSell,
-            pos.getExpectedYield(),
-            pos.getLots(),
-            pos.getAveragePositionPrice(),
-            pos.getName()
-        );
-
-        if (newPos.getBalance() <= 0) {
-            positions.remove(key);
-        } else {
-            positions.put(key, newPos);
-        }
-
-        return true;
     }
 
     /**
@@ -181,97 +204,102 @@ public class SimulatedBroker implements MarketDataProvider {
      * @param quantity number of units to buy
      * @return true if purchase was successful, false otherwise
      */
-    public synchronized boolean buyByQuantity(String name, TickerType type, int quantity) {
-        if (quantity <= 0) {
-            return false;
-        }
-
-        // Find ticker info by name, ignoring type (handles type mismatches)
-        TickerInfo info = null;
-        for (TickerInfo.Key key : tickerInfo.keySet()) {
-            if (key.getTicker().equalsIgnoreCase(name)) {
-                info = tickerInfo.get(key);
-                break;
-            }
-        }
-        if (info == null) {
-            return false;
-        }
-
-        int lotSize = info.getLot() != null ? info.getLot() : 1;
-        int totalUnits = quantity * lotSize;
-
-        // Get current price
-        TickerInfo.Key actualKey = info.getKey();
-        Double price = currentPrices.get(actualKey);
-        if (price == null || price <= 0) {
-            // Use last candle close from filtered candles
-            List<Candle> candles = getCandles(name, "HOUR");
-            if (candles.isEmpty()) {
+    public boolean buyByQuantity(String name, TickerType type, int quantity) {
+        readWriteLock.writeLock().lock();
+        try {
+            if (quantity <= 0) {
                 return false;
             }
-            price = candles.get(candles.size() - 1).close;
-            currentPrices.put(actualKey, price);
-        }
-        if (price == null || price <= 0) {
-            return false;
-        }
 
-        double totalCost = totalUnits * price;
-        double commission = totalCost * commissionRate;
-        double totalCostWithCommission = totalCost + commission;
-
-        if (totalCostWithCommission > availableCash) {
-            // Partial fill: buy as many units as we can afford (including commission)
-            int maxAffordableUnits = (int) Math.floor(availableCash / (price * (1 + commissionRate)));
-            if (maxAffordableUnits <= 0) {
-                return false; // Cannot afford even 1 unit
+            // Find ticker info by name, ignoring type (handles type mismatches)
+            TickerInfo info = null;
+            for (TickerInfo.Key key : tickerInfo.keySet()) {
+                if (key.getTicker().equalsIgnoreCase(name)) {
+                    info = tickerInfo.get(key);
+                    break;
+                }
             }
-            // Round down to lot size
-            int maxAffordableLots = maxAffordableUnits / lotSize;
-            if (maxAffordableLots <= 0) {
-                return false; // Cannot afford even 1 lot
+            if (info == null) {
+                return false;
             }
-            totalUnits = maxAffordableLots * lotSize;
-            totalCost = totalUnits * price;
-            commission = totalCost * commissionRate;
-            totalCostWithCommission = totalCost + commission;
+
+            int lotSize = info.getLot() != null ? info.getLot() : 1;
+            int totalUnits = quantity * lotSize;
+
+            // Get current price
+            TickerInfo.Key actualKey = info.getKey();
+            Double price = currentPrices.get(actualKey);
+            if (price == null || price <= 0) {
+                // Use last candle close from filtered candles
+                List<Candle> candles = getCandles(name, "HOUR");
+                if (candles.isEmpty()) {
+                    return false;
+                }
+                price = candles.get(candles.size() - 1).close;
+                currentPrices.put(actualKey, price);
+            }
+            if (price == null || price <= 0) {
+                return false;
+            }
+
+            double totalCost = totalUnits * price;
+            double commission = totalCost * commissionRate;
+            double totalCostWithCommission = totalCost + commission;
+
+            if (totalCostWithCommission > availableCash) {
+                // Partial fill: buy as many units as we can afford (including commission)
+                int maxAffordableUnits = (int) Math.floor(availableCash / (price * (1 + commissionRate)));
+                if (maxAffordableUnits <= 0) {
+                    return false; // Cannot afford even 1 unit
+                }
+                // Round down to lot size
+                int maxAffordableLots = maxAffordableUnits / lotSize;
+                if (maxAffordableLots <= 0) {
+                    return false; // Cannot afford even 1 lot
+                }
+                totalUnits = maxAffordableLots * lotSize;
+                totalCost = totalUnits * price;
+                commission = totalCost * commissionRate;
+                totalCostWithCommission = totalCost + commission;
+            }
+
+            availableCash -= totalCostWithCommission;
+
+            // Update or create position using actual key from ticker info
+            PositionInfo existingPos = positions.get(actualKey);
+            if (existingPos != null && existingPos.getBalance() > 0) {
+                int newBalance = existingPos.getBalance() + totalUnits;
+                double avgPrice = ((existingPos.getBalance() * existingPos.getAveragePositionPrice())
+                                 + (totalUnits * price)) / newBalance;
+                positions.put(actualKey, new PositionInfo(
+                    existingPos.getFigi(),
+                    existingPos.getTicker(),
+                    existingPos.getIsin(),
+                    existingPos.getInstrumentType().name(),
+                    newBalance,
+                    existingPos.getExpectedYield(),
+                    existingPos.getLots(),
+                    avgPrice,
+                    existingPos.getName()
+                ));
+            } else {
+                positions.put(actualKey, new PositionInfo(
+                    info.getFigi(),
+                    info.getTicker(),
+                    info.getIsin(),
+                    info.getType().name(),
+                    totalUnits,
+                    0.0,
+                    lotSize,
+                    price,
+                    info.getName()
+                ));
+            }
+
+            return true;
+        } finally {
+            readWriteLock.writeLock().unlock();
         }
-
-        availableCash -= totalCostWithCommission;
-
-        // Update or create position using actual key from ticker info
-        PositionInfo existingPos = positions.get(actualKey);
-        if (existingPos != null && existingPos.getBalance() > 0) {
-            int newBalance = existingPos.getBalance() + totalUnits;
-            double avgPrice = ((existingPos.getBalance() * existingPos.getAveragePositionPrice())
-                             + (totalUnits * price)) / newBalance;
-            positions.put(actualKey, new PositionInfo(
-                existingPos.getFigi(),
-                existingPos.getTicker(),
-                existingPos.getIsin(),
-                existingPos.getInstrumentType().name(),
-                newBalance,
-                existingPos.getExpectedYield(),
-                existingPos.getLots(),
-                avgPrice,
-                existingPos.getName()
-            ));
-        } else {
-            positions.put(actualKey, new PositionInfo(
-                info.getFigi(),
-                info.getTicker(),
-                info.getIsin(),
-                info.getType().name(),
-                totalUnits,
-                0.0,
-                lotSize,
-                price,
-                info.getName()
-            ));
-        }
-
-        return true;
     }
 
     /**
