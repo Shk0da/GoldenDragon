@@ -3,6 +3,7 @@ package com.github.shk0da.goldendragon.strategy;
 import com.github.shk0da.goldendragon.config.DataCollectorConfig;
 import com.github.shk0da.goldendragon.config.MainConfig;
 import com.github.shk0da.goldendragon.config.UnifiedTraderConfig;
+import com.github.shk0da.goldendragon.config.OrderBookScalpConfig;
 import com.github.shk0da.goldendragon.service.TCSService;
 
 import java.util.LinkedHashMap;
@@ -88,13 +89,19 @@ public final class StrategyRegistry {
 
     static {
         register(
+                "OrderBookScalpStrategy",
+                runAndNotify(
+                        "OrderBookScalpStrategy",
+                        "Stop OrderBookScalpStrategy",
+                        (mc, tcs, args) ->
+                                new OrderBookScalpStrategy(tcs, mc, new OrderBookScalpConfig()).run()));
+        register(
                 "RegimeAwareStrategy",
                 runAndNotify(
                         "RegimeAwareStrategy",
                         "Stop RegimeAwareStrategy",
                         (mc, tcs, args) ->
-                                new RegimeAwareStrategy(new UnifiedTraderConfig(), tcs).run())
-);
+                                new RegimeAwareStrategy(new UnifiedTraderConfig(), tcs).run()));
         register(
                 "DataCollector",
                 runAndNotify(
