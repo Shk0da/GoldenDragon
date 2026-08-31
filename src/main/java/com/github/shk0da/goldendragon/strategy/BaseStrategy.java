@@ -566,23 +566,25 @@ import static java.util.concurrent.CompletableFuture.runAsync;
             TradingDecision decision =
                     decide(name, hourCandles, minuteCandles, storedPosition, effectiveBalance, hourChanged);
 
-            logThrottled(
+            if (!"HOLD".equals(decision.action)) {
+                logThrottled(
                     "decision_" + name,
                     "DECISION "
-                            + name
-                            + ": hourCandles="
-                            + hourCandles.size()
-                            + " minuteCandles="
-                            + minuteCandles.size()
-                            + " action="
-                            + decision.action
-                            + " reason="
-                            + decision.reason
-                            + " quantity="
-                            + decision.quantity
-                            + " balance="
-                            + String.format("%.2f", balance),
+                        + name
+                        + ": hourCandles="
+                        + hourCandles.size()
+                        + " minuteCandles="
+                        + minuteCandles.size()
+                        + " action="
+                        + decision.action
+                        + " reason="
+                        + decision.reason
+                        + " quantity="
+                        + decision.quantity
+                        + " balance="
+                        + String.format("%.2f", balance),
                     5);
+            }
 
             if (decision.updatedPosition != null && "HOLD".equals(decision.action)) {
                 positionStore.put(name, decision.updatedPosition);
