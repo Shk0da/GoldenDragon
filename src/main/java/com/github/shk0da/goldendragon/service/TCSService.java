@@ -2746,6 +2746,15 @@ public class TCSService {
         if (TickerType.FEATURE == tickerType) {
             return "futures";
         }
+        if (TickerType.ETF == tickerType) {
+            return "etf";
+        }
+        if (TickerType.BOND == tickerType) {
+            return "bond";
+        }
+        if (TickerType.CURRENCY == tickerType) {
+            return "currency";
+        }
         return "";
     }
 
