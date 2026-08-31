@@ -1460,7 +1460,9 @@ public class TCSService {
             }
             String message = "Failed create order [" + key.getTicker() + "]: " + errorDetail;
             log(message);
-            return errorCode != 0 ? OrderExecutionResult.failed(errorCode) : OrderExecutionResult.failed();
+            return errorCode != 0
+                    ? OrderExecutionResult.failed(errorCode, errorDetail)
+                    : OrderExecutionResult.failed(errorDetail);
         }
     }
 
@@ -1791,6 +1793,7 @@ public class TCSService {
         private final double commission;
         private final Position protectivePosition;
         private final int errorCode;
+        private final String errorMessage;
 
         private OrderExecutionResult(
                 boolean success,
@@ -1798,7 +1801,7 @@ public class TCSService {
                 int executedCount,
                 double commission,
                 Position protectivePosition) {
-            this(success, executedPrice, executedCount, commission, protectivePosition, 0);
+            this(success, executedPrice, executedCount, commission, protectivePosition, 0, null);
         }
 
         private OrderExecutionResult(
@@ -1808,12 +1811,24 @@ public class TCSService {
                 double commission,
                 Position protectivePosition,
                 int errorCode) {
+            this(success, executedPrice, executedCount, commission, protectivePosition, errorCode, null);
+        }
+
+        private OrderExecutionResult(
+                boolean success,
+                Double executedPrice,
+                int executedCount,
+                double commission,
+                Position protectivePosition,
+                int errorCode,
+                String errorMessage) {
             this.success = success;
             this.executedPrice = executedPrice;
             this.executedCount = executedCount;
             this.commission = commission;
             this.protectivePosition = protectivePosition;
             this.errorCode = errorCode;
+            this.errorMessage = errorMessage;
         }
 
         public static OrderExecutionResult success(
@@ -1837,8 +1852,20 @@ public class TCSService {
             return new OrderExecutionResult(false, null, 0, 0.0, null, errorCode);
         }
 
+        public static OrderExecutionResult failed(String errorMessage) {
+            return new OrderExecutionResult(false, null, 0, 0.0, null, 0, errorMessage);
+        }
+
+        public static OrderExecutionResult failed(int errorCode, String errorMessage) {
+            return new OrderExecutionResult(false, null, 0, 0.0, null, errorCode, errorMessage);
+        }
+
         public boolean isSuccess() {
             return success;
+        }
+
+        public String getErrorMessage() {
+            return errorMessage;
         }
 
         public Double getExecutedPrice() {

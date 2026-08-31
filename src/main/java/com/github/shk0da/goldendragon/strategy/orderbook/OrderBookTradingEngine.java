@@ -577,7 +577,11 @@ public final class OrderBookTradingEngine implements MarketTickListener {
         if (!result.isSuccess()) {
           logThrottled(
               "_close_untracked_fail_" + position.getTicker(),
-              "Failed to close untracked position for " + position.getTicker(),
+              "Failed to close untracked position for "
+                  + position.getTicker()
+                  + (result.getErrorMessage() != null
+                      ? ": " + result.getErrorMessage()
+                      : ""),
               15);
         } else {
           log("Successfully closed untracked position for " + position.getTicker());
@@ -1510,7 +1514,8 @@ public final class OrderBookTradingEngine implements MarketTickListener {
     TCSService.OrderExecutionResult result = placeBuyOrderWithRetry(runtime, brokerOrderId);
 
     if (!result.isSuccess()) {
-      log("OPEN failed for " + runtime.ticker);
+      log("OPEN failed for " + runtime.ticker
+          + (result.getErrorMessage() != null ? ": " + result.getErrorMessage() : ""));
       runtime.cooldownUntilMs = System.currentTimeMillis() + config.getCooldownSeconds() * 1000L;
       return;
     }
@@ -1811,7 +1816,8 @@ public final class OrderBookTradingEngine implements MarketTickListener {
     }
 
     if (!result.isSuccess()) {
-      log("SHORT failed for " + runtime.ticker);
+      log("SHORT failed for " + runtime.ticker
+          + (result.getErrorMessage() != null ? ": " + result.getErrorMessage() : ""));
       runtime.cooldownUntilMs = System.currentTimeMillis() + config.getCooldownSeconds() * 1000L;
       return;
     }
@@ -1999,7 +2005,8 @@ public final class OrderBookTradingEngine implements MarketTickListener {
         logStatsIfNeeded();
         return;
       }
-      log("CLOSE failed for " + runtime.ticker + " reason=" + reason);
+      log("CLOSE failed for " + runtime.ticker + " reason=" + reason
+          + (result.getErrorMessage() != null ? ", error=" + result.getErrorMessage() : ""));
       return;
     }
 

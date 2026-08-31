@@ -47,7 +47,8 @@ public class LiveOrderExecutor implements OrderExecutor {
                     ticker, info.getType(), value, takeProfitPercent, stopLossPercent);
 
             if (!result.isSuccess()) {
-                return ExecutionResult.failed("Order failed");
+                return ExecutionResult.failed("Buy failed"
+                    + (result.getErrorMessage() != null ? ": " + result.getErrorMessage() : ""));
             }
 
             return ExecutionResult.success(result.getExecutedCount(), result.getExecutedPrice());
@@ -85,7 +86,8 @@ public class LiveOrderExecutor implements OrderExecutor {
                     ticker, info.getType(), positionValue, takeProfitPercent, stopLossPercent);
 
             if (!result.isSuccess()) {
-                return ExecutionResult.failed("Order failed");
+                return ExecutionResult.failed("Sell failed"
+                    + (result.getErrorMessage() != null ? ": " + result.getErrorMessage() : ""));
             }
 
             return ExecutionResult.success(result.getExecutedCount(), result.getExecutedPrice());
@@ -105,7 +107,8 @@ public class LiveOrderExecutor implements OrderExecutor {
             TCSService.OrderExecutionResult result = tcsService.closeLongByMarketWithDetails(ticker, info.getType());
 
             if (!result.isSuccess()) {
-                return ExecutionResult.failed("Close failed");
+                return ExecutionResult.failed("Close long failed"
+                    + (result.getErrorMessage() != null ? ": " + result.getErrorMessage() : ""));
             }
 
             return ExecutionResult.success(result.getExecutedCount(), result.getExecutedPrice());
@@ -125,7 +128,8 @@ public class LiveOrderExecutor implements OrderExecutor {
             TCSService.OrderExecutionResult result = tcsService.closeShortByMarketWithDetails(ticker, info.getType());
 
             if (!result.isSuccess()) {
-                return ExecutionResult.failed("Close failed");
+                return ExecutionResult.failed("Close short failed"
+                    + (result.getErrorMessage() != null ? ": " + result.getErrorMessage() : ""));
             }
 
             return ExecutionResult.success(result.getExecutedCount(), result.getExecutedPrice());
