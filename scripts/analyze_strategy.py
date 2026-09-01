@@ -10,6 +10,8 @@ Usage:
     python scripts/analyze_strategy.py --csv analytics/orderbook-metrics.csv --log analytics/orderbook-diagnostics-replay.log
 """
 
+from __future__ import annotations
+
 import csv
 import re
 import sys
@@ -268,10 +270,13 @@ def print_subsection(title: str):
     print(f"\n  --- {title} ---")
 
 
-def analyze(trades: list, skip_reasons: dict, entry_events: list, diag_stats: dict, density_scalp_skips: list = None):
+def analyze(trades: list, skip_reasons: dict, entry_events: list, diag_stats: dict, density_scalp_skips: list = None, args=None):
     """Print comprehensive analytics report."""
     if density_scalp_skips is None:
         density_scalp_skips = []
+    
+    # For hourly analysis access
+    all_events_for_hourly = entry_events  # Reuse entry_events as placeholder
 
     # --- Header ---
     print_section("ORDER BOOK STRATEGY ANALYTICS REPORT")
@@ -785,6 +790,76 @@ def analyze(trades: list, skip_reasons: dict, entry_events: list, diag_stats: di
     print(f"  END OF REPORT")
     print(f"{'='*70}")
 
+    # --- Hourly Analysis (if requested) ---
+    if args and args.by_hour:
+        print_hourly_analysis(trades, all_events_for_hourly)
+
+
+def print_hourly_analysis(trades: list, skip_events: list):
+    """Print hourly performance breakdown."""
+    print_section("HOURLY PERFORMANCE ANALYSIS")
+    
+    from collections import defaultdict
+    from datetime import datetime
+    
+    hourly_stats = defaultdict(lambda: {"trades": 0, "pnl": 0.0, "wins": 0, "losses": 0, "skips": 0})
+    
+    # Parse trades by hour
+    for t in trades:
+        try:
+            dt = datetime.strptime(t.entry_time, "%Y-%m-%d %H:%M:%S")
+            hour = dt.hour
+            hourly_stats[hour]["trades"] += 1
+            hourly_stats[hour]["pnl"] += t.net_pnl
+            if t.net_pnl > 0:
+                hourly_stats[hour]["wins"] += 1
+            else:
+                hourly_stats[hour]["losses"] += 1
+        except (ValueError, TypeError):
+            pass
+    
+    # Parse skips by hour (skip_events is actually all_events list)
+    for event in skip_events:
+        if isinstance(event, dict) and event.get("type") == "ENTRY_SKIPPED":
+            try:
+                timestamp = event.get("timestamp", "")
+                dt = datetime.strptime(timestamp, "%Y-%m-%d %H:%M:%S")
+                hour = dt.hour
+                hourly_stats[hour]["skips"] += 1
+            except (ValueError, TypeError):
+                pass
+    
+    if not hourly_stats:
+        print("  No hourly data available")
+        return
+    
+    print(f"\n  {'Hour':<8} {'Trades':>7} {'Wins':>5} {'Losses':>8} {'WinR%':>7} {'Net P&L':>12} {'Avg P&L':>10} {'Skips':>8}")
+    print(f"  {'-'*8} {'-'*7} {'-'*5} {'-'*8} {'-'*7} {'-'*12} {'-'*10} {'-'*8}")
+    
+    for hour in sorted(hourly_stats.keys()):
+        stats = hourly_stats[hour]
+        win_rate = stats["wins"] / stats["trades"] * 100 if stats["trades"] > 0 else 0
+        avg_pnl = stats["pnl"] / stats["trades"] if stats["trades"] > 0 else 0
+        print(f"  {hour:02d}:00    {stats['trades']:>7} {stats['wins']:>5} {stats['losses']:>8} {win_rate:>6.1f}% {stats['pnl']:>12.2f} {avg_pnl:>10.2f} {stats['skips']:>8}")
+    
+    # Find best/worst hours
+    if hourly_stats:
+        best_hour = max(hourly_stats.items(), key=lambda x: x[1]["pnl"])
+        worst_hour = min(hourly_stats.items(), key=lambda x: x[1]["pnl"])
+        
+        print_subsection("Key Insights")
+        print(f"  Best hour:  {best_hour[0]:02d}:00 ({best_hour[1]['pnl']:.2f} RUB, {best_hour[1]['trades']} trades)")
+        print(f"  Worst hour: {worst_hour[0]:02d}:00 ({worst_hour[1]['pnl']:.2f} RUB, {worst_hour[1]['trades']} trades)")
+        
+        # Recommendation
+        profitable_hours = [h for h, s in hourly_stats.items() if s["pnl"] > 0]
+        unprofitable_hours = [h for h, s in hourly_stats.items() if s["pnl"] <= 0 and s["trades"] > 0]
+        
+        if profitable_hours:
+            print(f"\n  Recommendation: Trade during hours {min(profitable_hours):02d}:00-{max(profitable_hours):02d}:00")
+        if unprofitable_hours:
+            print(f"  Avoid: {', '.join(f'{h:02d}:00' for h in sorted(unprofitable_hours))}")
+
 
 def main():
     import argparse
@@ -799,6 +874,11 @@ def main():
         "--log",
         default="analytics/orderbook-diagnostics-replay.log",
         help="Path to orderbook-diagnostics-replay.log",
+    )
+    parser.add_argument(
+        "--by-hour",
+        action="store_true",
+        help="Show hourly performance breakdown",
     )
     args = parser.parse_args()
 
@@ -820,7 +900,11 @@ def main():
     trades, skip_reasons, entry_events, all_events, density_scalp_skips = parse_metrics_csv(csv_path)
     diag_stats = parse_diagnostics_log(log_path)
 
-    analyze(trades, skip_reasons, entry_events, diag_stats, density_scalp_skips)
+    analyze(trades, skip_reasons, entry_events, diag_stats, density_scalp_skips, args)
+    
+    # Hourly analysis if requested
+    if args and args.by_hour:
+        print_hourly_analysis(trades, all_events)
 
 
 if __name__ == "__main__":

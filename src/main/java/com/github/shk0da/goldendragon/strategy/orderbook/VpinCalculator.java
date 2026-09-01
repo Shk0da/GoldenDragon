@@ -202,7 +202,9 @@ public final class VpinCalculator {
         if (direction == null) {
             return false;
         }
+        // Tinkoff API returns exact values: "BUY" or "SELL" for aggressor side
+        // "BID" check kept for legacy compatibility
         String upper = direction.toUpperCase();
-        return upper.contains("BUY") || upper.contains("BID");
+        return "BUY".equals(upper) || "BID".equals(upper);
     }
 }

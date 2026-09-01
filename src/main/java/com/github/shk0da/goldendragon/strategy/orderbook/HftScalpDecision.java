@@ -35,7 +35,7 @@ public final class HftScalpDecision {
     private static double fadeRatio = 0.3;
     private static double accelRatio = 1.5;
     private static double eatenRatioEntry = 0.75;
-    private static double tickSizeForCalc = 0.0001;
+    private static double tickSizeForCalc = 1.0;
     private static double densityPullExitRatio = 0.5;
     
     /**
@@ -172,20 +172,27 @@ public final class HftScalpDecision {
         fadeRatio = config.getFadeRatio();
         accelRatio = config.getAccelRatio();
         eatenRatioEntry = config.getEatenRatioEntry();
-        tickSizeForCalc = config.getTickSize() > 0 ? config.getTickSize() : 0.0001;
+        tickSizeForCalc = config.getTickSize() > 0 ? config.getTickSize() : 1.0;
         densityPullExitRatio = config.getDensityPullExit();
     }
     
     /**
      * Calculate tick size for instrument (typical values).
      * In real implementation, this would query instrument characteristics.
+     * 
+     * <p>Corrected for futures pricing:
+     * <ul>
+     *   <li>price &gt; 10000 → 0.1 (e.g. some indices)</li>
+     *   <li>price &gt; 1000 → 1.0 (futures, e.g. VBU6 @ 5100)</li>
+     *   <li>price &gt; 100 → 0.1 (e.g. stocks)</li>
+     *   <li>else → 0.01 (e.g. currencies)</li>
+     * </ul>
      */
     public static double calculateTickSize(double price) {
-        // Approximate tick size based on price level
         if (price > 10000) return 0.1;
-        if (price > 1000) return 0.01;
-        if (price > 100) return 0.001;
-        return 0.0001;
+        if (price > 1000) return 1.0;
+        if (price > 100) return 0.1;
+        return 0.01;
     }
     
     /**

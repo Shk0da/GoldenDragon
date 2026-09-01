@@ -18,6 +18,9 @@ dependencies {
     implementation 'org.jsoup:jsoup:1.15.3'
     implementation 'org.jfree:jfreechart:1.0.19'
     implementation 'com.fasterxml.jackson.datatype:jackson-datatype-jsr310:2.13.4'
+
+    testImplementation 'org.junit.jupiter:junit-jupiter:5.9.3'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 }
 
 task uberJar(type: Jar) {
@@ -65,4 +68,8 @@ task runOrderBookStrategy(type: JavaExec) {
     workingDir = rootDir
     jvmArgs '--add-opens', 'java.base/java.time=ALL-UNNAMED'
     args 'OrderBookScalpStrategy'
+}
+
+test {
+    useJUnitPlatform()
 }

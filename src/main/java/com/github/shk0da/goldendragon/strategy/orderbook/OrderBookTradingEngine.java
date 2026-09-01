@@ -1009,24 +1009,10 @@ public final class OrderBookTradingEngine implements MarketTickListener {
       return;
     }
 
-    double adjustedMinFlow = getTimeAdjustedMinTradeFlow();
-    if (Math.abs(context.getTradeDelta()) < adjustedMinFlow * MIN_ENTRY_FLOW_MULTIPLIER) {
-      emitSkipDiagnostic(
-          runtime.ticker,
-          "trade_flow_too_weak",
-          Map.of(
-              "flow",
-              context.getTradeDelta(),
-              "requiredFlow",
-              adjustedMinFlow * MIN_ENTRY_FLOW_MULTIPLIER,
-              "obi",
-              context.getObi(),
-              "microEdge",
-              context.getMicroEdge(),
-              "spreadBps",
-              context.getSpreadBps()));
-      return;
-    }
+    // REMOVED: Duplicate flow gate that conflicted with TradeFlowScalpSignal
+    // Signal already checks flow at threshold (minTradeFlow * 1.5)
+    // This gate was blocking entries at 2.5 * 2.0 = 5.0, causing 55% false skips
+    // See: docs/plans/ORDERBOOK_SCALP_INCREMENTAL_PLAN.md - Task 1.2
 
     if (isFlowToxic(runtime.ticker)) {
       emitSkipDiagnostic(
@@ -1038,6 +1024,27 @@ public final class OrderBookTradingEngine implements MarketTickListener {
               "maxVpinEntry",
               config.getMaxVpinEntry()));
       return;
+    }
+
+    // Regime filter: skip entries in RANGING markets (low ADX = no trend)
+    if (regimeDetector != null) {
+      List<Candle> candles = loadCandles(runtime.ticker);
+      if (candles != null && !candles.isEmpty()) {
+        MarketRegimeDetector.RegimeResult regime = regimeDetector.detect(candles);
+        if (regime != null && regime.regime == MarketRegimeDetector.MarketRegime.RANGING) {
+          emitSkipDiagnostic(
+              runtime.ticker,
+              "ranging_market",
+              Map.of(
+                  "adx",
+                  regime.adx,
+                  "atr",
+                  regime.atr,
+                  "adxThreshold",
+                  regimeDetector.getAdxTrendThreshold()));
+          return;
+        }
+      }
     }
 
     if (riskManager != null && !riskManager.canTrade(initialEquity + tradeStats.netPnl)) {
