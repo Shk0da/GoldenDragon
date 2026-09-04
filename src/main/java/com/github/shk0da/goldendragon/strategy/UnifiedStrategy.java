@@ -707,7 +707,8 @@ public class UnifiedStrategy extends BaseStrategy {
 
         if (effectiveLeverage > 1
                 && fixedEntryLeverage == null
-                && unifiedTraderConfig.isAdaptiveLeverageEnabled()) {
+                && unifiedTraderConfig.isAdaptiveLeverageEnabled()
+                && isVerboseLogging()) {
             log(
                     "Adaptive leverage for "
                             + ticker
@@ -1203,14 +1204,16 @@ public class UnifiedStrategy extends BaseStrategy {
                             : 0;
             if (buyQty > 0) {
                 double totalCost = buyQty * currentPrice;
-                log(
-                        "TMON@: buying "
-                                + buyQty
-                                + " with idle cash "
-                                + String.format("%.2f", totalCost)
-                                + " (safe lot cost="
-                                + String.format("%.2f", effectiveCostPerLot)
-                                + ")");
+                if (isVerboseLogging()) {
+                    log(
+                            "TMON@: buying "
+                                    + buyQty
+                                    + " with idle cash "
+                                    + String.format("%.2f", totalCost)
+                                    + " (safe lot cost="
+                                    + String.format("%.2f", effectiveCostPerLot)
+                                    + ")");
+                }
                 return new TradingDecision(
                         "OPEN",
                         "tmon_cash_parking",

@@ -462,12 +462,17 @@ import static java.util.concurrent.CompletableFuture.runAsync;
         if (cooldownUntil != null) {
             long remaining = cooldownUntil - timeProvider.currentTimeMillis();
             if (remaining > 0) {
-                log(
+                String cooldownMessage =
                         "Ticker "
                                 + name
                                 + " is on cooldown for "
                                 + (remaining / 1000)
-                                + "s, skipping.");
+                                + "s, skipping.";
+                if ("TMON@".equals(name)) {
+                    logThrottled(name + "_cooldown", cooldownMessage, 30);
+                } else {
+                    log(cooldownMessage);
+                }
                 return;
             } else {
                 tickerCooldown.remove(name);
@@ -547,15 +552,17 @@ import static java.util.concurrent.CompletableFuture.runAsync;
                         if (tmonPrice != null && tmonPrice > 0) {
                             double tmonValue = tmonQty * tmonPrice;
                             effectiveBalance = balance + tmonValue;
-                            log(
-                                    "EFFECTIVE-BALANCE "
-                                            + name
-                                            + ": cash="
-                                            + String.format("%.2f", balance)
-                                            + " + tmon="
-                                            + String.format("%.2f", tmonValue)
-                                            + " = "
-                                            + String.format("%.2f", effectiveBalance));
+                            if (isVerboseLogging()) {
+                                log(
+                                        "EFFECTIVE-BALANCE "
+                                                + name
+                                                + ": cash="
+                                                + String.format("%.2f", balance)
+                                                + " + tmon="
+                                                + String.format("%.2f", tmonValue)
+                                                + " = "
+                                                + String.format("%.2f", effectiveBalance));
+                            }
                         }
                     }
                 } catch (Exception ignored) {
@@ -566,7 +573,18 @@ import static java.util.concurrent.CompletableFuture.runAsync;
             TradingDecision decision =
                     decide(name, hourCandles, minuteCandles, storedPosition, effectiveBalance, hourChanged);
 
-            if (!"HOLD".equals(decision.action)) {
+            if ("HOLD".equals(decision.action)) {
+                // keep hold reasons visible with coarse throttling to avoid log spam
+                logThrottled(
+                    "hold_" + name,
+                    "HOLD "
+                        + name
+                        + ": reason="
+                        + decision.reason
+                        + " balance="
+                        + String.format("%.2f", balance),
+                    30);
+            } else {
                 logThrottled(
                     "decision_" + name,
                     "DECISION "
@@ -827,6 +845,8 @@ import static java.util.concurrent.CompletableFuture.runAsync;
                 String failedLogMessage =
                         "Failed to open " + decision.updatedPosition.direction + " for " + name + ".";
                 if ("TMON@".equals(name)) {
+                    // avoid retrying an untradable parking instrument every cycle
+                    tickerCooldown.put(name, timeProvider.currentTimeMillis() + COOLDOWN_DURATION_MS);
                     logThrottled(name + "_failed_open", failedLogMessage, 5);
                 } else {
                     log(failedLogMessage);
@@ -1469,6 +1489,9 @@ import static java.util.concurrent.CompletableFuture.runAsync;
      * @param throttleMinutes minutes to wait between logs for the same key
      */
     protected void logThrottled(String key, String message, long throttleMinutes) {
+        if (!isVerboseLogging()) {
+            return;
+        }
         long now = timeProvider.currentTimeMillis();
         long throttleMs = throttleMinutes * 60 * 1000L;
         Long lastTime = throttledLogLastTime.get(key);
@@ -1476,6 +1499,11 @@ import static java.util.concurrent.CompletableFuture.runAsync;
             throttledLogLastTime.put(key, now);
             log(message);
         }
+    }
+
+    /** Verbose diagnostic logging flag; trades and errors are always logged. */
+    protected boolean isVerboseLogging() {
+        return unifiedTraderConfig == null || unifiedTraderConfig.isVerboseLoggingEnabled();
     }
 
     protected static void shutdownExecutor(ExecutorService executor) {

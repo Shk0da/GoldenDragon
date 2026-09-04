@@ -1511,10 +1511,18 @@ public class TCSService {
         }
 
         if (referencePrice > 0.0) {
-            return Math.abs(perUnitFromTotal - referencePrice)
-                            < Math.abs(perUnitFromRaw - referencePrice)
-                    ? perUnitFromTotal
-                    : perUnitFromRaw;
+            // wide band tolerates illiquid spreads but rejects values that are
+            // clearly not per-unit prices (e.g. futures margin totals)
+            double wideTolerance = referencePrice * 0.10;
+            if (Math.abs(perUnitFromRaw - referencePrice) <= wideTolerance) {
+                return perUnitFromRaw;
+            }
+            if (Math.abs(perUnitFromTotal - referencePrice) <= wideTolerance) {
+                return perUnitFromTotal;
+            }
+            // no candidate resembles the order book price; the reference price
+            // is the closest available estimate of the true execution price
+            return referencePrice;
         }
         return perUnitFromTotal > 0.0 ? perUnitFromTotal : perUnitFromRaw;
     }

@@ -403,6 +403,33 @@ public class UnifiedTraderConfig {
                 properties.getProperty("unifiedTrader.cooldownCandles", "3"));
     }
 
+    /**
+     * Controls verbose diagnostic logging (HOLD/DECISION summaries and per-cycle
+     * parking/sizing details). Trade executions and errors are always logged.
+     */
+    public boolean isVerboseLoggingEnabled() {
+        return Boolean.parseBoolean(
+                properties.getProperty("unifiedTrader.verboseLogging.enabled", "true"));
+    }
+
+    /**
+     * Hour candle history window in days fetched in live. Backtest trims history
+     * to the same window so simulation sees the same data depth as live.
+     */
+    public int getLiveHourLookbackDays() {
+        return Integer.parseInt(
+                properties.getProperty("unifiedTrader.live.hourLookbackDays", "60"));
+    }
+
+    /**
+     * Minute candle history window in hours fetched in live. Backtest trims history
+     * to the same window so simulation sees the same data depth as live.
+     */
+    public int getLiveMinuteLookbackHours() {
+        return Integer.parseInt(
+                properties.getProperty("unifiedTrader.live.minuteLookbackHours", "72"));
+    }
+
     @Override
     public String toString() {
         return "UnifiedTraderConfig{" + "dataDir='" + dataDir + '\'' + ", stocks=" + stocks + '}';

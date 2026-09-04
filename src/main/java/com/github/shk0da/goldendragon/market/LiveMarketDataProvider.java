@@ -4,6 +4,7 @@ import com.github.shk0da.goldendragon.model.Candle;
 import com.github.shk0da.goldendragon.model.TickerInfo;
 import com.github.shk0da.goldendragon.repository.TickerRepository;
 import com.github.shk0da.goldendragon.service.TCSService;
+import com.github.shk0da.goldendragon.utils.PropertiesUtils;
 
 import java.sql.Timestamp;
 import java.time.OffsetDateTime;
@@ -11,6 +12,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Properties;
 import java.util.TreeMap;
 
 import ru.tinkoff.piapi.contract.v1.CandleInterval;
@@ -23,14 +25,34 @@ import ru.tinkoff.piapi.contract.v1.Quotation;
  */
 public class LiveMarketDataProvider implements MarketDataProvider {
 
+    private static final int DEFAULT_HOUR_LOOKBACK_DAYS = 60;
+    private static final int DEFAULT_MINUTE_LOOKBACK_HOURS = 72;
+
     private final TCSService tcsService;
     private final TickerRepository tickerRepository;
+    private final int hourLookbackDays;
+    private final int minuteLookbackHours;
     private static final ThreadLocal<java.text.SimpleDateFormat> CANDLE_TIME_FORMAT =
             ThreadLocal.withInitial(() -> new java.text.SimpleDateFormat("dd.MM.yyyy HH:mm:ss"));
 
     public LiveMarketDataProvider(TCSService tcsService) {
         this.tcsService = tcsService;
         this.tickerRepository = TickerRepository.INSTANCE;
+        int hourDays = DEFAULT_HOUR_LOOKBACK_DAYS;
+        int minuteHours = DEFAULT_MINUTE_LOOKBACK_HOURS;
+        try {
+            Properties properties = PropertiesUtils.loadProperties();
+            hourDays = Integer.parseInt(properties.getProperty(
+                    "unifiedTrader.live.hourLookbackDays",
+                    String.valueOf(DEFAULT_HOUR_LOOKBACK_DAYS)));
+            minuteHours = Integer.parseInt(properties.getProperty(
+                    "unifiedTrader.live.minuteLookbackHours",
+                    String.valueOf(DEFAULT_MINUTE_LOOKBACK_HOURS)));
+        } catch (Exception ignored) {
+            // fall back to defaults when config is unavailable
+        }
+        this.hourLookbackDays = hourDays;
+        this.minuteLookbackHours = minuteHours;
     }
 
     @Override
@@ -45,9 +67,9 @@ public class LiveMarketDataProvider implements MarketDataProvider {
         OffsetDateTime start;
 
         if ("HOUR".equals(interval)) {
-            start = now.minusDays(60);
+            start = now.minusDays(hourLookbackDays);
         } else if ("5_MIN".equals(interval)) {
-            start = now.minusHours(72);
+            start = now.minusHours(minuteLookbackHours);
         } else {
             return Collections.emptyList();
         }

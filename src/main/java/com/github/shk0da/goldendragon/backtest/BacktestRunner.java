@@ -826,7 +826,11 @@ public class BacktestRunner {
                     minuteIndexByTicker.put(ticker, idx + 1);
                     continue;
                 }
-                List<Candle> hourHistory = marketData.hourCandles.subList(0, hourUpTo + 1);
+                // trim history to the same lookback window the live provider fetches
+                int hourFrom = lowerBound(
+                    marketData.hourTimes, currentTime.minusDays(config.getLiveHourLookbackDays()));
+                hourFrom = Math.min(Math.max(0, hourFrom), hourUpTo + 1);
+                List<Candle> hourHistory = marketData.hourCandles.subList(hourFrom, hourUpTo + 1);
                 int prevSeen = lastSeenHourIdx.getOrDefault(ticker, -1);
                 int seen = Math.max(prevSeen, hourUpTo);
                 boolean hourChanged = brokerPos.hasOpenPosition() && seen != prevSeen;
@@ -843,8 +847,12 @@ public class BacktestRunner {
                         }
                     }
                     strategy.getPositionStore().put(ticker, brokerPos.position);
+                    int minuteFrom = lowerBound(
+                        marketData.minuteTimes,
+                        currentTime.minusHours(config.getLiveMinuteLookbackHours()));
+                    minuteFrom = Math.min(Math.max(0, minuteFrom), idx + 1);
                     TradingDecision decision = strategy.decide(
-                        ticker, hourHistory, marketData.minuteCandles.subList(0, idx + 1),
+                        ticker, hourHistory, marketData.minuteCandles.subList(minuteFrom, idx + 1),
                         brokerPos.position, effectiveBalance, hourChanged);
                     executeDecisionViaBroker(ticker, strategy, decision, current, broker, cooldownCandles);
                     brokerPos = broker.getPositionState(ticker);
@@ -1181,6 +1189,23 @@ public class BacktestRunner {
                 left = mid + 1;
             } else {
                 right = mid - 1;
+            }
+        }
+        return ans;
+    }
+
+    /** First index with time >= target, or times.size() if all times are before target. */
+    private int lowerBound(List<LocalDateTime> times, LocalDateTime target) {
+        int left = 0;
+        int right = times.size() - 1;
+        int ans = times.size();
+        while (left <= right) {
+            int mid = (left + right) >>> 1;
+            if (!times.get(mid).isBefore(target)) {
+                ans = mid;
+                right = mid - 1;
+            } else {
+                left = mid + 1;
             }
         }
         return ans;

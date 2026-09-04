@@ -106,6 +106,10 @@ public class RegimeAwareStrategy extends BaseStrategy {
             return new TradingDecision("HOLD", "NORMAL_WEAK_ADX" + (int) adx);
         }
 
+        // keep the delegate's position store in sync so TMON@ cash parking
+        // sees positions opened by this (outer) strategy
+        unifiedStrategy.setPosition(ticker, position != null ? position : new Position());
+
         // Call UnifiedStrategy with actual balance (no artificial size multiplier)
         TradingDecision decision =
                 unifiedStrategy.decide(

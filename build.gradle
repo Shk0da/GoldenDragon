@@ -48,14 +48,18 @@ task runBacktest(type: JavaExec) {
     main = 'com.github.shk0da.goldendragon.backtest.BacktestRunner'
     classpath = sourceSets.test.runtimeClasspath
     workingDir = rootDir
-    jvmArgs '--add-opens', 'java.base/java.time=ALL-UNNAMED'
+    // utf-8 console output so cyrillic survives redirection to a file
+    jvmArgs '--add-opens', 'java.base/java.time=ALL-UNNAMED',
+            '-Dstdout.encoding=UTF-8', '-Dstderr.encoding=UTF-8'
 }
 
 task runStrategy(type: JavaExec) {
     main = 'com.github.shk0da.goldendragon.GoldenDragon'
     classpath = sourceSets.test.runtimeClasspath
     workingDir = rootDir
-    jvmArgs '--add-opens', 'java.base/java.time=ALL-UNNAMED'
+    // utf-8 console output so cyrillic survives redirection to a file
+    jvmArgs '--add-opens', 'java.base/java.time=ALL-UNNAMED',
+            '-Dstdout.encoding=UTF-8', '-Dstderr.encoding=UTF-8'
     def strategyName = project.findProperty('strategy') ?: 'RegimeAwareStrategy'
     args strategyName
 }
@@ -66,7 +70,9 @@ task runOrderBookStrategy(type: JavaExec) {
     main = 'com.github.shk0da.goldendragon.GoldenDragon'
     classpath = sourceSets.test.runtimeClasspath
     workingDir = rootDir
-    jvmArgs '--add-opens', 'java.base/java.time=ALL-UNNAMED'
+    // utf-8 console output so cyrillic survives redirection to a file
+    jvmArgs '--add-opens', 'java.base/java.time=ALL-UNNAMED',
+            '-Dstdout.encoding=UTF-8', '-Dstderr.encoding=UTF-8'
     args 'OrderBookScalpStrategy'
 }
 
