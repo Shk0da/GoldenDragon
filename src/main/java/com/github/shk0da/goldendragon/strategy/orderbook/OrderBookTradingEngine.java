@@ -67,8 +67,6 @@ public final class OrderBookTradingEngine implements MarketTickListener {
 
   private static final long RECOVERY_STABILIZATION_MS = 15_000L;
 
-  private static final double ENTRY_QUALITY_THRESHOLD = 0.30;
-
   private static final double ENTRY_QUALITY_OBI_WEIGHT = 0.15;
 
   private static final double ENTRY_QUALITY_EDGE_WEIGHT = 0.40;
@@ -192,11 +190,21 @@ public final class OrderBookTradingEngine implements MarketTickListener {
         log(strategyName + ": metrics CSV writer initialized -> " + config.getMetricsCsvFile());
       }
 
-      // Setup DensityScalpSignal skip metrics callback
+      // Setup signal skip metrics callbacks for entry diagnostics
       for (OrderBookSignal signal : this.signals) {
         if (signal instanceof DensityScalpSignal) {
           DensityScalpSignal densitySignal = (DensityScalpSignal) signal;
           densitySignal.setSkipMetricsCallback(this::emitDensityScalpSkip);
+        }
+        if (signal instanceof TradeFlowScalpSignal) {
+          TradeFlowScalpSignal tradeFlowSignal = (TradeFlowScalpSignal) signal;
+          tradeFlowSignal.setSkipMetricsCallback(
+              (ticker, metrics) -> emitSignalSkip("tradeFlow", ticker, metrics));
+        }
+        if (signal instanceof CumulativeDeltaScalpSignal) {
+          CumulativeDeltaScalpSignal deltaSignal = (CumulativeDeltaScalpSignal) signal;
+          deltaSignal.setSkipMetricsCallback(
+              (ticker, metrics) -> emitSignalSkip("cumulative_delta", ticker, metrics));
         }
       }
     } else {
@@ -217,7 +225,8 @@ public final class OrderBookTradingEngine implements MarketTickListener {
         config.getTapeBlockMultiplier());
     this.vpinCalculator = new VpinCalculator(
         config.getVpinBucketSize(),
-        config.getVpinBucketHistorySize());
+        config.getVpinBucketHistorySize(),
+        config.getVpinTradesPerBucket());
     double effectiveTickSize = config.getTickSize() > 0.0 ? config.getTickSize() : 0.01;
     this.volumeProfileTracker = new VolumeProfileTracker(
         effectiveTickSize,
@@ -288,25 +297,35 @@ public final class OrderBookTradingEngine implements MarketTickListener {
     tcsService.logAccountTradingEligibility();
     tcsService.logAccountPositions();
 
-    while (true) {
-      // Check for manual emergency stop (TODO.md Section 5, item 135)
-      if (manualEmergencyStopRequested) {
-        log(strategyName + ": MANUAL EMERGENCY STOP TRIGGERED - closing all positions immediately");
-        emergencyCloseAllPositions(paper);
-        manualEmergencyStopRequested = false;
-        log(strategyName + ": Emergency stop completed, waiting cooldown");
-        sleep(COOLDOWN_DURATION_MS);
-        continue;
-      }
+    try {
+      while (true) {
+        // Check for manual emergency stop (TODO.md Section 5, item 135)
+        if (manualEmergencyStopRequested) {
+          log(strategyName + ": MANUAL EMERGENCY STOP TRIGGERED - closing all positions immediately");
+          emergencyCloseAllPositions(paper);
+          manualEmergencyStopRequested = false;
+          log(strategyName + ": Emergency stop completed, waiting cooldown");
+          sleep(COOLDOWN_DURATION_MS);
+          continue;
+        }
 
-      try {
-        runTradingSession(paper);
-        return;
-      } catch (Exception ex) {
-        String message = strategyName + " error: " + ex.getMessage();
-        log(message);
-        log(strategyName + " entering cooldown for " + (COOLDOWN_DURATION_MS / 1000L) + "s");
-        sleep(COOLDOWN_DURATION_MS);
+        try {
+          runTradingSession(paper);
+          return;
+        } catch (Exception ex) {
+          String message = strategyName + " error: " + ex.getMessage();
+          log(message);
+          log(strategyName + " entering cooldown for " + (COOLDOWN_DURATION_MS / 1000L) + "s");
+          sleep(COOLDOWN_DURATION_MS);
+        }
+      }
+    } finally {
+      // writers must outlive session restarts; close them only on true shutdown
+      if (diagnosticsReplayWriter != null) {
+        diagnosticsReplayWriter.close();
+      }
+      if (metricsCsvWriter != null) {
+        metricsCsvWriter.close();
       }
     }
   }
@@ -449,18 +468,12 @@ public final class OrderBookTradingEngine implements MarketTickListener {
 
         emitDiagnostic(OrderBookDiagnosticEventType.SUMMARY, strategyName, "session_end", metrics);
       }
-      if (diagnosticsReplayWriter != null) {
-        diagnosticsReplayWriter.close();
-      }
-      if (metricsCsvWriter != null) {
-        metricsCsvWriter.close();
-      }
       log(strategyName + " stopped");
     }
   }
 
   private void closeUntrackedPositions(List<TickerRuntime> subscribed, boolean paper) {
-    if (paper) {
+    if (paper || !config.isCloseUntrackedPositionsEnabled()) {
       return;
     }
     Map<TickerInfo.Key, PositionInfo> positions;
@@ -1027,7 +1040,7 @@ public final class OrderBookTradingEngine implements MarketTickListener {
     }
 
     // Regime filter: skip entries in RANGING markets (low ADX = no trend)
-    if (regimeDetector != null) {
+    if (config.isRegimeFilterEnabled() && regimeDetector != null) {
       List<Candle> candles = loadCandles(runtime.ticker);
       if (candles != null && !candles.isEmpty()) {
         MarketRegimeDetector.RegimeResult regime = regimeDetector.detect(candles);
@@ -1091,7 +1104,7 @@ public final class OrderBookTradingEngine implements MarketTickListener {
               context.getTradeDelta(),
               "spreadBps",
               context.getSpreadBps()));
-    } else if (!trendFilter.allowsDirection(mid, obi, tradeDelta, true)) {
+    } else if (config.isTrendFilterEnabled() && !trendFilter.allowsDirection(mid, obi, tradeDelta, true)) {
       emitSkipDiagnostic(
           runtime.ticker,
           "trend_filter_blocks_long",
@@ -1147,7 +1160,7 @@ public final class OrderBookTradingEngine implements MarketTickListener {
                 context.getTradeDelta(),
                 "spreadBps",
                 context.getSpreadBps()));
-      } else if (!trendFilter.allowsDirection(mid, obi, tradeDelta, false)) {
+      } else if (config.isTrendFilterEnabled() && !trendFilter.allowsDirection(mid, obi, tradeDelta, false)) {
         emitSkipDiagnostic(
             runtime.ticker,
             "trend_filter_blocks_short",
@@ -2385,7 +2398,7 @@ public final class OrderBookTradingEngine implements MarketTickListener {
    * @return dynamic quality threshold
    */
   private double calculateDynamicQualityThreshold(String ticker, double currentSpreadBps) {
-    double baseThreshold = ENTRY_QUALITY_THRESHOLD;
+    double baseThreshold = config.getEntryQualityThreshold();
 
     // Use current spread as volatility proxy
     // Higher spread → higher volatility → lower threshold
@@ -2393,10 +2406,10 @@ public final class OrderBookTradingEngine implements MarketTickListener {
     double volRatio = currentSpreadBps / targetSpreadBps;
 
     // Adjust threshold based on volatility
-    // High vol (volRatio > 1.0) → lower threshold (down to 0.25)
-    // Low vol (volRatio < 1.0) → higher threshold (up to 0.40)
-    double minThreshold = 0.25;
-    double maxThreshold = 0.40;
+    // High vol (volRatio > 1.0) → lower threshold
+    // Low vol (volRatio < 1.0) → higher threshold
+    double minThreshold = Math.max(0.10, baseThreshold - 0.05);
+    double maxThreshold = baseThreshold + 0.10;
 
     // Inverse relationship: higher vol → lower threshold
     double adjustedThreshold = baseThreshold / Math.max(0.7, Math.min(1.3, volRatio));
@@ -3131,6 +3144,14 @@ public final class OrderBookTradingEngine implements MarketTickListener {
         ticker,
         "densityScalp_" + skipReason,
         metrics);
+  }
+
+  /**
+   * Emits a throttled ENTRY_SKIPPED diagnostic for signals without their own event type.
+   */
+  private void emitSignalSkip(String signalPrefix, String ticker, Map<String, Object> metrics) {
+    String skipReason = metrics.getOrDefault("skipReason", "unknown").toString();
+    emitSkipDiagnostic(ticker, signalPrefix + "_" + skipReason, metrics);
   }
 
   private String buildDiagnosticLogLine(OrderBookDiagnosticEvent event) {

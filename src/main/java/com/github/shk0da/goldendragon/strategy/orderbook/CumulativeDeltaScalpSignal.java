@@ -14,9 +14,11 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.BiConsumer;
 
 import static ru.tinkoff.piapi.contract.v1.CandleInterval.CANDLE_INTERVAL_5_MIN;
 
@@ -55,6 +57,7 @@ public final class CumulativeDeltaScalpSignal implements OrderBookSignal {
     private final Map<String, Instant> lastVolumeUpdate = new ConcurrentHashMap<>();
     private final Map<String, Integer> persistenceCounter = new ConcurrentHashMap<>();
     private final Map<String, String> lastSignalTicker = new ConcurrentHashMap<>();
+    private BiConsumer<String, Map<String, Object>> skipMetricsCallback;
 
     /**
      * Tracks original density volume for breakout detection.
@@ -95,6 +98,27 @@ public final class CumulativeDeltaScalpSignal implements OrderBookSignal {
         return SIGNAL_ID;
     }
 
+    /**
+     * Set callback for emitting skip diagnostic metrics.
+     * The callback receives (ticker, metrics) where metrics contains skip reason and analysis data.
+     */
+    public void setSkipMetricsCallback(BiConsumer<String, Map<String, Object>> callback) {
+        this.skipMetricsCallback = callback;
+    }
+
+    private void emitSkip(String ticker, String reason, Map<String, Object> extra) {
+        if (skipMetricsCallback == null) {
+            return;
+        }
+        Map<String, Object> metrics = new HashMap<>();
+        metrics.put("signalId", SIGNAL_ID);
+        metrics.put("skipReason", reason);
+        if (extra != null) {
+            metrics.putAll(extra);
+        }
+        skipMetricsCallback.accept(ticker, metrics);
+    }
+
     @Override
     public OrderBookEntryDecision evaluateEntry(
             OrderBookMarketContext context, String ticker) {
@@ -112,6 +136,7 @@ public final class CumulativeDeltaScalpSignal implements OrderBookSignal {
         DensityAnalyzer.Density density = densityAnalyzer.findAnomalousDensity(snapshot, ticker, true); // Check bid side for long
 
         if (density == null) {
+            emitSkip(ticker, "no_anomalous_density", Map.of("side", "bid"));
             return OrderBookEntryDecision.none();
         }
 
@@ -152,6 +177,13 @@ public final class CumulativeDeltaScalpSignal implements OrderBookSignal {
             return OrderBookEntryDecision.enter(reason);
         }
 
+        Map<String, Object> bounceMetrics = new HashMap<>();
+        bounceMetrics.put("side", "bid");
+        bounceMetrics.put("densityPrice", density.getPrice());
+        bounceMetrics.put("deltaDecay", deltaAnalysis.isDecaying());
+        bounceMetrics.put("deltaDivergence", deltaAnalysis.isDiverging());
+        bounceMetrics.put("spreadBps", context.getSpreadBps());
+        emitSkip(ticker, "bounce_rejected", bounceMetrics);
         return OrderBookEntryDecision.none();
     }
 
@@ -173,6 +205,7 @@ public final class CumulativeDeltaScalpSignal implements OrderBookSignal {
         DensityAnalyzer.Density density = densityAnalyzer.findAnomalousDensity(snapshot, ticker, false); // Check ask side for short
 
         if (density == null) {
+            emitSkip(ticker, "no_anomalous_density", Map.of("side", "ask"));
             return OrderBookEntryDecision.none();
         }
 
@@ -220,6 +253,13 @@ public final class CumulativeDeltaScalpSignal implements OrderBookSignal {
             return OrderBookEntryDecision.enter(reason);
         }
 
+        Map<String, Object> bounceMetrics = new HashMap<>();
+        bounceMetrics.put("side", "ask");
+        bounceMetrics.put("densityPrice", density.getPrice());
+        bounceMetrics.put("deltaDecay", deltaAnalysis.isDecaying());
+        bounceMetrics.put("deltaDivergence", deltaAnalysis.isDiverging());
+        bounceMetrics.put("spreadBps", context.getSpreadBps());
+        emitSkip(ticker, "bounce_rejected", bounceMetrics);
         return OrderBookEntryDecision.none();
     }
 

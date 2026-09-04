@@ -3030,16 +3030,27 @@ public class TCSService {
             return;
         }
         long now = System.currentTimeMillis();
-        if (now - lastMarketDataRecoveryMs < MARKET_DATA_RECOVERY_MIN_INTERVAL_MS) {
-            return;
-        }
-        lastMarketDataRecoveryMs = now;
+        boolean resubscribeAllowed =
+                now - lastMarketDataRecoveryMs >= MARKET_DATA_RECOVERY_MIN_INTERVAL_MS;
         synchronized (marketDataStreamShards) {
+            // always evict the failed shard so it is never reused for new
+            // subscriptions, even when resubscription is throttled
             marketDataStreamShards.remove(failedShard);
             Set<String> figis = Set.copyOf(failedShard.figis);
             for (String figi : figis) {
                 marketDataShardByFigi.remove(figi);
             }
+            failedShard.figis.clear();
+            try {
+                failedShard.stream.cancel();
+            } catch (Exception ignored) {
+                // best-effort cleanup of the dead stream
+            }
+            if (!resubscribeAllowed) {
+                // throttled: engine-level stale-data check will recover subscriptions
+                return;
+            }
+            lastMarketDataRecoveryMs = now;
             if (!figis.isEmpty()) {
                 log("recovering market data stream, resubscribing " + figis.size() + " figis");
                 resubscribeMarketData(figis, failedShard.depth);

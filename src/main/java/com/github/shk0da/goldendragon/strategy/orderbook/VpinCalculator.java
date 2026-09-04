@@ -32,6 +32,7 @@ public final class VpinCalculator {
 
     private final int bucketSize;
     private final int bucketHistorySize;
+    private final int tradesPerBucket;
     private final Map<String, TickerVpinState> statesByTicker = new ConcurrentHashMap<>();
 
     /**
@@ -41,14 +42,31 @@ public final class VpinCalculator {
      * @param bucketHistorySize number of completed buckets to keep for rolling average (must be positive)
      */
     public VpinCalculator(int bucketSize, int bucketHistorySize) {
+        this(bucketSize, bucketHistorySize, 0);
+    }
+
+    /**
+     * Creates a VPIN calculator with adaptive bucket sizing.
+     *
+     * @param bucketSize minimum bucket volume; acts as a floor for adaptive sizing (must be positive)
+     * @param bucketHistorySize number of completed buckets to keep for rolling average (must be positive)
+     * @param tradesPerBucket when positive, the effective bucket volume grows to
+     *     {@code avgTradeQuantity * tradesPerBucket} so a single large trade cannot fill
+     *     several one-sided buckets on liquid instruments; 0 keeps fixed bucket sizing
+     */
+    public VpinCalculator(int bucketSize, int bucketHistorySize, int tradesPerBucket) {
         if (bucketSize <= 0) {
             throw new IllegalArgumentException("bucketSize must be positive, got: " + bucketSize);
         }
         if (bucketHistorySize <= 0) {
             throw new IllegalArgumentException("bucketHistorySize must be positive, got: " + bucketHistorySize);
         }
+        if (tradesPerBucket < 0) {
+            throw new IllegalArgumentException("tradesPerBucket must be >= 0, got: " + tradesPerBucket);
+        }
         this.bucketSize = bucketSize;
         this.bucketHistorySize = bucketHistorySize;
+        this.tradesPerBucket = tradesPerBucket;
     }
 
     /**
@@ -69,11 +87,15 @@ public final class VpinCalculator {
         long currentBucketBuyVolume;
         long currentBucketSellVolume;
         long currentBucketFilledVolume;
+        double avgTradeQuantity;
+        long tradesSeen;
 
         TickerVpinState() {
             this.currentBucketBuyVolume = 0;
             this.currentBucketSellVolume = 0;
             this.currentBucketFilledVolume = 0;
+            this.avgTradeQuantity = 0.0;
+            this.tradesSeen = 0;
         }
     }
 
@@ -92,7 +114,30 @@ public final class VpinCalculator {
         long volume = trade.getQuantity();
         boolean isBuy = isBuyDirection(trade.getDirection());
 
+        updateTradeSize(state, volume);
         addVolumeToBuckets(state, volume, isBuy);
+    }
+
+    /** Tracks an exponentially weighted average trade size for adaptive bucket sizing. */
+    private void updateTradeSize(TickerVpinState state, long volume) {
+        if (state.tradesSeen == 0) {
+            state.avgTradeQuantity = volume;
+        } else {
+            state.avgTradeQuantity = state.avgTradeQuantity * 0.9 + volume * 0.1;
+        }
+        state.tradesSeen++;
+    }
+
+    /**
+     * Effective bucket volume: the configured floor, or the average trade size scaled by
+     * {@code tradesPerBucket} when adaptive sizing is enabled and enough data is available.
+     */
+    private long effectiveBucketSize(TickerVpinState state) {
+        if (tradesPerBucket <= 0 || state.avgTradeQuantity <= 0.0) {
+            return bucketSize;
+        }
+        long adaptive = (long) (state.avgTradeQuantity * tradesPerBucket);
+        return Math.max(bucketSize, adaptive);
     }
 
     /**
@@ -104,9 +149,10 @@ public final class VpinCalculator {
      */
     private void addVolumeToBuckets(TickerVpinState state, long volume, boolean isBuy) {
         long remaining = volume;
+        long effectiveSize = effectiveBucketSize(state);
 
         while (remaining > 0) {
-            long spaceInBucket = bucketSize - state.currentBucketFilledVolume;
+            long spaceInBucket = effectiveSize - state.currentBucketFilledVolume;
             long fillAmount = Math.min(remaining, spaceInBucket);
 
             if (isBuy) {
@@ -117,7 +163,7 @@ public final class VpinCalculator {
             state.currentBucketFilledVolume += fillAmount;
             remaining -= fillAmount;
 
-            if (state.currentBucketFilledVolume >= bucketSize) {
+            if (state.currentBucketFilledVolume >= effectiveSize) {
                 closeCurrentBucket(state);
             }
         }

@@ -14,6 +14,7 @@ public class OrderBookScalpConfig {
   private final List<String> instruments;
   private final int depth;
   private final boolean paperMode;
+  private final boolean closeUntrackedPositions;
   private final double positionCash;
   private final double obiThreshold;
   private final double edgeSpreadFraction;
@@ -125,8 +126,12 @@ public class OrderBookScalpConfig {
   private final double tapeBlockMultiplier;
   private final int vpinBucketSize;
   private final int vpinBucketHistorySize;
+  private final int vpinTradesPerBucket;
   private final double maxVpinEntry;
   private final int minVpinBuckets;
+  private final double entryQualityThreshold;
+  private final boolean trendFilterEnabled;
+  private final boolean regimeFilterEnabled;
   private final long volumeProfileWindowMillis;
   private final int queueHistoryWindow;
   private final double queuePriceToleranceBps;
@@ -165,6 +170,10 @@ public class OrderBookScalpConfig {
     this.depth = Integer.parseInt(properties.getProperty("orderBookScalp.depth", "10"));
     this.paperMode =
         Boolean.parseBoolean(properties.getProperty("orderBookScalp.paperMode", "false"));
+    // off by default: closing foreign positions is destructive when several
+    // strategies share one brokerage account
+    this.closeUntrackedPositions =
+        Boolean.parseBoolean(properties.getProperty("orderBookScalp.closeUntrackedPositions", "false"));
     this.positionCash =
         Double.parseDouble(properties.getProperty("orderBookScalp.positionCash", "50000"));
     this.obiThreshold =
@@ -416,10 +425,19 @@ public class OrderBookScalpConfig {
         Integer.parseInt(properties.getProperty("orderBookScalp.vpinBucketSize", "50"));
     this.vpinBucketHistorySize =
         Integer.parseInt(properties.getProperty("orderBookScalp.vpinBucketHistorySize", "20"));
+    this.vpinTradesPerBucket =
+        Integer.parseInt(properties.getProperty("orderBookScalp.vpinTradesPerBucket", "25"));
     this.maxVpinEntry =
         Double.parseDouble(properties.getProperty("orderBookScalp.maxVpinEntry", "0.70"));
     this.minVpinBuckets =
         Integer.parseInt(properties.getProperty("orderBookScalp.minVpinBuckets", "5"));
+    this.entryQualityThreshold =
+        Double.parseDouble(properties.getProperty("orderBookScalp.entryQualityThreshold", "0.30"));
+    // signals enforce their own trend alignment; engine-level gates are optional
+    this.trendFilterEnabled =
+        Boolean.parseBoolean(properties.getProperty("orderBookScalp.trendFilterEnabled", "false"));
+    this.regimeFilterEnabled =
+        Boolean.parseBoolean(properties.getProperty("orderBookScalp.regimeFilterEnabled", "false"));
     this.volumeProfileWindowMillis =
         Long.parseLong(properties.getProperty("orderBookScalp.volumeProfileWindowMillis", "300000"));
     this.queueHistoryWindow =
@@ -474,6 +492,10 @@ public class OrderBookScalpConfig {
 
   public boolean isPaperMode() {
     return paperMode;
+  }
+
+  public boolean isCloseUntrackedPositionsEnabled() {
+    return closeUntrackedPositions;
   }
 
   public double getPositionCash() {
@@ -899,6 +921,22 @@ public class OrderBookScalpConfig {
 
   public int getMinVpinBuckets() {
     return minVpinBuckets;
+  }
+
+  public int getVpinTradesPerBucket() {
+    return vpinTradesPerBucket;
+  }
+
+  public double getEntryQualityThreshold() {
+    return entryQualityThreshold;
+  }
+
+  public boolean isTrendFilterEnabled() {
+    return trendFilterEnabled;
+  }
+
+  public boolean isRegimeFilterEnabled() {
+    return regimeFilterEnabled;
   }
 
   public long getVolumeProfileWindowMillis() {

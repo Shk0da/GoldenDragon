@@ -2,8 +2,10 @@ package com.github.shk0da.goldendragon.strategy.orderbook;
 
 import com.github.shk0da.goldendragon.config.OrderBookScalpConfig;
 
+import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.BiConsumer;
 
 /** Aggressive buy-side trade flow with mild book support. */
 public final class TradeFlowScalpSignal implements OrderBookSignal {
@@ -19,9 +21,32 @@ public final class TradeFlowScalpSignal implements OrderBookSignal {
     private final Map<String, Integer> persistenceByTicker = new ConcurrentHashMap<>();
     // Track recent average price per ticker for pullback check
     private final Map<String, Double> avgPrice5Sec = new ConcurrentHashMap<>();
+    private BiConsumer<String, Map<String, Object>> skipMetricsCallback;
 
     public TradeFlowScalpSignal(OrderBookScalpConfig config) {
         this.config = config;
+    }
+
+    /**
+     * Set callback for emitting skip diagnostic metrics.
+     * The callback receives (ticker, metrics) where metrics contains skip reason and analysis data.
+     */
+    public void setSkipMetricsCallback(BiConsumer<String, Map<String, Object>> callback) {
+        this.skipMetricsCallback = callback;
+    }
+
+    private void emitSkip(String ticker, String reason, double flow, double flowThreshold, double obi) {
+        if (skipMetricsCallback == null) {
+            return;
+        }
+        Map<String, Object> metrics = new HashMap<>();
+        metrics.put("signalId", SIGNAL_ID);
+        metrics.put("skipReason", reason);
+        metrics.put("flow", flow);
+        metrics.put("requiredFlow", flowThreshold);
+        metrics.put("obi", obi);
+        metrics.put("spreadBps", 0.0);
+        skipMetricsCallback.accept(ticker, metrics);
     }
 
     @Override
@@ -35,6 +60,7 @@ public final class TradeFlowScalpSignal implements OrderBookSignal {
         if (context.getTradeDelta() >= flowThreshold && context.getObi() > MIN_OBI) {
             // Pullback check: reject entry if price extended too far above average
             if (isPriceExtended(context, ticker)) {
+                emitSkip(ticker, "price_extended", context.getTradeDelta(), flowThreshold, context.getObi());
                 return OrderBookEntryDecision.none();
             }
             int persistence = persistenceByTicker.merge(ticker, 1, Integer::sum);
@@ -45,6 +71,7 @@ public final class TradeFlowScalpSignal implements OrderBookSignal {
             }
             return OrderBookEntryDecision.none();
         }
+        emitSkip(ticker, "flow_below_threshold", context.getTradeDelta(), flowThreshold, context.getObi());
         persistenceByTicker.put(ticker, 0);
         return OrderBookEntryDecision.none();
     }
@@ -108,6 +135,7 @@ public final class TradeFlowScalpSignal implements OrderBookSignal {
             }
             return OrderBookEntryDecision.none();
         }
+        emitSkip(ticker, "short_flow_below_threshold", context.getTradeDelta(), -flowThreshold, context.getObi());
         persistenceByTicker.put(ticker + "_short", 0);
         return OrderBookEntryDecision.none();
     }
