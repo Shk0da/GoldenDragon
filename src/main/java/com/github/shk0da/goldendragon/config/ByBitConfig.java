@@ -9,18 +9,24 @@ import java.util.Properties;
 public class ByBitConfig {
 
     private final boolean isTestMode;
+    private final boolean isSandbox;
     private final String apiKey;
     private final String apiSecret;
 
     public ByBitConfig() throws Exception {
         final Properties properties = PropertiesUtils.loadProperties();
         this.isTestMode = Boolean.parseBoolean(properties.getProperty("bybit.testMode", "false"));
+        this.isSandbox = Boolean.parseBoolean(properties.getProperty("bybit.isSandbox", "false"));
         this.apiKey = properties.getProperty("bybit.apiKey", "");
         this.apiSecret = properties.getProperty("bybit.apiSecret", "");
     }
 
     public boolean isTestMode() {
         return isTestMode;
+    }
+
+    public boolean isSandbox() {
+        return isSandbox;
     }
 
     public String getApiKey() {

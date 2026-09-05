@@ -487,6 +487,15 @@ public interface TradingService {
     TradingServiceType getServiceType();
 
     /**
+     * Checks if trading is in paper/simulation mode (no real money).
+     * For TINKOFF: true when tcs.testMode=true.
+     * For BYBIT: true when bybit.testMode=true.
+     *
+     * @return true if paper trading is enabled, false for live trading
+     */
+    boolean isPaperTrading();
+
+    /**
      * Trading service types. BYBIT trades crypto (USDT perpetuals),
      * TINKOFF trades stocks/futures on the Moscow Exchange.
      */

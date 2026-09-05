@@ -112,7 +112,7 @@ public class ByBitService implements TradingService {
         this.byBitConfig = byBitConfig;
 
         // Initialize API clients using factory with proper base URLs
-        String baseUrl = byBitConfig.isTestMode() 
+        String baseUrl = byBitConfig.isSandbox() 
             ? "https://api-testnet.bybit.com" 
             : "https://api.bybit.com";
         var factory = BybitApiClientFactory.newInstance(
@@ -131,6 +131,11 @@ public class ByBitService implements TradingService {
     @Override
     public TradingServiceType getServiceType() {
         return TradingServiceType.BYBIT;
+    }
+
+    @Override
+    public boolean isPaperTrading() {
+        return byBitConfig.isSandbox() || byBitConfig.isTestMode();
     }
 
     // ========== INSTRUMENT METHODS ==========

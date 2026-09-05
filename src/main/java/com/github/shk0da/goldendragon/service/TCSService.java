@@ -150,6 +150,11 @@ public class TCSService implements TradingService {
         return TradingServiceType.TINKOFF;
     }
 
+    @Override
+    public boolean isPaperTrading() {
+        return mainConfig.isTestMode();
+    }
+
     /**
      * Logs message with throttling to prevent spam of repeated warnings.
      * Only logs if more than {@code throttleMinutes} have passed since the last log for this key.
