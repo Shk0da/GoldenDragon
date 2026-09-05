@@ -864,16 +864,36 @@ public final class OrderBookTradingEngine implements MarketTickListener {
     }
     try {
       initialEquity = tradingService.getTotalPortfolioCost();
+      if (initialEquity > 0.0) {
+        log(strategyName + ": initialEquity=" + String.format("%.2f", initialEquity));
+        return true;
+      }
+      // Fallback to available cash if total portfolio cost is 0
+      Double availableCash = tradingService.getAvailableCash();
+      if (availableCash != null && availableCash > 0.0) {
+        log(
+            strategyName
+                + ": portfolio cost is 0, using available cash="
+                + String.format("%.2f", availableCash));
+        initialEquity = availableCash;
+        return true;
+      }
+      // Last resort: use configured positionCash for real trading (e.g., testnet with API issues)
+      log(
+          strategyName
+              + ": account balance unavailable, using configured positionCash="
+              + String.format("%.2f", config.getPositionCash())
+              + " as fallback for real trading");
+      initialEquity = config.getPositionCash();
+      return initialEquity > 0.0;
     } catch (Exception ex) {
       log(
           strategyName
-              + ": portfolio cost unavailable, fallback to available cash: "
+              + ": account query failed, using configured positionCash as fallback: "
               + ex.getMessage());
-      Double availableCash = tradingService.getAvailableCash();
-      initialEquity = availableCash != null ? availableCash : 0.0;
+      initialEquity = config.getPositionCash();
+      return initialEquity > 0.0;
     }
-    log(strategyName + ": initialEquity=" + String.format("%.2f", initialEquity));
-    return initialEquity > 0.0;
   }
 
   @Override

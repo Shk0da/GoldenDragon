@@ -55,6 +55,7 @@ import java.time.OffsetDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
@@ -618,31 +619,64 @@ public class ByBitService implements TradingService {
                 .accountType(AccountType.UNIFIED)
                 .build();
             
-            // Call SDK method
+            // Call SDK method - returns LinkedHashMap
             Object response = accountClient.getWalletBalance(request);
+            if (response == null) {
+                log("ByBitService.getAccountField warn: wallet balance response is null");
+                return 0.0;
+            }
             
-            // Parse JSON response
-            String jsonStr = gson.toJson(response);
-            JsonObject json = gson.fromJson(jsonStr, JsonObject.class);
+            // Directly cast to LinkedHashMap (SDK returns this type)
+            if (!(response instanceof LinkedHashMap)) {
+                log("ByBitService.getAccountField warn: unexpected response type: " + response.getClass().getName());
+                return 0.0;
+            }
             
-            if (json.has("result") && json.get("result").isJsonObject()) {
-                JsonObject resultObj = json.getAsJsonObject("result");
-                if (resultObj.has("list") && resultObj.get("list").isJsonArray()) {
-                    JsonArray list = resultObj.getAsJsonArray("list");
-                    if (list.size() > 0) {
-                        JsonObject account = list.get(0).getAsJsonObject();
-                        if ("totalEquity".equals(fieldName)) {
-                            if (account.has("totalEquity")) {
-                                return account.get("totalEquity").getAsNumber().doubleValue();
-                            }
-                        } else {
-                            if (account.has("coin") && account.get("coin").isJsonArray()) {
-                                for (JsonElement coinElement : account.getAsJsonArray("coin")) {
-                                    JsonObject coin = coinElement.getAsJsonObject();
-                                    if ("USDT".equals(coin.get("coin").getAsString())) {
-                                        if (coin.has(fieldName)) {
-                                            return coin.get(fieldName).getAsNumber().doubleValue();
-                                        }
+            @SuppressWarnings("unchecked")
+            LinkedHashMap<String, Object> responseMap = (LinkedHashMap<String, Object>) response;
+            
+            // Check retCode
+            Object retCodeObj = responseMap.get("retCode");
+            if (retCodeObj != null && !"0".equals(retCodeObj.toString())) {
+                log("ByBitService.getAccountField error: retCode=" + retCodeObj 
+                    + ", retMsg=" + responseMap.get("retMsg"));
+                return 0.0;
+            }
+            
+            // Navigate: result -> list[0] -> account fields
+            Object resultObj = responseMap.get("result");
+            if (resultObj instanceof LinkedHashMap) {
+                @SuppressWarnings("unchecked")
+                LinkedHashMap<String, Object> result = (LinkedHashMap<String, Object>) resultObj;
+                
+                Object listObj = result.get("list");
+                if (listObj instanceof java.util.List && !((java.util.List<?>) listObj).isEmpty()) {
+                    @SuppressWarnings("unchecked")
+                    LinkedHashMap<String, Object> account = (LinkedHashMap<String, Object>) ((java.util.List<?>) listObj).get(0);
+                    
+                    if ("totalEquity".equals(fieldName)) {
+                        Object value = account.get("totalEquity");
+                        if (value != null) {
+                            double equity = Double.parseDouble(value.toString());
+                            log("ByBitService.getAccountField: totalEquity=" + equity);
+                            return equity;
+                        }
+                    } else {
+                        // Navigate to coin array for USDT
+                        Object coinListObj = account.get("coin");
+                        if (coinListObj instanceof java.util.List) {
+                            @SuppressWarnings("unchecked")
+                            java.util.List<LinkedHashMap<String, Object>> coins = 
+                                (java.util.List<LinkedHashMap<String, Object>>) coinListObj;
+                            
+                            for (LinkedHashMap<String, Object> coin : coins) {
+                                String coinName = (String) coin.get("coin");
+                                if ("USDT".equals(coinName)) {
+                                    Object value = coin.get(fieldName);
+                                    if (value != null) {
+                                        double fieldValue = Double.parseDouble(value.toString());
+                                        log("ByBitService.getAccountField: " + fieldName + "=" + fieldValue);
+                                        return fieldValue;
                                     }
                                 }
                             }
