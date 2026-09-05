@@ -11,7 +11,13 @@ import java.io.IOException;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Date;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.concurrent.Executors;
 
 /**
@@ -177,7 +183,7 @@ public class DashboardServer {
         sb.append("<head>\n");
         sb.append("    <meta charset=\"UTF-8\">\n");
         sb.append("    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n");
-        sb.append("    <title>GoldenDragon Dashboard</title>\n");
+        sb.append("    <title>GoldenDragon</title>\n");
         sb.append("    <style>\n");
         sb.append("        :root {\n");
         sb.append("            --tinkoff-yellow: #ffdd2d;\n");
@@ -310,7 +316,7 @@ public class DashboardServer {
         sb.append("</head>\n");
         sb.append("<body>\n");
         sb.append("    <div class=\"header\">\n");
-        sb.append("        <h1>GoldenDragon Dashboard</h1>\n");
+        sb.append("        <h1>GoldenDragon</h1>\n");
         sb.append("        <div style=\"display: flex; align-items: center; gap: 16px;\">\n");
         sb.append("            <button class=\"refresh-btn\" onclick=\"loadData()\">Refresh</button>\n");
         sb.append("        </div>\n");
