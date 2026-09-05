@@ -57,10 +57,13 @@ public final class OrderBookScalpScreener {
     private OrderBookScalpScreener() {}
 
     public static List<TickerInfo> selectTop(
-            TradingService tradingService, List<TickerInfo> candidates, OrderBookScalpConfig config) {
+            TradingService tradingService,
+            List<TickerInfo> candidates,
+            OrderBookScalpConfig config,
+            double availableCash) {
         // Crypto mode: screen only crypto pairs for ByBit
         if (tradingService.getServiceType() == TradingServiceType.BYBIT) {
-            return selectCryptoTop(tradingService, candidates, config);
+            return selectCryptoTop(tradingService, candidates, config, availableCash);
         }
 
         List<TickerInfo> perpetuals =
@@ -78,12 +81,12 @@ public final class OrderBookScalpScreener {
                         .collect(toList());
 
         List<ScoredTicker> scored = new ArrayList<>();
-        scored.addAll(pickNearestLiquidDated(tradingService, datedCommodities, config));
+        scored.addAll(pickNearestLiquidDated(tradingService, datedCommodities, config, availableCash));
 
         // Score perpetual futures
         for (TickerInfo info : perpetuals) {
             try {
-                ScoredTicker ranked = scoreTicker(tradingService, info, config);
+                ScoredTicker ranked = scoreTicker(tradingService, info, config, availableCash);
                 if (ranked != null) {
                     scored.add(ranked);
                 }
@@ -96,7 +99,7 @@ public final class OrderBookScalpScreener {
         // Score stocks
         for (TickerInfo info : stocks) {
             try {
-                ScoredTicker ranked = scoreTicker(tradingService, info, config);
+                ScoredTicker ranked = scoreTicker(tradingService, info, config, availableCash);
                 if (ranked != null) {
                     scored.add(ranked);
                 }
@@ -233,7 +236,10 @@ public final class OrderBookScalpScreener {
      * Filters for core crypto pairs and ranks by liquidity.
      */
     private static List<TickerInfo> selectCryptoTop(
-            TradingService tradingService, List<TickerInfo> candidates, OrderBookScalpConfig config) {
+            TradingService tradingService,
+            List<TickerInfo> candidates,
+            OrderBookScalpConfig config,
+            double availableCash) {
         List<TickerInfo> crypto =
                 candidates.stream()
                         .filter(info -> isCryptoCandidate(info))
@@ -243,7 +249,7 @@ public final class OrderBookScalpScreener {
         List<ScoredTicker> scored = new ArrayList<>();
         for (TickerInfo info : crypto) {
             try {
-                ScoredTicker ranked = scoreTicker(tradingService, info, config);
+                ScoredTicker ranked = scoreTicker(tradingService, info, config, availableCash);
                 if (ranked != null) {
                     scored.add(ranked);
                 }
@@ -287,7 +293,10 @@ public final class OrderBookScalpScreener {
     }
 
     private static List<ScoredTicker> pickNearestLiquidDated(
-            TradingService tradingService, List<TickerInfo> datedCommodities, OrderBookScalpConfig config) {
+            TradingService tradingService,
+            List<TickerInfo> datedCommodities,
+            OrderBookScalpConfig config,
+            double availableCash) {
         Instant now = Instant.now();
         Map<String, List<TickerInfo>> byAsset =
                 datedCommodities.stream()
@@ -327,7 +336,7 @@ public final class OrderBookScalpScreener {
             for (int index = 0; index < probeLimit; index++) {
                 TickerInfo candidate = group.get(index);
                 try {
-                    ScoredTicker ranked = scoreTicker(tradingService, candidate, config);
+                    ScoredTicker ranked = scoreTicker(tradingService, candidate, config, availableCash);
                     if (ranked != null && (best == null || ranked.score() > best.score())) {
                         best = ranked;
                     }
@@ -372,7 +381,7 @@ public final class OrderBookScalpScreener {
     }
 
     private static ScoredTicker scoreTicker(
-            TradingService tradingService, TickerInfo info, OrderBookScalpConfig config) {
+            TradingService tradingService, TickerInfo info, OrderBookScalpConfig config, double availableCash) {
         String ticker = info.getTicker();
         Map<String, Map<Double, Long>> book = tradingService.getCurrentPrices(info.getKey(), false);
         if (book == null || !book.containsKey("bids") || !book.containsKey("asks")) {
@@ -414,11 +423,10 @@ public final class OrderBookScalpScreener {
             return null;
         }
 
-        // Check lot affordability — skip if minimum lot cost exceeds position cash
+        // Check lot affordability — skip if minimum lot cost exceeds position budget (percent of available cash)
         int lotSize = info.getLot() != null ? Math.max(1, info.getLot()) : 1;
         double minLotCost = bestAsk * lotSize;
-        // For crypto (USDT), allow up to positionCash since 1 USDT ≈ 100 RUB
-        double maxCost = (info.getType() == TickerType.CRYPTO) ? config.getPositionCash() : config.getPositionCash();
+        double maxCost = availableCash * config.getPositionCashPercent() / 100.0;
         if (minLotCost > maxCost) {
             LoggingUtils.log(
                     "Screen skip "

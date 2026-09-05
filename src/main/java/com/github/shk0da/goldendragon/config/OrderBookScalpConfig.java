@@ -14,7 +14,7 @@ public class OrderBookScalpConfig {
   private final List<String> instruments;
   private final int depth;
   private final boolean closeUntrackedPositions;
-  private final double positionCash;
+  private final double positionCashPercent;
   private final double obiThreshold;
   private final double edgeSpreadFraction;
   private final double maxSpreadBps;
@@ -172,8 +172,8 @@ public class OrderBookScalpConfig {
     // strategies share one brokerage account
     this.closeUntrackedPositions =
         Boolean.parseBoolean(properties.getProperty("orderBookScalp.closeUntrackedPositions", "false"));
-    this.positionCash =
-        Double.parseDouble(properties.getProperty("orderBookScalp.positionCash", "50000"));
+    this.positionCashPercent =
+        Double.parseDouble(properties.getProperty("orderBookScalp.positionCashPercent", "90"));
     this.obiThreshold =
         Double.parseDouble(properties.getProperty("orderBookScalp.obiThreshold", "0.30"));
     this.edgeSpreadFraction =
@@ -494,8 +494,8 @@ public class OrderBookScalpConfig {
     return closeUntrackedPositions;
   }
 
-  public double getPositionCash() {
-    return positionCash;
+  public double getPositionCashPercent() {
+    return positionCashPercent;
   }
 
   public double getObiThreshold() {

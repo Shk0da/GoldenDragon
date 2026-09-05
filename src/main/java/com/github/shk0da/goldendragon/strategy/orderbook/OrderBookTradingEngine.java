@@ -121,6 +121,10 @@ public final class OrderBookTradingEngine implements MarketTickListener {
   private volatile long nextHeartbeatDiagnosticMs;
   private volatile long marketDataRecoveryUntilMs;
   private volatile double initialEquity;
+  private static final double PAPER_AVAILABLE_CASH = 100_000.0;
+  private static final long AVAILABLE_CASH_TTL_MS = 30_000L;
+  private volatile double availableCashCache;
+  private volatile long availableCashUpdatedAtMs;
   private final OrderBookPositionStore positionStore;
   private DashboardServer dashboard;
   private final Map<String, Long> lastProcessingLatencyNs = new ConcurrentHashMap<>();
@@ -303,8 +307,8 @@ public final class OrderBookTradingEngine implements MarketTickListener {
             + config.getDepth()
             + ", paper="
             + paper
-            + ", positionCash="
-            + config.getPositionCash()
+            + ", positionCashPercent="
+            + config.getPositionCashPercent()
             + ", screeningTopN="
             + config.getScreeningTopN()
             + ", signals="
@@ -853,9 +857,38 @@ public final class OrderBookTradingEngine implements MarketTickListener {
     }
   }
 
+  /** Available cash: synthetic 100k in paper mode, otherwise cached from the broker (TTL 30s). */
+  private double getAvailableCashCached() {
+    if (tradingService.isPaperTrading()) {
+      return PAPER_AVAILABLE_CASH;
+    }
+    long now = System.currentTimeMillis();
+    if (now - availableCashUpdatedAtMs < AVAILABLE_CASH_TTL_MS) {
+      return availableCashCache;
+    }
+    synchronized (this) {
+      if (now - availableCashUpdatedAtMs < AVAILABLE_CASH_TTL_MS) {
+        return availableCashCache;
+      }
+      try {
+        Double cash = tradingService.getAvailableCash();
+        availableCashCache = cash == null ? 0.0 : cash;
+      } catch (Exception ex) {
+        logThrottled("_available_cash", strategyName + ": cannot fetch available cash: " + ex.getMessage(), 5);
+      }
+      availableCashUpdatedAtMs = System.currentTimeMillis();
+      return availableCashCache;
+    }
+  }
+
+  /** Position cash as a percentage of available cash (default 90%). */
+  private double currentPositionCash() {
+    return getAvailableCashCached() * config.getPositionCashPercent() / 100.0;
+  }
+
   private boolean initInitialEquity(boolean paper) {
     if (paper) {
-      initialEquity = Math.max(config.getPositionCash(), 1.0);
+      initialEquity = getAvailableCashCached();
       log(
           strategyName
               + ": paper mode, using synthetic initialEquity="
@@ -869,8 +902,8 @@ public final class OrderBookTradingEngine implements MarketTickListener {
         return true;
       }
       // Fallback to available cash if total portfolio cost is 0
-      Double availableCash = tradingService.getAvailableCash();
-      if (availableCash != null && availableCash > 0.0) {
+      double availableCash = getAvailableCashCached();
+      if (availableCash > 0.0) {
         log(
             strategyName
                 + ": portfolio cost is 0, using available cash="
@@ -878,21 +911,12 @@ public final class OrderBookTradingEngine implements MarketTickListener {
         initialEquity = availableCash;
         return true;
       }
-      // Last resort: use configured positionCash for real trading (e.g., testnet with API issues)
-      log(
-          strategyName
-              + ": account balance unavailable, using configured positionCash="
-              + String.format("%.2f", config.getPositionCash())
-              + " as fallback for real trading");
-      initialEquity = config.getPositionCash();
-      return initialEquity > 0.0;
+      // No account balance available — cannot determine equity for percentage-based sizing
+      log(strategyName + ": account balance unavailable, cannot determine equity, stopping");
+      return false;
     } catch (Exception ex) {
-      log(
-          strategyName
-              + ": account query failed, using configured positionCash as fallback: "
-              + ex.getMessage());
-      initialEquity = config.getPositionCash();
-      return initialEquity > 0.0;
+      log(strategyName + ": account query failed: " + ex.getMessage());
+      return false;
     }
   }
 
@@ -1473,12 +1497,7 @@ public final class OrderBookTradingEngine implements MarketTickListener {
     // Verify sufficient cash before placing order
     int lot = runtime.tickerInfo.getLot() != null ? Math.max(1, runtime.tickerInfo.getLot()) : 1;
     double requiredCash = units * entryAsk * lot;
-    double currentAvailableCash = 0.0;
-    try {
-      currentAvailableCash = tradingService.getAvailableCash();
-    } catch (Exception ex) {
-      log("Cannot fetch available cash for " + runtime.ticker + ": " + ex.getMessage());
-    }
+    double currentAvailableCash = getAvailableCashCached();
     if (currentAvailableCash < requiredCash) {
       log("Skip OPEN " + runtime.ticker + " LONG: insufficient cash"
           + " (required=" + String.format("%.2f", requiredCash)
@@ -1672,7 +1691,7 @@ public final class OrderBookTradingEngine implements MarketTickListener {
     for (int attempt = 1; attempt <= ORDER_PLACE_ATTEMPTS; attempt++) {
       result =
           tradingService.buyByMarketWithDetails(
-              runtime.ticker, runtime.key.getType(), config.getPositionCash(), 0.0, 0.0);
+              runtime.ticker, runtime.key.getType(), currentPositionCash(), 0.0, 0.0);
       if (result.isSuccess()) {
         return result;
       }
@@ -1779,12 +1798,7 @@ public final class OrderBookTradingEngine implements MarketTickListener {
     // Verify sufficient cash/margin before placing short order
     int lot = runtime.tickerInfo.getLot() != null ? Math.max(1, runtime.tickerInfo.getLot()) : 1;
     double requiredCash = units * entryBid * lot;
-    double currentAvailableCash = 0.0;
-    try {
-      currentAvailableCash = tradingService.getAvailableCash();
-    } catch (Exception ex) {
-      log("Cannot fetch available cash for " + runtime.ticker + ": " + ex.getMessage());
-    }
+    double currentAvailableCash = getAvailableCashCached();
     if (currentAvailableCash < requiredCash) {
       log("Skip SHORT " + runtime.ticker + ": insufficient cash/margin"
           + " (required=" + String.format("%.2f", requiredCash)
@@ -2241,7 +2255,7 @@ public final class OrderBookTradingEngine implements MarketTickListener {
 
   /** Returns position cash minus commission reserve so the order never exceeds available funds. */
   private double effectivePositionCash() {
-    return config.getPositionCash() / (1.0 + config.getCommissionRate());
+    return currentPositionCash() / (1.0 + config.getCommissionRate());
   }
 
   /**
@@ -2564,7 +2578,7 @@ public final class OrderBookTradingEngine implements MarketTickListener {
     }
 
     // Cap units to a reasonable maximum based on position cash
-    // For futures: positionCash covers margin (25% of notional), not full notional
+    // For futures: position budget covers margin (25% of notional), not full notional
     TickerInfo.Key key = runtimesByTicker.get(ticker) != null
         ? runtimesByTicker.get(ticker).key
         : new TickerInfo.Key(ticker, TickerType.FEATURE);
@@ -2576,7 +2590,7 @@ public final class OrderBookTradingEngine implements MarketTickListener {
     } else {
       marginPerUnit = entryPrice; // equities: full price per unit
     }
-    double maxUnitsByCash = config.getPositionCash() / marginPerUnit;
+    double maxUnitsByCash = currentPositionCash() / marginPerUnit;
     int cappedUnits = (int) Math.min(units, maxUnitsByCash);
 
     if (cappedUnits < units) {
@@ -2724,7 +2738,7 @@ public final class OrderBookTradingEngine implements MarketTickListener {
                 + " crypto instruments, "
                 + cryptoCandidates.size()
                 + " tradable for current account");
-        return OrderBookScalpScreener.selectTop(tradingService, cryptoCandidates, config);
+        return OrderBookScalpScreener.selectTop(tradingService, cryptoCandidates, config, getAvailableCashCached());
       }
 
       // Load futures
@@ -2761,7 +2775,7 @@ public final class OrderBookTradingEngine implements MarketTickListener {
         allCandidates.addAll(stockCandidates);
       }
 
-      return OrderBookScalpScreener.selectTop(tradingService, allCandidates, config);
+      return OrderBookScalpScreener.selectTop(tradingService, allCandidates, config, getAvailableCashCached());
     }
 
     List<TickerInfo> resolved = new ArrayList<>();
