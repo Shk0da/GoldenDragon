@@ -1,7 +1,7 @@
 package com.github.shk0da.goldendragon.strategy;
 
-import com.github.shk0da.goldendragon.backtest.DataCollector;
 import com.github.shk0da.goldendragon.config.UnifiedTraderConfig;
+import com.github.shk0da.goldendragon.utils.CandleFileReader;
 import com.github.shk0da.goldendragon.filters.BadWeatherFilter;
 import com.github.shk0da.goldendragon.filters.MarketRegimeFilter;
 import com.github.shk0da.goldendragon.market.LiveMarketDataProvider;
@@ -217,7 +217,7 @@ import static java.util.concurrent.CompletableFuture.runAsync;
     protected TimeProvider timeProvider;
 
     /** Backtest broker for parity with live trading (injected via setBacktestBroker). */
-    protected static com.github.shk0da.goldendragon.backtest.SimulatedBroker backtestBroker;
+    protected static OrderExecutor backtestBroker;
     protected final BadWeatherFilter badWeatherFilter;
     protected final MarketRegimeFilter marketRegimeFilter;
 
@@ -251,7 +251,7 @@ import static java.util.concurrent.CompletableFuture.runAsync;
      * Set backtest broker for all strategies.
      * Called by BacktestRunner before starting simulation.
      */
-    public static void setBacktestBroker(com.github.shk0da.goldendragon.backtest.SimulatedBroker broker) {
+    public static void setBacktestBroker(OrderExecutor broker) {
         BaseStrategy.backtestBroker = broker;
     }
 
@@ -1265,7 +1265,7 @@ import static java.util.concurrent.CompletableFuture.runAsync;
 
     protected List<Candle> readCachedCandles(String name, String dataDir, String interval) {
         try {
-            List<TickerCandle> cached = DataCollector.readCandlesFile(name, dataDir, interval);
+            List<TickerCandle> cached = CandleFileReader.readCandlesFile(name, dataDir, interval);
             if (cached == null || cached.isEmpty()) {
                 return null;
             }
