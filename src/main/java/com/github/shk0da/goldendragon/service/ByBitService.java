@@ -135,7 +135,7 @@ public class ByBitService implements TradingService {
 
     @Override
     public boolean isPaperTrading() {
-        return byBitConfig.isSandbox() || byBitConfig.isTestMode();
+        return byBitConfig.isTestMode();
     }
 
     // ========== INSTRUMENT METHODS ==========
