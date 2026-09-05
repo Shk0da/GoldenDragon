@@ -789,6 +789,7 @@ public class BacktestRunner {
                 broker.deposit(monthlyRebalanceAmount);
                 totalDeposits += monthlyRebalanceAmount;
                 lastRebalanceMonth = currentMonth;
+                // Cash parking ONLY for Tinkoff (TMON@) - disabled for ByBit crypto
                 if (config.isTmonCashParkingEnabled() && "TMON@".equals(parkingTickerForBacktest)) {
                     double cash = broker.getSharedCash();
                     if (cash > 0) {
@@ -869,6 +870,7 @@ public class BacktestRunner {
                         ticker, currentTime, allHourlyCandles, groupTickers, peerTimesMap, hourHistory, config);
                     strategy.setPeerCandles(currentPeerCandles.isEmpty() ? Collections.emptyMap() : currentPeerCandles);
                     double effectiveBalance = broker.getSharedCash();
+                    // TMON@ cash parking value ONLY for Tinkoff - not for ByBit crypto
                     if (!"TMON@".equals(ticker)
                         && config.isTmonCashParkingEnabled()
                         && "TMON@".equals(parkingTickerForBacktest)) {
