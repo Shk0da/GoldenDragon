@@ -313,7 +313,7 @@ public class BacktestRunner {
     // Store results for comparison
     private static final Map<String, StrategyMetrics> strategyMetricsMap = new LinkedHashMap<>();
 
-    private static double monthlyDeposit = Double.parseDouble(System.getProperty("backtest.monthlyDeposit", "100000"));
+    private static double monthlyDeposit = Double.parseDouble(System.getProperty("backtest.monthlyDeposit", "0"));
 
     public static void main(String[] args) throws IOException {
         double commission = Double.parseDouble(System.getProperty("backtest.commission", "0.0005"));
