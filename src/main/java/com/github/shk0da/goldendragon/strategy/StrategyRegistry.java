@@ -128,6 +128,8 @@ public final class StrategyRegistry {
     public static BaseStrategy createBacktest(String strategyName, UnifiedTraderConfig config) {
         if ("RegimeAwareStrategy".equals(strategyName)) {
             return new RegimeAwareStrategy(config, null);
+        } else if ("OrderBookScalpStrategy".equals(strategyName)) {
+            return new OrderBookScalpBacktestStrategy(config, null, new OrderBookScalpConfig());
         } else {
             throw new IllegalArgumentException("Unknown strategy: " + strategyName);
         }
@@ -138,6 +140,6 @@ public final class StrategyRegistry {
      * @return list of strategy names
      */
     public static List<String> backtestableNames() {
-        return of("RegimeAwareStrategy");
+        return of("RegimeAwareStrategy", "OrderBookScalpStrategy");
     }
 }
