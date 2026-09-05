@@ -17,7 +17,7 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Common interface for trading services (Tinkoff TCS, ByBit, etc.).
+ * Common interface for trading services.
  * Provides unified API for market data, trading, and account operations.
  */
 public interface TradingService {
@@ -485,8 +485,7 @@ public interface TradingService {
     }
 
     /**
-     * Returns the trading service type that determines which instruments are traded:
-     * {@link TradingServiceType#BYBIT} for crypto or {@link TradingServiceType#TINKOFF} for stocks.
+     * Returns the trading service type that determines which instruments are traded.
      *
      * @return the configured trading service type
      */
@@ -494,8 +493,6 @@ public interface TradingService {
 
     /**
      * Checks if trading is in paper/simulation mode (no real money).
-     * For TINKOFF: true when tcs.testMode=true.
-     * For BYBIT: true when bybit.testMode=true.
      *
      * @return true if paper trading is enabled, false for live trading
      */

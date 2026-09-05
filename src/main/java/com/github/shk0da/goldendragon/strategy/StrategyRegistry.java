@@ -3,7 +3,6 @@ package com.github.shk0da.goldendragon.strategy;
 import com.github.shk0da.goldendragon.config.DataCollectorConfig;
 import com.github.shk0da.goldendragon.config.MainConfig;
 import com.github.shk0da.goldendragon.config.UnifiedTraderConfig;
-import com.github.shk0da.goldendragon.config.OrderBookScalpConfig;
 import com.github.shk0da.goldendragon.service.TradingService;
 
 import java.util.LinkedHashMap;
@@ -89,13 +88,6 @@ public final class StrategyRegistry {
 
     static {
         register(
-                "OrderBookScalpStrategy",
-                runAndNotify(
-                        "OrderBookScalpStrategy",
-                        "Stop OrderBookScalpStrategy",
-                        (mc, ts, args) ->
-                                new OrderBookScalpStrategy(ts, mc, new OrderBookScalpConfig()).run()));
-        register(
                 "RegimeAwareStrategy",
                 runAndNotify(
                         "RegimeAwareStrategy",
@@ -128,8 +120,6 @@ public final class StrategyRegistry {
     public static BaseStrategy createBacktest(String strategyName, UnifiedTraderConfig config) {
         if ("RegimeAwareStrategy".equals(strategyName)) {
             return new RegimeAwareStrategy(config, null);
-        } else if ("OrderBookScalpStrategy".equals(strategyName)) {
-            return new OrderBookScalpBacktestStrategy(config, null, new OrderBookScalpConfig());
         } else {
             throw new IllegalArgumentException("Unknown strategy: " + strategyName);
         }
@@ -140,6 +130,6 @@ public final class StrategyRegistry {
      * @return list of strategy names
      */
     public static List<String> backtestableNames() {
-        return of("RegimeAwareStrategy", "OrderBookScalpStrategy");
+        return of("RegimeAwareStrategy");
     }
 }

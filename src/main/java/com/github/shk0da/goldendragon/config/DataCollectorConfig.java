@@ -16,7 +16,6 @@ public class DataCollectorConfig {
 
     private final String dataDir;
     private final List<String> instruments;
-    private final List<String> cryptoInstruments;
     private final Boolean replace;
     private final Integer historyDays;
 
@@ -26,20 +25,8 @@ public class DataCollectorConfig {
         instruments =
                 stream(properties.getProperty("datacollector.instruments").split(","))
                         .collect(toList());
-        cryptoInstruments = loadCryptoInstruments(properties);
         replace = Boolean.valueOf(properties.getProperty("datacollector.replace", "true"));
         historyDays = Integer.valueOf(properties.getProperty("datacollector.historyDays", "365"));
-    }
-
-    private List<String> loadCryptoInstruments(Properties properties) {
-        String crypto = properties.getProperty("datacollector.crypto", "");
-        if (crypto == null || crypto.trim().isEmpty()) {
-            return List.of();
-        }
-        return stream(crypto.split(","))
-                .map(String::trim)
-                .filter(s -> !s.isEmpty())
-                .collect(toList());
     }
 
     public String getDataDir() {
@@ -48,10 +35,6 @@ public class DataCollectorConfig {
 
     public List<String> getInstruments() {
         return instruments;
-    }
-
-    public List<String> getCryptoInstruments() {
-        return cryptoInstruments;
     }
 
     public Boolean isReplace() {
@@ -70,8 +53,6 @@ public class DataCollectorConfig {
                 + '\''
                 + ", instruments="
                 + instruments
-                + ", cryptoInstruments="
-                + cryptoInstruments
                 + ", replace="
                 + replace
                 + ", historyDays="

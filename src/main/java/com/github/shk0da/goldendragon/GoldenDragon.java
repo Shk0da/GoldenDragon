@@ -4,10 +4,8 @@ import com.github.shk0da.goldendragon.config.MainConfig;
 import com.github.shk0da.goldendragon.model.TickerInfo;
 import com.github.shk0da.goldendragon.repository.Repository;
 import com.github.shk0da.goldendragon.repository.TickerRepository;
-import com.github.shk0da.goldendragon.service.ByBitService;
 import com.github.shk0da.goldendragon.service.TCSService;
 import com.github.shk0da.goldendragon.service.TradingService;
-import com.github.shk0da.goldendragon.service.TradingServiceFactory;
 import com.github.shk0da.goldendragon.strategy.StrategyRegistry;
 import com.google.gson.reflect.TypeToken;
 
@@ -61,14 +59,14 @@ public final class GoldenDragon {
             final String strategy = getStrategy(args);
             final String accountId = getAccountId(args, mainConfig);
 
-            // Create trading service via factory (supports Tinkoff or ByBit)
-            final TradingService tradingService = TradingServiceFactory.createTradingService(mainConfig);
-            final TradingServiceFactory.TradingServiceType serviceType = TradingServiceFactory.getConfiguredServiceType();
+            // Create Tinkoff trading service
+            final TCSService tcsService = new TCSService(mainConfig.withAccountId(accountId));
+            final TradingService tradingService = tcsService;
 
-            out.println("Run: " + strategy + " [" + accountId + "] on " + serviceType);
+            out.println("Run: " + strategy + " [" + accountId + "] on Tinkoff");
 
             // Update ticker repository
-            updateTickerRepository(tradingService, serviceType);
+            updateTickerRepository(tradingService);
 
             executeStrategy(strategy, mainConfig, tradingService, args);
         } catch (final Exception ex) {
@@ -109,7 +107,7 @@ public final class GoldenDragon {
         entry.runLive(mainConfig, tradingService, args);
     }
 
-    private static void updateTickerRepository(TradingService tradingService, TradingServiceFactory.TradingServiceType serviceType) throws Exception {
+    private static void updateTickerRepository(TradingService tradingService) throws Exception {
         AtomicReference<Map<TickerInfo.Key, TickerInfo>> tickerRegister =
                 new AtomicReference<>(new HashMap<>());
 
@@ -131,7 +129,6 @@ public final class GoldenDragon {
                 };
 
         if (isEmpty.call() || isOld.call()) {
-            // Use TradingService interface for both implementations
             tickerRepository.putAll(tradingService.getCurrenciesList());
             tickerRepository.putAll(tradingService.getEtfList());
             tickerRepository.putAll(tradingService.getStockList());

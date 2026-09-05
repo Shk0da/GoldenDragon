@@ -2,7 +2,6 @@ package com.github.shk0da.goldendragon.strategy;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
-import com.github.shk0da.goldendragon.config.ByBitConfig;
 import com.github.shk0da.goldendragon.config.DataCollectorConfig;
 import com.github.shk0da.goldendragon.config.MainConfig;
 import com.github.shk0da.goldendragon.model.TickerCandle;
@@ -10,10 +9,8 @@ import com.github.shk0da.goldendragon.model.TickerInfo;
 import com.github.shk0da.goldendragon.model.TickerType;
 import com.github.shk0da.goldendragon.repository.Repository;
 import com.github.shk0da.goldendragon.repository.TickerRepository;
-import com.github.shk0da.goldendragon.service.ByBitService;
 import com.github.shk0da.goldendragon.service.TCSService;
 import com.github.shk0da.goldendragon.service.TradingService;
-import com.github.shk0da.goldendragon.service.TradingServiceFactory;
 import com.github.shk0da.goldendragon.utils.TickerTypeResolver;
 import com.google.gson.reflect.TypeToken;
 
@@ -77,18 +74,13 @@ public class DataCollector {
         DataCollectorConfig config = new DataCollectorConfig();
         var dataDir = config.getDataDir();
         var tickers = config.getInstruments();
-        var cryptoTickers = config.getCryptoInstruments();
         var isReplace = config.isReplace();
         var historyDays = config.getHistoryDays();
 
         createDirectories(Paths.get(dataDir));
 
-        // Determine trading service type
-        TradingServiceFactory.TradingServiceType serviceType = 
-            TradingServiceFactory.getConfiguredServiceType();
-
-        // Process traditional instruments (stocks, bonds, etc.) via Tinkoff API
-        if (tickers != null && !tickers.isEmpty() && serviceType == TradingServiceFactory.TradingServiceType.TINKOFF) {
+        // Process instruments via Tinkoff API
+        if (tickers != null && !tickers.isEmpty()) {
             out.println("=== Downloading instrument data from Tinkoff API ===");
 
             MainConfig mainConfig = new MainConfig();
@@ -119,35 +111,7 @@ public class DataCollector {
             out.println("=== Instrument data download completed ===");
         }
 
-        // Process crypto instruments via ByBit API
-        if (cryptoTickers != null && !cryptoTickers.isEmpty() && serviceType == TradingServiceFactory.TradingServiceType.BYBIT) {
-            out.println("=== Downloading crypto instrument data from ByBit API ===");
-
-            ByBitConfig byBitConfig = new ByBitConfig();
-            ByBitService byBitService = new ByBitService(byBitConfig);
-
-            // Update ticker repository with crypto instruments
-            refreshCryptoTickerRepository(byBitService);
-
-            DataCollector dataCollector = new DataCollector(config, byBitService);
-            for (String name : cryptoTickers) {
-                try {
-                    createDirectories(Paths.get(dataDir + "/" + name));
-                    out.println("Processing " + name + "...");
-                    dataCollector.updateCandlesFile(
-                        name, dataDir, "5_MIN", isReplace);
-                    dataCollector.updateCandlesFile(
-                        name, dataDir, "HOUR", isReplace);
-                    dataCollector.createTickerJson(name, dataDir);
-                    out.println("Completed " + name);
-                } catch (Exception ex) {
-                    out.println("Error processing " + name + ": " + ex.getMessage());
-                }
-            }
-            out.println("=== Crypto instrument data download completed ===");
-        }
-
-        if ((tickers == null || tickers.isEmpty()) && (cryptoTickers == null || cryptoTickers.isEmpty())) {
+        if (tickers == null || tickers.isEmpty()) {
             out.println("No instruments configured");
         }
     }
@@ -186,34 +150,15 @@ public class DataCollector {
         }
     }
 
-    private static void refreshCryptoTickerRepository(ByBitService byBitService) throws Exception {
-        // Load existing repo (might have Tinkoff instruments)
-        Map<TickerInfo.Key, TickerInfo> tickerRegister =
-            loadDataFromDisk(TickerRepository.SERIALIZE_NAME, new TypeToken<>() {});
-        if (tickerRegister == null) {
-            tickerRegister = new HashMap<>();
-        }
-
-        // ALWAYS load fresh crypto instruments from ByBit
-        Map<TickerInfo.Key, TickerInfo> cryptoInstruments = byBitService.getFuturesList();
-        int beforeSize = tickerRegister.size();
-        tickerRegister.putAll(cryptoInstruments);
-        int addedCount = tickerRegister.size() - beforeSize;
-
-        // Save updated repo (existing + crypto)
-        saveDataToDisk(TickerRepository.SERIALIZE_NAME, tickerRegister);
-    }
-
     public void run() throws Exception {
         var dataDir = config.getDataDir();
         var tickers = config.getInstruments();
-        var cryptoTickers = config.getCryptoInstruments();
         var isReplace = config.isReplace();
         var historyDays = config.getHistoryDays();
 
         createDirectories(Paths.get(dataDir));
 
-        // Process traditional instruments (stocks, bonds, etc.)
+        // Process instruments
         for (String name : tickers) {
             try {
                 createDirectories(Paths.get(dataDir + "/" + name));
@@ -222,18 +167,6 @@ public class DataCollector {
                 if (name.contains("@")) {
                     updateCandlesFile(name, dataDir, "1_DAY", isReplace);
                 }
-                createTickerJson(name, dataDir);
-            } catch (Exception ex) {
-                out.println(ex.getMessage());
-            }
-        }
-
-        // Process crypto instruments
-        for (String name : cryptoTickers) {
-            try {
-                createDirectories(Paths.get(dataDir + "/" + name));
-                updateCandlesFile(name, dataDir, "5_MIN", isReplace);
-                updateCandlesFile(name, dataDir, "HOUR", isReplace);
                 createTickerJson(name, dataDir);
             } catch (Exception ex) {
                 out.println(ex.getMessage());
@@ -376,21 +309,13 @@ public class DataCollector {
                 throw new RuntimeException("Ticker not found: " + name);
             }
 
-            // Use figi for Tinkoff, ticker for ByBit crypto
-            String ticker = tickerInfo.getFigi() != null ? tickerInfo.getFigi() : tickerInfo.getTicker();
+            String ticker = tickerInfo.getFigi();
             
             var start = getStartWithShift(period, startTime);
             while (start.isBefore(currentTime)) {
                 var end = start.plus(1, ChronoUnit.DAYS);
                 
-                List<com.github.shk0da.goldendragon.model.Candle> periodCandles;
-                if (tcsService instanceof ByBitService) {
-                    // ByBit crypto: use ticker directly
-                    periodCandles = ((ByBitService) tcsService).getCandles(ticker, start, end, period);
-                } else {
-                    // Tinkoff: use figi
-                    periodCandles = tcsService.getCandles(ticker, start, end, period);
-                }
+                List<com.github.shk0da.goldendragon.model.Candle> periodCandles = tcsService.getCandles(ticker, start, end, period);
                 start = end;
 
                 periodCandles.forEach(

@@ -18,7 +18,6 @@ import com.github.shk0da.goldendragon.model.TickerType;
 import com.github.shk0da.goldendragon.model.TradingDecision;
 import com.github.shk0da.goldendragon.repository.TickerRepository;
 import com.github.shk0da.goldendragon.service.TradingService;
-import com.github.shk0da.goldendragon.service.TradingService.TradingServiceType;
 import com.github.shk0da.goldendragon.time.LiveTimeProvider;
 import com.github.shk0da.goldendragon.time.TimeProvider;
 import com.github.shk0da.goldendragon.money.CashParkingManager;
@@ -308,41 +307,10 @@ import static java.util.concurrent.CompletableFuture.runAsync;
     }
 
     /**
-     * Resolve instruments to trade based on TradingService type.
-     * For BYBIT: load crypto instruments dynamically.
-     * For TINKOFF: use configured instruments from unifiedTraderConfig.
+     * Resolve instruments to trade.
      */
     protected List<String> resolveInstruments() {
-        if (tradingService != null && tradingService.getServiceType() == TradingServiceType.BYBIT) {
-            // Load crypto instruments from datacollector.crypto config
-            try {
-                DataCollectorConfig config = new DataCollectorConfig();
-                List<String> cryptoTickers = config.getCryptoInstruments();
-                log(
-                        getStrategyName()
-                                + ": crypto instruments loaded from datacollector.crypto ("
-                                + cryptoTickers.size()
-                                + "): "
-                                + cryptoTickers);
-                return new ArrayList<>(cryptoTickers);
-            } catch (Exception e) {
-                log("Failed to load datacollector.crypto: " + e.getMessage());
-                // Fallback to all USDT futures
-                try {
-                    Map<TickerInfo.Key, TickerInfo> cryptoInstruments = tradingService.getFuturesList();
-                    return cryptoInstruments.values().stream()
-                            .filter(info -> "USDT".equalsIgnoreCase(info.getCurrency()))
-                            .filter(tradingService::isTradableForAccount)
-                            .map(TickerInfo::getTicker)
-                            .sorted()
-                            .collect(toList());
-                } catch (Exception ex2) {
-                    log("Fallback failed to load crypto instruments: " + ex2.getMessage());
-                    return unifiedTraderConfig.getStocks();
-                }
-            }
-        }
-        // TINKOFF or fallback: use configured instruments
+        // Use configured instruments from unifiedTraderConfig
         return unifiedTraderConfig.getStocks();
     }
 
@@ -1330,25 +1298,11 @@ import static java.util.concurrent.CompletableFuture.runAsync;
     }
 
     protected boolean isTradingDay() {
-        // For ByBit with 24/7 trading enabled: every day is a trading day
-        if (tradingService != null
-                && tradingService.getServiceType() == TradingServiceType.BYBIT
-                && unifiedTraderConfig != null
-                && unifiedTraderConfig.isBybit24h()) {
-            return true;
-        }
         DayOfWeek day = timeProvider.now().getDayOfWeek();
         return day != DayOfWeek.SATURDAY && day != DayOfWeek.SUNDAY;
     }
 
     protected boolean isWorkingHours() {
-        // For ByBit with 24/7 trading enabled: always trading
-        if (tradingService != null
-                && tradingService.getServiceType() == TradingServiceType.BYBIT
-                && unifiedTraderConfig != null
-                && unifiedTraderConfig.isBybit24h()) {
-            return isTradingDay();
-        }
         if (!isTradingDay()) {
             return false;
         }

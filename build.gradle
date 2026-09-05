@@ -14,7 +14,6 @@ repositories {
 
 dependencies {
     implementation 'ru.tinkoff.piapi:java-sdk-core:1.5'
-    implementation 'io.github.wuhewuhe:bybit-java-api:1.2.7'
     implementation 'com.google.code.gson:gson:2.8.9'
     implementation 'org.jsoup:jsoup:1.15.3'
     implementation 'org.jfree:jfreechart:1.0.19'
@@ -64,18 +63,6 @@ task runStrategy(type: JavaExec) {
             '-Dstdout.encoding=UTF-8', '-Dstderr.encoding=UTF-8'
     def strategyName = project.findProperty('strategy') ?: 'RegimeAwareStrategy'
     args strategyName
-}
-
-task runOrderBookStrategy(type: JavaExec) {
-    group = 'strategy'
-    description = 'Run OrderBook scalping strategy live (cumulative delta + density analysis)'
-    main = 'com.github.shk0da.goldendragon.GoldenDragon'
-    classpath = sourceSets.test.runtimeClasspath
-    workingDir = rootDir
-    // utf-8 console output so cyrillic survives redirection to a file
-    jvmArgs '--add-opens', 'java.base/java.time=ALL-UNNAMED',
-            '-Dstdout.encoding=UTF-8', '-Dstderr.encoding=UTF-8'
-    args 'OrderBookScalpStrategy'
 }
 
 test {

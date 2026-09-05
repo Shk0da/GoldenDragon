@@ -68,51 +68,15 @@
 - Verify code changes: `./gradlew check`
 - Full build: `./gradlew clean uberJar`
 - Run Strategy (Tinkoff): `./gradlew runStrategy -Pstrategy=RegimeAwareStrategy`
-- Run Strategy (ByBit): `./gradlew runStrategy -Pstrategy=RegimeAwareStrategy -Dtrading.service=BYBIT`
-- Run OrderBook Strategy: `./gradlew runOrderBookStrategy`
 - Run Backtest (Tinkoff): `./gradlew runBacktest`
-- Run Backtest (ByBit): `./gradlew runBacktest -Dtrading.service=BYBIT`
 - Data collection: `./gradlew dataCollect`
 - Analyze strategy logs: `python scripts/analyze_strategy.py`
 
 ## Multi-Service Architecture
 
-The project supports two trading services via the `TradingService` interface:
+The project uses the `TradingService` interface for Tinkoff (TCS):
 
 ### Tinkoff (TCS)
 - Uses `TCSService` with gRPC API
 - Trades MOEX instruments (stocks, ETFs, futures)
 - Cash parking: TMON@ ETF (commission-free in backtest)
-- Service type: `TradingServiceType.TINKOFF`
-
-### ByBit (Crypto)
-- Uses `ByBitService` with REST API
-- Trades USDT perpetual contracts
-- Cash parking: disabled (no parking for ByBit)
-- Service type: `TradingServiceType.BYBIT`
-
-Switch service via:
-- System property: `-Dtrading.service=BYBIT`
-- Config property: `trading.service=BYBIT` in `application.properties`
-
-## Backtest Behavior
-
-BacktestRunner automatically filters tickers based on `trading.service`:
-- **TINKOFF**: only tickers from `datacollector.instruments`
-- **BYBIT**: only tickers from `datacollector.crypto` (USDT pairs)
-
-Cash parking is disabled for ByBit (TMON@ parking is Tinkoff-only).
-
-## ByBit Strategy Differences
-
-Different strategies use different ticker selection approaches for ByBit:
-
-- **RegimeAwareStrategy / UnifiedStrategy**: Uses tickers from `datacollector.crypto` (whitelist)
-- **OrderBookScalpStrategy**: Screens all available USDT perpetuals and selects the most liquid ones based on spread, depth, and trade flow
-
-## ByBit 24/7 Trading
-
-For ByBit crypto trading, you can enable 24/7 trading (no working hours restriction):
-- Config property: `unifiedTrader.bybit24h=true` in `application.properties`
-- When enabled: trading allowed on weekends and outside MOEX hours (08:30-21:00)
-- Default: `false` (follows Tinkoff working hours)
