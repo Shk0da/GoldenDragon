@@ -377,7 +377,7 @@ public final class OrderBookTradingEngine implements MarketTickListener {
     }
 
     if (dashboard != null) {
-      dashboard.updateBalance(initialEquity);
+      dashboard.updateBalance(tradingService.getTotalPortfolioCost());
     }
 
     List<TickerRuntime> subscribed = subscribeInstruments(resolveInstruments());
