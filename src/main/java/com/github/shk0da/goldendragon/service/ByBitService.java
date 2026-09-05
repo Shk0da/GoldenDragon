@@ -112,6 +112,11 @@ public class ByBitService implements TradingService {
     public ByBitService(ByBitConfig byBitConfig) {
         this.byBitConfig = byBitConfig;
 
+        // Log config for debugging
+        log("ByBitService: isSandbox=" + byBitConfig.isSandbox() 
+            + ", isTestMode=" + byBitConfig.isTestMode()
+            + ", apiKey=" + (byBitConfig.getApiKey() != null && byBitConfig.getApiKey().length() > 0 ? "set" : "EMPTY"));
+
         // Initialize API clients using factory with proper base URLs
         String baseUrl = byBitConfig.isSandbox() 
             ? "https://api-testnet.bybit.com" 
@@ -614,74 +619,75 @@ public class ByBitService implements TradingService {
 
     private double getAccountField(String fieldName) {
         try {
-            // Build request for wallet balance
-            AccountDataRequest request = AccountDataRequest.builder()
-                .accountType(AccountType.UNIFIED)
-                .build();
+            // ByBit Testnet: try CONTRACT account first (futures/perpetuals balance),
+            // then UNIFIED account (spot/margin balance)
+            AccountType[] accountTypes = {AccountType.CONTRACT, AccountType.UNIFIED};
             
-            // Call SDK method - returns LinkedHashMap
-            Object response = accountClient.getWalletBalance(request);
-            if (response == null) {
-                log("ByBitService.getAccountField warn: wallet balance response is null");
-                return 0.0;
-            }
-            
-            // Directly cast to LinkedHashMap (SDK returns this type)
-            if (!(response instanceof LinkedHashMap)) {
-                log("ByBitService.getAccountField warn: unexpected response type: " + response.getClass().getName());
-                return 0.0;
-            }
-            
-            @SuppressWarnings("unchecked")
-            LinkedHashMap<String, Object> responseMap = (LinkedHashMap<String, Object>) response;
-            
-            // Check retCode
-            Object retCodeObj = responseMap.get("retCode");
-            if (retCodeObj != null && !"0".equals(retCodeObj.toString())) {
-                log("ByBitService.getAccountField error: retCode=" + retCodeObj 
-                    + ", retMsg=" + responseMap.get("retMsg"));
-                return 0.0;
-            }
-            
-            // Navigate: result -> list[0] -> account fields
-            Object resultObj = responseMap.get("result");
-            if (resultObj instanceof LinkedHashMap) {
-                @SuppressWarnings("unchecked")
-                LinkedHashMap<String, Object> result = (LinkedHashMap<String, Object>) resultObj;
-                
-                Object listObj = result.get("list");
-                if (listObj instanceof java.util.List && !((java.util.List<?>) listObj).isEmpty()) {
-                    @SuppressWarnings("unchecked")
-                    LinkedHashMap<String, Object> account = (LinkedHashMap<String, Object>) ((java.util.List<?>) listObj).get(0);
+            for (AccountType accType : accountTypes) {
+                try {
+                    AccountDataRequest request = AccountDataRequest.builder()
+                        .accountType(accType)
+                        .build();
                     
-                    if ("totalEquity".equals(fieldName)) {
-                        Object value = account.get("totalEquity");
-                        if (value != null) {
-                            double equity = Double.parseDouble(value.toString());
-                            log("ByBitService.getAccountField: totalEquity=" + equity);
-                            return equity;
-                        }
-                    } else {
-                        // Navigate to coin array for USDT
-                        Object coinListObj = account.get("coin");
-                        if (coinListObj instanceof java.util.List) {
+                    Object response = accountClient.getWalletBalance(request);
+                    if (response == null) {
+                        continue;
+                    }
+                    
+                    if (!(response instanceof LinkedHashMap)) {
+                        continue;
+                    }
+                    
+                    @SuppressWarnings("unchecked")
+                    LinkedHashMap<String, Object> responseMap = (LinkedHashMap<String, Object>) response;
+                    
+                    Object retCodeObj = responseMap.get("retCode");
+                    if (retCodeObj != null && !"0".equals(retCodeObj.toString())) {
+                        log("ByBitService.getAccountField: " + accType + " retCode=" + retCodeObj + " retMsg=" + responseMap.get("retMsg"));
+                        continue;
+                    }
+                    
+                    Object resultObj = responseMap.get("result");
+                    if (resultObj instanceof LinkedHashMap) {
+                        @SuppressWarnings("unchecked")
+                        LinkedHashMap<String, Object> result = (LinkedHashMap<String, Object>) resultObj;
+                        
+                        Object listObj = result.get("list");
+                        if (listObj instanceof java.util.List && !((java.util.List<?>) listObj).isEmpty()) {
                             @SuppressWarnings("unchecked")
-                            java.util.List<LinkedHashMap<String, Object>> coins = 
-                                (java.util.List<LinkedHashMap<String, Object>>) coinListObj;
+                            LinkedHashMap<String, Object> account = (LinkedHashMap<String, Object>) ((java.util.List<?>) listObj).get(0);
                             
-                            for (LinkedHashMap<String, Object> coin : coins) {
-                                String coinName = (String) coin.get("coin");
-                                if ("USDT".equals(coinName)) {
-                                    Object value = coin.get(fieldName);
-                                    if (value != null) {
-                                        double fieldValue = Double.parseDouble(value.toString());
-                                        log("ByBitService.getAccountField: " + fieldName + "=" + fieldValue);
-                                        return fieldValue;
+                            if ("totalEquity".equals(fieldName)) {
+                                Object value = account.get("totalEquity");
+                                if (value != null) {
+                                    double equity = Double.parseDouble(value.toString());
+                                    log("ByBitService.getAccountField: " + accType + " totalEquity=" + equity);
+                                    return equity;
+                                }
+                            } else {
+                                Object coinListObj = account.get("coin");
+                                if (coinListObj instanceof java.util.List) {
+                                    @SuppressWarnings("unchecked")
+                                    java.util.List<LinkedHashMap<String, Object>> coins = 
+                                        (java.util.List<LinkedHashMap<String, Object>>) coinListObj;
+                                    
+                                    for (LinkedHashMap<String, Object> coin : coins) {
+                                        String coinName = (String) coin.get("coin");
+                                        if ("USDT".equals(coinName)) {
+                                            Object value = coin.get(fieldName);
+                                            if (value != null) {
+                                                double fieldValue = Double.parseDouble(value.toString());
+                                                log("ByBitService.getAccountField: " + accType + " " + fieldName + "=" + fieldValue);
+                                                return fieldValue;
+                                            }
+                                        }
                                     }
                                 }
                             }
                         }
                     }
+                } catch (Exception e) {
+                    log("ByBitService.getAccountField: " + accType + " error=" + e.getMessage());
                 }
             }
         } catch (Exception e) {
