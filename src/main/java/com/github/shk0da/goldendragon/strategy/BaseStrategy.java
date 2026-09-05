@@ -26,21 +26,11 @@ import com.github.shk0da.goldendragon.ui.DashboardServer;
 import com.github.shk0da.goldendragon.utils.IndicatorsUtil;
 import com.github.shk0da.goldendragon.utils.LoggingUtils;
 
-import java.io.BufferedReader;
-import java.io.File;
-import java.io.FileWriter;
 import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
-
-import java.text.SimpleDateFormat;
 import java.time.DayOfWeek;
 import java.time.LocalTime;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
-import java.util.Calendar;
-import java.util.Date;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -112,8 +102,8 @@ import static java.util.concurrent.CompletableFuture.runAsync;
  *       after error).
  *   <li>Check trading hours and {@code tickerParams.enabled} flag.
  *   <li>Find {@link TickerInfo} in {@link TickerRepository}.
- *   <li>Load candles via {@link #loadOrRefreshCandles}: first check cache freshness ({@link
- *       #isCandleDataFresh}), then API if needed.
+ *   <li>Load candles via {@link #loadOrRefreshCandles} from the trading service API (disk cache
+ *       only in backtest mode).
  *   <li>Hourly candles required; 5-minute only if {@code tickerParams.useMinuteCandles}.
  *   <li>Detect hourly bar change ({@code hourChanged}) for correct {@code candlesHeld} increment in
  *       open position.
@@ -152,9 +142,7 @@ import static java.util.concurrent.CompletableFuture.runAsync;
  * <h2>Data Management (Candles)</h2>
  *
  * <ul>
- *   <li>{@link #loadOrRefreshCandles} — two-level loading: first disk cache, then API on stale.
- *   <li>{@link #isCandleDataFresh} — check by day and hour/5-minute slot.
- *   <li>{@link #writeCandlesToFile} — incremental CSV write with deduplication by timestamp.
+ *   <li>{@link #loadOrRefreshCandles} — live API loading; disk cache only in backtest mode.
  *   <li>{@link #throttleApiCall} — global rate-limiter (100ms between calls, synchronization via
  *       {@link #API_LOCK}).
  *   <li>{@link #refreshPeerCandles} — parallel hourly candle update for all tickers for group
@@ -209,7 +197,6 @@ import static java.util.concurrent.CompletableFuture.runAsync;
  *   <li>{@link #positionStore}, {@link #tickerCooldown}, {@link #lastSeenHourBarByTicker}, {@link
  *       #peerCandles} — {@link ConcurrentHashMap} для безопасного доступа из потоков тикеров.
  *   <li>API-вызовы сериализуются через {@link #API_LOCK}.
- *   <li>{@link SimpleDateFormat} обёрнут в {@link ThreadLocal}.
  * </ul>
  *
  * <h2>Интеграции</h2>
@@ -234,9 +221,6 @@ import static java.util.concurrent.CompletableFuture.runAsync;
     protected static com.github.shk0da.goldendragon.backtest.SimulatedBroker backtestBroker;
     protected final BadWeatherFilter badWeatherFilter;
     protected final MarketRegimeFilter marketRegimeFilter;
-
-    protected static final ThreadLocal<SimpleDateFormat> CANDLE_TIME_FORMAT =
-            ThreadLocal.withInitial(() -> new SimpleDateFormat("dd.MM.yyyy HH:mm:ss"));
 
     protected static final long COOLDOWN_DURATION_MS = 5 * 60 * 1000L;
     protected static final long API_CALL_DELAY_MS = 100;
@@ -1309,38 +1293,15 @@ import static java.util.concurrent.CompletableFuture.runAsync;
             return readCachedCandles(name, dataDir, interval);
         }
 
-        String fileName =
-                "HOUR".equals(interval)
-                        ? "candlesHOUR.txt"
-                        : "candles5_MIN.txt";
-        File candleFile = new File(dataDir + "/" + name + "/" + fileName);
-
-        List<Candle> cachedCandles = readCachedCandles(name, dataDir, interval);
-        if (cachedCandles != null && !cachedCandles.isEmpty() && isCandleDataFresh(cachedCandles, interval)) {
-            return cachedCandles;
-        }
-
         throttleApiCall();
 
-        List<Candle> freshCandles =
-                tradingService.getCandles(
-                        figi,
-                        "HOUR".equals(interval)
-                                ? now.minusMinutes(7 * 24 * 60)
-                                : now.minusMinutes(6 * 60),
-                        now,
-                        interval);
-
-        if (freshCandles != null && !freshCandles.isEmpty()) {
-            writeCandlesToFile(name, dataDir, fileName, freshCandles);
-            return freshCandles;
-        }
-
-        if (candleFile.exists() && cachedCandles != null && !cachedCandles.isEmpty()) {
-            return cachedCandles;
-        }
-
-        return freshCandles;
+        return tradingService.getCandles(
+                figi,
+                "HOUR".equals(interval)
+                        ? now.minusMinutes(7 * 24 * 60)
+                        : now.minusMinutes(6 * 60),
+                now,
+                interval);
     }
 
     protected List<Candle> readCachedCandles(String name, String dataDir, String interval) {
@@ -1365,40 +1326,6 @@ import static java.util.concurrent.CompletableFuture.runAsync;
         } catch (Exception ex) {
             log("Failed to read cached candles for " + name + ": " + ex.getMessage());
             return null;
-        }
-    }
-
-    protected boolean isCandleDataFresh(List<Candle> candles, String interval) {
-        if (candles == null || candles.isEmpty()) {
-            return false;
-        }
-
-        try {
-            String lastTimeStr = candles.get(candles.size() - 1).time;
-            Date lastCandleDate = CANDLE_TIME_FORMAT.get().parse(lastTimeStr);
-
-            Calendar lastCal = Calendar.getInstance();
-            lastCal.setTime(lastCandleDate);
-
-            Calendar nowCal = Calendar.getInstance();
-
-            boolean sameDay =
-                    lastCal.get(Calendar.YEAR) == nowCal.get(Calendar.YEAR)
-                            && lastCal.get(Calendar.DAY_OF_YEAR)
-                                    == nowCal.get(Calendar.DAY_OF_YEAR);
-
-            if (!sameDay) {
-                return false;
-            }
-
-            if ("HOUR".equals(interval)) {
-                return lastCal.get(Calendar.HOUR_OF_DAY) == nowCal.get(Calendar.HOUR_OF_DAY);
-            }
-
-            return lastCal.get(Calendar.HOUR_OF_DAY) == nowCal.get(Calendar.HOUR_OF_DAY)
-                    && (lastCal.get(Calendar.MINUTE) / 5) == (nowCal.get(Calendar.MINUTE) / 5);
-        } catch (Exception ex) {
-            return false;
         }
     }
 
@@ -1525,50 +1452,6 @@ import static java.util.concurrent.CompletableFuture.runAsync;
 
         if (anyClosed) {
             log("End-of-day position closing completed.");
-        }
-    }
-
-    protected void writeCandlesToFile(
-            String name, String dataDir, String fileName, List<Candle> candles) {
-        try {
-            Path dir = Paths.get(dataDir, name);
-            Files.createDirectories(dir);
-            Path filePath = dir.resolve(fileName);
-
-            boolean fileExists = Files.exists(filePath);
-            Set<String> existingTimestamps = new HashSet<>();
-
-            if (fileExists) {
-                try (BufferedReader reader = Files.newBufferedReader(filePath)) {
-                    String line = reader.readLine();
-                    while ((line = reader.readLine()) != null) {
-                        String[] parts = line.split(",");
-                        if (parts.length > 0) {
-                            existingTimestamps.add(parts[0]);
-                        }
-                    }
-                }
-            }
-
-            boolean writeHeader = !fileExists || Files.size(filePath) == 0;
-
-            try (FileWriter writer = new FileWriter(filePath.toFile(), true)) {
-                if (writeHeader) {
-                    writer.write("Datetime,Open,High,Low,Close,Volume" + System.lineSeparator());
-                }
-
-                for (Candle c : candles) {
-                    if (existingTimestamps.add(c.time)) {
-                        writer.write(
-                                String.format(
-                                                "%s,%s,%s,%s,%s,%s",
-                                                c.time, c.open, c.high, c.low, c.close, c.volume)
-                                        + System.lineSeparator());
-                    }
-                }
-            }
-        } catch (IOException ex) {
-            log("Failed to write candles file for " + name + ": " + ex.getMessage());
         }
     }
 
