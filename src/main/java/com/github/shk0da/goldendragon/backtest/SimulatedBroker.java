@@ -297,7 +297,6 @@ public class SimulatedBroker implements MarketDataProvider, OrderExecutor {
     /**
      * Effective commission rate.
      * TMON@ (Tinkoff ETF parking) is free.
-     * SPYUSDT (ByBit crypto parking) incurs normal commission.
      * Regular instruments use the configured commission rate.
      */
     public double getEffectiveCommission(String ticker) {

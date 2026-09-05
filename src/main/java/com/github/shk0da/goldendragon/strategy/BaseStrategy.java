@@ -1137,15 +1137,6 @@ import static java.util.concurrent.CompletableFuture.runAsync;
             return found;
         }
 
-        // Fallback: search via tradingService (ByBit crypto instruments)
-        if (tradingService != null) {
-            try {
-                return tradingService.searchTicker(new TickerInfo.Key(name, TickerType.CRYPTO));
-            } catch (Exception ignored) {
-                // Return null if tradingService lookup fails
-            }
-        }
-
         return null;
     }
 

@@ -97,28 +97,9 @@ public class BacktestRunner {
     private static final int DEFAULT_COOLDOWN_BARS = 3;
 
     /**
-     * Parking ticker for cash parking: TMON@ for Tinkoff only.
-     * ByBit has no cash parking — SPYUSDT is a regular instrument.
-     * Computed once at backtest start based on datacollector.crypto config.
+     * Parking ticker for cash parking: TMON@ (Tinkoff money market ETF).
      */
-    private String parkingTickerForBacktest;
-
-    /**
-     * Compute parking ticker once from config.
-     */
-    private static String computeParkingTicker() {
-        Properties props;
-        try {
-            props = PropertiesUtils.loadProperties();
-        } catch (IOException e) {
-            return "TMON@";
-        }
-        String crypto = props.getProperty("datacollector.crypto", "");
-        if (crypto != null && !crypto.trim().isEmpty()) {
-            return "SPYUSDT";
-        }
-        return "TMON@";
-    }
+    private String parkingTickerForBacktest = "TMON@";
 
     public static class RawCandle {
         public final String time;
@@ -749,9 +730,6 @@ public class BacktestRunner {
                 new PortfolioPeriodResult(0.0, 0.0, Collections.emptyList(), 0, 0.0));
         }
 
-        // Compute parking ticker once — cached to avoid repeated file I/O in hot loop
-        this.parkingTickerForBacktest = computeParkingTicker();
-
         // Create broker - the SINGLE source of truth for cash/positions
         SimulatedBroker broker = new SimulatedBroker(initialBalance, commission, slippage);
         for (MarketDataLoadResult loadResult : loadedMarketData) {
@@ -787,8 +765,8 @@ public class BacktestRunner {
                 broker.deposit(monthlyRebalanceAmount);
                 totalDeposits += monthlyRebalanceAmount;
                 lastRebalanceMonth = currentMonth;
-                // Cash parking ONLY for Tinkoff (TMON@) - disabled for ByBit crypto
-                if (config.isTmonCashParkingEnabled() && "TMON@".equals(parkingTickerForBacktest)) {
+                // Cash parking for Tinkoff (TMON@ money market ETF)
+                if (config.isTmonCashParkingEnabled()) {
                     double cash = broker.getSharedCash();
                     if (cash > 0) {
                         double tmonValue = broker.getTmonPositionValue(parkingTickerForBacktest);
@@ -868,10 +846,8 @@ public class BacktestRunner {
                         ticker, currentTime, allHourlyCandles, groupTickers, peerTimesMap, hourHistory, config);
                     strategy.setPeerCandles(currentPeerCandles.isEmpty() ? Collections.emptyMap() : currentPeerCandles);
                     double effectiveBalance = broker.getSharedCash();
-                    // TMON@ cash parking value ONLY for Tinkoff - not for ByBit crypto
-                    if (!"TMON@".equals(ticker)
-                        && config.isTmonCashParkingEnabled()
-                        && "TMON@".equals(parkingTickerForBacktest)) {
+                    // TMON@ cash parking value (Tinkoff money market ETF)
+                    if (!"TMON@".equals(ticker) && config.isTmonCashParkingEnabled()) {
                         double tmonValue = broker.getTmonPositionValue(parkingTickerForBacktest);
                         if (tmonValue > 0) {
                             effectiveBalance += tmonValue;
