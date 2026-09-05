@@ -42,7 +42,8 @@ task uberJar(type: Jar) {
 task dataCollect(type: JavaExec) {
     group = 'backtest'
     description = 'Collect historical market data for stocks and crypto'
-    mainClass = 'com.github.shk0da.goldendragon.strategy.DataCollector'
+    dependsOn compileTestJava
+    main = 'com.github.shk0da.goldendragon.backtest.DataCollector'
     classpath = sourceSets.test.runtimeClasspath
     workingDir = rootDir
 }
