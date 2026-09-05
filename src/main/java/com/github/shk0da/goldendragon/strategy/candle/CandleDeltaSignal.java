@@ -80,9 +80,6 @@ public class CandleDeltaSignal implements CandleScalpSignal {
         // LONG signal: 3+ bullish candles, volume increasing
         if (bullishCount >= 3 && volumeRatio > 1.2) {
             double quality = Math.min(1.0, (bullishCount * 0.2) + (volumeRatio * 0.3));
-            System.out.println("[CandleDelta] " + ticker + " LONG: bullish=" + bullishCount + 
-                ", bearish=" + bearishCount + ", volumeRatio=" + String.format("%.2f", volumeRatio) + 
-                ", quality=" + String.format("%.2f", quality));
             return CandleEntryDecision.enter(
                 SIGNAL_ID + " LONG: " + bullishCount + " bullish candles, volume ratio=" + String.format("%.2f", volumeRatio),
                 quality
@@ -92,9 +89,6 @@ public class CandleDeltaSignal implements CandleScalpSignal {
         // SHORT signal: 3+ bearish candles, volume increasing
         if (bearishCount >= 3 && volumeRatio > 1.2) {
             double quality = Math.min(1.0, (bearishCount * 0.2) + (volumeRatio * 0.3));
-            System.out.println("[CandleDelta] " + ticker + " SHORT: bullish=" + bullishCount + 
-                ", bearish=" + bearishCount + ", volumeRatio=" + String.format("%.2f", volumeRatio) + 
-                ", quality=" + String.format("%.2f", quality));
             return CandleEntryDecision.enter(
                 SIGNAL_ID + " SHORT: " + bearishCount + " bearish candles, volume ratio=" + String.format("%.2f", volumeRatio),
                 quality
