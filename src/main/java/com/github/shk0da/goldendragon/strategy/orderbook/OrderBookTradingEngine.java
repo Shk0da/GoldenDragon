@@ -291,8 +291,8 @@ public final class OrderBookTradingEngine implements MarketTickListener {
   }
 
   public void run() {
-    // Paper trading when Tinkoff sandbox is enabled
-    boolean paper = mainConfig.isSandbox();
+    // Paper trading when test mode is enabled (not sandbox - sandbox is for API endpoint type)
+    boolean paper = mainConfig.isTestMode();
     List<String> signalIds = signals.stream().map(OrderBookSignal::id).collect(toList());
     log(
         strategyName
@@ -952,8 +952,8 @@ public final class OrderBookTradingEngine implements MarketTickListener {
       return;
     }
 
-    // Paper trading when Tinkoff sandbox is enabled
-    boolean paper = mainConfig.isSandbox();
+    // Paper trading when test mode is enabled
+    boolean paper = mainConfig.isTestMode();
     double obi =
         OrderBookMath.calculateObi(snapshot.getBids(), snapshot.getAsks(), config.getObiLevels());
     double microEdge = OrderBookMath.calculateMicroEdge(bestBid, bestAsk, bidQty0, askQty0);
