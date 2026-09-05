@@ -239,7 +239,7 @@ public class OrderBookScalpConfig {
     this.enabledSignals =
         stream(
                 properties
-                    .getProperty("orderBookScalp.enabledSignals", "obi,tradeFlow,microprice,density")
+                    .getProperty("orderBookScalp.enabledSignals", "candle_delta,obi,tradeFlow,microprice,density")
                     .split(","))
             .map(String::trim)
             .filter(s -> !s.isEmpty())

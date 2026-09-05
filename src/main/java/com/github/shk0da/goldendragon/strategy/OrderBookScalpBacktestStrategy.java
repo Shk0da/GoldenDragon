@@ -55,6 +55,16 @@ public class OrderBookScalpBacktestStrategy extends BaseStrategy {
         // Build market context from 5-minute candles
         CandleMarketContext context = new CandleMarketContext(minuteCandles);
         contextByTicker.put(ticker, context);
+        
+        // Debug logging for backtest
+        if (minuteCandles != null && !minuteCandles.isEmpty()) {
+            Candle latest = minuteCandles.get(minuteCandles.size() - 1);
+            System.out.println("[OrderBookScalp] " + ticker + " time=" + latest.time + 
+                " O=" + latest.open + " H=" + latest.high + " L=" + latest.low + " C=" + latest.close +
+                " V=" + latest.volume + " candles=" + minuteCandles.size());
+        } else {
+            System.out.println("[OrderBookScalp] " + ticker + " NO CANDLES!");
+        }
 
         // Check exit conditions for existing position
         if (position != null && position.quantity > 0) {

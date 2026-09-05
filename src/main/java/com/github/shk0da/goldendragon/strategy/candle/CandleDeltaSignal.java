@@ -151,7 +151,8 @@ public class CandleDeltaSignal implements CandleScalpSignal {
 
     private double getAverageVolume(String ticker) {
         // Simple average - could be enhanced with historical tracking
-        return 1000.0; // Default fallback
+        // Backtest fix: use realistic default based on typical crypto volumes
+        return 100.0; // Reduced from 1000 to match typical 5-min crypto candle volumes
     }
 
     private static final class EntryState {
