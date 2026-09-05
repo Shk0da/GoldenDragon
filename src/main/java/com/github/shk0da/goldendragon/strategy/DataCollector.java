@@ -510,9 +510,16 @@ public class DataCollector {
     public static List<TickerCandle> readCandlesFile(
         String name, String dir, String period) {
         List<TickerCandle> tickers = new ArrayList<>();
+        String filePath = dir + "/" + name + "/candles" + period + ".txt";
+        
+        // Return empty list if file doesn't exist (first run)
+        if (!Files.exists(Path.of(filePath))) {
+            return tickers;
+        }
+        
         try (BufferedReader br =
                  new BufferedReader(
-                     new FileReader(dir + "/" + name + "/candles" + period + ".txt"))) {
+                     new FileReader(filePath))) {
             boolean skipHeader = true;
             String line = br.readLine();
             while (line != null) {
