@@ -7,10 +7,15 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.Map;
 import java.util.TreeMap;
 
 public class OrderBookDiagnosticsReplayWriter implements AutoCloseable {
+
+    private static final DateTimeFormatter TIMESTAMP_FMT =
+            DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss").withZone(ZoneId.systemDefault());
 
     private final BufferedWriter writer;
 
@@ -45,7 +50,7 @@ public class OrderBookDiagnosticsReplayWriter implements AutoCloseable {
 
     private String serialize(OrderBookDiagnosticEvent event) {
         StringBuilder builder = new StringBuilder();
-        builder.append(event.getTimestamp());
+        builder.append(TIMESTAMP_FMT.format(event.getTimestamp()));
         builder.append('|').append(event.getType());
         builder.append('|').append(sanitize(event.getTicker()));
         builder.append('|').append(sanitize(event.getReason()));
