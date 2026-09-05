@@ -51,7 +51,7 @@ public final class OrderBookScalpScreener {
             Set.of(
                     "BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT",
                     "XRPUSDT", "DOGEUSDT", "ADAUSDT", "AVAXUSDT",
-                    "DOTUSDT", "MATICUSDT", "LINKUSDT", "LTCUSDT",
+                    "DOTUSDT", "POLUSDT", "LINKUSDT", "LTCUSDT",
                     "UNIUSDT", "ATOMUSDT", "ETCUSDT", "FILUSDT");
 
     private OrderBookScalpScreener() {}
