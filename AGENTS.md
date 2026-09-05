@@ -59,18 +59,12 @@
 - Lists: start with lowercase, no period at the end.
 - Ordinary comments in code: start with lowercase, no period at the end.
 
-## Log Analysis
-- When asked to analyze logs, diagnostics, or metrics — always use `python scripts/analyze_strategy.py` instead of reading raw log files.
-- The script parses `orderbook-metrics.csv` and `orderbook-diagnostics-replay.log` into a structured report.
-- For custom paths: `python scripts/analyze_strategy.py --csv path/to/metrics.csv --log path/to/diagnostics.log`
-
 ## Commands
 - Verify code changes: `./gradlew check`
 - Full build: `./gradlew clean uberJar`
 - Run Strategy (Tinkoff): `./gradlew runStrategy -Pstrategy=RegimeAwareStrategy`
 - Run Backtest (Tinkoff): `./gradlew runBacktest`
 - Data collection: `./gradlew dataCollect`
-- Analyze strategy logs: `python scripts/analyze_strategy.py`
 
 ## Multi-Service Architecture
 
