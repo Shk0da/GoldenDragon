@@ -41,7 +41,7 @@ public class DashboardServer {
 
     public DashboardServer(TradingService tradingService) throws IOException {
         this.tradingService = tradingService;
-        this.currency = tradingService.getServiceType() == TradingService.TradingServiceType.BYBIT ? "USDT" : "RUB";
+        this.currency = "RUB";
         this.server = HttpServer.create(new InetSocketAddress(PORT), 0);
         this.server.createContext("/", this::handleRequest);
         this.server.setExecutor(Executors.newFixedThreadPool(4));

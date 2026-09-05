@@ -499,11 +499,10 @@ public interface TradingService {
     boolean isPaperTrading();
 
     /**
-     * Trading service types. BYBIT trades crypto (USDT perpetuals),
+     * Trading service types.
      * TINKOFF trades stocks/futures on the Moscow Exchange.
      */
     enum TradingServiceType {
-        TINKOFF,
-        BYBIT
+        TINKOFF
     }
 }

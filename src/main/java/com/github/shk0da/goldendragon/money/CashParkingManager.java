@@ -11,10 +11,9 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * Manages cash parking operations across different trading services.
+ * Manages cash parking operations for Tinkoff trading service.
  * <p>
- * For TINKOFF: uses TMON@ (ETF) for cash parking.
- * For BYBIT: cash parking is disabled (no parking ticker).
+ * Uses TMON@ (money market ETF) for cash parking.
  * </p>
  */
 public class CashParkingManager {
@@ -36,33 +35,27 @@ public class CashParkingManager {
     }
 
     /**
-     * Get the parking ticker based on TradingService type.
-     * @return "TMON@" for TINKOFF, null for BYBIT (cash parking disabled)
+     * Get the parking ticker for Tinkoff.
+     * @return "TMON@" (money market ETF)
      */
     public String getParkingTicker() {
-        if (tradingService != null && tradingService.getServiceType() == TradingService.TradingServiceType.BYBIT) {
-            return null;
-        }
         return TINKOFF_PARKING_TICKER;
     }
 
     /**
-     * Get the parking ticker type based on TradingService type.
-     * @return ETF for TINKOFF, null for BYBIT (cash parking disabled)
+     * Get the parking ticker type for Tinkoff.
+     * @return ETF (money market ETF)
      */
     public TickerType getParkingTickerType() {
-        if (tradingService != null && tradingService.getServiceType() == TradingService.TradingServiceType.BYBIT) {
-            return null;
-        }
         return TINKOFF_PARKING_TYPE;
     }
 
     /**
-     * Check if cash parking is enabled for the current trading service.
-     * @return true for TINKOFF, false for BYBIT
+     * Check if cash parking is enabled.
+     * @return true for Tinkoff (TMON@ ETF)
      */
     public boolean isParkingEnabled() {
-        return getParkingTicker() != null;
+        return true;
     }
 
     /**
