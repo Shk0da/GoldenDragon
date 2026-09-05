@@ -14,8 +14,7 @@
  *       Tinkoff Invest API keys, sandbox settings, test mode, HTTP client.
  *   <li>{@link com.github.shk0da.goldendragon.config.UnifiedTraderConfig} — UnifiedStrategy
  *       configuration: indicator parameters, limits, money management settings.
- *   <li>{@link com.github.shk0da.goldendragon.config.DataCollectorConfig} — data collection: data
- *       directory, instrument list, replace mode.
+
  * </ul>
  *
  * <h2>Configuration Loading</h2>

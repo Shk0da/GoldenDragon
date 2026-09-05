@@ -1,6 +1,6 @@
 package com.github.shk0da.goldendragon.strategy;
 
-import com.github.shk0da.goldendragon.config.DataCollectorConfig;
+import com.github.shk0da.goldendragon.backtest.DataCollector;
 import com.github.shk0da.goldendragon.config.UnifiedTraderConfig;
 import com.github.shk0da.goldendragon.filters.BadWeatherFilter;
 import com.github.shk0da.goldendragon.filters.MarketRegimeFilter;

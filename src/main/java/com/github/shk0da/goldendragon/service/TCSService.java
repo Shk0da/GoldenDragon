@@ -86,7 +86,6 @@ import ru.tinkoff.piapi.core.stream.MarketDataSubscriptionService;
  */
 public class TCSService implements TradingService {
 
-    public static final double FUTURES_MARGIN_RATE = 0.40;
     private static final int MAX_INSTRUMENTS_PER_MARKET_DATA_STREAM = 250;
     private static final long MARKET_DATA_RECOVERY_MIN_INTERVAL_MS = 30_000L;
     private static final String MARKET_DEPTH_TICKS_HEADER =
@@ -165,76 +164,7 @@ public class TCSService implements TradingService {
         }
     }
 
-    /**
-     * Subscribes to real-time market data (order book and trades) for the given ticker.
-     *
-     * <p>If this is the first subscription for the ticker key, a new market data stream is created.
-     * The provided listener will be notified on every order book update and trade event.
-     *
-     * @param key ticker key identifying the instrument
-     * @param depth order book depth for the subscription
-     * @param listener callback to receive market data events
-     */
-    public void subscribeMarketData(TickerInfo.Key key, int depth, MarketTickListener listener) {
-        marketTickListenersByTicker
-                .computeIfAbsent(key, ignored -> new CopyOnWriteArrayList<>())
-                .add(listener);
 
-        String figi = figiByName(key);
-        marketDataKeyByFigi.put(figi, key);
-        if (marketDataShardByFigi.containsKey(figi)) {
-            return;
-        }
-
-        synchronized (marketDataStreamShards) {
-            if (marketDataShardByFigi.containsKey(figi)) {
-                return;
-            }
-            MarketDataStreamShard shard = findOrCreateMarketDataShard(depth);
-            shard.stream.subscribeOrderbook(List.of(figi), depth);
-            shard.stream.subscribeTrades(List.of(figi));
-            shard.figis.add(figi);
-            marketDataShardByFigi.put(figi, shard);
-        }
-    }
-
-    /**
-     * Unsubscribes the given listener from real-time market data for the ticker.
-     *
-     * <p>If this was the last listener for the ticker, the underlying stream is cancelled and all
-     * resources are cleaned up.
-     *
-     * @param key ticker key to unsubscribe from
-     * @param listener the listener to remove
-     */
-    public void unsubscribeMarketData(TickerInfo.Key key, MarketTickListener listener) {
-        List<MarketTickListener> listeners = marketTickListenersByTicker.get(key);
-        if (listeners == null) {
-            return;
-        }
-        listeners.remove(listener);
-        if (!listeners.isEmpty()) {
-            return;
-        }
-        marketTickListenersByTicker.remove(key);
-
-        String figi = figiByName(key);
-        marketDataKeyByFigi.remove(figi);
-
-        synchronized (marketDataStreamShards) {
-            MarketDataStreamShard shard = marketDataShardByFigi.remove(figi);
-            if (shard == null) {
-                return;
-            }
-            shard.stream.unsubscribeOrderbook(List.of(figi));
-            shard.stream.unsubscribeTrades(List.of(figi));
-            shard.figis.remove(figi);
-            if (shard.figis.isEmpty()) {
-                shard.stream.cancel();
-                marketDataStreamShards.remove(shard);
-            }
-        }
-    }
 
     /**
      * Retrieves historical candles for the given FIGI identifier and time range.
@@ -345,10 +275,10 @@ public class TCSService implements TradingService {
             default:
                 durationMinutes = (count + 1) * 60;
         }
-        
+
         Instant end = Instant.now();
         Instant start = end.minus(durationMinutes, java.time.temporal.ChronoUnit.MINUTES);
-        
+
         return investApi.getMarketDataService().getCandlesSync(figi, start, end, candleInterval)
                 .stream()
                 .map(TCSService::mapHistoricCandle)
@@ -1513,18 +1443,6 @@ public class TCSService implements TradingService {
     }
 
     /**
-     * Returns the last executed price for the given ticker from cached order results.
-     *
-     * @param name ticker symbol
-     * @param type instrument type
-     * @return the last executed price, or {@code null} if no order has been executed for this
-     *     ticker
-     */
-    public Double getLastExecutedPrice(String name, TickerType type) {
-        return lastExecutedPriceByTicker.get(new TickerInfo.Key(name, type));
-    }
-
-    /**
      * Synchronizes protective stop-loss and take-profit orders for the given position.
      *
      * <p>Cancels existing stop orders and places new ones based on the position's stop-loss and
@@ -2147,86 +2065,6 @@ public class TCSService implements TradingService {
         }
         sandboxQualificationLogged = true;
         log("Sandbox mode: skipping qualification check, all instruments treated as tradable");
-    }
-
-    /**
-     * Checks whether the instrument can be traded on the current account via API.
-     *
-     * <p>Filters by {@code api_trade_available_flag}, normal trading status and {@code
-     * for_qual_investor_flag} (same logic as MOEXScripts share scanners).
-     */
-    public boolean isTradableForAccount(TickerInfo info) {
-        if (info == null) {
-            return false;
-        }
-        if (!info.isApiTradeAvailableFlag()) {
-            return false;
-        }
-        if (!info.isNormalTradingStatus()) {
-            return false;
-        }
-        if (info.isForQualInvestorFlag() && !isQualifiedInvestor()) {
-            return false;
-        }
-        return true;
-    }
-
-    public void logAccountTradingEligibility() {
-        boolean qualified = isQualifiedInvestor();
-        List<String> qualifiedFor = getQualifiedForWorkWith();
-        log(
-                "Account trading eligibility: qual_status="
-                        + qualified
-                        + ", qualified_for_work_with="
-                        + qualifiedFor);
-    }
-
-    /**
-     * Logs a formatted table of all account positions at strategy startup.
-     */
-    public void logAccountPositions() {
-        try {
-            double availableCash = getAvailableCash();
-            double totalPortfolio = getTotalPortfolioCost();
-            Map<TickerInfo.Key, PositionInfo> positions = getCurrentPositions(TickerType.ALL);
-
-            log("======================================================================");
-            log("  ACCOUNT POSITIONS");
-            log("======================================================================");
-            log(String.format("  Total portfolio:  %.2f RUB", totalPortfolio));
-            log(String.format("  Available cash:   %.2f RUB", availableCash));
-            log("----------------------------------------------------------------------");
-
-            if (positions.isEmpty()) {
-                log("  No positions on account");
-            } else {
-                log(String.format("  %-12s %-10s %8s %8s %12s  %s",
-                        "Ticker", "Type", "Balance", "Lots", "AvgPrice", "Name"));
-                log(String.format("  %-12s %-10s %8s %8s %12s  %s",
-                        "------------", "----------", "--------", "--------", "------------", "--------------------"));
-
-                for (PositionInfo pos : positions.values()) {
-                    if (pos.getBalance() == 0) {
-                        continue;
-                    }
-                    String type = pos.getInstrumentType() != null ? pos.getInstrumentType().name() : "?";
-                    String name = pos.getName() != null ? pos.getName() : "";
-                    if (name.length() > 20) {
-                        name = name.substring(0, 20);
-                    }
-                    log(String.format("  %-12s %-10s %8d %8d %12.4f  %s",
-                            pos.getTicker(),
-                            type,
-                            pos.getBalance(),
-                            pos.getLots(),
-                            pos.getAveragePositionPrice() != null ? pos.getAveragePositionPrice() : 0.0,
-                            name));
-                }
-            }
-            log("======================================================================");
-        } catch (Exception e) {
-            log("Failed to load account positions: " + e.getMessage());
-        }
     }
 
     private TickerInfo toFutureTickerInfo(Future future) {

@@ -1,4 +1,4 @@
-package com.github.shk0da.goldendragon.config;
+package com.github.shk0da.goldendragon.backtest;
 
 import static java.util.Arrays.stream;
 import static java.util.stream.Collectors.toList;
@@ -9,7 +9,7 @@ import java.util.List;
 import java.util.Properties;
 
 /**
- * Configuration for DataCollector strategy. Defines data directory, instrument list, and replace
+ * Configuration for DataCollector. Defines data directory, instrument list, and replace
  * mode for historical data collection.
  */
 public class DataCollectorConfig {

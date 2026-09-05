@@ -41,7 +41,7 @@ task dataCollect(type: JavaExec) {
     group = 'data'
     description = 'Collect historical market data for stocks and crypto'
     main = 'com.github.shk0da.goldendragon.strategy.DataCollector'
-    classpath = sourceSets.main.runtimeClasspath
+    classpath = sourceSets.test.runtimeClasspath
     workingDir = rootDir
 }
 

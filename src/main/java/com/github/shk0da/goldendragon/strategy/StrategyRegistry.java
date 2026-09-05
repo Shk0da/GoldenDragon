@@ -1,6 +1,5 @@
 package com.github.shk0da.goldendragon.strategy;
 
-import com.github.shk0da.goldendragon.config.DataCollectorConfig;
 import com.github.shk0da.goldendragon.config.MainConfig;
 import com.github.shk0da.goldendragon.config.UnifiedTraderConfig;
 import com.github.shk0da.goldendragon.service.TradingService;
@@ -10,7 +9,7 @@ import java.util.List;
 import java.util.Map;
 
 import static java.lang.System.out;
-import static java.util.List.*;
+import static java.util.List.of;
 
 /**
  * Central registry of all runnable strategies. Each entry defines an optional live runner (used by
@@ -94,13 +93,6 @@ public final class StrategyRegistry {
                         "Stop RegimeAwareStrategy",
                         (mc, ts, args) ->
                                 new RegimeAwareStrategy(new UnifiedTraderConfig(), ts).run()));
-        register(
-                "DataCollector",
-                runAndNotify(
-                        "DataCollector",
-                        "End DataCollector",
-                        (mc, ts, args) ->
-                                new DataCollector(new DataCollectorConfig(), ts).run()));
     }
 
     public static Entry get(String name) {

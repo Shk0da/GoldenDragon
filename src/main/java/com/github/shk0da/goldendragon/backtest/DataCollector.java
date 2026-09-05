@@ -1,8 +1,7 @@
-package com.github.shk0da.goldendragon.strategy;
+package com.github.shk0da.goldendragon.backtest;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
-import com.github.shk0da.goldendragon.config.DataCollectorConfig;
 import com.github.shk0da.goldendragon.config.MainConfig;
 import com.github.shk0da.goldendragon.model.TickerCandle;
 import com.github.shk0da.goldendragon.model.TickerInfo;
