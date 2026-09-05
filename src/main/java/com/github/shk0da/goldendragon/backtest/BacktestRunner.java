@@ -97,7 +97,8 @@ public class BacktestRunner {
     private static final int DEFAULT_COOLDOWN_BARS = 3;
 
     /**
-     * Parking ticker for cash parking: SPYUSDT for crypto, TMON@ for Tinkoff.
+     * Parking ticker for cash parking: TMON@ for Tinkoff only.
+     * ByBit has no cash parking — SPYUSDT is a regular instrument.
      * Computed once at backtest start based on datacollector.crypto config.
      */
     private String parkingTickerForBacktest;
@@ -788,7 +789,7 @@ public class BacktestRunner {
                 broker.deposit(monthlyRebalanceAmount);
                 totalDeposits += monthlyRebalanceAmount;
                 lastRebalanceMonth = currentMonth;
-                if (config.isTmonCashParkingEnabled()) {
+                if (config.isTmonCashParkingEnabled() && "TMON@".equals(parkingTickerForBacktest)) {
                     double cash = broker.getSharedCash();
                     if (cash > 0) {
                         double tmonValue = broker.getTmonPositionValue(parkingTickerForBacktest);
@@ -868,7 +869,9 @@ public class BacktestRunner {
                         ticker, currentTime, allHourlyCandles, groupTickers, peerTimesMap, hourHistory, config);
                     strategy.setPeerCandles(currentPeerCandles.isEmpty() ? Collections.emptyMap() : currentPeerCandles);
                     double effectiveBalance = broker.getSharedCash();
-                    if (!"TMON@".equals(ticker) && config.isTmonCashParkingEnabled()) {
+                    if (!"TMON@".equals(ticker)
+                        && config.isTmonCashParkingEnabled()
+                        && "TMON@".equals(parkingTickerForBacktest)) {
                         double tmonValue = broker.getTmonPositionValue(parkingTickerForBacktest);
                         if (tmonValue > 0) {
                             effectiveBalance += tmonValue;
@@ -989,7 +992,10 @@ public class BacktestRunner {
                 if (!"BUY".equals(openDir) && !"SELL".equals(openDir)) {
                     return;
                 }
-                if (!"TMON@".equals(ticker) && decision.quantity > 0 && decision.entryPrice != null) {
+                if (!"TMON@".equals(ticker)
+                        && "TMON@".equals(parkingTickerForBacktest)
+                        && decision.quantity > 0
+                        && decision.entryPrice != null) {
                     double positionValue = decision.quantity * decision.entryPrice;
                     double availableCash = broker.getSharedCash();
                     double missing = positionValue - availableCash;

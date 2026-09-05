@@ -529,7 +529,7 @@ import static java.util.concurrent.CompletableFuture.runAsync;
                                 + " is on cooldown for "
                                 + (remaining / 1000)
                                 + "s, skipping.";
-                if (cashParkingManager.getParkingTicker().equals(name)) {
+                if (cashParkingManager.isParkingTicker(name)) {
                     logThrottled(name + "_cooldown", cooldownMessage, 30);
                 } else {
                     log(cooldownMessage);
@@ -601,7 +601,9 @@ import static java.util.concurrent.CompletableFuture.runAsync;
             // so decide() can size a position using cash parked in the parking ticker
             // Read parking position from broker (not local store) to handle parallel execution
             double effectiveBalance = balance;
-            if (!cashParkingManager.getParkingTicker().equals(name) && (tradingService != null || marketDataProvider != null)) {
+            if (cashParkingManager.isParkingEnabled()
+                && !cashParkingManager.isParkingTicker(name)
+                && (tradingService != null || marketDataProvider != null)) {
                 try {
                     String parkingTicker = cashParkingManager.getParkingTicker();
                     TickerType parkingType = cashParkingManager.getParkingTickerType();
@@ -675,7 +677,8 @@ import static java.util.concurrent.CompletableFuture.runAsync;
 
             if ("OPEN".equals(decision.action)) {
                 // Free cash from parking only for the amount missing for the trade
-                if (!cashParkingManager.getParkingTicker().equals(name)
+                if (cashParkingManager.isParkingEnabled()
+                        && !cashParkingManager.isParkingTicker(name)
                         && decision.quantity > 0
                         && decision.entryPrice != null) {
                     try {
@@ -780,10 +783,10 @@ import static java.util.concurrent.CompletableFuture.runAsync;
         // Pre-trade: sell parking to free cash for new positions
         if (positionStore != null) {
             String parkingTicker = cashParkingManager.getParkingTicker();
-            Position parkingPos = positionStore.get(parkingTicker);
+            Position parkingPos = parkingTicker != null ? positionStore.get(parkingTicker) : null;
             if (parkingPos != null
                     && parkingPos.quantity > 0
-                    && !parkingTicker.equals(name)
+                    && !cashParkingManager.isParkingTicker(name)
                     && "BUY".equals(decision.updatedPosition.direction)) {
                 try {
                     TickerInfo parkingInfo = findTickerInfo(parkingTicker);
@@ -1803,7 +1806,9 @@ import static java.util.concurrent.CompletableFuture.runAsync;
 
         String parkingTicker = cashParkingManager.getParkingTicker();
         boolean tmonCashParking =
-                weights.containsKey(parkingTicker) && unifiedTraderConfig.isTmonCashParkingEnabled();
+                parkingTicker != null
+                        && weights.containsKey(parkingTicker)
+                        && unifiedTraderConfig.isTmonCashParkingEnabled();
 
         Map<String, Double> allocation = new HashMap<>();
         for (Map.Entry<String, Double> e : weights.entrySet()) {

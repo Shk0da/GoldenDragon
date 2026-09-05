@@ -14,15 +14,13 @@ import java.util.concurrent.ConcurrentHashMap;
  * Manages cash parking operations across different trading services.
  * <p>
  * For TINKOFF: uses TMON@ (ETF) for cash parking.
- * For BYBIT: uses SPYUSDT (crypto perpetual) for cash parking.
+ * For BYBIT: cash parking is disabled (no parking ticker).
  * </p>
  */
 public class CashParkingManager {
 
     private static final String TINKOFF_PARKING_TICKER = "TMON@";
-    private static final String BYBIT_PARKING_TICKER = "SPYUSDT";
     private static final TickerType TINKOFF_PARKING_TYPE = TickerType.ETF;
-    private static final TickerType BYBIT_PARKING_TYPE = TickerType.CRYPTO;
 
     private final TradingService tradingService;
     private final MarketDataProvider marketDataProvider;
@@ -39,31 +37,40 @@ public class CashParkingManager {
 
     /**
      * Get the parking ticker based on TradingService type.
-     * @return "SPYUSDT" for BYBIT, "TMON@" for TINKOFF
+     * @return "TMON@" for TINKOFF, null for BYBIT (cash parking disabled)
      */
     public String getParkingTicker() {
         if (tradingService != null && tradingService.getServiceType() == TradingService.TradingServiceType.BYBIT) {
-            return BYBIT_PARKING_TICKER;
+            return null;
         }
         return TINKOFF_PARKING_TICKER;
     }
 
     /**
      * Get the parking ticker type based on TradingService type.
-     * @return CRYPTO for BYBIT, ETF for TINKOFF
+     * @return ETF for TINKOFF, null for BYBIT (cash parking disabled)
      */
     public TickerType getParkingTickerType() {
         if (tradingService != null && tradingService.getServiceType() == TradingService.TradingServiceType.BYBIT) {
-            return BYBIT_PARKING_TYPE;
+            return null;
         }
         return TINKOFF_PARKING_TYPE;
+    }
+
+    /**
+     * Check if cash parking is enabled for the current trading service.
+     * @return true for TINKOFF, false for BYBIT
+     */
+    public boolean isParkingEnabled() {
+        return getParkingTicker() != null;
     }
 
     /**
      * Check if the given ticker is the parking ticker.
      */
     public boolean isParkingTicker(String ticker) {
-        return getParkingTicker().equals(ticker);
+        String parkingTicker = getParkingTicker();
+        return parkingTicker != null && parkingTicker.equals(ticker);
     }
 
     /**
@@ -77,6 +84,9 @@ public class CashParkingManager {
 
         try {
             String parkingTicker = getParkingTicker();
+            if (parkingTicker == null) {
+                return null;
+            }
             TickerType parkingType = getParkingTickerType();
 
             if (tradingService != null) {
@@ -115,6 +125,9 @@ public class CashParkingManager {
      */
     public void sellParkingToFreeCash(double cashToFree, String tradeTicker) {
         String parkingTicker = getParkingTicker();
+        if (parkingTicker == null) {
+            return;
+        }
         TickerType parkingType = getParkingTickerType();
 
         try {
@@ -158,6 +171,9 @@ public class CashParkingManager {
      */
     public void closeParkingPosition() {
         String parkingTicker = getParkingTicker();
+        if (parkingTicker == null) {
+            return;
+        }
         TickerType parkingType = getParkingTickerType();
 
         try {
@@ -178,21 +194,28 @@ public class CashParkingManager {
      * Get the parking position from the local store.
      */
     public Position getStoredParkingPosition() {
-        return positionStore.get(getParkingTicker());
+        String parkingTicker = getParkingTicker();
+        return parkingTicker != null ? positionStore.get(parkingTicker) : null;
     }
 
     /**
      * Store the parking position locally.
      */
     public void storeParkingPosition(Position position) {
-        positionStore.put(getParkingTicker(), position);
+        String parkingTicker = getParkingTicker();
+        if (parkingTicker != null) {
+            positionStore.put(parkingTicker, position);
+        }
     }
 
     /**
      * Remove the parking position from the local store.
      */
     public void removeStoredParkingPosition() {
-        positionStore.remove(getParkingTicker());
+        String parkingTicker = getParkingTicker();
+        if (parkingTicker != null) {
+            positionStore.remove(parkingTicker);
+        }
     }
 
     /**
@@ -208,6 +231,9 @@ public class CashParkingManager {
      */
     public TickerInfo findParkingTickerInfo(Map<TickerInfo.Key, TickerInfo> allTickers) {
         String parkingTicker = getParkingTicker();
+        if (parkingTicker == null) {
+            return null;
+        }
         for (TickerInfo info : allTickers.values()) {
             if (info.getName().equalsIgnoreCase(parkingTicker) || info.getTicker().equalsIgnoreCase(parkingTicker)) {
                 return info;
