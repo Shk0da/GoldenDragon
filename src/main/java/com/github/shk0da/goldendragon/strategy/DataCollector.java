@@ -382,9 +382,16 @@ public class DataCollector {
 
             // Use figi for Tinkoff, ticker for ByBit crypto
             String ticker = tickerInfo.getFigi() != null ? tickerInfo.getFigi() : tickerInfo.getTicker();
+            
+            // Optimize batch size: 1_MIN uses weekly batches (no sleep), others use daily with sleep
+            boolean isOneMin = "1_MIN".equalsIgnoreCase(period);
+            boolean isFiveMin = "5_MIN".equalsIgnoreCase(period);
+            
             var start = getStartWithShift(period, startTime);
             while (start.isBefore(currentTime)) {
-                var end = start.plus(1, ChronoUnit.DAYS);
+                var end = isOneMin
+                    ? start.plus(1, ChronoUnit.WEEKS)  // 1_MIN: weekly batches
+                    : start.plus(1, ChronoUnit.DAYS);   // others: daily
                 
                 List<com.github.shk0da.goldendragon.model.Candle> periodCandles;
                 if (tcsService instanceof ByBitService) {
@@ -415,7 +422,11 @@ public class DataCollector {
                                 close,
                                 (long) volume));
                     });
-                sleep(100);
+                
+                // Sleep only for daily batches (5_MIN, HOUR etc.) to respect API rate limits
+                if (!isOneMin && !isFiveMin) {
+                    sleep(100);
+                }
             }
         } catch (Exception ex) {
             if (counter++ < 2) {
