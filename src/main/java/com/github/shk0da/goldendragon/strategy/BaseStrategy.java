@@ -378,6 +378,7 @@ import static java.util.concurrent.CompletableFuture.runAsync;
         try {
             dashboard = new DashboardServer(tradingService);
             dashboard.start();
+            dashboard.updateBalance(initPortfolioCost);
         } catch (IOException ex) {
             log("Failed to start dashboard: " + ex.getMessage());
         }

@@ -376,6 +376,10 @@ public final class OrderBookTradingEngine implements MarketTickListener {
       return;
     }
 
+    if (dashboard != null) {
+      dashboard.updateBalance(initialEquity);
+    }
+
     List<TickerRuntime> subscribed = subscribeInstruments(resolveInstruments());
     if (!subscribed.isEmpty()) {
       closeUntrackedPositions(subscribed, paper);
