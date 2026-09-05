@@ -13,9 +13,9 @@ import com.github.shk0da.goldendragon.strategy.candle.CandleScalpSignal;
 import java.util.List;
 
 /**
- * Scalping strategy using candle-based signals.
+ * Scalping strategy using candle-based signals (5-minute timeframe).
  *
- * <p>Reads 1-minute candles from TradingService and evaluates signals
+ * <p>Polls 5-minute candles from TradingService every 60 seconds and evaluates signals
  * for entry/exit decisions. Designed for both Tinkoff and ByBit trading services.
  *
  * <p>Configuration via OrderBookScalpConfig:

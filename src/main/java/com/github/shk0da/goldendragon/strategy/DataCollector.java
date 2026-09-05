@@ -104,8 +104,6 @@ public class DataCollector {
                 try {
                     createDirectories(Paths.get(dataDir + "/" + name));
                     dataCollector.updateCandlesFile(
-                        name, dataDir, "1_MIN", isReplace);
-                    dataCollector.updateCandlesFile(
                         name, dataDir, "5_MIN", isReplace);
                     dataCollector.updateCandlesFile(
                         name, dataDir, "HOUR", isReplace);
@@ -135,15 +133,15 @@ public class DataCollector {
             for (String name : cryptoTickers) {
                 try {
                     createDirectories(Paths.get(dataDir + "/" + name));
-                    dataCollector.updateCandlesFile(
-                        name, dataDir, "1_MIN", isReplace);
+                    out.println("Processing " + name + "...");
                     dataCollector.updateCandlesFile(
                         name, dataDir, "5_MIN", isReplace);
                     dataCollector.updateCandlesFile(
                         name, dataDir, "HOUR", isReplace);
                     dataCollector.createTickerJson(name, dataDir);
+                    out.println("Completed " + name);
                 } catch (Exception ex) {
-                    out.println(ex.getMessage());
+                    out.println("Error processing " + name + ": " + ex.getMessage());
                 }
             }
             out.println("=== Crypto instrument data download completed ===");
@@ -219,7 +217,6 @@ public class DataCollector {
         for (String name : tickers) {
             try {
                 createDirectories(Paths.get(dataDir + "/" + name));
-                updateCandlesFile(name, dataDir, "1_MIN", isReplace);
                 updateCandlesFile(name, dataDir, "5_MIN", isReplace);
                 updateCandlesFile(name, dataDir, "HOUR", isReplace);
                 if (name.contains("@")) {
@@ -235,7 +232,6 @@ public class DataCollector {
         for (String name : cryptoTickers) {
             try {
                 createDirectories(Paths.get(dataDir + "/" + name));
-                updateCandlesFile(name, dataDir, "1_MIN", isReplace);
                 updateCandlesFile(name, dataDir, "5_MIN", isReplace);
                 updateCandlesFile(name, dataDir, "HOUR", isReplace);
                 createTickerJson(name, dataDir);
@@ -383,9 +379,6 @@ public class DataCollector {
             // Use figi for Tinkoff, ticker for ByBit crypto
             String ticker = tickerInfo.getFigi() != null ? tickerInfo.getFigi() : tickerInfo.getTicker();
             
-            // Optimize: no sleep for 1_MIN candles (faster download, respects API rate limits)
-            boolean isOneMin = "1_MIN".equalsIgnoreCase(period);
-            
             var start = getStartWithShift(period, startTime);
             while (start.isBefore(currentTime)) {
                 var end = start.plus(1, ChronoUnit.DAYS);
@@ -419,11 +412,7 @@ public class DataCollector {
                                 close,
                                 (long) volume));
                     });
-                
-                // Sleep only for non-1MIN candles to respect API rate limits
-                if (!isOneMin) {
-                    sleep(100);
-                }
+                sleep(100);
             }
         } catch (Exception ex) {
             if (counter++ < 2) {

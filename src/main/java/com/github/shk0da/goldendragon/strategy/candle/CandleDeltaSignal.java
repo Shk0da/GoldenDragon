@@ -12,14 +12,15 @@ import java.util.concurrent.ConcurrentHashMap;
  *
  * <p>Entry logic:
  * <ul>
- *   <li>LONG: consecutive bullish candles with increasing volume</li>
- *   <li>SHORT: consecutive bearish candles with increasing volume</li>
+ *   <li>LONG: 3+ consecutive bullish candles with increasing volume</li>
+ *   <li>SHORT: 3+ consecutive bearish candles with increasing volume</li>
  * </ul>
  *
- * <p>Exit logic:
+ * <p>Exit logic (5-min timeframe):
  * <ul>
- *   <li>Price moves against position by threshold</li>
- *   <li>Candle pattern reverses (e.g., bullish candle after LONG entry)</li>
+ *   <li>Price moves against position by threshold (2-3% for 5-min)</li>
+ *   <li>Candle pattern reverses (e.g., bearish candle after LONG entry)</li>
+ *   <li>Take profit at 3-5% for 5-min timeframe</li>
  * </ul>
  */
 public class CandleDeltaSignal implements CandleScalpSignal {
@@ -119,10 +120,10 @@ public class CandleDeltaSignal implements CandleScalpSignal {
             if (latest.close < latest.open) {
                 return "candle_reversal";
             }
-            if (pnlPercent < -1.0) { // 1% stop loss
+            if (pnlPercent < -2.0) { // 2% stop loss for 5-min timeframe
                 return "stop_loss";
             }
-            if (pnlPercent > 2.0) { // 2% take profit
+            if (pnlPercent > 4.0) { // 4% take profit for 5-min timeframe
                 return "take_profit";
             }
         }
@@ -132,10 +133,10 @@ public class CandleDeltaSignal implements CandleScalpSignal {
             if (latest.close > latest.open) {
                 return "candle_reversal";
             }
-            if (pnlPercent > 1.0) { // 1% stop loss
+            if (pnlPercent > 2.0) { // 2% stop loss for 5-min timeframe
                 return "stop_loss";
             }
-            if (pnlPercent < -2.0) { // 2% take profit
+            if (pnlPercent < -4.0) { // 4% take profit for 5-min timeframe
                 return "take_profit";
             }
         }

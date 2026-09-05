@@ -20,18 +20,18 @@ import static com.github.shk0da.goldendragon.utils.TimeUtils.sleep;
  *
  * <p>Architecture:
  * <ol>
- *   <li>Poll recent 1-min candles from TradingService</li>
+ *   <li>Poll recent 5-min candles from TradingService</li>
  *   <li>Evaluate candle-based signals (delta, volume, momentum)</li>
  *   <li>Execute trades based on signal decisions</li>
  *   <li>Monitor positions and apply stop loss / take profit</li>
  * </ol>
  *
- * <p>Polling interval: every 30-60 seconds (configurable).
+ * <p>Polling interval: every 60 seconds (sufficient for 5-min candles).
  */
 public class CandleTradingEngine {
 
-    private static final long DEFAULT_POLL_INTERVAL_MS = 30_000L; // 30 seconds
-    private static final int CANDLES_TO_KEEP = 50; // Keep last 50 candles per ticker
+    private static final long DEFAULT_POLL_INTERVAL_MS = 60_000L; // 60 seconds for 5-min candles
+    private static final int CANDLES_TO_KEEP = 50; // Keep last 50 candles per ticker (~4 hours of 5-min data)
 
     private final TradingService tradingService;
     private final MainConfig mainConfig;
@@ -165,7 +165,7 @@ public class CandleTradingEngine {
                 figi = tickerInfo.getFigi();
             }
 
-            List<Candle> candles = tradingService.getCandles(figi, "1_MIN", count);
+            List<Candle> candles = tradingService.getCandles(figi, "5_MIN", count);
             
             if (candles == null || candles.isEmpty()) {
                 log(strategyName + ": empty candles for " + ticker);
