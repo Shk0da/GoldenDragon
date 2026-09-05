@@ -383,15 +383,12 @@ public class DataCollector {
             // Use figi for Tinkoff, ticker for ByBit crypto
             String ticker = tickerInfo.getFigi() != null ? tickerInfo.getFigi() : tickerInfo.getTicker();
             
-            // Optimize batch size: 1_MIN uses weekly batches (no sleep), others use daily with sleep
+            // Optimize: no sleep for 1_MIN candles (faster download, respects API rate limits)
             boolean isOneMin = "1_MIN".equalsIgnoreCase(period);
-            boolean isFiveMin = "5_MIN".equalsIgnoreCase(period);
             
             var start = getStartWithShift(period, startTime);
             while (start.isBefore(currentTime)) {
-                var end = isOneMin
-                    ? start.plus(1, ChronoUnit.WEEKS)  // 1_MIN: weekly batches
-                    : start.plus(1, ChronoUnit.DAYS);   // others: daily
+                var end = start.plus(1, ChronoUnit.DAYS);
                 
                 List<com.github.shk0da.goldendragon.model.Candle> periodCandles;
                 if (tcsService instanceof ByBitService) {
@@ -423,8 +420,8 @@ public class DataCollector {
                                 (long) volume));
                     });
                 
-                // Sleep only for daily batches (5_MIN, HOUR etc.) to respect API rate limits
-                if (!isOneMin && !isFiveMin) {
+                // Sleep only for non-1MIN candles to respect API rate limits
+                if (!isOneMin) {
                     sleep(100);
                 }
             }
