@@ -98,9 +98,11 @@ public class OrderBookScalpConfig {
   private final int minNetProfitTicks;      // TODO.md 2: minimum net profit in ticks for entry
   private final double eatenRatioEntry;     // TODO.md 2: density consumption ratio for breakout
   
-  // DensityScalpStrategy parameters
-  private final boolean stocksEnabled;
-  private final int leaderLagSeconds;
+    // DensityScalpStrategy parameters
+    private final boolean stocksEnabled;
+    private final boolean cryptoEnabled;
+    private final int cryptoTopN;
+    private final int leaderLagSeconds;
   private final double basisAnomalySigma;
   private final boolean divergenceBlockEnabled;
   private final int trendTimeframeMinutes;
@@ -375,6 +377,10 @@ public class OrderBookScalpConfig {
     // DensityScalpStrategy parameters
     this.stocksEnabled =
         Boolean.parseBoolean(properties.getProperty("orderBookScalp.stocksEnabled", "true"));
+    this.cryptoEnabled =
+        Boolean.parseBoolean(properties.getProperty("orderBookScalp.cryptoEnabled", "false"));
+    this.cryptoTopN =
+        Integer.parseInt(properties.getProperty("orderBookScalp.cryptoTopN", "5"));
     this.leaderLagSeconds =
         Integer.parseInt(properties.getProperty("orderBookScalp.leaderLagSeconds", "4"));
     this.basisAnomalySigma =
@@ -817,6 +823,14 @@ public class OrderBookScalpConfig {
     return stocksEnabled;
   }
   
+public boolean isCryptoEnabled() {
+    return cryptoEnabled;
+  }
+
+  public int getCryptoTopN() {
+    return cryptoTopN;
+  }
+
   public int getLeaderLagSeconds() {
     return leaderLagSeconds;
   }

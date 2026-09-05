@@ -45,10 +45,23 @@ public final class OrderBookScalpScreener {
                     "MOEX", "AFLT", "IRAO", "HYDR", "VKCO", "OZON",
                     "X5", "FIVE", "CBOM", "MAGN");
 
+    // Core ByBit crypto pairs suitable for order-book scalping (USDT perpetuals)
+    private static final Set<String> CORE_CRYPTO =
+            Set.of(
+                    "BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT",
+                    "XRPUSDT", "DOGEUSDT", "ADAUSDT", "AVAXUSDT",
+                    "DOTUSDT", "MATICUSDT", "LINKUSDT", "LTCUSDT",
+                    "UNIUSDT", "ATOMUSDT", "ETCUSDT", "FILUSDT");
+
     private OrderBookScalpScreener() {}
 
     public static List<TickerInfo> selectTop(
             TCSService tcsService, List<TickerInfo> candidates, OrderBookScalpConfig config) {
+        // Crypto mode: screen only crypto pairs for ByBit
+        if (config.isCryptoEnabled()) {
+            return selectCryptoTop(tcsService, candidates, config);
+        }
+
         List<TickerInfo> perpetuals =
                 candidates.stream()
                         .filter(info -> isPerpetualCandidate(info.getTicker()))
@@ -183,6 +196,93 @@ public final class OrderBookScalpScreener {
         }
         // Check if it's in our core stocks list
         return CORE_STOCKS.contains(ticker.toUpperCase());
+    }
+
+    /**
+     * Check if ticker is a crypto pair suitable for ByBit scalping.
+     * USDT perpetuals follow pattern: XXXXXUSDT (e.g., BTCUSDT, ETHUSDT).
+     */
+    static boolean isCryptoCandidate(TickerInfo info) {
+        if (info == null) {
+            return false;
+        }
+        String ticker = info.getTicker();
+        if (ticker == null || ticker.isEmpty()) {
+            return false;
+        }
+        String upper = ticker.toUpperCase();
+        if (upper.endsWith("USDT")) {
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * Check if ticker is in the core crypto list.
+     */
+    static boolean isCoreCrypto(String ticker) {
+        if (ticker == null || ticker.isEmpty()) {
+            return false;
+        }
+        return CORE_CRYPTO.contains(ticker.toUpperCase());
+    }
+
+    /**
+     * Select top crypto pairs for ByBit scalping.
+     * Filters for core crypto pairs and ranks by liquidity.
+     */
+    private static List<TickerInfo> selectCryptoTop(
+            TCSService tcsService, List<TickerInfo> candidates, OrderBookScalpConfig config) {
+        List<TickerInfo> crypto =
+                candidates.stream()
+                        .filter(info -> isCryptoCandidate(info))
+                        .filter(info -> isCoreCrypto(info.getTicker()))
+                        .collect(toList());
+
+        List<ScoredTicker> scored = new ArrayList<>();
+        for (TickerInfo info : crypto) {
+            try {
+                ScoredTicker ranked = scoreTicker(tcsService, info, config);
+                if (ranked != null) {
+                    scored.add(ranked);
+                }
+            } catch (Exception ex) {
+                LoggingUtils.log("Screen skip crypto " + info.getTicker() + ": " + ex.getMessage());
+            }
+            sleep(120);
+        }
+
+        List<ScoredTicker> selected =
+                scored.stream()
+                        .sorted(comparingDouble(ScoredTicker::score).reversed())
+                        .limit(config.getCryptoTopN())
+                        .collect(toList());
+
+        LoggingUtils.log(
+                "Crypto screening: candidates="
+                        + candidates.size()
+                        + ", crypto="
+                        + crypto.size()
+                        + ", ranked="
+                        + scored.size()
+                        + ", selected="
+                        + selected.size());
+        for (ScoredTicker ranked : selected.stream().limit(10).collect(toList())) {
+            LoggingUtils.log(
+                    "Crypto pick "
+                            + ranked.info().getTicker()
+                            + ": score="
+                            + String.format("%.0f", ranked.score())
+                            + " spreadBps="
+                            + String.format("%.2f", ranked.spreadBps())
+                            + " topDepth="
+                            + ranked.topDepth()
+                            + " bookDepth="
+                            + ranked.bookDepth()
+                            + " flow="
+                            + String.format("%.0f", ranked.tradeFlow()));
+        }
+        return selected.stream().map(ScoredTicker::info).collect(toList());
     }
 
     private static List<ScoredTicker> pickNearestLiquidDated(
