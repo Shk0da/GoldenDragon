@@ -14,7 +14,6 @@ import com.github.shk0da.goldendragon.utils.TickerTypeResolver;
 import com.google.gson.reflect.TypeToken;
 
 import java.io.BufferedReader;
-import java.io.File;
 import java.io.FileReader;
 import java.io.FileWriter;
 import java.io.IOException;
@@ -27,7 +26,6 @@ import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.time.Instant;
 import java.time.LocalDate;
-import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
@@ -222,9 +220,6 @@ public class DataCollector {
     public void updateCandlesFile(
         String name, String dir, String period, boolean isReplace) {
         var file = dir + "/" + name + "/candles" + period + ".txt";
-        if (!isReplace && isTodayFile(file)) {
-            return;
-        }
         var historyDays = config.getHistoryDays();
         var lastCandleTime =
             Date.from(
@@ -418,14 +413,6 @@ public class DataCollector {
             ex.printStackTrace();
             throw new RuntimeException(ex);
         }
-    }
-
-    private boolean isTodayFile(String path) {
-        var lastModified = new File(path).lastModified();
-        var startOfDayDate = LocalDate.now().atStartOfDay();
-        var fileDate =
-            LocalDateTime.ofInstant(new Date(lastModified).toInstant(), ZoneId.systemDefault());
-        return fileDate.isAfter(startOfDayDate);
     }
 
     public static List<TickerCandle> readCandlesFile(
