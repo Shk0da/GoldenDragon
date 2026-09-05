@@ -22,6 +22,7 @@ import com.github.shk0da.goldendragon.service.TradingService.TradingServiceType;
 import com.github.shk0da.goldendragon.time.LiveTimeProvider;
 import com.github.shk0da.goldendragon.time.TimeProvider;
 import com.github.shk0da.goldendragon.money.CashParkingManager;
+import com.github.shk0da.goldendragon.ui.DashboardServer;
 import com.github.shk0da.goldendragon.utils.IndicatorsUtil;
 import com.github.shk0da.goldendragon.utils.LoggingUtils;
 
@@ -249,6 +250,7 @@ import static java.util.concurrent.CompletableFuture.runAsync;
     protected final Map<String, Long> tickerCooldown = new ConcurrentHashMap<>();
     protected final Map<String, Position> positionStore = new ConcurrentHashMap<>();
     private final Map<String, ReentrantLock> tickerLocks = new ConcurrentHashMap<>();
+    protected DashboardServer dashboard;
     protected final Map<String, String> lastSeenHourBarByTicker = new ConcurrentHashMap<>();
     protected volatile Map<String, List<Candle>> peerCandles = new ConcurrentHashMap<>();
     protected final Map<String, Long> throttledLogLastTime = new ConcurrentHashMap<>();
@@ -372,6 +374,14 @@ import static java.util.concurrent.CompletableFuture.runAsync;
                 getStrategyName() + " started. Total Portfolio Cost: " + initPortfolioCost;
         log(infoMessage);
 
+        // Start dashboard server
+        try {
+            dashboard = new DashboardServer(tradingService);
+            dashboard.start();
+        } catch (IOException ex) {
+            log("Failed to start dashboard: " + ex.getMessage());
+        }
+
         List<String> allTickers = resolveInstruments();
         List<String> activeTickers = new ArrayList<>();
         for (String ticker : allTickers) {
@@ -448,6 +458,9 @@ import static java.util.concurrent.CompletableFuture.runAsync;
 
             allOf(tasks.toArray(new CompletableFuture[0])).join();
         } finally {
+            if (dashboard != null) {
+                dashboard.stop();
+            }
             closeAllPositions(tradingService, unifiedTraderConfig);
             shutdownExecutor(executor);
 
@@ -1098,7 +1111,13 @@ import static java.util.concurrent.CompletableFuture.runAsync;
             double exitPrice,
             int quantity,
             String direction) {
-        // Default: no-op. Override in UnifiedStrategy for MM integration.
+        // Update dashboard statistics
+        if (dashboard != null) {
+            boolean isWin = pnl > 0;
+            dashboard.updateStats(pnl, isWin);
+            dashboard.addTrade(ticker, direction, quantity, exitPrice, pnl);
+            dashboard.updateBalance(safeGetTotalPortfolioCost());
+        }
     }
 
     /**

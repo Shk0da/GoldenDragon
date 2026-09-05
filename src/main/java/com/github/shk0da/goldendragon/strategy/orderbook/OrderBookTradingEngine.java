@@ -22,11 +22,13 @@ import com.github.shk0da.goldendragon.strategy.orderbook.diagnostics.OrderBookDi
 import com.github.shk0da.goldendragon.strategy.orderbook.diagnostics.OrderBookDiagnosticsReplayWriter;
 import com.github.shk0da.goldendragon.strategy.orderbook.diagnostics.OrderBookDiagnosticsSummary;
 import com.github.shk0da.goldendragon.strategy.orderbook.diagnostics.OrderBookMetricsCsvWriter;
+import com.github.shk0da.goldendragon.ui.DashboardServer;
 import com.github.shk0da.goldendragon.utils.IndicatorsUtil;
 import com.github.shk0da.goldendragon.utils.LoggingUtils;
 import com.github.shk0da.goldendragon.utils.TickerTypeResolver;
 
 
+import java.io.IOException;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalTime;
@@ -120,6 +122,7 @@ public final class OrderBookTradingEngine implements MarketTickListener {
   private volatile long marketDataRecoveryUntilMs;
   private volatile double initialEquity;
   private final OrderBookPositionStore positionStore;
+  private DashboardServer dashboard;
   private final Map<String, Long> lastProcessingLatencyNs = new ConcurrentHashMap<>();
   private final Map<String, List<Long>> processingLatencySamples = new ConcurrentHashMap<>();
   private static final int MAX_LATENCY_SAMPLES = 100;
@@ -159,6 +162,16 @@ public final class OrderBookTradingEngine implements MarketTickListener {
     }
     this.strategyName = strategyName;
     this.positionStore = new OrderBookPositionStore(config.getPositionStateFile());
+
+    // Start dashboard server on port 1040
+    try {
+      this.dashboard = new DashboardServer(tradingService);
+      this.dashboard.start();
+    } catch (IOException ex) {
+      log(strategyName + ": failed to start dashboard: " + ex.getMessage());
+      this.dashboard = null;
+    }
+
     this.liquidityWindows = new LiquidityWindows(config);
     this.trendFilter =
         new OrderBookTrendFilter(
@@ -328,6 +341,9 @@ public final class OrderBookTradingEngine implements MarketTickListener {
       }
       if (metricsCsvWriter != null) {
         metricsCsvWriter.close();
+      }
+      if (dashboard != null) {
+        dashboard.stop();
       }
     }
   }
@@ -1955,6 +1971,10 @@ public final class OrderBookTradingEngine implements MarketTickListener {
       double commission = (position.entryValue + exitValue) * config.getCommissionRate();
       double netPnl = grossPnl - commission;
       tradeStats.record(netPnl);
+      if (dashboard != null) {
+        dashboard.updateStats(netPnl, netPnl > 0);
+        dashboard.addTrade(runtime.ticker, position.direction, position.units, exitPrice, netPnl);
+      }
       if (riskManager != null) {
         riskManager.registerTrade(netPnl);
       }
@@ -2044,6 +2064,10 @@ public final class OrderBookTradingEngine implements MarketTickListener {
     recordRealizedCommission(runtime.ticker, exitNotional, exitCommission);
     double netPnl = grossPnl - position.entryCommission - exitCommission;
     tradeStats.record(netPnl);
+    if (dashboard != null) {
+      dashboard.updateStats(netPnl, netPnl > 0);
+      dashboard.addTrade(runtime.ticker, position.direction, position.units, exitPrice, netPnl);
+    }
     if (riskManager != null) {
       riskManager.registerTrade(netPnl);
     }
