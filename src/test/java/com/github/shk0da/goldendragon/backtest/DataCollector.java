@@ -39,6 +39,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static com.github.shk0da.goldendragon.utils.IndicatorsUtil.toDouble;
@@ -228,20 +229,20 @@ public class DataCollector {
                     .atTime(LocalTime.MIDNIGHT)
                     .atZone(ZoneId.systemDefault())
                     .toInstant());
+        String lastDateStr = null;
         if (!isReplace) {
             var currentCandles = readCandlesFile(name, dir, period);
             if (!currentCandles.isEmpty()) {
+                lastDateStr = currentCandles.get(currentCandles.size() - 1).getDate();
                 try {
-                    lastCandleTime =
-                        dateTimeFormat.parse(
-                            currentCandles.get(currentCandles.size() - 1).getDate());
+                    lastCandleTime = dateTimeFormat.parse(lastDateStr);
                 } catch (ParseException ex) {
                     ex.printStackTrace();
                 }
             }
         }
         List<TickerCandle> candles =
-            getTickerCandles(name, period, lastCandleTime, 0);
+            getTickerCandles(name, period, lastCandleTime, lastDateStr, 0);
 
         if (isReplace) {
             try {
@@ -275,7 +276,7 @@ public class DataCollector {
     }
 
     private List<TickerCandle> getTickerCandles(
-        String name, String period, Date lastCandleTime, int counter) {
+        String name, String period, Date lastCandleTime, String lastDateStr, int counter) {
         Set<TickerCandle> candles = new LinkedHashSet<>();
         try {
             final Instant currentTime = now().toInstant();
@@ -304,18 +305,21 @@ public class DataCollector {
             
             var start = getStartWithShift(period, startTime);
             int daysChecked = 0;
-            int totalCandles = 0;
+            AtomicInteger newCandles = new AtomicInteger(0);
             while (start.isBefore(currentTime)) {
                 var end = start.plus(1, ChronoUnit.DAYS);
                 daysChecked++;
                 
                 List<com.github.shk0da.goldendragon.model.Candle> periodCandles = tcsService.getCandles(ticker, start, end, period);
-                totalCandles += periodCandles.size();
                 start = end;
 
                 periodCandles.forEach(
                     candle -> {
                         var dateTime = Timestamp.valueOf(candle.time);
+                        var candleDate = dateTimeFormat.format(dateTime);
+                        if (lastDateStr != null && candleDate.compareTo(lastDateStr) <= 0) {
+                            return;
+                        }
                         var open = candle.open;
                         var high = candle.high;
                         var low = candle.low;
@@ -324,22 +328,23 @@ public class DataCollector {
                         candles.add(
                             new TickerCandle(
                                 name,
-                                dateTimeFormat.format(dateTime),
+                                candleDate,
                                 open,
                                 high,
                                 low,
                                 close,
                                 close,
                                 (long) volume));
+                        newCandles.incrementAndGet();
                     });
                 sleep(100);
             }
-            if (daysChecked > 0 && totalCandles > 0) {
-                out.println("Downloaded " + totalCandles + " candles for " + name + " " + period);
+            if (daysChecked > 0 && newCandles.get() > 0) {
+                out.println("Downloaded " + newCandles.get() + " new candles for " + name + " " + period);
             }
         } catch (Exception ex) {
             if (counter++ < 2) {
-                return getTickerCandles(name, period, lastCandleTime, counter);
+                return getTickerCandles(name, period, lastCandleTime, lastDateStr, counter);
             } else {
                 out.println(ex.getMessage());
             }
