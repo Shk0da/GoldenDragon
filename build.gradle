@@ -6,7 +6,9 @@ plugins {
 group 'com.github.shk0da'
 version '1.0'
 
-sourceCompatibility = 11
+java {
+    sourceCompatibility = JavaVersion.VERSION_11
+}
 
 repositories {
     mavenCentral()
@@ -40,14 +42,14 @@ task uberJar(type: Jar) {
 task dataCollect(type: JavaExec) {
     group = 'backtest'
     description = 'Collect historical market data for stocks and crypto'
-    main = 'com.github.shk0da.goldendragon.strategy.DataCollector'
+    mainClass = 'com.github.shk0da.goldendragon.strategy.DataCollector'
     classpath = sourceSets.test.runtimeClasspath
     workingDir = rootDir
 }
 
 task runBacktest(type: JavaExec) {
     group = 'backtest'
-    main = 'com.github.shk0da.goldendragon.backtest.BacktestRunner'
+    mainClass = 'com.github.shk0da.goldendragon.backtest.BacktestRunner'
     classpath = sourceSets.test.runtimeClasspath
     workingDir = rootDir
     // utf-8 console output so cyrillic survives redirection to a file
@@ -56,7 +58,7 @@ task runBacktest(type: JavaExec) {
 }
 
 task runStrategy(type: JavaExec) {
-    main = 'com.github.shk0da.goldendragon.GoldenDragon'
+    mainClass = 'com.github.shk0da.goldendragon.GoldenDragon'
     classpath = sourceSets.test.runtimeClasspath
     workingDir = rootDir
     // utf-8 console output so cyrillic survives redirection to a file
