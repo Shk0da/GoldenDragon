@@ -145,15 +145,7 @@ public class TCSService implements TradingService {
         figiRepository.insert(new TickerInfo.Key("EUR", TickerType.CURRENCY), "BBG0013HJJ31");
     }
 
-    @Override
-    public TradingServiceType getServiceType() {
-        return TradingServiceType.TINKOFF;
-    }
 
-    @Override
-    public boolean isPaperTrading() {
-        return mainConfig.isTestMode();
-    }
 
     /**
      * Logs message with throttling to prevent spam of repeated warnings.
@@ -171,28 +163,6 @@ public class TCSService implements TradingService {
             throttledLogLastTime.put(key, now);
             log(message);
         }
-    }
-
-    /**
-     * Returns all tradable MOEX shares denominated in RUB.
-     *
-     * @return list of {@link Share} instruments with currency equal to "rub"
-     */
-    public List<Share> getMoexShares() {
-        return investApi.getInstrumentsService().getTradableSharesSync().stream()
-                .filter(it -> it.getCurrency().equals("rub"))
-                .collect(Collectors.toList());
-    }
-
-    /**
-     * Retrieves the current order book (glass of prices) for a given instrument.
-     *
-     * @param figi FIGI identifier of the instrument
-     * @param depth order book depth (one of: 1, 10, 20, 30, 40, 50)
-     * @return {@link GetOrderBookResponse} containing bids and asks
-     */
-    public GetOrderBookResponse getOrderBook(String figi, int depth /*1, 10, 20, 30, 40, 50*/) {
-        return investApi.getMarketDataService().getOrderBookSync(figi, depth);
     }
 
     /**
@@ -264,57 +234,6 @@ public class TCSService implements TradingService {
                 marketDataStreamShards.remove(shard);
             }
         }
-    }
-
-    /**
-     * Returns the most recent market depth snapshot received via the real-time stream.
-     *
-     * @param key ticker key identifying the instrument
-     * @return the latest {@link MarketDepthSnapshot}, or {@code null} if no snapshot is available
-     */
-    public MarketDepthSnapshot getLastMarketDepth(TickerInfo.Key key) {
-        return marketDepthByTicker.get(key);
-    }
-
-    /**
-     * Returns recent trades collected from the real-time stream, filtered by maximum age.
-     *
-     * @param key ticker key identifying the instrument
-     * @param maxAge maximum age of trades to include
-     * @return list of {@link MarketTradeTick} not older than {@code maxAge}, or empty list if none
-     */
-    public List<MarketTradeTick> getRecentTrades(TickerInfo.Key key, Duration maxAge) {
-        List<MarketTradeTick> trades = recentTradesByTicker.get(key);
-        if (trades == null || trades.isEmpty()) {
-            return List.of();
-        }
-        Instant threshold = Instant.now().minus(maxAge);
-        return trades.stream()
-                .filter(it -> !it.getTime().isBefore(threshold))
-                .collect(Collectors.toList());
-    }
-
-    /**
-     * Retrieves historical trades for the given ticker within the specified time range.
-     *
-     * @param key ticker key identifying the instrument
-     * @param from start of the time range (inclusive)
-     * @param to end of the time range (inclusive)
-     * @return list of {@link MarketTradeTick} within the given range
-     */
-    public List<MarketTradeTick> getLastTrades(TickerInfo.Key key, Instant from, Instant to) {
-        String figi = figiByName(key);
-        return investApi.getMarketDataService().getLastTradesSync(figi, from, to).stream()
-                .map(
-                        it ->
-                                new MarketTradeTick(
-                                        figi,
-                                        Instant.ofEpochSecond(
-                                                it.getTime().getSeconds(), it.getTime().getNanos()),
-                                        toDouble(it.getPrice()),
-                                        (long) it.getQuantity(),
-                                        it.getDirection().name()))
-                .collect(Collectors.toList());
     }
 
     /**
@@ -465,36 +384,6 @@ public class TCSService implements TradingService {
                 .limit(size)
                 .sorted(Comparator.comparingLong(c -> c.getTime().getSeconds()))
                 .map(TCSService::mapHistoricCandle)
-                .collect(Collectors.toList());
-    }
-
-    /**
-     * Returns the last hourly candles converted to {@link TickerCandle} domain objects.
-     *
-     * @param ticker ticker symbol
-     * @param type instrument type
-     * @param count number of candles to return (must be positive)
-     * @return list of {@link TickerCandle}, or empty list if {@code count <= 0}
-     */
-    public List<TickerCandle> getLastCandlesAsTickerCandles(
-            String ticker, TickerType type, int count) {
-        if (count <= 0) {
-            return emptyList();
-        }
-        List<Candle> candles = getLastCandles(ticker, type, count);
-        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
-        return candles.stream()
-                .map(
-                        c ->
-                                new TickerCandle(
-                                        ticker,
-                                        c.time,
-                                        c.open,
-                                        c.high,
-                                        c.low,
-                                        c.close,
-                                        c.close,
-                                        (long) c.volume))
                 .collect(Collectors.toList());
     }
 
@@ -1886,91 +1775,7 @@ public class TCSService implements TradingService {
     }
 
 
-    /**
-     * Result of a server-side stop-loss order placement.
-     * Used by TODO.md Section 5: server-side stops for real account trading.
-     * @deprecated use {@link TradingService.StopLossOrderResult}
-     */
-    @Deprecated
-    public static class StopLossOrderResult {
-        public final String orderId;
-        private final boolean success;
 
-        public StopLossOrderResult(String orderId, boolean success) {
-            this.orderId = orderId;
-            this.success = success;
-        }
-
-        public String getOrderId() {
-            return orderId;
-        }
-
-        public boolean isSuccess() {
-            return success;
-        }
-
-        public static StopLossOrderResult success(String orderId) {
-            return new StopLossOrderResult(orderId, true);
-        }
-
-        public static StopLossOrderResult failed() {
-            return new StopLossOrderResult(null, false);
-        }
-    }
-
-    /**
-     * Places a server-side stop-loss order for a position (TODO.md Section 5).
-     * This is a separate order from the bracket order placed in createOrder.
-     * Used as a backup protection mechanism.
-     */
-    @Override
-    public TradingService.StopLossOrderResult createStopLossOrder(
-            TickerInfo.Key key,
-            int units,
-            double stopLossPrice,
-            String operation) {
-        if (mainConfig.isTestMode()) {
-            return TradingService.StopLossOrderResult.success("test-stop-");
-        }
-
-        // In sandbox mode, server-side stop orders are not supported.
-        // Return success with a virtual order ID to indicate client-side tracking.
-        if (mainConfig.isSandbox()) {
-            log("Sandbox mode: skipping server SL for " + key.getTicker() + " (will track client-side)");
-            return TradingService.StopLossOrderResult.success("sandbox-stop-");
-        }
-
-        try {
-            String figi = figiByName(key);
-            TickerInfo tickerInfo = searchTicker(key);
-            int lotSize = tickerInfo.getLot();
-            int normalizedCount = normalizeOrderCount(units, lotSize);
-            int contractUnits = getContractUnits(tickerInfo);
-
-            StopOrderDirection stopOrderDirection =
-                "Sell".equals(operation) ? STOP_ORDER_DIRECTION_BUY : STOP_ORDER_DIRECTION_SELL;
-            Quotation stopPrice = createQuotation(stopLossPrice);
-
-            log("Placing server SL order for " + key.getTicker() + ": price=" + stopLossPrice + ", units=" + units);
-
-            String stopOrderId = investApi
-                .getStopOrdersService()
-                .postStopOrderGoodTillCancelSync(
-                    figi,
-                    normalizedCount,
-                    stopPrice,
-                    stopPrice,
-                    stopOrderDirection,
-                    mainConfig.getTcsAccountId(),
-                    STOP_ORDER_TYPE_STOP_LOSS);
-
-            log("Server SL placed for " + key.getTicker() + ": orderId=" + stopOrderId);
-            return TradingService.StopLossOrderResult.success(stopOrderId);
-        } catch (Exception e) {
-            log("Server SL placement failed for " + key.getTicker() + ": " + e.getMessage());
-            return TradingService.StopLossOrderResult.failed();
-        }
-    }
 
     private void syncStopOrder(
             String figi,
@@ -2778,23 +2583,6 @@ public class TCSService implements TradingService {
     }
 
     /**
-     * Returns the price of the instrument converted to the base currency.
-     *
-     * @param key ticker key identifying the instrument
-     * @param qty quantity of instruments
-     * @param basicCurrency target currency to convert to
-     * @return price in the target currency
-     */
-    public double getPriceInCurrentCurrency(TickerInfo.Key key, int qty, String basicCurrency) {
-        double price = getAvailablePrice(key, qty, false);
-        String currency = searchTicker(key).getCurrency();
-        if (!basicCurrency.equals(currency)) {
-            price = convertCurrencies(currency, basicCurrency, price);
-        }
-        return price;
-    }
-
-    /**
      * Returns the best available price for a single instrument by ticker name.
      *
      * @param name ticker symbol
@@ -3299,10 +3087,6 @@ public class TCSService implements TradingService {
      * @param quotation the quotation to convert
      * @return double representation of the quotation
      */
-    public double convertQuotationToDouble(Quotation quotation) {
-        return toDouble(quotation);
-    }
-
     private static Double toDouble(long units, int nano) {
         double fractional = nano / 1_000_000_000.0;
         return units + fractional;

@@ -92,12 +92,8 @@ public interface TradingService {
             return new OrderExecutionResult(false, null, 0, 0.0, null);
         }
 
-        public static OrderExecutionResult failed(int errorCode) {
-            return new OrderExecutionResult(false, null, 0, 0.0, null, errorCode);
-        }
-
         public static OrderExecutionResult failed(String errorMessage) {
-            return new OrderExecutionResult(false, null, 0, 0.0, null, 0, errorMessage);
+            return new OrderExecutionResult(false, null, 0, 0.0, null);
         }
 
         public static OrderExecutionResult failed(int errorCode, String errorMessage) {
@@ -126,10 +122,6 @@ public interface TradingService {
 
         public Position getProtectivePosition() {
             return protectivePosition;
-        }
-
-        public int getErrorCode() {
-            return errorCode;
         }
     }
 
@@ -170,21 +162,6 @@ public interface TradingService {
      */
     String figiByName(TickerInfo.Key key);
 
-    /**
-     * Checks whether the instrument can be traded.
-     */
-    boolean isTradableForAccount(TickerInfo info);
-
-    /**
-     * Logs account trading eligibility.
-     */
-    void logAccountTradingEligibility();
-
-    /**
-     * Logs current account positions.
-     */
-    void logAccountPositions();
-
     // ==================== MARKET DATA METHODS ====================
 
     /**
@@ -210,12 +187,6 @@ public interface TradingService {
             String ticker, TickerType type, int size);
 
     /**
-     * Returns the last hourly candles as TickerCandle domain objects.
-     */
-    List<TickerCandle> getLastCandlesAsTickerCandles(
-            String ticker, TickerType type, int count);
-
-    /**
      * Returns the last {@code count} candles for the given symbol and interval.
      * Useful for live candle-based strategies that poll recent candles.
      */
@@ -227,9 +198,9 @@ public interface TradingService {
     Map<String, Map<Double, Long>> getCurrentPrices(TickerInfo.Key key, boolean isPrintGlass);
 
     /**
-     * Returns the current prices (bids and asks) for the given ticker.
+     * Returns the best available price for a single instrument.
      */
-    Map<String, Map<Double, Long>> getCurrentPrices(TickerInfo.Key key);
+    double getAvailablePrice(TickerInfo.Key key);
 
     /**
      * Returns the best (lowest) live ask price from the orderbook.
@@ -242,59 +213,9 @@ public interface TradingService {
     double getLiveBidPrice(TickerInfo.Key key);
 
     /**
-     * Returns the best available price for a single instrument.
-     */
-    double getAvailablePrice(String name, TickerType type);
-
-    /**
-     * Returns the best available price for a single instrument.
-     */
-    double getAvailablePrice(TickerInfo.Key key);
-
-    /**
-     * Returns the best available price for a given quantity.
-     */
-    double getAvailablePrice(String name, TickerType type, int count, String glassType);
-
-    /**
-     * Returns the best available price for a given quantity.
-     */
-    double getAvailablePrice(String name, TickerType type, int count, String glassType, boolean isPrintGlass);
-
-    /**
-     * Returns the best available price for a given quantity.
-     */
-    double getAvailablePrice(TickerInfo.Key key, int count, boolean isPrintGlass);
-
-    /**
      * Returns the best available price for a given quantity from the specified side.
      */
     double getAvailablePrice(TickerInfo.Key key, int count, String type, boolean isPrintGlass);
-
-    /**
-     * Returns recent trades from the real-time stream.
-     */
-    List<MarketTradeTick> getRecentTrades(TickerInfo.Key key, Duration maxAge);
-
-    /**
-     * Retrieves historical trades for the given ticker.
-     */
-    List<MarketTradeTick> getLastTrades(TickerInfo.Key key, Instant from, Instant to);
-
-    /**
-     * Returns the most recent market depth snapshot.
-     */
-    MarketDepthSnapshot getLastMarketDepth(TickerInfo.Key key);
-
-    /**
-     * Subscribes to real-time market data (order book and trades).
-     */
-    void subscribeMarketData(TickerInfo.Key key, int depth, MarketTickListener listener);
-
-    /**
-     * Unsubscribes from real-time market data.
-     */
-    void unsubscribeMarketData(TickerInfo.Key key, MarketTickListener listener);
 
     // ==================== ACCOUNT METHODS ====================
 
@@ -427,15 +348,6 @@ public interface TradingService {
     void closeAllByMarket(TickerType type);
 
     /**
-     * Places a server-side stop-loss order.
-     */
-    StopLossOrderResult createStopLossOrder(
-            TickerInfo.Key key,
-            int units,
-            double stopLossPrice,
-            String operation);
-
-    /**
      * Cancels a stop order.
      */
     void cancelStopOrder(TickerInfo.Key key, String stopOrderId, String orderTypeName);
@@ -449,60 +361,4 @@ public interface TradingService {
      * Restores protective position from broker orders.
      */
     Position restoreProtectivePosition(String name, TickerType type, Position position);
-
-    /**
-     * Returns the last executed price for the given ticker.
-     */
-    Double getLastExecutedPrice(String name, TickerType type);
-
-    /**
-     * Result of a server-side stop-loss order placement.
-     */
-    class StopLossOrderResult {
-        public final String orderId;
-        private final boolean success;
-
-        public StopLossOrderResult(String orderId, boolean success) {
-            this.orderId = orderId;
-            this.success = success;
-        }
-
-        public String getOrderId() {
-            return orderId;
-        }
-
-        public boolean isSuccess() {
-            return success;
-        }
-
-        public static StopLossOrderResult success(String orderId) {
-            return new StopLossOrderResult(orderId, true);
-        }
-
-        public static StopLossOrderResult failed() {
-            return new StopLossOrderResult(null, false);
-        }
-    }
-
-    /**
-     * Returns the trading service type that determines which instruments are traded.
-     *
-     * @return the configured trading service type
-     */
-    TradingServiceType getServiceType();
-
-    /**
-     * Checks if trading is in paper/simulation mode (no real money).
-     *
-     * @return true if paper trading is enabled, false for live trading
-     */
-    boolean isPaperTrading();
-
-    /**
-     * Trading service types.
-     * TINKOFF trades stocks/futures on the Moscow Exchange.
-     */
-    enum TradingServiceType {
-        TINKOFF
-    }
 }
