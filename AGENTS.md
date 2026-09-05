@@ -69,6 +69,7 @@
 - Full build: `./gradlew clean uberJar`
 - Run Strategy (Tinkoff): `./gradlew runStrategy -Pstrategy=RegimeAwareStrategy`
 - Run Strategy (ByBit): `./gradlew runStrategy -Pstrategy=RegimeAwareStrategy -Dtrading.service=BYBIT`
+- Run OrderBook Strategy: `./gradlew runOrderBookStrategy`
 - Run Backtest (Tinkoff): `./gradlew runBacktest`
 - Run Backtest (ByBit): `./gradlew runBacktest -Dtrading.service=BYBIT`
 - Data collection: `./gradlew dataCollect`
@@ -87,7 +88,7 @@ The project supports two trading services via the `TradingService` interface:
 ### ByBit (Crypto)
 - Uses `ByBitService` with REST API
 - Trades USDT perpetual contracts
-- Cash parking: SPYUSDT (commission applied in backtest)
+- Cash parking: disabled (no parking for ByBit)
 - Service type: `TradingServiceType.BYBIT`
 
 Switch service via:
@@ -100,7 +101,7 @@ BacktestRunner automatically filters tickers based on `trading.service`:
 - **TINKOFF**: only tickers from `datacollector.instruments`
 - **BYBIT**: only tickers from `datacollector.crypto` (USDT pairs)
 
-SPYUSDT is automatically selected as parking ticker when crypto is enabled.
+Cash parking is disabled for ByBit (TMON@ parking is Tinkoff-only).
 
 ## ByBit Strategy Differences
 
@@ -115,28 +116,3 @@ For ByBit crypto trading, you can enable 24/7 trading (no working hours restrict
 - Config property: `unifiedTrader.bybit24h=true` in `application.properties`
 - When enabled: trading allowed on weekends and outside MOEX hours (08:30-21:00)
 - Default: `false` (follows Tinkoff working hours)
-
-## Logging
-- Write clear log messages: what happened and with what data.
-- Avoid meaningless messages like `Error` or `Failed` without context.
-
-### Structure
-- Base package: `com.github.shk0da.goldendragon.*`
-- Place new files near logically related code.
-
-## Clarify the Task If
-- It is unclear where the logic should reside.
-- You need to change a public contract.
-- There are multiple possible business behaviors.
-- There is insufficient data for a correct implementation.
-
-## Text Formatting
-- Headings: capitalize first letter, no period at the end.
-- Sentences: capitalize first letter, end with a period.
-- Lists: start with lowercase, no period at the end.
-- Ordinary comments in code: start with lowercase, no period at the end.
-
-## Log Analysis
-- When asked to analyze logs, diagnostics, or metrics — always use `python scripts/analyze_strategy.py` instead of reading raw log files.
-- The script parses `orderbook-metrics.csv` and `orderbook-diagnostics-replay.log` into a structured report.
-- For custom paths: `python scripts/analyze_strategy.py --csv path/to/metrics.csv --log path/to/diagnostics.log`

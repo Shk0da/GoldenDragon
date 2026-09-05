@@ -8,9 +8,9 @@
 - Поддержка двух торговых сервисов: Tinkoff (TCS) и ByBit через единый интерфейс `TradingService`
 - Crypto support: торговля USDT-перпетуалами на ByBit
 - Money management с адаптивным сайзингом, risk manager и kill switch
-- Cash parking: TMON@ (Tinkoff ETF) и SPYUSDT (ByBit)
+- Cash parking: TMON@ (Tinkoff ETF); для ByBit парковка отключена
 - Сбор исторических данных с Tinkoff и ByBit
-- Кеширование свечей и уровней на диске
+- Данные на диске (`data/`) только для бэктестов
 - Бэктестинг с поддержкой обоих брокеров
 
 ## Стратегии
@@ -18,7 +18,7 @@
 | Стратегия | Описание |
 |---|---|
 | `RegimeAwareStrategy` | Основная стратегия с тремя типами сигналов (trend, fx, mixed), свечными паттернами, голосованием и режимом фильтрации рынка (Regime-Aware Filter) |
-| `OrderBookScalpStrategy` | Скальпинг на основе анализа стакана и дельты (только Tinkoff) |
+| `OrderBookScalpStrategy` | Скальпинг на основе анализа стакана и дельты (Tinkoff и ByBit) |
 
 ## Архитектура
 
@@ -28,7 +28,7 @@ src/main/java/com/github/shk0da/goldendragon/
 ├── config/                   # конфигурация (MainConfig, UnifiedTraderConfig, ByBitConfig, ...)
 ├── model/                    # DTO (Candle, Position, TickerInfo, Config, ...)
 ├── money/                    # управление капиталом
-│   ├── CashParkingManager    # абстракция парковки: TMON@ (Tinkoff) / SPYUSDT (ByBit)
+│   ├── CashParkingManager    # абстракция парковки: TMON@ (Tinkoff); для ByBit отключена
 │   ├── SizingStrategy        # интерфейс: FixedRiskSizing, VolatilityAdjustedSizing
 │   ├── PositionSizer         # расчёт размера позиции с учётом лота и шага
 │   ├── RiskManager           # дневные лимиты, серия проигрышей
@@ -53,10 +53,10 @@ src/main/java/com/github/shk0da/goldendragon/
 │   ├── TCSService            # Tinkoff Invest API (ордера, стакан, свечи, портфель)
 │   └── ByBitService          # ByBit API (список фьючерсов, свечи, ордера, позиции, цены)
 └── strategy/                 # торговые стратегии
-    ├── BaseStrategy          # базовый класс (жизненный цикл, индикаторы, кэш)
+    ├── BaseStrategy          # базовый класс (жизненный цикл, индикаторы)
     ├── UnifiedStrategy       # основная стратегия с режимом фильтрации рынка
     ├── DataCollector         # сбор данных с Tinkoff и ByBit
-    └── OrderBookScalpStrategy # скальпинг по стакану (только Tinkoff)
+    └── OrderBookScalpStrategy # скальпинг по стакану (Tinkoff и ByBit)
 ```
 
 ## Конфигурация
@@ -80,7 +80,7 @@ tcs.apiKey=
 # ============================================
 # ByBit Client Config (только для BYBIT)
 # ============================================
-bybit.testMode=true
+bybit.testMode=false
 bybit.apiKey=
 bybit.apiSecret=
 
@@ -89,13 +89,12 @@ bybit.apiSecret=
 # ============================================
 datacollector.dataDir=data
 datacollector.instruments=GMKN,T,VTBR,SNGS,GLDRUBF,IMOEXF,MGNT,PLZL,YDEX,MTSS,GAZPF,SNGSP,SIBN,TATN,OZON,X5,AKRN,NLMK,RUAL,ALRS,LENT,RTKM,HYDR,VKCO,FESH,UPRO,UWGN,TMON@
-datacollector.crypto=ADAUSDT,APTUSDT,ARBUSDT,ATOMUSDT,AVAXUSDT,BNBUSDT,BTCUSDT,DOGEUSDT,DOTUSDT,ETCUSDT,ETHUSDT,FILUSDT,LINKUSDT,LTCUSDT,MATICUSDT,NEARUSDT,SOLUSDT,UNIUSDT,XLMUSDT,XRPUSDT,SPYUSDT
+datacollector.crypto=ADAUSDT,APTUSDT,ARBUSDT,ATOMUSDT,AVAXUSDT,BNBUSDT,BTCUSDT,DOGEUSDT,DOTUSDT,ETCUSDT,ETHUSDT,FILUSDT,LINKUSDT,LTCUSDT,POLUSDT,NEARUSDT,SOLUSDT,UNIUSDT,XLMUSDT,XRPUSDT
 datacollector.historyDays=1900
 
 # ============================================
 # UnifiedTrader Config
 # ============================================
-unifiedTrader.averagePositionCost=500000
 unifiedTrader.leverage=3
 unifiedTrader.adaptiveLeverage.enabled=true
 unifiedTrader.tmonCashParking.enabled=true
@@ -103,9 +102,8 @@ unifiedTrader.tmonCashParking.enabled=true
 # ============================================
 # UnifiedStrategy Config
 # ============================================
-unifiedTrader.marketRegimeFilter.enabled=true
-unifiedTrader.marketRegimeFilter.adxTrendThreshold=26.0
-unifiedTrader.marketRegimeFilter.adxRangeThreshold=16.0
+unifiedTrader.ticker.T.marketRegimeAdxRangeThreshold=25.0
+unifiedTrader.ticker.T.marketRegimeConfidenceMin=60.0
 ```
 
 ## Быстрый старт
@@ -133,6 +131,9 @@ cd GoldenDragon
 
 # ByBit
 ./gradlew runStrategy -Pstrategy=RegimeAwareStrategy -Dtrading.service=BYBIT
+
+# OrderBook-скальпинг
+./gradlew runOrderBookStrategy
 ```
 
 ### Запуск бэктеста
@@ -160,7 +161,7 @@ BacktestRunner автоматически адаптируется к выбра
 
 Cash parking в бэктесте:
 - **TMON@** (Tinkoff): комиссия 0%, не учитывается в tradeHistory
-- **SPYUSDT** (ByBit): стандартная комиссия, учитывается в tradeHistory
+- **ByBit**: парковка отключена
 
 ## Структура проекта
 
@@ -182,7 +183,7 @@ GoldenDragon/
 
 | Библиотека | Назначение |
 |---|---|
-| `ru.tinkoff.piapi:tinkoff-invest-api` | Tinkoff Invest API gRPC клиент |
+| `ru.tinkoff.piapi:java-sdk-core` | Tinkoff Invest API gRPC клиент |
 | `io.github.wuhewuhe:bybit-java-api` | ByBit REST API клиент |
 | `com.fasterxml.jackson` | JSON сериализация |
 | `org.jfree:jfreechart` | построение графиков equity |
