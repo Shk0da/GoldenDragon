@@ -2,6 +2,7 @@ package com.github.shk0da.goldendragon.strategy;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
+import com.github.shk0da.goldendragon.config.ByBitConfig;
 import com.github.shk0da.goldendragon.config.DataCollectorConfig;
 import com.github.shk0da.goldendragon.config.MainConfig;
 import com.github.shk0da.goldendragon.model.TickerCandle;
@@ -9,11 +10,12 @@ import com.github.shk0da.goldendragon.model.TickerInfo;
 import com.github.shk0da.goldendragon.model.TickerType;
 import com.github.shk0da.goldendragon.repository.Repository;
 import com.github.shk0da.goldendragon.repository.TickerRepository;
+import com.github.shk0da.goldendragon.service.ByBitService;
 import com.github.shk0da.goldendragon.service.TCSService;
+import com.github.shk0da.goldendragon.service.TradingService;
+import com.github.shk0da.goldendragon.service.TradingServiceFactory;
 import com.github.shk0da.goldendragon.utils.TickerTypeResolver;
 import com.google.gson.reflect.TypeToken;
-import ru.tinkoff.piapi.contract.v1.CandleInterval;
-import ru.tinkoff.piapi.contract.v1.HistoricCandle;
 
 import java.io.BufferedReader;
 import java.io.File;
@@ -63,10 +65,10 @@ public class DataCollector {
     private static final Repository<TickerInfo.Key, TickerInfo> tickerRepository =
         TickerRepository.INSTANCE;
 
-    private final TCSService tcsService;
+    private final TradingService tcsService;
     private final DataCollectorConfig config;
 
-    public DataCollector(DataCollectorConfig config, TCSService tcsService) {
+    public DataCollector(DataCollectorConfig config, TradingService tcsService) {
         this.tcsService = tcsService;
         this.config = config;
     }
@@ -81,10 +83,13 @@ public class DataCollector {
 
         createDirectories(Paths.get(dataDir));
 
+        // Determine trading service type
+        TradingServiceFactory.TradingServiceType serviceType = 
+            TradingServiceFactory.getConfiguredServiceType();
+
         // Process traditional instruments (stocks, bonds, etc.) via Tinkoff API
-        if (tickers != null && !tickers.isEmpty()) {
+        if (tickers != null && !tickers.isEmpty() && serviceType == TradingServiceFactory.TradingServiceType.TINKOFF) {
             out.println("=== Downloading instrument data from Tinkoff API ===");
-            out.println("Instruments: " + String.join(", ", tickers));
 
             MainConfig mainConfig = new MainConfig();
             TCSService tcsService =
@@ -99,12 +104,12 @@ public class DataCollector {
                 try {
                     createDirectories(Paths.get(dataDir + "/" + name));
                     dataCollector.updateCandlesFile(
-                        name, dataDir, CandleInterval.CANDLE_INTERVAL_5_MIN, isReplace);
+                        name, dataDir, "5_MIN", isReplace);
                     dataCollector.updateCandlesFile(
-                        name, dataDir, CandleInterval.CANDLE_INTERVAL_HOUR, isReplace);
+                        name, dataDir, "HOUR", isReplace);
                     if (name.contains("@")) {
                         dataCollector.updateCandlesFile(
-                            name, dataDir, CandleInterval.CANDLE_INTERVAL_DAY, isReplace);
+                            name, dataDir, "1_DAY", isReplace);
                     }
                     dataCollector.createTickerJson(name, dataDir);
                 } catch (Exception ex) {
@@ -112,7 +117,35 @@ public class DataCollector {
                 }
             }
             out.println("=== Instrument data download completed ===");
-        } else {
+        }
+
+        // Process crypto instruments via ByBit API
+        if (cryptoTickers != null && !cryptoTickers.isEmpty() && serviceType == TradingServiceFactory.TradingServiceType.BYBIT) {
+            out.println("=== Downloading crypto instrument data from ByBit API ===");
+
+            ByBitConfig byBitConfig = new ByBitConfig();
+            ByBitService byBitService = new ByBitService(byBitConfig);
+
+            // Update ticker repository with crypto instruments
+            refreshCryptoTickerRepository(byBitService);
+
+            DataCollector dataCollector = new DataCollector(config, byBitService);
+            for (String name : cryptoTickers) {
+                try {
+                    createDirectories(Paths.get(dataDir + "/" + name));
+                    dataCollector.updateCandlesFile(
+                        name, dataDir, "5_MIN", isReplace);
+                    dataCollector.updateCandlesFile(
+                        name, dataDir, "HOUR", isReplace);
+                    dataCollector.createTickerJson(name, dataDir);
+                } catch (Exception ex) {
+                    out.println(ex.getMessage());
+                }
+            }
+            out.println("=== Crypto instrument data download completed ===");
+        }
+
+        if ((tickers == null || tickers.isEmpty()) && (cryptoTickers == null || cryptoTickers.isEmpty())) {
             out.println("No instruments configured");
         }
     }
@@ -151,6 +184,24 @@ public class DataCollector {
         }
     }
 
+    private static void refreshCryptoTickerRepository(ByBitService byBitService) throws Exception {
+        // Load existing repo (might have Tinkoff instruments)
+        Map<TickerInfo.Key, TickerInfo> tickerRegister =
+            loadDataFromDisk(TickerRepository.SERIALIZE_NAME, new TypeToken<>() {});
+        if (tickerRegister == null) {
+            tickerRegister = new HashMap<>();
+        }
+
+        // ALWAYS load fresh crypto instruments from ByBit
+        Map<TickerInfo.Key, TickerInfo> cryptoInstruments = byBitService.getFuturesList();
+        int beforeSize = tickerRegister.size();
+        tickerRegister.putAll(cryptoInstruments);
+        int addedCount = tickerRegister.size() - beforeSize;
+
+        // Save updated repo (existing + crypto)
+        saveDataToDisk(TickerRepository.SERIALIZE_NAME, tickerRegister);
+    }
+
     public void run() throws Exception {
         var dataDir = config.getDataDir();
         var tickers = config.getInstruments();
@@ -164,11 +215,23 @@ public class DataCollector {
         for (String name : tickers) {
             try {
                 createDirectories(Paths.get(dataDir + "/" + name));
-                updateCandlesFile(name, dataDir, CandleInterval.CANDLE_INTERVAL_5_MIN, isReplace);
-                updateCandlesFile(name, dataDir, CandleInterval.CANDLE_INTERVAL_HOUR, isReplace);
+                updateCandlesFile(name, dataDir, "5_MIN", isReplace);
+                updateCandlesFile(name, dataDir, "HOUR", isReplace);
                 if (name.contains("@")) {
-                    updateCandlesFile(name, dataDir, CandleInterval.CANDLE_INTERVAL_DAY, isReplace);
+                    updateCandlesFile(name, dataDir, "1_DAY", isReplace);
                 }
+                createTickerJson(name, dataDir);
+            } catch (Exception ex) {
+                out.println(ex.getMessage());
+            }
+        }
+
+        // Process crypto instruments
+        for (String name : cryptoTickers) {
+            try {
+                createDirectories(Paths.get(dataDir + "/" + name));
+                updateCandlesFile(name, dataDir, "5_MIN", isReplace);
+                updateCandlesFile(name, dataDir, "HOUR", isReplace);
                 createTickerJson(name, dataDir);
             } catch (Exception ex) {
                 out.println(ex.getMessage());
@@ -208,16 +271,10 @@ public class DataCollector {
                             LocalDate lastCandleDate =
                                 LocalDate.parse(
                                     datePart, DateTimeFormatter.ofPattern("dd.MM.yyyy"));
-                            out.println(
-                                "Found existing candles for "
-                                    + ticker
-                                    + " until "
-                                    + lastCandleDate);
 
                             // Start from the day after the last candle
                             return lastCandleDate.plusDays(1);
                         } catch (Exception e) {
-                            out.println("Could not parse last candle date: " + e.getMessage());
                         }
                     }
                 }
@@ -225,20 +282,15 @@ public class DataCollector {
         }
 
         // No existing candles, use historyDays
-        out.println("No existing candles for " + ticker + ", using historyDays=" + historyDays);
         return LocalDate.now().minusDays(historyDays);
     }
 
     public void updateCandlesFile(
-        String name, String dir, CandleInterval period, boolean isReplace) {
-        var namePeriod = period.name().replace("CANDLE_INTERVAL_", "");
-        var file = dir + "/" + name + "/candles" + namePeriod + ".txt";
+        String name, String dir, String period, boolean isReplace) {
+        var file = dir + "/" + name + "/candles" + period + ".txt";
         if (!isReplace && isTodayFile(file)) {
-            out.println("Exists candles '" + namePeriod + "' file: " + name);
             return;
         }
-
-        out.println("Create candles '" + namePeriod + "' file: " + name);
         var historyDays = config.getHistoryDays();
         var lastCandleTime =
             Date.from(
@@ -260,7 +312,7 @@ public class DataCollector {
             }
         }
         List<TickerCandle> candles =
-            getTickerCandles(name.toLowerCase(), period, lastCandleTime, 0);
+            getTickerCandles(name, period, lastCandleTime, 0);
         if (candles.isEmpty()) {
             throw new RuntimeException("empty candles");
         }
@@ -297,7 +349,7 @@ public class DataCollector {
     }
 
     private List<TickerCandle> getTickerCandles(
-        String name, CandleInterval period, Date lastCandleTime, int counter) {
+        String name, String period, Date lastCandleTime, int counter) {
         Set<TickerCandle> candles = new LinkedHashSet<>();
         try {
             final Instant currentTime = now().toInstant();
@@ -322,23 +374,30 @@ public class DataCollector {
                 throw new RuntimeException("Ticker not found: " + name);
             }
 
-            String ticker = tickerInfo.getFigi();
+            // Use figi for Tinkoff, ticker for ByBit crypto
+            String ticker = tickerInfo.getFigi() != null ? tickerInfo.getFigi() : tickerInfo.getTicker();
             var start = getStartWithShift(period, startTime);
             while (start.isBefore(currentTime)) {
                 var end = start.plus(1, ChronoUnit.DAYS);
-                out.println("Loading: " + name.toUpperCase() + "[" + start + " -> " + end + "]");
-                List<HistoricCandle> periodCandles =
-                    tcsService.getCandles(ticker, start, end, period);
+                
+                List<com.github.shk0da.goldendragon.model.Candle> periodCandles;
+                if (tcsService instanceof ByBitService) {
+                    // ByBit crypto: use ticker directly
+                    periodCandles = ((ByBitService) tcsService).getCandles(ticker, start, end, period);
+                } else {
+                    // Tinkoff: use figi
+                    periodCandles = tcsService.getCandles(ticker, start, end, period);
+                }
                 start = end;
 
                 periodCandles.forEach(
                     candle -> {
-                        var dateTime = new Timestamp(candle.getTime().getSeconds() * 1000);
-                        var open = toDouble(candle.getOpen());
-                        var high = toDouble(candle.getHigh());
-                        var low = toDouble(candle.getLow());
-                        var close = toDouble(candle.getClose());
-                        var volume = candle.getVolume();
+                        var dateTime = Timestamp.valueOf(candle.time);
+                        var open = candle.open;
+                        var high = candle.high;
+                        var low = candle.low;
+                        var close = candle.close;
+                        var volume = candle.volume;
                         candles.add(
                             new TickerCandle(
                                 name,
@@ -348,7 +407,7 @@ public class DataCollector {
                                 low,
                                 close,
                                 close,
-                                (int) volume));
+                                (long) volume));
                     });
                 sleep(100);
             }
@@ -362,36 +421,35 @@ public class DataCollector {
         return new ArrayList<>(candles);
     }
 
-    private static Instant getStartWithShift(CandleInterval period, Instant startTime) {
+    private static Instant getStartWithShift(String period, Instant startTime) {
         switch (period) {
-            case CANDLE_INTERVAL_1_MIN:
+            case "1_MIN":
                 return startTime.plus(1, ChronoUnit.MINUTES);
-            case CANDLE_INTERVAL_5_MIN:
+            case "5_MIN":
                 return startTime.plus(5, ChronoUnit.MINUTES);
-            case CANDLE_INTERVAL_10_MIN:
+            case "10_MIN":
                 return startTime.plus(10, ChronoUnit.MINUTES);
-            case CANDLE_INTERVAL_15_MIN:
+            case "15_MIN":
                 return startTime.plus(15, ChronoUnit.MINUTES);
-            case CANDLE_INTERVAL_30_MIN:
+            case "30_MIN":
                 return startTime.plus(30, ChronoUnit.MINUTES);
-            case CANDLE_INTERVAL_HOUR:
+            case "HOUR":
                 return startTime.plus(1, ChronoUnit.HOURS);
-            case CANDLE_INTERVAL_2_HOUR:
+            case "2_HOUR":
                 return startTime.plus(2, ChronoUnit.HOURS);
-            case CANDLE_INTERVAL_4_HOUR:
+            case "4_HOUR":
                 return startTime.plus(4, ChronoUnit.HOURS);
-            case CANDLE_INTERVAL_DAY:
+            case "1_DAY":
                 return startTime.plus(1, ChronoUnit.DAYS);
-            case CANDLE_INTERVAL_WEEK:
+            case "WEEK":
                 return startTime.plus(1, ChronoUnit.WEEKS);
-            case CANDLE_INTERVAL_MONTH:
+            case "MONTH":
                 return startTime.plus(1, ChronoUnit.MONTHS);
         }
         return startTime;
     }
 
     private void createTickerJson(String name, String dir) {
-        out.println("Create ticker json: " + name);
         try {
             deleteIfExists(Paths.get(dir + "/" + name + "/ticker.json"));
         } catch (IOException e) {
@@ -444,12 +502,11 @@ public class DataCollector {
     }
 
     public static List<TickerCandle> readCandlesFile(
-        String name, String dir, CandleInterval period) {
-        var namePeriod = period.name().replace("CANDLE_INTERVAL_", "");
+        String name, String dir, String period) {
         List<TickerCandle> tickers = new ArrayList<>();
         try (BufferedReader br =
                  new BufferedReader(
-                     new FileReader(dir + "/" + name + "/candles" + namePeriod + ".txt"))) {
+                     new FileReader(dir + "/" + name + "/candles" + period + ".txt"))) {
             boolean skipHeader = true;
             String line = br.readLine();
             while (line != null) {
@@ -469,7 +526,7 @@ public class DataCollector {
                         Double.valueOf(values[3]),
                         Double.valueOf(values[4]),
                         Double.valueOf(values[4]),
-                        Integer.valueOf(values[5])));
+                        Long.valueOf(values[5])));
                 line = br.readLine();
             }
         } catch (Exception ex) {

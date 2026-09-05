@@ -11,7 +11,7 @@ public class TickerCandle {
     private final Double low;
     private final Double close;
     private final Double adjClose;
-    private final Integer volume;
+    private final Long volume;
 
     public TickerCandle(
             String symbol,
@@ -21,7 +21,7 @@ public class TickerCandle {
             Double low,
             Double close,
             Double adjClose,
-            Integer volume) {
+            Long volume) {
         this.symbol = symbol;
         this.date = date;
         this.open = open;
@@ -60,7 +60,7 @@ public class TickerCandle {
         return adjClose;
     }
 
-    public Integer getVolume() {
+    public Long getVolume() {
         return volume;
     }
 

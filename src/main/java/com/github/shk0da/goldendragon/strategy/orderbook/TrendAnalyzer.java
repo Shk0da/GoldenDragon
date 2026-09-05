@@ -1,11 +1,10 @@
 package com.github.shk0da.goldendragon.strategy.orderbook;
 
+import com.github.shk0da.goldendragon.model.Candle;
 import com.github.shk0da.goldendragon.model.TickerInfo;
-import com.github.shk0da.goldendragon.service.TCSService;
+import com.github.shk0da.goldendragon.service.TradingService;
 import com.github.shk0da.goldendragon.utils.IndicatorsUtil;
 import com.github.shk0da.goldendragon.utils.LoggingUtils;
-import ru.tinkoff.piapi.contract.v1.CandleInterval;
-import ru.tinkoff.piapi.contract.v1.HistoricCandle;
 
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
@@ -30,7 +29,7 @@ public final class TrendAnalyzer {
         UP, DOWN, SIDEWAYS
     }
 
-    private final TCSService tcsService;
+    private final TradingService tradingService;
     private final int timeframeMinutes;
     private final int lookbackCandles;
     private final long cacheTtlMs;
@@ -38,8 +37,8 @@ public final class TrendAnalyzer {
     // Cache trend analysis results
     private final Map<String, TrendResult> trendCache = new ConcurrentHashMap<>();
 
-    public TrendAnalyzer(TCSService tcsService, int timeframeMinutes, int lookbackCandles, long cacheTtlMs) {
-        this.tcsService = tcsService;
+    public TrendAnalyzer(TradingService tradingService, int timeframeMinutes, int lookbackCandles, long cacheTtlMs) {
+        this.tradingService = tradingService;
         this.timeframeMinutes = timeframeMinutes;
         this.lookbackCandles = lookbackCandles;
         this.cacheTtlMs = cacheTtlMs;
@@ -101,27 +100,27 @@ public final class TrendAnalyzer {
      */
     private Trend calculateTrend(TickerInfo.Key key) {
         try {
-            List<HistoricCandle> candles = loadCandles(key);
+            List<Candle> candles = loadCandles(key);
             if (candles == null || candles.size() < 3) {
                 return Trend.SIDEWAYS; // Not enough data
             }
             
             // Analyze price structure
-            double firstClose = IndicatorsUtil.toDouble(candles.get(0).getClose());
-            double lastClose = IndicatorsUtil.toDouble(candles.get(candles.size() - 1).getClose());
+            double firstClose = candles.get(0).close;
+            double lastClose = candles.get(candles.size() - 1).close;
             
             // Find swing highs and lows
             List<Double> swingHighs = new ArrayList<>();
             List<Double> swingLows = new ArrayList<>();
             
             for (int i = 1; i < candles.size() - 1; i++) {
-                double prevHigh = IndicatorsUtil.toDouble(candles.get(i - 1).getHigh());
-                double currHigh = IndicatorsUtil.toDouble(candles.get(i).getHigh());
-                double nextHigh = IndicatorsUtil.toDouble(candles.get(i + 1).getHigh());
+                double prevHigh = candles.get(i - 1).high;
+                double currHigh = candles.get(i).high;
+                double nextHigh = candles.get(i + 1).high;
                 
-                double prevLow = IndicatorsUtil.toDouble(candles.get(i - 1).getLow());
-                double currLow = IndicatorsUtil.toDouble(candles.get(i).getLow());
-                double nextLow = IndicatorsUtil.toDouble(candles.get(i + 1).getLow());
+                double prevLow = candles.get(i - 1).low;
+                double currLow = candles.get(i).low;
+                double nextLow = candles.get(i + 1).low;
                 
                 // Swing high: higher than neighbors
                 if (currHigh > prevHigh && currHigh > nextHigh) {
@@ -180,17 +179,15 @@ public final class TrendAnalyzer {
     /**
      * Load candles from API.
      */
-    private List<HistoricCandle> loadCandles(TickerInfo.Key key) {
+    private List<Candle> loadCandles(TickerInfo.Key key) {
         try {
             Instant now = Instant.now();
             Instant from = now.minus(lookbackCandles * timeframeMinutes, ChronoUnit.MINUTES);
             
-            CandleInterval interval = timeframeMinutes <= 5 
-                    ? CandleInterval.CANDLE_INTERVAL_5_MIN 
-                    : CandleInterval.CANDLE_INTERVAL_15_MIN;
+            String interval = timeframeMinutes <= 5 ? "5_MIN" : "15_MIN";
             
-            String figi = tcsService.figiByName(key);
-            return tcsService.getCandles(figi, from, now, interval);
+            String figi = tradingService.figiByName(key);
+            return tradingService.getCandles(figi, from, now, interval);
             
         } catch (Exception e) {
             LoggingUtils.log("Failed to load candles for " + key.getTicker() + ": " + e.getMessage());

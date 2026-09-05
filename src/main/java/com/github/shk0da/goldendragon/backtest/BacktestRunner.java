@@ -81,7 +81,6 @@ public class BacktestRunner {
         DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm:ss");
     private static final int MIN_HOURS_REQUIRED = 60;
     private static final int MAX_CONCURRENT_POSITIONS = 8;
-    private static final String TMON_TICKER = "TMON@";
     private static final LocalTime WORK_START_TIME = LocalTime.of(8, 30);
     private static final LocalTime EOD_CLOSE_TIME = LocalTime.of(21, 0);
     private static final String BACKTEST_MODE = System.getProperty("backtest.mode", "full");
@@ -96,6 +95,29 @@ public class BacktestRunner {
      * Default cooldown in 5-min candles if not specified in config.
      */
     private static final int DEFAULT_COOLDOWN_BARS = 3;
+
+    /**
+     * Parking ticker for cash parking: SPYUSDT for crypto, TMON@ for Tinkoff.
+     * Computed once at backtest start based on datacollector.crypto config.
+     */
+    private String parkingTickerForBacktest;
+
+    /**
+     * Compute parking ticker once from config.
+     */
+    private static String computeParkingTicker() {
+        Properties props;
+        try {
+            props = PropertiesUtils.loadProperties();
+        } catch (IOException e) {
+            return "TMON@";
+        }
+        String crypto = props.getProperty("datacollector.crypto", "");
+        if (crypto != null && !crypto.trim().isEmpty()) {
+            return "SPYUSDT";
+        }
+        return "TMON@";
+    }
 
     public static class RawCandle {
         public final String time;
@@ -495,12 +517,12 @@ public class BacktestRunner {
             return;
         }
         TimeSeriesCollection dataset = new TimeSeriesCollection(series);
-        String addItionalDesc = monthlyDeposit > 0 ? " +" + monthlyDeposit / 1000 + "K RUB/month" : "";
+        String addItionalDesc = monthlyDeposit > 0 ? " +" + monthlyDeposit / 1000 + "K month" : "";
         JFreeChart chart =
             ChartFactory.createTimeSeriesChart(
                 "Equity Curve - " + strategyName + addItionalDesc,
                 "Date",
-                "Capital (RUB)",
+                "Capital",
                 dataset,
                 true,
                 true,
@@ -526,7 +548,9 @@ public class BacktestRunner {
         try {
             Path imagesDir = Paths.get("images");
             Files.createDirectories(imagesDir);
-            String fileName = strategyName + ".png";
+            // Use different filename for crypto (ByBit) vs traditional (Tinkoff) backtests
+            String suffix = isByBitTrading() ? "Crypto" : "";
+            String fileName = strategyName + suffix + ".png";
             Path outputPath = imagesDir.resolve(fileName);
             try (FileOutputStream out = new FileOutputStream(outputPath.toFile())) {
                 ChartUtilities.writeChartAsPNG(out, chart, 1200, 600);
@@ -725,6 +749,10 @@ public class BacktestRunner {
                 Collections.emptyMap(),
                 new PortfolioPeriodResult(0.0, 0.0, Collections.emptyList(), 0, 0.0));
         }
+
+        // Compute parking ticker once — cached to avoid repeated file I/O in hot loop
+        this.parkingTickerForBacktest = computeParkingTicker();
+
         // Create broker - the SINGLE source of truth for cash/positions
         SimulatedBroker broker = new SimulatedBroker(initialBalance, commission, slippage);
         for (MarketDataLoadResult loadResult : loadedMarketData) {
@@ -763,15 +791,15 @@ public class BacktestRunner {
                 if (config.isTmonCashParkingEnabled()) {
                     double cash = broker.getSharedCash();
                     if (cash > 0) {
-                        double tmonValue = broker.getTmonPositionValue();
+                        double tmonValue = broker.getTmonPositionValue(parkingTickerForBacktest);
                         double availableForPark = cash + tmonValue;
                         if (availableForPark > 0) {
-                            SimulatedBroker.SimulatedPosition tmonPos = broker.getPositionState(TMON_TICKER);
+                            SimulatedBroker.SimulatedPosition tmonPos = broker.getPositionState(parkingTickerForBacktest);
                             if (!tmonPos.hasOpenPosition()) {
                                 int tmonLotSize = 1;
                                 int tmonShares = (int) Math.floor(availableForPark / tmonLotSize);
                                 if (tmonShares > 0) {
-                                    broker.buy(TMON_TICKER, tmonShares, null, null);
+                                    broker.buy(parkingTickerForBacktest, tmonShares, null, null);
                                 }
                             }
                         }
@@ -790,7 +818,7 @@ public class BacktestRunner {
                 }
                 SimulatedBroker.SimulatedPosition brokerPos = broker.getPositionState(ticker);
                 Candle current = marketData.minuteCandles.get(idx);
-                if (brokerPos.hasOpenPosition() && !TMON_TICKER.equals(ticker)) {
+                if (brokerPos.hasOpenPosition() && !"TMON@".equals(ticker)) {
                     ExecutionResult sltpResult = broker.checkStopLossTakeProfit(ticker, current);
                     if (sltpResult != null) {
                         brokerPos = broker.getPositionState(ticker);
@@ -806,7 +834,7 @@ public class BacktestRunner {
                     if (brokerPos.hasOpenPosition()
                         && !currentTime.toLocalTime().isBefore(EOD_CLOSE_TIME)
                         && lastEodCloseDayByTicker.getOrDefault(ticker, -1L) != currentDay
-                        && !TMON_TICKER.equals(ticker)) {
+                        && !"TMON@".equals(ticker)) {
                         if (brokerPos.isLong()) {
                             broker.closeLong(ticker);
                         } else if (brokerPos.isShort()) {
@@ -840,8 +868,8 @@ public class BacktestRunner {
                         ticker, currentTime, allHourlyCandles, groupTickers, peerTimesMap, hourHistory, config);
                     strategy.setPeerCandles(currentPeerCandles.isEmpty() ? Collections.emptyMap() : currentPeerCandles);
                     double effectiveBalance = broker.getSharedCash();
-                    if (!TMON_TICKER.equals(ticker) && config.isTmonCashParkingEnabled()) {
-                        double tmonValue = broker.getTmonPositionValue();
+                    if (!"TMON@".equals(ticker) && config.isTmonCashParkingEnabled()) {
+                        double tmonValue = broker.getTmonPositionValue(parkingTickerForBacktest);
                         if (tmonValue > 0) {
                             effectiveBalance += tmonValue;
                         }
@@ -867,7 +895,11 @@ public class BacktestRunner {
             portfolioEquity.add(new EquityPoint(time, broker.getTotalPortfolioValue()));
         }
         broker.closeAll("period_end");
-        broker.closeTmonParking("period_end");
+        // Close parking position: TMON@ uses closeTmonParking (parking-PnL accounting),
+        // SPYUSDT is closed via closeAll above (normal position).
+        if ("TMON@".equals(parkingTickerForBacktest)) {
+            broker.closeTmonParking(parkingTickerForBacktest, "period_end");
+        }
         if (!globalTimeline.isEmpty()) {
             portfolioEquity.add(new EquityPoint(
                 globalTimeline.get(globalTimeline.size() - 1),
@@ -957,12 +989,13 @@ public class BacktestRunner {
                 if (!"BUY".equals(openDir) && !"SELL".equals(openDir)) {
                     return;
                 }
-                if (!TMON_TICKER.equals(ticker) && decision.quantity > 0 && decision.entryPrice != null) {
+                if (!"TMON@".equals(ticker) && decision.quantity > 0 && decision.entryPrice != null) {
                     double positionValue = decision.quantity * decision.entryPrice;
                     double availableCash = broker.getSharedCash();
                     double missing = positionValue - availableCash;
                     if (missing > 0) {
-                        boolean sold = broker.sellByMarket(TMON_TICKER, TickerType.ETF, missing);
+                        TickerType parkingType = parkingTickerForBacktest.endsWith("USDT") ? TickerType.CRYPTO : TickerType.ETF;
+                        boolean sold = broker.sellByMarket(parkingTickerForBacktest, parkingType, missing);
                         if (sold) {
                             brokerPos = broker.getPositionState(ticker);
                         }
@@ -1166,7 +1199,17 @@ public class BacktestRunner {
 
     private List<String> filterEnabledTickers(List<String> tickers, UnifiedTraderConfig config) {
         List<String> result = new ArrayList<>();
+        // When trading.service=BYBIT, only use crypto tickers (USDT pairs).
+        // When trading.service=TINKOFF, only use non-crypto tickers.
+        boolean isByBit = isByBitTrading();
         for (String ticker : tickers) {
+            boolean isCrypto = ticker.endsWith("USDT");
+            if (isByBit && !isCrypto) {
+                continue;  // BYBIT: skip non-crypto tickers
+            }
+            if (!isByBit && isCrypto) {
+                continue;  // TINKOFF: skip crypto tickers
+            }
             try {
                 UnifiedTraderConfig.TickerParams params = config.getTickerParams(ticker);
                 if (params.enabled) {
@@ -1176,6 +1219,19 @@ public class BacktestRunner {
             }
         }
         return result;
+    }
+
+    private boolean isByBitTrading() {
+        String service = System.getProperty("trading.service");
+        if (service == null) {
+            try {
+                Properties props = PropertiesUtils.loadProperties();
+                service = props.getProperty("trading.service", "TINKOFF");
+            } catch (IOException ignored) {
+                service = "TINKOFF";
+            }
+        }
+        return "BYBIT".equalsIgnoreCase(service.trim());
     }
 
     private int upperBound(List<LocalDateTime> times, LocalDateTime target) {

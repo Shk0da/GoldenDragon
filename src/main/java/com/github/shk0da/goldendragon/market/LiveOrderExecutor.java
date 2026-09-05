@@ -2,7 +2,7 @@ package com.github.shk0da.goldendragon.market;
 
 import com.github.shk0da.goldendragon.model.TickerInfo;
 import com.github.shk0da.goldendragon.repository.TickerRepository;
-import com.github.shk0da.goldendragon.service.TCSService;
+import com.github.shk0da.goldendragon.service.TradingService;
 
 /**
  * Live order executor using TCS API.
@@ -11,15 +11,15 @@ import com.github.shk0da.goldendragon.service.TCSService;
 public class LiveOrderExecutor implements OrderExecutor {
 
     /**
-     * Safety margin matching TCSService.calculateTradeCount() (1%) to prevent
+     * Safety margin matching TradingService.calculateTradeCount() (1%) to prevent
      * insufficient funds (error 30049) and silent partial fills on market orders.
      */
     private static final double ORDER_QUANTITY_SAFETY_MARGIN = 1.01;
 
-    private final TCSService tcsService;
+    private final TradingService tcsService;
     private final TickerRepository tickerRepository;
 
-    public LiveOrderExecutor(TCSService tcsService) {
+    public LiveOrderExecutor(TradingService tcsService) {
         this.tcsService = tcsService;
         this.tickerRepository = TickerRepository.INSTANCE;
     }
@@ -36,14 +36,14 @@ public class LiveOrderExecutor implements OrderExecutor {
             double cash = tcsService.getAvailableCash();
             double askPrice = tcsService.getLiveAskPrice(key);
 
-            // Apply the same 1% safety margin as TCSService.calculateTradeCount() so the
+            // Apply the same 1% safety margin as TradingService.calculateTradeCount() so the
             // executed quantity matches the requested quantity (avoids silently buying fewer).
             double value = quantity * askPrice * info.getLot() * ORDER_QUANTITY_SAFETY_MARGIN;
             if (value > cash) {
                 return ExecutionResult.failed("Insufficient cash: needed " + value + ", available " + cash);
             }
 
-            TCSService.OrderExecutionResult result = tcsService.buyByMarketWithDetails(
+            TradingService.OrderExecutionResult result = tcsService.buyByMarketWithDetails(
                     ticker, info.getType(), value, takeProfitPercent, stopLossPercent);
 
             if (!result.isSuccess()) {
@@ -82,7 +82,7 @@ public class LiveOrderExecutor implements OrderExecutor {
                                 + ", available " + String.format("%.2f", cash));
             }
 
-            TCSService.OrderExecutionResult result = tcsService.sellByMarketWithDetails(
+            TradingService.OrderExecutionResult result = tcsService.sellByMarketWithDetails(
                     ticker, info.getType(), positionValue, takeProfitPercent, stopLossPercent);
 
             if (!result.isSuccess()) {
@@ -104,7 +104,7 @@ public class LiveOrderExecutor implements OrderExecutor {
                 return ExecutionResult.failed("Ticker not found: " + ticker);
             }
 
-            TCSService.OrderExecutionResult result = tcsService.closeLongByMarketWithDetails(ticker, info.getType());
+            TradingService.OrderExecutionResult result = tcsService.closeLongByMarketWithDetails(ticker, info.getType());
 
             if (!result.isSuccess()) {
                 return ExecutionResult.failed("Close long failed"
@@ -125,7 +125,7 @@ public class LiveOrderExecutor implements OrderExecutor {
                 return ExecutionResult.failed("Ticker not found: " + ticker);
             }
 
-            TCSService.OrderExecutionResult result = tcsService.closeShortByMarketWithDetails(ticker, info.getType());
+            TradingService.OrderExecutionResult result = tcsService.closeShortByMarketWithDetails(ticker, info.getType());
 
             if (!result.isSuccess()) {
                 return ExecutionResult.failed("Close short failed"

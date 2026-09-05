@@ -1,72 +1,146 @@
 package com.github.shk0da.goldendragon.strategy.orderbook;
 
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.assertj.core.api.BDDAssertions.then;
+import static org.assertj.core.api.BDDAssertions.thenThrownBy;
 
 /**
- * Tests for {@link DailyLossLimit} circuit breaker.
+ * BDD-style tests for {@link DailyLossLimit} circuit breaker.
  */
+@DisplayName("Daily Loss Limit - Circuit Breaker")
 class DailyLossLimitTest {
 
-    @Test
-    void testTradingAllowedWhenWithinLimit() {
-        DailyLossLimit limit = new DailyLossLimit(-500.0);
+    @Nested
+    @DisplayName("When trading within loss limit")
+    class WithinLimit {
 
-        assertTrue(limit.canTrade());
-        assertTrue(limit.addPnl(-200.0));
-        assertTrue(limit.addPnl(-200.0));
-        assertEquals(-400.0, limit.getCumulativePnl(), 0.01);
+        @Test
+        @DisplayName("Should allow trading when within daily loss limit")
+        void shouldAllowTrading_WhenWithinDailyLimit() {
+            // Given
+            DailyLossLimit limit = new DailyLossLimit(-500.0);
+
+            // When
+            boolean canTrade1 = limit.canTrade();
+            boolean trade1 = limit.addPnl(-200.0);
+            boolean trade2 = limit.addPnl(-200.0);
+
+            // Then
+            then(canTrade1).isTrue();
+            then(trade1).isTrue();
+            then(trade2).isTrue();
+            then(limit.getCumulativePnl()).isEqualTo(-400.0)
+                    .as("Cumulative PnL should reflect all losses");
+        }
+
+        @Test
+        @DisplayName("Should allow trading when PnL starts at zero")
+        void shouldAllowTrading_WhenPnLStartsAtZero() {
+            // Given
+            DailyLossLimit limit = new DailyLossLimit(-500.0);
+
+            // When/Then
+            then(limit.canTrade()).isTrue();
+            then(limit.getCumulativePnl()).isEqualTo(0.0)
+                    .as("Cumulative PnL should start at zero");
+        }
     }
 
-    @Test
-    void testTradingStopsAfterLimitHit() {
-        DailyLossLimit limit = new DailyLossLimit(-500.0);
+    @Nested
+    @DisplayName("When trading exceeds loss limit")
+    class ExceedsLimit {
 
-        limit.addPnl(-300.0);
-        assertTrue(limit.canTrade());
+        @Test
+        @DisplayName("Should stop trading after hitting daily loss limit")
+        void shouldStopTrading_WhenLimitHit() {
+            // Given
+            DailyLossLimit limit = new DailyLossLimit(-500.0);
+            limit.addPnl(-300.0);
 
-        limit.addPnl(-250.0); // Cumulative: -550
-        assertFalse(limit.canTrade());
-        assertEquals(-550.0, limit.getCumulativePnl(), 0.01);
+            // When
+            boolean beforeLimit = limit.canTrade();
+            boolean tradeResult = limit.addPnl(-250.0); // Cumulative: -550
+            boolean afterLimit = limit.canTrade();
+
+            // Then
+            then(beforeLimit).isTrue()
+                    .as("Trading allowed before limit reached");
+            then(afterLimit).isFalse()
+                    .as("Trading should stop after limit hit");
+            then(limit.getCumulativePnl()).isEqualTo(-550.0)
+                    .as("PnL should still be recorded even after limit hit");
+        }
     }
 
-    @Test
-    void testWinsOffsetLosses() {
-        DailyLossLimit limit = new DailyLossLimit(-500.0);
+    @Nested
+    @DisplayName("When PnL changes")
+    class PnLChanges {
 
-        limit.addPnl(-300.0);
-        limit.addPnl(150.0); // Cumulative: -150
-        assertTrue(limit.canTrade());
+        @Test
+        @DisplayName("Should allow trading when wins offset losses")
+        void shouldAllowTrading_WhenWinsOffsetLosses() {
+            // Given
+            DailyLossLimit limit = new DailyLossLimit(-500.0);
+            limit.addPnl(-300.0);
+
+            // When
+            boolean canTrade = limit.addPnl(150.0); // Cumulative: -150
+
+            // Then
+            then(canTrade).isTrue()
+                    .as("Wins reduce cumulative loss, trading should be allowed");
+        }
+
+        @Test
+        @DisplayName("Should return correct daily loss limit")
+        void shouldReturnDailyLimit() {
+            // Given
+            DailyLossLimit limit = new DailyLossLimit(-1000.0);
+
+            // When/Then
+            then(limit.getDailyLimit()).isEqualTo(-1000.0);
+        }
     }
 
-    @Test
-    void testConstructorRejectsPositiveLimit() {
-        assertThrows(IllegalArgumentException.class, () -> new DailyLossLimit(500.0));
-        assertThrows(IllegalArgumentException.class, () -> new DailyLossLimit(0.0));
+    @Nested
+    @DisplayName("When manually stopping trading")
+    class ManualStop {
+
+        @Test
+        @DisplayName("Should stop trading after stopTrading()")
+        void shouldStopTrading_AfterManualStop() {
+            // Given
+            DailyLossLimit limit = new DailyLossLimit(-500.0);
+
+            // When
+            limit.stopTrading();
+
+            // Then
+            then(limit.canTrade()).isFalse();
+        }
     }
 
-    @Test
-    void testStopTradingStopsTrading() {
-        DailyLossLimit limit = new DailyLossLimit(-500.0);
-        assertTrue(limit.canTrade());
+    @Nested
+    @DisplayName("When constructing limit")
+    class Construction {
 
-        limit.stopTrading();
-        assertFalse(limit.canTrade());
-    }
+        @Test
+        @DisplayName("Should reject positive loss limit")
+        void shouldRejectPositiveLimit() {
+            // Given/When/Then
+            thenThrownBy(() -> new DailyLossLimit(500.0))
+                    .isInstanceOf(IllegalArgumentException.class);
+        }
 
-    @Test
-    void testCumulativePnlStartsAtZero() {
-        DailyLossLimit limit = new DailyLossLimit(-500.0);
-        assertEquals(0.0, limit.getCumulativePnl(), 0.01);
-    }
-
-    @Test
-    void testGetDailyLimit() {
-        DailyLossLimit limit = new DailyLossLimit(-1000.0);
-        assertEquals(-1000.0, limit.getDailyLimit());
+        @Test
+        @DisplayName("Should reject zero loss limit")
+        void shouldRejectZeroLimit() {
+            // Given/When/Then
+            thenThrownBy(() -> new DailyLossLimit(0.0))
+                    .isInstanceOf(IllegalArgumentException.class);
+        }
     }
 }

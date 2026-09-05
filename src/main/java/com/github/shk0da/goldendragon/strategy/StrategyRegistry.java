@@ -4,7 +4,7 @@ import com.github.shk0da.goldendragon.config.DataCollectorConfig;
 import com.github.shk0da.goldendragon.config.MainConfig;
 import com.github.shk0da.goldendragon.config.UnifiedTraderConfig;
 import com.github.shk0da.goldendragon.config.OrderBookScalpConfig;
-import com.github.shk0da.goldendragon.service.TCSService;
+import com.github.shk0da.goldendragon.service.TradingService;
 
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -24,7 +24,7 @@ public final class StrategyRegistry {
     public interface LiveRunner {
         void run(
                 MainConfig mainConfig,
-                TCSService tcsService,
+                TradingService tradingService,
                 String[] args)
                 throws Exception;
     }
@@ -33,7 +33,7 @@ public final class StrategyRegistry {
     private interface StrategyAction {
         void execute(
                 MainConfig mainConfig,
-                TCSService tcsService,
+                TradingService tradingService,
                 String[] args)
                 throws Exception;
     }
@@ -58,10 +58,10 @@ public final class StrategyRegistry {
 
         public void runLive(
                 MainConfig mainConfig,
-                TCSService tcsService,
+                TradingService tradingService,
                 String[] args)
                 throws Exception {
-            liveRunner.run(mainConfig, tcsService, args);
+            liveRunner.run(mainConfig, tradingService, args);
         }
     }
 
@@ -77,9 +77,9 @@ public final class StrategyRegistry {
 
     /** Builds a live runner that logs errors. */
     private static LiveRunner runAndNotify(String name, String endMessage, StrategyAction action) {
-        return (mainConfig, tcsService, args) -> {
+        return (mainConfig, tradingService, args) -> {
             try {
-                action.execute(mainConfig, tcsService, args);
+                action.execute(mainConfig, tradingService, args);
             } catch (final Exception ex) {
                 out.printf("%s error: %s%n", name, ex.getMessage());
                 ex.printStackTrace();
@@ -93,22 +93,22 @@ public final class StrategyRegistry {
                 runAndNotify(
                         "OrderBookScalpStrategy",
                         "Stop OrderBookScalpStrategy",
-                        (mc, tcs, args) ->
-                                new OrderBookScalpStrategy(tcs, mc, new OrderBookScalpConfig()).run()));
+                        (mc, ts, args) ->
+                                new OrderBookScalpStrategy(ts, mc, new OrderBookScalpConfig()).run()));
         register(
                 "RegimeAwareStrategy",
                 runAndNotify(
                         "RegimeAwareStrategy",
                         "Stop RegimeAwareStrategy",
-                        (mc, tcs, args) ->
-                                new RegimeAwareStrategy(new UnifiedTraderConfig(), tcs).run()));
+                        (mc, ts, args) ->
+                                new RegimeAwareStrategy(new UnifiedTraderConfig(), ts).run()));
         register(
                 "DataCollector",
                 runAndNotify(
                         "DataCollector",
                         "End DataCollector",
-                        (mc, tcs, args) ->
-                                new DataCollector(new DataCollectorConfig(), tcs).run()));
+                        (mc, ts, args) ->
+                                new DataCollector(new DataCollectorConfig(), ts).run()));
     }
 
     public static Entry get(String name) {

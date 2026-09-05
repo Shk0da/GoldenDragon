@@ -6,6 +6,7 @@ public enum TickerType {
     ETF,
     CURRENCY,
     FEATURE,
+    CRYPTO,
     UNKNOWN;
 
     public static final TickerType ALL = null;

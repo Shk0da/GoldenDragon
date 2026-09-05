@@ -54,7 +54,25 @@ public class SimulatedBroker implements MarketDataProvider, OrderExecutor {
 
     private static final int MAX_CONCURRENT_POSITIONS = 8;
 
-    private static final String TMON_TICKER = "TMON@";
+    /**
+     * Get the cash parking ticker based on the instrument type.
+     * For crypto (USDT pairs): returns "SPYUSDT"
+     * For Tinkoff (stocks/ETFs): returns "TMON@"
+     */
+    private String getParkingTicker(String ticker) {
+        if (ticker != null && ticker.endsWith("USDT")) {
+            return "SPYUSDT";
+        }
+        return "TMON@";
+    }
+
+    /**
+     * Check if this is TMON@ — the free cash parking ETF that is excluded from position count
+     * and trade history. SPYUSDT is NOT special — it trades like any other instrument.
+     */
+    private boolean isTmonParking(String ticker) {
+        return "TMON@".equals(ticker);
+    }
 
     private final double initialBalance;
     private volatile double sharedCash;
@@ -255,7 +273,7 @@ public class SimulatedBroker implements MarketDataProvider, OrderExecutor {
     public int getOpenPositionCount() {
         int count = 0;
         for (SimulatedPosition pos : positions.values()) {
-            if (TMON_TICKER.equals(pos.ticker)) {
+            if (isTmonParking(pos.ticker)) {
                 continue;
             }
             if (pos.hasOpenPosition()) {
@@ -265,21 +283,25 @@ public class SimulatedBroker implements MarketDataProvider, OrderExecutor {
         return count;
     }
 
-    public double getTmonPositionValue() {
-        SimulatedPosition tmonPos = positions.get(TMON_TICKER);
+    public double getTmonPositionValue(String ticker) {
+        String parkingTicker = getParkingTicker(ticker);
+        SimulatedPosition tmonPos = positions.get(parkingTicker);
         if (tmonPos == null || !tmonPos.hasOpenPosition()) {
             return 0.0;
         }
-        Candle bar = getCurrentCandle(TMON_TICKER, "5_MIN");
+        Candle bar = getCurrentCandle(parkingTicker, "5_MIN");
         double price = bar != null ? bar.close : tmonPos.entryPrice;
         return tmonPos.getMarketValue(price);
     }
 
     /**
-     * Effective commission rate. TMON@ parking is free; stocks/ETFs/futures use the configured rate.
+     * Effective commission rate.
+     * TMON@ (Tinkoff ETF parking) is free.
+     * SPYUSDT (ByBit crypto parking) incurs normal commission.
+     * Regular instruments use the configured commission rate.
      */
     public double getEffectiveCommission(String ticker) {
-        if (TMON_TICKER.equals(ticker)) {
+        if ("TMON@".equals(ticker)) {
             return 0.0;
         }
         return commissionRate;
@@ -357,7 +379,7 @@ public class SimulatedBroker implements MarketDataProvider, OrderExecutor {
             return ExecutionResult.failed("Position already exists for " + ticker);
         }
         // E1: MAX_CONCURRENT checked here (single point) — TMON@ excluded from limit
-        if (!TMON_TICKER.equals(ticker) && getOpenPositionCount() >= MAX_CONCURRENT_POSITIONS) {
+        if (!isTmonParking(ticker) && getOpenPositionCount() >= MAX_CONCURRENT_POSITIONS) {
             return ExecutionResult.failed("Max concurrent positions (" + MAX_CONCURRENT_POSITIONS + ") reached");
         }
 
@@ -397,7 +419,7 @@ public class SimulatedBroker implements MarketDataProvider, OrderExecutor {
         trackConcurrentPeak();
         // 5.1: OPEN record with action="OPEN", entryPrice != 0
         // 5.4: TMON@ cash parking excluded from tradeHistory (not counted in Opens/Closes)
-        if (!TMON_TICKER.equals(ticker)) {
+        if (!isTmonParking(ticker)) {
             tradeHistory.add(new BacktestTrade(
                     ticker, "BUY", "OPEN", slippedEntry, 0.0, quantity,
                     0.0, commission, "open", bar.time, pos.entryBarIndex));
@@ -412,7 +434,7 @@ public class SimulatedBroker implements MarketDataProvider, OrderExecutor {
             return ExecutionResult.failed("Position already exists for " + ticker);
         }
         // E1: MAX_CONCURRENT checked here (single point) — TMON@ excluded from limit
-        if (!TMON_TICKER.equals(ticker) && getOpenPositionCount() >= MAX_CONCURRENT_POSITIONS) {
+        if (!isTmonParking(ticker) && getOpenPositionCount() >= MAX_CONCURRENT_POSITIONS) {
             return ExecutionResult.failed("Max concurrent positions (" + MAX_CONCURRENT_POSITIONS + ") reached");
         }
 
@@ -453,7 +475,7 @@ public class SimulatedBroker implements MarketDataProvider, OrderExecutor {
         trackConcurrentPeak();
         // 5.1: OPEN record with action="OPEN", entryPrice != 0
         // 5.4: TMON@ cash parking excluded from tradeHistory (not counted in Opens/Closes)
-        if (!TMON_TICKER.equals(ticker)) {
+        if (!isTmonParking(ticker)) {
             tradeHistory.add(new BacktestTrade(
                     ticker, "SELL", "OPEN", slippedEntry, 0.0, quantity,
                     0.0, commission, "open", bar.time, pos.entryBarIndex));
@@ -496,7 +518,7 @@ public class SimulatedBroker implements MarketDataProvider, OrderExecutor {
         if (p == null || !p.hasOpenPosition() || p.position == null) {
             return;
         }
-        if (TMON_TICKER.equals(ticker)) {
+        if (isTmonParking(ticker)) {
             return;  // cash parking без SL/TP
         }
         // Rebuild position keeping actual execution fields, only SL/TP change
@@ -524,7 +546,7 @@ public class SimulatedBroker implements MarketDataProvider, OrderExecutor {
         if (pos == null || !pos.hasOpenPosition()) {
             return null;
         }
-        if (TMON_TICKER.equals(ticker)) {
+        if (isTmonParking(ticker)) {
             return null;  // cash parking — no SL/TP
         }
         boolean isLong = pos.isLong();
@@ -559,7 +581,7 @@ public class SimulatedBroker implements MarketDataProvider, OrderExecutor {
      */
     public void closeAll(String reason) {
         for (SimulatedPosition pos : positions.values()) {
-            if (TMON_TICKER.equals(pos.ticker)) {
+            if (isTmonParking(pos.ticker)) {
                 continue;  // TMON@ is cash parking, not closed at period_end
             }
             if (!pos.hasOpenPosition()) {
@@ -574,9 +596,10 @@ public class SimulatedBroker implements MarketDataProvider, OrderExecutor {
 
     @Override
     public boolean sellByMarket(String name, TickerType type, double cashToSell) {
-        // sellByMarket — путь частичной распарковки TMON@. Для прочих тикеров запрещён:
-        // возврат денег в кэш без записи в tradeHistory сломал бы D1 reconciliation.
-        if (!TMON_TICKER.equals(name)) {
+        // sellByMarket — путь частичной распарковки для TMON@ и SPYUSDT.
+        // TMON@: комиссия 0, PnL идёт в tmonRealizedPnl
+        // SPYUSDT: комиссия по тарифу, PnL как обычная позиция
+        if (!"TMON@".equals(name) && !"SPYUSDT".equals(name)) {
             return false;
         }
         SimulatedPosition pos = positions.get(name);
@@ -593,11 +616,17 @@ public class SimulatedBroker implements MarketDataProvider, OrderExecutor {
             return false;
         }
         double proceeds = notional(sharesToSell, pos.lotSize, price);
+        double commission = proceeds * getEffectiveCommission(name);
+        double netProceeds = proceeds - commission;
         double entryValue = notional(sharesToSell, pos.lotSize, pos.entryPrice);
-        // Единственная точка учёта parking-PnL для ЧАСТИЧНОЙ продажи
-        // (полное закрытие идёт через closePosition, см. accumulateTmonPnlOnClose).
-        tmonRealizedPnl += (proceeds - entryValue);
-        sharedCash += proceeds;
+        
+        if ("TMON@".equals(name)) {
+            // TMON@: PnL идёт в tmonRealizedPnl (commission = 0)
+            tmonRealizedPnl += (netProceeds - entryValue);
+        }
+        // SPYUSDT: комиссия уже вычтена из netProceeds, PnL не отслеживается отдельно
+        
+        sharedCash += netProceeds;
         pos.position = new Position(
             pos.position.direction,
             pos.entryPrice,
@@ -626,17 +655,19 @@ public class SimulatedBroker implements MarketDataProvider, OrderExecutor {
         return true;
     }
 
-    public void closeTmonParking(String reason) {
-        SimulatedPosition p = getPositionState(TMON_TICKER);
+    public void closeTmonParking(String ticker, String reason) {
+        // TMON@ only — SPYUSDT is closed via closeAll() as a normal position with commission.
+        if (!"TMON@".equals(ticker)) {
+            return;
+        }
+        SimulatedPosition p = positions.get(ticker);
         if (p == null || !p.hasOpenPosition()) {
             return;
         }
-        Candle bar = getCurrentCandle(TMON_TICKER, "5_MIN");
+        Candle bar = getCurrentCandle(ticker, "5_MIN");
         double price = bar != null ? bar.close : p.entryPrice;
         String time = bar != null ? bar.time : "";
-        // 1.2 (fix): закрываем через ту же логику, что и обычные позиции.
-        // parking-PnL учитывается ровно один раз внутри closePosition().
-        closePosition(TMON_TICKER, p, price, time, reason);
+        closePosition(ticker, p, price, time, reason);
     }
 
     /**
@@ -679,7 +710,7 @@ public class SimulatedBroker implements MarketDataProvider, OrderExecutor {
             sharedCash += (entryNotional + grossPnl - exitCommission);
         }
 
-        if (TMON_TICKER.equals(ticker)) {
+        if (isTmonParking(ticker)) {
             // TMON@: комиссия = 0, поэтому entryCommission == exitCommission == 0,
             // pnl == grossPnl == (marketValue - entryValue). Инвариант сохранён.
             tmonRealizedPnl += pnl;

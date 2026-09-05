@@ -6,9 +6,8 @@ import com.github.shk0da.goldendragon.model.MarketDepthSnapshot;
 import com.github.shk0da.goldendragon.model.MarketTradeTick;
 import com.github.shk0da.goldendragon.model.TickerInfo;
 import com.github.shk0da.goldendragon.repository.TickerRepository;
-import com.github.shk0da.goldendragon.service.TCSService;
+import com.github.shk0da.goldendragon.service.TradingService;
 import com.github.shk0da.goldendragon.utils.IndicatorsUtil;
-import ru.tinkoff.piapi.contract.v1.HistoricCandle;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -20,7 +19,7 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.BiConsumer;
 
-import static ru.tinkoff.piapi.contract.v1.CandleInterval.CANDLE_INTERVAL_5_MIN;
+
 
 /**
  * Cumulative delta scalping signal implementation.
@@ -49,7 +48,7 @@ public final class CumulativeDeltaScalpSignal implements OrderBookSignal {
     private static final Duration VOLUME_HISTORY_INTERVAL = Duration.ofMinutes(5);
     private static final long PERSISTENCE_TICKS_DEFAULT = 1; // Require signal persistence
 
-    private final TCSService tcsService;
+    private final TradingService tradingService;
     private final OrderBookScalpConfig config;
     private final DensityAnalyzer densityAnalyzer;
     private final CumulativeDeltaTracker deltaTracker;
@@ -86,10 +85,10 @@ public final class CumulativeDeltaScalpSignal implements OrderBookSignal {
         }
     }
 
-    public CumulativeDeltaScalpSignal(TCSService tcsService, OrderBookScalpConfig config) {
-        this.tcsService = tcsService;
+    public CumulativeDeltaScalpSignal(TradingService tradingService, OrderBookScalpConfig config) {
+        this.tradingService = tradingService;
         this.config = config;
-        this.densityAnalyzer = new DensityAnalyzer(tcsService, config);
+        this.densityAnalyzer = new DensityAnalyzer(tradingService, config);
         this.deltaTracker = new CumulativeDeltaTracker();
     }
 
@@ -363,20 +362,8 @@ public final class CumulativeDeltaScalpSignal implements OrderBookSignal {
 
             String figi = info.getFigi();
 
-            // Load candles via TCSService and convert to Candle model
-            List<HistoricCandle> historicCandles =
-                tcsService.getCandles(figi, from, now, CANDLE_INTERVAL_5_MIN);
-
-            return historicCandles.stream()
-                .map(hc -> new Candle(
-                    hc.getTime().toString(),
-                    IndicatorsUtil.toDouble(hc.getOpen()),
-                    IndicatorsUtil.toDouble(hc.getHigh()),
-                    IndicatorsUtil.toDouble(hc.getLow()),
-                    IndicatorsUtil.toDouble(hc.getClose()),
-                    hc.getVolume()
-                ))
-                .toList();
+            // Load candles via TradingService
+            return tradingService.getCandles(figi, from, now, "5_MIN");
         } catch (Exception e) {
             return Collections.emptyList();
         }

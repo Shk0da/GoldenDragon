@@ -14,12 +14,14 @@ repositories {
 
 dependencies {
     implementation 'ru.tinkoff.piapi:java-sdk-core:1.5'
+    implementation 'io.github.wuhewuhe:bybit-java-api:1.2.7'
     implementation 'com.google.code.gson:gson:2.8.9'
     implementation 'org.jsoup:jsoup:1.15.3'
     implementation 'org.jfree:jfreechart:1.0.19'
     implementation 'com.fasterxml.jackson.datatype:jackson-datatype-jsr310:2.13.4'
 
     testImplementation 'org.junit.jupiter:junit-jupiter:5.9.3'
+    testImplementation 'org.assertj:assertj-core:3.24.2'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 }
 

@@ -5,7 +5,7 @@ import com.github.shk0da.goldendragon.config.OrderBookScalpConfig;
 import com.github.shk0da.goldendragon.model.MarketDepthSnapshot;
 import com.github.shk0da.goldendragon.model.MarketTickListener;
 import com.github.shk0da.goldendragon.model.MarketTradeTick;
-import com.github.shk0da.goldendragon.service.TCSService;
+import com.github.shk0da.goldendragon.service.TradingService;
 import com.github.shk0da.goldendragon.strategy.orderbook.CumulativeDeltaScalpSignal;
 import com.github.shk0da.goldendragon.strategy.orderbook.OrderBookSignal;
 import com.github.shk0da.goldendragon.strategy.orderbook.OrderBookSignalFactory;
@@ -36,14 +36,14 @@ public class OrderBookScalpStrategy implements MarketTickListener {
     private final OrderBookTradingEngine engine;
 
     public OrderBookScalpStrategy(
-            TCSService tcsService, MainConfig mainConfig, OrderBookScalpConfig config) {
-        // Use factory to create signals based on configuration
+            TradingService tradingService, MainConfig mainConfig, OrderBookScalpConfig config) {
+        // Use factory to create signals based configuration
         List<OrderBookSignal> signals = OrderBookSignalFactory.createEnabledSignals(
-            tcsService, config);
+            tradingService, config);
         
         this.engine =
                 new OrderBookTradingEngine(
-                        tcsService,
+                        tradingService,
                         mainConfig,
                         config,
                         signals,

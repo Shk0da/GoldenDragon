@@ -4,7 +4,7 @@ import com.github.shk0da.goldendragon.config.OrderBookScalpConfig;
 import com.github.shk0da.goldendragon.model.MarketDepthSnapshot;
 import com.github.shk0da.goldendragon.model.MarketTradeTick;
 import com.github.shk0da.goldendragon.model.TickerInfo;
-import com.github.shk0da.goldendragon.service.TCSService;
+import com.github.shk0da.goldendragon.service.TradingService;
 import com.github.shk0da.goldendragon.utils.LoggingUtils;
 
 import java.util.HashMap;
@@ -32,7 +32,7 @@ public final class DensityScalpSignal implements OrderBookSignal {
 
     public static final String SIGNAL_ID = "densityScalp";
 
-    private final TCSService tcsService;
+    private final TradingService tradingService;
     private final OrderBookScalpConfig config;
     private final DensityAnalyzer densityAnalyzer;
     private final AssetPairAnalyzer pairAnalyzer;
@@ -48,16 +48,16 @@ public final class DensityScalpSignal implements OrderBookSignal {
     private final Map<String, EntryState> entryStateByTicker = new ConcurrentHashMap<>();
 
     public DensityScalpSignal(
-            TCSService tcsService,
+            TradingService tradingService,
             OrderBookScalpConfig config,
             AssetPairAnalyzer pairAnalyzer,
             TrendAnalyzer trendAnalyzer,
             LevelHistory levelHistory,
             CompressionDetector compressionDetector,
             MicroImpulseDetector impulseDetector) {
-        this.tcsService = tcsService;
+        this.tradingService = tradingService;
         this.config = config;
-        this.densityAnalyzer = new DensityAnalyzer(tcsService, config);
+        this.densityAnalyzer = new DensityAnalyzer(tradingService, config);
         this.pairAnalyzer = pairAnalyzer;
         this.trendAnalyzer = trendAnalyzer;
         this.levelHistory = levelHistory;

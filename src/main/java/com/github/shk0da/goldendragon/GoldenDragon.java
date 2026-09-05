@@ -4,7 +4,10 @@ import com.github.shk0da.goldendragon.config.MainConfig;
 import com.github.shk0da.goldendragon.model.TickerInfo;
 import com.github.shk0da.goldendragon.repository.Repository;
 import com.github.shk0da.goldendragon.repository.TickerRepository;
+import com.github.shk0da.goldendragon.service.ByBitService;
 import com.github.shk0da.goldendragon.service.TCSService;
+import com.github.shk0da.goldendragon.service.TradingService;
+import com.github.shk0da.goldendragon.service.TradingServiceFactory;
 import com.github.shk0da.goldendragon.strategy.StrategyRegistry;
 import com.google.gson.reflect.TypeToken;
 
@@ -57,12 +60,17 @@ public final class GoldenDragon {
             final MainConfig mainConfig = new MainConfig();
             final String strategy = getStrategy(args);
             final String accountId = getAccountId(args, mainConfig);
-            out.println("Run: " + strategy + " [" + accountId + "]");
 
-            final TCSService tcsService = new TCSService(mainConfig.withAccountId(accountId));
-            updateTickerRepository(tcsService);
+            // Create trading service via factory (supports Tinkoff or ByBit)
+            final TradingService tradingService = TradingServiceFactory.createTradingService(mainConfig);
+            final TradingServiceFactory.TradingServiceType serviceType = TradingServiceFactory.getConfiguredServiceType();
 
-            executeStrategy(strategy, mainConfig, tcsService, args);
+            out.println("Run: " + strategy + " [" + accountId + "] on " + serviceType);
+
+            // Update ticker repository
+            updateTickerRepository(tradingService, serviceType);
+
+            executeStrategy(strategy, mainConfig, tradingService, args);
         } catch (final Exception ex) {
             out.printf("Error: %s%n", ex.getMessage());
             ex.printStackTrace();
@@ -85,7 +93,7 @@ public final class GoldenDragon {
     private static void executeStrategy(
             final String strategy,
             final MainConfig mainConfig,
-            final TCSService tcsService,
+            final TradingService tradingService,
             final String[] args)
             throws Exception {
 
@@ -98,10 +106,10 @@ public final class GoldenDragon {
             out.println("Strategy has no live runner: " + strategy);
             return;
         }
-        entry.runLive(mainConfig, tcsService, args);
+        entry.runLive(mainConfig, tradingService, args);
     }
 
-    private static void updateTickerRepository(TCSService tcsService) throws Exception {
+    private static void updateTickerRepository(TradingService tradingService, TradingServiceFactory.TradingServiceType serviceType) throws Exception {
         AtomicReference<Map<TickerInfo.Key, TickerInfo>> tickerRegister =
                 new AtomicReference<>(new HashMap<>());
 
@@ -123,11 +131,12 @@ public final class GoldenDragon {
                 };
 
         if (isEmpty.call() || isOld.call()) {
-            tickerRepository.putAll(tcsService.getCurrenciesList());
-            tickerRepository.putAll(tcsService.getEtfList());
-            tickerRepository.putAll(tcsService.getStockList());
-            tickerRepository.putAll(tcsService.getBondList());
-            tickerRepository.putAll(tcsService.getFuturesList());
+            // Use TradingService interface for both implementations
+            tickerRepository.putAll(tradingService.getCurrenciesList());
+            tickerRepository.putAll(tradingService.getEtfList());
+            tickerRepository.putAll(tradingService.getStockList());
+            tickerRepository.putAll(tradingService.getBondList());
+            tickerRepository.putAll(tradingService.getFuturesList());
             saveDataToDisk(SERIALIZE_NAME, tickerRepository.getAll());
         } else {
             tickerRepository.putAll(tickerRegister.get());

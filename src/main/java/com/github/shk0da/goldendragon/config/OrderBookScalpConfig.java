@@ -13,7 +13,6 @@ public class OrderBookScalpConfig {
 
   private final List<String> instruments;
   private final int depth;
-  private final boolean paperMode;
   private final boolean closeUntrackedPositions;
   private final double positionCash;
   private final double obiThreshold;
@@ -32,6 +31,7 @@ public class OrderBookScalpConfig {
   private final int idleRescreenSeconds;
   private final double commissionRate;
   private final double futuresCommissionPerContract;
+  private final double cryptoCommissionRate;
   private final double minScreeningTradeFlow;
   private final double minEconomicsRatio;
   private final double targetFeeMultiple;
@@ -100,8 +100,6 @@ public class OrderBookScalpConfig {
   
     // DensityScalpStrategy parameters
     private final boolean stocksEnabled;
-    private final boolean cryptoEnabled;
-    private final int cryptoTopN;
     private final int leaderLagSeconds;
   private final double basisAnomalySigma;
   private final boolean divergenceBlockEnabled;
@@ -170,8 +168,6 @@ public class OrderBookScalpConfig {
             .filter(s -> !s.isEmpty())
             .collect(toList());
     this.depth = Integer.parseInt(properties.getProperty("orderBookScalp.depth", "10"));
-    this.paperMode =
-        Boolean.parseBoolean(properties.getProperty("orderBookScalp.paperMode", "false"));
     // off by default: closing foreign positions is destructive when several
     // strategies share one brokerage account
     this.closeUntrackedPositions =
@@ -210,6 +206,8 @@ public class OrderBookScalpConfig {
     this.futuresCommissionPerContract =
         Double.parseDouble(
             properties.getProperty("orderBookScalp.futuresCommissionPerContract", "4.0"));
+    this.cryptoCommissionRate =
+        Double.parseDouble(properties.getProperty("orderBookScalp.cryptoCommissionRate", "0.0003"));
     this.minScreeningTradeFlow =
         Double.parseDouble(
             properties.getProperty("orderBookScalp.minScreeningTradeFlow", "20.0"));
@@ -377,10 +375,6 @@ public class OrderBookScalpConfig {
     // DensityScalpStrategy parameters
     this.stocksEnabled =
         Boolean.parseBoolean(properties.getProperty("orderBookScalp.stocksEnabled", "true"));
-    this.cryptoEnabled =
-        Boolean.parseBoolean(properties.getProperty("orderBookScalp.cryptoEnabled", "false"));
-    this.cryptoTopN =
-        Integer.parseInt(properties.getProperty("orderBookScalp.cryptoTopN", "5"));
     this.leaderLagSeconds =
         Integer.parseInt(properties.getProperty("orderBookScalp.leaderLagSeconds", "4"));
     this.basisAnomalySigma =
@@ -496,10 +490,6 @@ public class OrderBookScalpConfig {
     return depth;
   }
 
-  public boolean isPaperMode() {
-    return paperMode;
-  }
-
   public boolean isCloseUntrackedPositionsEnabled() {
     return closeUntrackedPositions;
   }
@@ -570,6 +560,10 @@ public class OrderBookScalpConfig {
 
   public double getFuturesCommissionPerContract() {
     return futuresCommissionPerContract;
+  }
+
+  public double getCryptoCommissionRate() {
+    return cryptoCommissionRate;
   }
 
   public double getMinScreeningTradeFlow() {
@@ -823,15 +817,7 @@ public class OrderBookScalpConfig {
     return stocksEnabled;
   }
   
-public boolean isCryptoEnabled() {
-    return cryptoEnabled;
-  }
-
-  public int getCryptoTopN() {
-    return cryptoTopN;
-  }
-
-  public int getLeaderLagSeconds() {
+public int getLeaderLagSeconds() {
     return leaderLagSeconds;
   }
   

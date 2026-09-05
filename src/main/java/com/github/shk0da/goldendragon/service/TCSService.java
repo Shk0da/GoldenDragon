@@ -23,6 +23,7 @@ import com.github.shk0da.goldendragon.model.MarketTickListener;
 import com.github.shk0da.goldendragon.model.MarketTradeTick;
 import com.github.shk0da.goldendragon.model.Position;
 import com.github.shk0da.goldendragon.model.PositionInfo;
+import com.github.shk0da.goldendragon.model.Candle;
 import com.github.shk0da.goldendragon.model.TickerCandle;
 import com.github.shk0da.goldendragon.model.TickerInfo;
 import com.github.shk0da.goldendragon.model.TickerType;
@@ -30,6 +31,7 @@ import com.github.shk0da.goldendragon.repository.FigiRepository;
 import com.github.shk0da.goldendragon.repository.PricesRepository;
 import com.github.shk0da.goldendragon.repository.Repository;
 import com.github.shk0da.goldendragon.repository.TickerRepository;
+import com.github.shk0da.goldendragon.service.TradingService.OrderExecutionResult;
 import java.io.IOException;
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
@@ -82,7 +84,7 @@ import ru.tinkoff.piapi.core.stream.MarketDataSubscriptionService;
  * <p>Provides methods for retrieving market data, managing orders, tracking positions, subscribing
  * to real-time market streams, and currency conversion.
  */
-public class TCSService {
+public class TCSService implements TradingService {
 
     public static final double FUTURES_MARGIN_RATE = 0.40;
     private static final int MAX_INSTRUMENTS_PER_MARKET_DATA_STREAM = 250;
@@ -99,7 +101,7 @@ public class TCSService {
     private final Repository<TickerInfo.Key, String> figiRepository = FigiRepository.INSTANCE;
     private final Repository<TickerInfo.Key, TickerInfo> tickerRepository =
             TickerRepository.INSTANCE;
-    private final Repository<TickerInfo.Key, Map<String, Map<Double, Integer>>> pricesRepository =
+    private final Repository<TickerInfo.Key, Map<String, Map<Double, Long>>> pricesRepository =
             PricesRepository.INSTANCE;
     private final Map<TickerInfo.Key, Double> lastExecutedPriceByTicker = new ConcurrentHashMap<>();
     private final Map<TickerInfo.Key, ProtectiveOrders> protectiveOrdersByTicker =
@@ -141,6 +143,11 @@ public class TCSService {
         figiRepository.insert(new TickerInfo.Key("RUB", TickerType.CURRENCY), "RUB000UTSTOM");
         figiRepository.insert(new TickerInfo.Key("USD", TickerType.CURRENCY), "BBG0013HGFT4");
         figiRepository.insert(new TickerInfo.Key("EUR", TickerType.CURRENCY), "BBG0013HJJ31");
+    }
+
+    @Override
+    public TradingServiceType getServiceType() {
+        return TradingServiceType.TINKOFF;
     }
 
     /**
@@ -300,7 +307,7 @@ public class TCSService {
                                         Instant.ofEpochSecond(
                                                 it.getTime().getSeconds(), it.getTime().getNanos()),
                                         toDouble(it.getPrice()),
-                                        it.getQuantity(),
+                                        (long) it.getQuantity(),
                                         it.getDirection().name()))
                 .collect(Collectors.toList());
     }
@@ -311,12 +318,16 @@ public class TCSService {
      * @param figi FIGI identifier of the instrument
      * @param start start of the time range (inclusive)
      * @param end end of the time range (inclusive)
-     * @param interval candle interval (e.g. 1 min, 1 hour, 1 day)
-     * @return list of {@link HistoricCandle} within the given range
+     * @param interval candle interval (e.g. "1_MIN", "5_MIN", "HOUR", "1_DAY")
+     * @return list of {@link Candle} within the given range
      */
-    public List<HistoricCandle> getCandles(
-            String figi, Instant start, Instant end, CandleInterval interval) {
-        return investApi.getMarketDataService().getCandlesSync(figi, start, end, interval);
+    public List<Candle> getCandles(
+            String figi, Instant start, Instant end, String interval) {
+        CandleInterval candleInterval = mapInterval(interval);
+        return investApi.getMarketDataService().getCandlesSync(figi, start, end, candleInterval)
+                .stream()
+                .map(TCSService::mapHistoricCandle)
+                .collect(Collectors.toList());
     }
 
     /**
@@ -327,18 +338,67 @@ public class TCSService {
      * @param figi FIGI identifier of the instrument
      * @param start start of the time range (inclusive)
      * @param end end of the time range (inclusive)
-     * @param interval candle interval (e.g. 1 min, 1 hour, 1 day)
-     * @return list of {@link HistoricCandle} within the given range
+     * @param interval candle interval (e.g. "1_MIN", "5_MIN", "HOUR", "1_DAY")
+     * @return list of {@link Candle} within the given range
      */
-    public List<HistoricCandle> getCandles(
-            String figi, OffsetDateTime start, OffsetDateTime end, CandleInterval interval) {
+    public List<Candle> getCandles(
+            String figi, OffsetDateTime start, OffsetDateTime end, String interval) {
+        CandleInterval candleInterval = mapInterval(interval);
         return investApi
                 .getMarketDataService()
-                .getCandlesSync(figi, start.toInstant(), end.toInstant(), interval);
+                .getCandlesSync(figi, start.toInstant(), end.toInstant(), candleInterval)
+                .stream()
+                .map(TCSService::mapHistoricCandle)
+                .collect(Collectors.toList());
     }
 
     /**
-     * Returns the last {@code size} hourly candles for the given ticker, sorted chronologically.
+     * Maps a {@link HistoricCandle} from Tinkoff API to a domain {@link Candle}.
+     *
+     * @param hc the Tinkoff historic candle
+     * @return domain candle object
+     */
+    private static Candle mapHistoricCandle(HistoricCandle hc) {
+        return new Candle(
+                java.time.Instant.ofEpochSecond(hc.getTime().getSeconds(), hc.getTime().getNanos())
+                    .atOffset(java.time.ZoneOffset.UTC)
+                    .format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")),
+                toDouble(hc.getOpen()),
+                toDouble(hc.getHigh()),
+                toDouble(hc.getLow()),
+                toDouble(hc.getClose()),
+                hc.getVolume());
+    }
+
+    /**
+     * Maps a string interval to a {@link CandleInterval} enum.
+     *
+     * @param interval string interval (e.g. "HOUR", "5_MIN", "1_MIN", "15_MIN", "1_DAY")
+     * @return corresponding {@link CandleInterval} enum value
+     * @throws IllegalArgumentException if interval is not recognized
+     */
+    private static CandleInterval mapInterval(String interval) {
+        if (interval == null) {
+            throw new IllegalArgumentException("Interval cannot be null");
+        }
+        switch (interval) {
+            case "HOUR":
+                return CandleInterval.CANDLE_INTERVAL_HOUR;
+            case "5_MIN":
+                return CandleInterval.CANDLE_INTERVAL_5_MIN;
+            case "1_MIN":
+                return CandleInterval.CANDLE_INTERVAL_1_MIN;
+            case "15_MIN":
+                return CandleInterval.CANDLE_INTERVAL_15_MIN;
+            case "1_DAY":
+                return CandleInterval.CANDLE_INTERVAL_DAY;
+            default:
+                throw new IllegalArgumentException("Unknown interval: " + interval);
+        }
+    }
+
+    /**
+     * Returns the last {@code size} hourly candles as domain objects, sorted chronologically.
      *
      * <p>Requests a wider time range than needed and then trims to exactly {@code size} candles
      * sorted from oldest to newest.
@@ -346,10 +406,9 @@ public class TCSService {
      * @param ticker ticker symbol
      * @param type instrument type
      * @param size number of candles to return (must be positive)
-     * @return chronologically sorted list of {@link HistoricCandle}, or empty list if {@code size
-     *     <= 0}
+     * @return chronologically sorted list of {@link Candle}, or empty list if {@code size <= 0}
      */
-    public List<HistoricCandle> getLastCandles(String ticker, TickerType type, int size) {
+    public List<Candle> getLastCandles(String ticker, TickerType type, int size) {
         if (size <= 0) {
             return emptyList();
         }
@@ -358,13 +417,15 @@ public class TCSService {
         Instant end = Instant.now();
         Instant start = end.minusSeconds(size * 3600L);
         List<HistoricCandle> candles =
-                getCandles(figi, start, end, CandleInterval.CANDLE_INTERVAL_HOUR);
+                investApi.getMarketDataService()
+                        .getCandlesSync(figi, start, end, CandleInterval.CANDLE_INTERVAL_HOUR);
         return candles.stream()
                 .sorted(
                         (c1, c2) ->
                                 Long.compare(c2.getTime().getSeconds(), c1.getTime().getSeconds()))
                 .limit(size)
                 .sorted(Comparator.comparingLong(c -> c.getTime().getSeconds()))
+                .map(TCSService::mapHistoricCandle)
                 .collect(Collectors.toList());
     }
 
@@ -381,24 +442,20 @@ public class TCSService {
         if (count <= 0) {
             return emptyList();
         }
-        List<HistoricCandle> candles = getLastCandles(ticker, type, count);
+        List<Candle> candles = getLastCandles(ticker, type, count);
         DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
         return candles.stream()
                 .map(
                         c ->
                                 new TickerCandle(
                                         ticker,
-                                        formatter.format(
-                                                Instant.ofEpochSecond(
-                                                                c.getTime().getSeconds(),
-                                                                c.getTime().getNanos())
-                                                        .atZone(ZoneId.systemDefault())),
-                                        toDouble(c.getOpen()),
-                                        toDouble(c.getHigh()),
-                                        toDouble(c.getLow()),
-                                        toDouble(c.getClose()),
-                                        toDouble(c.getClose()),
-                                        (int) c.getVolume()))
+                                        c.time,
+                                        c.open,
+                                        c.high,
+                                        c.low,
+                                        c.close,
+                                        c.close,
+                                        (long) c.volume))
                 .collect(Collectors.toList());
     }
 
@@ -778,9 +835,9 @@ public class TCSService {
             cashToSell = convertCurrencies(currency, basicCurrency, cashToSell);
         }
 
-        int value = 0;
+        long value = 0;
         double tickerPrice = 0.0;
-        for (Map.Entry<Double, Integer> bid : getCurrentPrices(key, false).get("bids").entrySet()) {
+        for (Map.Entry<Double, Long> bid : getCurrentPrices(key, false).get("bids").entrySet()) {
             tickerPrice = bid.getKey();
             value = value + bid.getValue();
             if (value >= (cashToSell / tickerPrice)) {
@@ -1139,10 +1196,10 @@ public class TCSService {
             cashToBuy = convertedCashToBuy;
         }
 
-        Map<String, Map<Double, Integer>> currentPrices = getCurrentPrices(key, false);
-        int value = 0;
+        Map<String, Map<Double, Long>> currentPrices = getCurrentPrices(key, false);
+        long value = 0;
         double tickerPrice = 0.0;
-        for (Map.Entry<Double, Integer> ask : currentPrices.get("asks").entrySet()) {
+        for (Map.Entry<Double, Long> ask : currentPrices.get("asks").entrySet()) {
             tickerPrice = ask.getKey();
             value = value + ask.getValue();
             if (value >= (cashToBuy / tickerPrice)) {
@@ -1789,118 +1846,13 @@ public class TCSService {
         }
     }
 
-    /**
-     * Represents the result of an order execution with details on price, count, commission, and the
-     * protective position that was created as part of a bracket order.
-     */
-    public static class OrderExecutionResult {
-
-        private final boolean success;
-        private final Double executedPrice;
-        private final int executedCount;
-        private final double commission;
-        private final Position protectivePosition;
-        private final int errorCode;
-        private final String errorMessage;
-
-        private OrderExecutionResult(
-                boolean success,
-                Double executedPrice,
-                int executedCount,
-                double commission,
-                Position protectivePosition) {
-            this(success, executedPrice, executedCount, commission, protectivePosition, 0, null);
-        }
-
-        private OrderExecutionResult(
-                boolean success,
-                Double executedPrice,
-                int executedCount,
-                double commission,
-                Position protectivePosition,
-                int errorCode) {
-            this(success, executedPrice, executedCount, commission, protectivePosition, errorCode, null);
-        }
-
-        private OrderExecutionResult(
-                boolean success,
-                Double executedPrice,
-                int executedCount,
-                double commission,
-                Position protectivePosition,
-                int errorCode,
-                String errorMessage) {
-            this.success = success;
-            this.executedPrice = executedPrice;
-            this.executedCount = executedCount;
-            this.commission = commission;
-            this.protectivePosition = protectivePosition;
-            this.errorCode = errorCode;
-            this.errorMessage = errorMessage;
-        }
-
-        public static OrderExecutionResult success(
-                Double executedPrice,
-                int executedCount,
-                double commission,
-                Position protectivePosition) {
-            return new OrderExecutionResult(
-                    true, executedPrice, executedCount, commission, protectivePosition);
-        }
-
-        public static OrderExecutionResult testSuccess(Double executedPrice, int executedCount) {
-            return new OrderExecutionResult(true, executedPrice, executedCount, 0.0, null);
-        }
-
-        public static OrderExecutionResult failed() {
-            return new OrderExecutionResult(false, null, 0, 0.0, null);
-        }
-
-        public static OrderExecutionResult failed(int errorCode) {
-            return new OrderExecutionResult(false, null, 0, 0.0, null, errorCode);
-        }
-
-        public static OrderExecutionResult failed(String errorMessage) {
-            return new OrderExecutionResult(false, null, 0, 0.0, null, 0, errorMessage);
-        }
-
-        public static OrderExecutionResult failed(int errorCode, String errorMessage) {
-            return new OrderExecutionResult(false, null, 0, 0.0, null, errorCode, errorMessage);
-        }
-
-        public boolean isSuccess() {
-            return success;
-        }
-
-        public String getErrorMessage() {
-            return errorMessage;
-        }
-
-        public Double getExecutedPrice() {
-            return executedPrice;
-        }
-
-        public int getExecutedCount() {
-            return executedCount;
-        }
-
-        public double getCommission() {
-            return commission;
-        }
-
-        public Position getProtectivePosition() {
-            return protectivePosition;
-        }
-
-        public int getErrorCode() {
-            return errorCode;
-        }
-    }
 
     /**
      * Result of a server-side stop-loss order placement.
      * Used by TODO.md Section 5: server-side stops for real account trading.
+     * @deprecated use {@link TradingService.StopLossOrderResult}
      */
+    @Deprecated
     public static class StopLossOrderResult {
         public final String orderId;
         private final boolean success;
@@ -1932,20 +1884,21 @@ public class TCSService {
      * This is a separate order from the bracket order placed in createOrder.
      * Used as a backup protection mechanism.
      */
-    public StopLossOrderResult createStopLossOrder(
+    @Override
+    public TradingService.StopLossOrderResult createStopLossOrder(
             TickerInfo.Key key,
             int units,
             double stopLossPrice,
             String operation) {
         if (mainConfig.isTestMode()) {
-            return StopLossOrderResult.success("test-stop-");
+            return TradingService.StopLossOrderResult.success("test-stop-");
         }
 
         // In sandbox mode, server-side stop orders are not supported.
         // Return success with a virtual order ID to indicate client-side tracking.
         if (mainConfig.isSandbox()) {
             log("Sandbox mode: skipping server SL for " + key.getTicker() + " (will track client-side)");
-            return StopLossOrderResult.success("sandbox-stop-");
+            return TradingService.StopLossOrderResult.success("sandbox-stop-");
         }
 
         try {
@@ -1973,10 +1926,10 @@ public class TCSService {
                     STOP_ORDER_TYPE_STOP_LOSS);
 
             log("Server SL placed for " + key.getTicker() + ": orderId=" + stopOrderId);
-            return StopLossOrderResult.success(stopOrderId);
+            return TradingService.StopLossOrderResult.success(stopOrderId);
         } catch (Exception e) {
             log("Server SL placement failed for " + key.getTicker() + ": " + e.getMessage());
-            return StopLossOrderResult.failed();
+            return TradingService.StopLossOrderResult.failed();
         }
     }
 
@@ -2670,7 +2623,7 @@ public class TCSService {
                                             it.getAveragePositionPriceFifo()
                                                     .getValue()
                                                     .doubleValue();
-                                    if (it.getQuantity().doubleValue() > 0) {
+                                    if ((long) it.getQuantity().doubleValue() > 0) {
                                         expectedYield =
                                                 (currentPrice - averagePositionPrice)
                                                         / averagePositionPrice
@@ -2879,7 +2832,7 @@ public class TCSService {
      */
     public double getAvailablePrice(
             TickerInfo.Key key, int count, String type, boolean isPrintGlass) {
-        int value = count;
+        long value = count;
         double tickerPrice = 0.0;
 
         var glass = getCurrentPrices(key, isPrintGlass).get(type).entrySet();
@@ -2895,7 +2848,7 @@ public class TCSService {
                             .sorted((o1, o2) -> o2.getKey().compareTo(o1.getKey()))
                             .collect(toCollection(LinkedHashSet::new));
         }
-        for (Map.Entry<Double, Integer> bid : glass) {
+        for (Map.Entry<Double, Long> bid : glass) {
             tickerPrice = bid.getKey();
             value = value - bid.getValue();
             if (value <= 0) break;
@@ -2913,7 +2866,7 @@ public class TCSService {
      * @param key ticker key identifying the instrument
      * @return a map with "bids" and "asks" keys, each containing a price-to-quantity mapping
      */
-    public Map<String, Map<Double, Integer>> getCurrentPrices(TickerInfo.Key key) {
+    public Map<String, Map<Double, Long>> getCurrentPrices(TickerInfo.Key key) {
         return getCurrentPrices(key, true);
     }
 
@@ -2924,8 +2877,8 @@ public class TCSService {
      * @return the best ask price, or {@code 0.0} if the orderbook is empty or unavailable
      */
     public double getLiveAskPrice(TickerInfo.Key key) {
-        Map<String, Map<Double, Integer>> prices = getCurrentPrices(key, false);
-        Map<Double, Integer> asks = prices.get("asks");
+        Map<String, Map<Double, Long>> prices = getCurrentPrices(key, false);
+        Map<Double, Long> asks = prices.get("asks");
         if (asks == null || asks.isEmpty()) {
             return 0.0;
         }
@@ -2939,8 +2892,8 @@ public class TCSService {
      * @return the best bid price, or {@code 0.0} if the orderbook is empty or unavailable
      */
     public double getLiveBidPrice(TickerInfo.Key key) {
-        Map<String, Map<Double, Integer>> prices = getCurrentPrices(key, false);
-        Map<Double, Integer> bids = prices.get("bids");
+        Map<String, Map<Double, Long>> prices = getCurrentPrices(key, false);
+        Map<Double, Long> bids = prices.get("bids");
         if (bids == null || bids.isEmpty()) {
             return 0.0;
         }
@@ -2958,7 +2911,7 @@ public class TCSService {
      * @param isPrintGlass if {@code true}, prints the glass of prices to the console
      * @return a map with "bids" and "asks" keys, each containing a price-to-quantity mapping
      */
-    public Map<String, Map<Double, Integer>> getCurrentPrices(
+    public Map<String, Map<Double, Long>> getCurrentPrices(
             TickerInfo.Key key, boolean isPrintGlass) {
         MarketDepthSnapshot liveSnapshot = marketDepthByTicker.get(key);
         if (liveSnapshot != null
@@ -2977,16 +2930,16 @@ public class TCSService {
 
         GetOrderBookResponse response = investApi.getMarketDataService().getOrderBookSync(figi, 10);
 
-        Map<String, Map<Double, Integer>> currentPrices = new TreeMap<>();
-        Map<Double, Integer> bidsValues = new LinkedHashMap<>(10);
+        Map<String, Map<Double, Long>> currentPrices = new TreeMap<>();
+        Map<Double, Long> bidsValues = new LinkedHashMap<>(10);
         for (Order bid : response.getBidsList()) {
-            bidsValues.put(toDouble(bid.getPrice()), (int) bid.getQuantity());
+            bidsValues.put(toDouble(bid.getPrice()), bid.getQuantity());
         }
         currentPrices.put("bids", bidsValues);
 
-        Map<Double, Integer> asksValues = new LinkedHashMap<>(10);
+        Map<Double, Long> asksValues = new LinkedHashMap<>(10);
         for (Order ask : response.getAsksList()) {
-            asksValues.put(toDouble(ask.getPrice()), (int) ask.getQuantity());
+            asksValues.put(toDouble(ask.getPrice()), ask.getQuantity());
         }
         currentPrices.put("asks", asksValues);
 
@@ -3161,13 +3114,13 @@ public class TCSService {
                         .map(
                                 it ->
                                         new MarketDepthLevel(
-                                                toDouble(it.getPrice()), (int) it.getQuantity()))
+                                                toDouble(it.getPrice()), (int) (long) it.getQuantity()))
                         .collect(Collectors.toList()),
                 orderBook.getAsksList().stream()
                         .map(
                                 it ->
                                         new MarketDepthLevel(
-                                                toDouble(it.getPrice()), (int) it.getQuantity()))
+                                                toDouble(it.getPrice()), (int) (long) it.getQuantity()))
                         .collect(Collectors.toList()));
     }
 
@@ -3230,7 +3183,7 @@ public class TCSService {
 
     private String formatMarketDepthLevels(List<MarketDepthLevel> levels) {
         return levels.stream()
-                .map(it -> Double.toString(it.getPrice()) + ":" + it.getQuantity())
+                .map(it -> Double.toString(it.getPrice()) + ":" + (long) it.getQuantity())
                 .collect(Collectors.joining("|"));
     }
 
@@ -3238,9 +3191,9 @@ public class TCSService {
         return '"' + value.replace("\"", "\"\"") + '"';
     }
 
-    private Map<String, Map<Double, Integer>> toCurrentPrices(
+    private Map<String, Map<Double, Long>> toCurrentPrices(
             MarketDepthSnapshot snapshot, TickerInfo.Key key, boolean isPrintGlass) {
-        Map<String, Map<Double, Integer>> currentPrices = toCurrentPrices(snapshot);
+        Map<String, Map<Double, Long>> currentPrices = toCurrentPrices(snapshot);
         if (isPrintGlass) {
             synchronized (this) {
                 printGlassOfPrices(key.getTicker(), currentPrices);
@@ -3250,14 +3203,14 @@ public class TCSService {
         return currentPrices;
     }
 
-    private Map<String, Map<Double, Integer>> toCurrentPrices(MarketDepthSnapshot snapshot) {
-        Map<String, Map<Double, Integer>> currentPrices = new TreeMap<>();
-        Map<Double, Integer> bidsValues = new LinkedHashMap<>(snapshot.getBids().size());
-        snapshot.getBids().forEach(it -> bidsValues.put(it.getPrice(), it.getQuantity()));
+    private Map<String, Map<Double, Long>> toCurrentPrices(MarketDepthSnapshot snapshot) {
+        Map<String, Map<Double, Long>> currentPrices = new TreeMap<>();
+        Map<Double, Long> bidsValues = new LinkedHashMap<>(snapshot.getBids().size());
+        snapshot.getBids().forEach(it -> bidsValues.put(it.getPrice(), (long) it.getQuantity()));
         currentPrices.put("bids", bidsValues);
 
-        Map<Double, Integer> asksValues = new LinkedHashMap<>(snapshot.getAsks().size());
-        snapshot.getAsks().forEach(it -> asksValues.put(it.getPrice(), it.getQuantity()));
+        Map<Double, Long> asksValues = new LinkedHashMap<>(snapshot.getAsks().size());
+        snapshot.getAsks().forEach(it -> asksValues.put(it.getPrice(), (long) it.getQuantity()));
         currentPrices.put("asks", asksValues);
         return currentPrices;
     }

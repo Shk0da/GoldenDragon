@@ -1,7 +1,7 @@
 package com.github.shk0da.goldendragon.strategy.orderbook;
 
 import com.github.shk0da.goldendragon.config.OrderBookScalpConfig;
-import com.github.shk0da.goldendragon.service.TCSService;
+import com.github.shk0da.goldendragon.service.TradingService;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -14,17 +14,17 @@ public final class OrderBookSignalFactory {
     private OrderBookSignalFactory() {}
 
     public static List<OrderBookSignal> createEnabledSignals(
-            TCSService tcsService, OrderBookScalpConfig config) {
+            TradingService tradingService, OrderBookScalpConfig config) {
         // CumulativeDeltaScalpSignal is the primary signal for HFT scalping
         // It implements both bounce and breakout scenarios from the spec
         List<OrderBookSignal> allSignals = new ArrayList<>();
-        allSignals.add(new CumulativeDeltaScalpSignal(tcsService, config));
+        allSignals.add(new CumulativeDeltaScalpSignal(tradingService, config));
         allSignals.add(new TradeFlowScalpSignal(config));
         allSignals.add(new MicropriceDriftSignal(config));
         allSignals.add(new DensityImbalanceSignal(config));
         
         // Add DensityScalpSignal with all required components
-        allSignals.add(createDensityScalpSignal(tcsService, config));
+        allSignals.add(createDensityScalpSignal(tradingService, config));
         
         Map<String, OrderBookSignal> available = new LinkedHashMap<>();
         for (OrderBookSignal signal : allSignals) {
@@ -41,7 +41,7 @@ public final class OrderBookSignalFactory {
         }
         if (enabled.isEmpty()) {
             // Default to CumulativeDeltaScalpSignal if no signals configured
-            enabled.add(new CumulativeDeltaScalpSignal(tcsService, config));
+            enabled.add(new CumulativeDeltaScalpSignal(tradingService, config));
         }
         return enabled;
     }
@@ -50,7 +50,7 @@ public final class OrderBookSignalFactory {
      * Create DensityScalpSignal with all required analysis components.
      */
     private static DensityScalpSignal createDensityScalpSignal(
-            TCSService tcsService, OrderBookScalpConfig config) {
+            TradingService tradingService, OrderBookScalpConfig config) {
         
         // Create asset pair analyzer
         AssetPairAnalyzer pairAnalyzer = new AssetPairAnalyzer(
@@ -60,7 +60,7 @@ public final class OrderBookSignalFactory {
         
         // Create trend analyzer
         TrendAnalyzer trendAnalyzer = new TrendAnalyzer(
-                tcsService,
+                tradingService,
                 config.getTrendTimeframeMinutes(),
                 config.getTrendLookbackCandles(),
                 config.getTrendCacheTtlMs());
@@ -85,7 +85,7 @@ public final class OrderBookSignalFactory {
                 config.getMicroImpulseVolumeMultiplier());
         
         return new DensityScalpSignal(
-                tcsService,
+                tradingService,
                 config,
                 pairAnalyzer,
                 trendAnalyzer,

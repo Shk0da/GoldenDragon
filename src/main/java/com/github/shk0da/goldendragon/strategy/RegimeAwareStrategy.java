@@ -5,7 +5,7 @@ import com.github.shk0da.goldendragon.model.Candle;
 import com.github.shk0da.goldendragon.model.Config;
 import com.github.shk0da.goldendragon.model.Position;
 import com.github.shk0da.goldendragon.model.TradingDecision;
-import com.github.shk0da.goldendragon.service.TCSService;
+import com.github.shk0da.goldendragon.service.TradingService;
 
 import java.util.List;
 
@@ -44,18 +44,18 @@ public class RegimeAwareStrategy extends BaseStrategy {
         UNKNOWN
     }
 
-    public RegimeAwareStrategy(UnifiedTraderConfig unifiedTraderConfig, TCSService tcsService) {
-        this(unifiedTraderConfig, tcsService, new Config());
+    public RegimeAwareStrategy(UnifiedTraderConfig unifiedTraderConfig, TradingService tradingService) {
+        this(unifiedTraderConfig, tradingService, new Config());
     }
 
     public RegimeAwareStrategy(
             UnifiedTraderConfig unifiedTraderConfig,
-            TCSService tcsService,
+            TradingService tradingService,
             Config config) {
-        super(unifiedTraderConfig, tcsService, config);
+        super(unifiedTraderConfig, tradingService, config);
 
         // Single UnifiedStrategy instance
-        this.unifiedStrategy = new UnifiedStrategy(unifiedTraderConfig, tcsService, config);
+        this.unifiedStrategy = new UnifiedStrategy(unifiedTraderConfig, tradingService, config);
 
         log(
                 "RegimeAwareStrategy: Regime filter (TREND:ADX>"
@@ -212,7 +212,7 @@ public class RegimeAwareStrategy extends BaseStrategy {
     }
 
     @Override
-    protected void closeAllPositions(TCSService tcsService, UnifiedTraderConfig config) {
-        unifiedStrategy.closeAllPositions(tcsService, config);
+    protected void closeAllPositions(TradingService tradingService, UnifiedTraderConfig config) {
+        unifiedStrategy.closeAllPositions(tradingService, config);
     }
 }

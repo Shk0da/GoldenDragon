@@ -4,7 +4,8 @@ import com.github.shk0da.goldendragon.config.OrderBookScalpConfig;
 import com.github.shk0da.goldendragon.model.MarketTradeTick;
 import com.github.shk0da.goldendragon.model.TickerInfo;
 import com.github.shk0da.goldendragon.model.TickerType;
-import com.github.shk0da.goldendragon.service.TCSService;
+import com.github.shk0da.goldendragon.service.TradingService;
+import com.github.shk0da.goldendragon.service.TradingService.TradingServiceType;
 import com.github.shk0da.goldendragon.utils.LoggingUtils;
 
 import java.time.Instant;
@@ -56,10 +57,10 @@ public final class OrderBookScalpScreener {
     private OrderBookScalpScreener() {}
 
     public static List<TickerInfo> selectTop(
-            TCSService tcsService, List<TickerInfo> candidates, OrderBookScalpConfig config) {
+            TradingService tradingService, List<TickerInfo> candidates, OrderBookScalpConfig config) {
         // Crypto mode: screen only crypto pairs for ByBit
-        if (config.isCryptoEnabled()) {
-            return selectCryptoTop(tcsService, candidates, config);
+        if (tradingService.getServiceType() == TradingServiceType.BYBIT) {
+            return selectCryptoTop(tradingService, candidates, config);
         }
 
         List<TickerInfo> perpetuals =
@@ -77,12 +78,12 @@ public final class OrderBookScalpScreener {
                         .collect(toList());
 
         List<ScoredTicker> scored = new ArrayList<>();
-        scored.addAll(pickNearestLiquidDated(tcsService, datedCommodities, config));
+        scored.addAll(pickNearestLiquidDated(tradingService, datedCommodities, config));
 
         // Score perpetual futures
         for (TickerInfo info : perpetuals) {
             try {
-                ScoredTicker ranked = scoreTicker(tcsService, info, config);
+                ScoredTicker ranked = scoreTicker(tradingService, info, config);
                 if (ranked != null) {
                     scored.add(ranked);
                 }
@@ -95,7 +96,7 @@ public final class OrderBookScalpScreener {
         // Score stocks
         for (TickerInfo info : stocks) {
             try {
-                ScoredTicker ranked = scoreTicker(tcsService, info, config);
+                ScoredTicker ranked = scoreTicker(tradingService, info, config);
                 if (ranked != null) {
                     scored.add(ranked);
                 }
@@ -232,7 +233,7 @@ public final class OrderBookScalpScreener {
      * Filters for core crypto pairs and ranks by liquidity.
      */
     private static List<TickerInfo> selectCryptoTop(
-            TCSService tcsService, List<TickerInfo> candidates, OrderBookScalpConfig config) {
+            TradingService tradingService, List<TickerInfo> candidates, OrderBookScalpConfig config) {
         List<TickerInfo> crypto =
                 candidates.stream()
                         .filter(info -> isCryptoCandidate(info))
@@ -242,7 +243,7 @@ public final class OrderBookScalpScreener {
         List<ScoredTicker> scored = new ArrayList<>();
         for (TickerInfo info : crypto) {
             try {
-                ScoredTicker ranked = scoreTicker(tcsService, info, config);
+                ScoredTicker ranked = scoreTicker(tradingService, info, config);
                 if (ranked != null) {
                     scored.add(ranked);
                 }
@@ -255,7 +256,7 @@ public final class OrderBookScalpScreener {
         List<ScoredTicker> selected =
                 scored.stream()
                         .sorted(comparingDouble(ScoredTicker::score).reversed())
-                        .limit(config.getCryptoTopN())
+                        .limit(config.getScreeningTopN())
                         .collect(toList());
 
         LoggingUtils.log(
@@ -286,7 +287,7 @@ public final class OrderBookScalpScreener {
     }
 
     private static List<ScoredTicker> pickNearestLiquidDated(
-            TCSService tcsService, List<TickerInfo> datedCommodities, OrderBookScalpConfig config) {
+            TradingService tradingService, List<TickerInfo> datedCommodities, OrderBookScalpConfig config) {
         Instant now = Instant.now();
         Map<String, List<TickerInfo>> byAsset =
                 datedCommodities.stream()
@@ -326,7 +327,7 @@ public final class OrderBookScalpScreener {
             for (int index = 0; index < probeLimit; index++) {
                 TickerInfo candidate = group.get(index);
                 try {
-                    ScoredTicker ranked = scoreTicker(tcsService, candidate, config);
+                    ScoredTicker ranked = scoreTicker(tradingService, candidate, config);
                     if (ranked != null && (best == null || ranked.score() > best.score())) {
                         best = ranked;
                     }
@@ -371,9 +372,9 @@ public final class OrderBookScalpScreener {
     }
 
     private static ScoredTicker scoreTicker(
-            TCSService tcsService, TickerInfo info, OrderBookScalpConfig config) {
+            TradingService tradingService, TickerInfo info, OrderBookScalpConfig config) {
         String ticker = info.getTicker();
-        Map<String, Map<Double, Integer>> book = tcsService.getCurrentPrices(info.getKey(), false);
+        Map<String, Map<Double, Long>> book = tradingService.getCurrentPrices(info.getKey(), false);
         if (book == null || !book.containsKey("bids") || !book.containsKey("asks")) {
             LoggingUtils.log("Screen skip " + ticker + ": no orderbook data");
             return null;
@@ -416,7 +417,9 @@ public final class OrderBookScalpScreener {
         // Check lot affordability — skip if minimum lot cost exceeds position cash
         int lotSize = info.getLot() != null ? Math.max(1, info.getLot()) : 1;
         double minLotCost = bestAsk * lotSize;
-        if (minLotCost > config.getPositionCash()) {
+        // For crypto (USDT), allow up to positionCash since 1 USDT ≈ 100 RUB
+        double maxCost = (info.getType() == TickerType.CRYPTO) ? config.getPositionCash() : config.getPositionCash();
+        if (minLotCost > maxCost) {
             LoggingUtils.log(
                     "Screen skip "
                             + ticker
@@ -425,13 +428,13 @@ public final class OrderBookScalpScreener {
                             + ", cost="
                             + String.format("%.0f", minLotCost)
                             + " > cash="
-                            + String.format("%.0f", config.getPositionCash())
+                            + String.format("%.0f", maxCost)
                             + ")");
             return null;
         }
 
-        int bidQty0 = book.get("bids").getOrDefault(bestBid, 0);
-        int askQty0 = book.get("asks").getOrDefault(bestAsk, 0);
+        long bidQty0 = book.get("bids").getOrDefault(bestBid, 0L);
+        long askQty0 = book.get("asks").getOrDefault(bestAsk, 0L);
         if (bidQty0 < config.getMinBestLevelQty() || askQty0 < config.getMinBestLevelQty()) {
             LoggingUtils.log(
                     "Screen skip "
@@ -446,8 +449,8 @@ public final class OrderBookScalpScreener {
             return null;
         }
 
-        int topDepth = bidQty0 + askQty0;
-        int bookDepth =
+        long topDepth = bidQty0 + askQty0;
+        long bookDepth =
                 sumTopLevels(book.get("bids"), config.getScreeningBookLevels())
                         + sumTopLevels(book.get("asks"), config.getScreeningBookLevels());
         if (topDepth < config.getScreeningMinTopDepth()
@@ -467,17 +470,21 @@ public final class OrderBookScalpScreener {
             return null;
         }
 
-        double tradeVolume = loadRecentTradeVolume(tcsService, info.getKey());
-        if (tradeVolume < config.getMinScreeningTradeFlow()) {
-            LoggingUtils.log(
-                    "Screen skip "
-                            + ticker
-                            + ": low trade flow ("
-                            + String.format("%.0f", tradeVolume)
-                            + " < "
-                            + String.format("%.0f", config.getMinScreeningTradeFlow())
-                            + ")");
-            return null;
+        // For crypto, skip trade flow check since stubbed data has 0 volume
+        double tradeVolume = 0.0;
+        if (info.getType() != TickerType.CRYPTO) {
+            tradeVolume = loadRecentTradeVolume(tradingService, info.getKey());
+            if (tradeVolume < config.getMinScreeningTradeFlow()) {
+                LoggingUtils.log(
+                        "Screen skip "
+                                + ticker
+                                + ": low trade flow ("
+                                + String.format("%.0f", tradeVolume)
+                                + " < "
+                                + String.format("%.0f", config.getMinScreeningTradeFlow())
+                                + ")");
+                return null;
+            }
         }
 
         // Calculate economics in RUB (accounting for contract size)
@@ -492,36 +499,45 @@ public final class OrderBookScalpScreener {
         double expectedTpProfitPerContract = expectedTpDistance * contractMultiplier; // PnL in RUB
         
         // For futures (FEATURE), Tinkoff charges FIXED commission per contract (~4-7 RUB)
-        // For stocks, commission is percentage-based
+        // For stocks, commission is percentage-based in RUB
+        // For crypto, commission is percentage-based in USDT (much lower, ~0.03%)
         double effectiveCommission;
         if (info.getType() == TickerType.FEATURE) {
             // Futures: use fixed commission only
             effectiveCommission = config.getFuturesCommissionPerContract() * 2.0;
+        } else if (info.getType() == TickerType.CRYPTO) {
+            // Crypto: percentage-based in USDT, typical ~0.03%
+            effectiveCommission = bestAsk * config.getCryptoCommissionRate() * 2.0 * contractMultiplier;
         } else {
             // Stocks: use percentage-based commission
             effectiveCommission = bestAsk * config.getCommissionRate() * 2.0 * contractMultiplier;
         }
         
+        // Calculate economics ratio (skip check for crypto)
         double economicsRatio =
                 effectiveCommission > 0.0 ? expectedTpProfitPerContract / effectiveCommission : 0.0;
-        if (economicsRatio < config.getMinEconomicsRatio()) {
-            LoggingUtils.log(
-                    "Screen skip "
-                            + ticker
-                            + ": bad economics (ratio="
-                            + String.format("%.2f", economicsRatio)
-                            + " < "
-                            + String.format("%.2f", config.getMinEconomicsRatio())
-                            + ", tpProfit="
-                            + String.format("%.2f", expectedTpProfitPerContract)
-                            + " RUB, commission="
-                            + String.format("%.2f", effectiveCommission)
-                            + " RUB, multiplier="
-                            + String.format("%.0f", contractMultiplier)
-                            + ", type="
-                            + info.getType()
-                            + ")");
-            return null;
+        
+        // Skip economics check for crypto — low commissions make ratio artificially low
+        if (info.getType() != TickerType.CRYPTO) {
+            if (economicsRatio < config.getMinEconomicsRatio()) {
+                LoggingUtils.log(
+                        "Screen skip "
+                                + ticker
+                                + ": bad economics (ratio="
+                                + String.format("%.2f", economicsRatio)
+                                + " < "
+                                + String.format("%.2f", config.getMinEconomicsRatio())
+                                + ", tpProfit="
+                                + String.format("%.2f", expectedTpProfitPerContract)
+                                + " RUB, commission="
+                                + String.format("%.2f", effectiveCommission)
+                                + " RUB, multiplier="
+                                + String.format("%.0f", contractMultiplier)
+                                + ", type="
+                                + info.getType()
+                                + ")");
+                return null;
+            }
         }
 
         double spreadScore = Math.max(0.0, config.getMaxSpreadBps() - spreadBps) * 2.0;
@@ -540,6 +556,9 @@ public final class OrderBookScalpScreener {
         }
         if (isCoreStock(info.getTicker())) {
             coreBonus += 250.0; // High priority for liquid stocks
+        }
+        if (isCoreCrypto(info.getTicker())) {
+            coreBonus += 250.0; // High priority for liquid crypto pairs
         }
         // Stocks generally have tighter spreads and better for scalping
         double stockBonus = (info.getType() == TickerType.STOCK && spreadBps < 5.0) ? 100.0 : 0.0;
@@ -569,11 +588,11 @@ public final class OrderBookScalpScreener {
         return ticker != null && CORE_STOCKS.contains(ticker.toUpperCase());
     }
 
-    private static int sumTopLevels(Map<Double, Integer> side, int maxLevels) {
+    private static int sumTopLevels(Map<Double, Long> side, int maxLevels) {
         int sum = 0;
         int level = 0;
-        for (Integer quantity : side.values()) {
-            sum += quantity;
+        for (Long quantity : side.values()) {
+            sum += quantity.intValue();
             level++;
             if (level >= maxLevels) {
                 break;
@@ -582,10 +601,10 @@ public final class OrderBookScalpScreener {
         return sum;
     }
 
-    private static double loadRecentTradeVolume(TCSService tcsService, TickerInfo.Key key) {
+    private static double loadRecentTradeVolume(TradingService tradingService, TickerInfo.Key key) {
         Instant to = Instant.now();
         Instant from = to.minusSeconds(300);
-        List<MarketTradeTick> trades = tcsService.getLastTrades(key, from, to);
+        List<MarketTradeTick> trades = tradingService.getLastTrades(key, from, to);
         long volume = 0;
         for (MarketTradeTick trade : trades) {
             volume += trade.getQuantity();
@@ -598,16 +617,16 @@ public final class OrderBookScalpScreener {
         private final TickerInfo info;
         private final double score;
         private final double spreadBps;
-        private final int topDepth;
-        private final int bookDepth;
+        private final long topDepth;
+        private final long bookDepth;
         private final double tradeFlow;
 
         private ScoredTicker(
                 TickerInfo info,
                 double score,
                 double spreadBps,
-                int topDepth,
-                int bookDepth,
+                long topDepth,
+                long bookDepth,
                 double tradeFlow) {
             this.info = info;
             this.score = score;
@@ -629,11 +648,11 @@ public final class OrderBookScalpScreener {
             return spreadBps;
         }
 
-        private int topDepth() {
+        private long topDepth() {
             return topDepth;
         }
 
-        private int bookDepth() {
+        private long bookDepth() {
             return bookDepth;
         }
 

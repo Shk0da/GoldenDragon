@@ -1,6 +1,7 @@
 package com.github.shk0da.goldendragon.utils;
 
 import com.github.shk0da.goldendragon.model.TickerInfo;
+import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.JsonDeserializer;
 import com.google.gson.JsonObject;
@@ -23,6 +24,7 @@ import java.util.Date;
 public final class SerializationUtils {
 
     private static final GsonBuilder gsonBuilder = new GsonBuilder();
+    private static volatile Gson gsonInstance;
 
     static {
         var tickerInfoToken = new TypeToken<TickerInfo.Key>() {};
@@ -49,6 +51,21 @@ public final class SerializationUtils {
                         });
     }
 
+    /**
+     * Returns a thread-safe, pre-configured Gson instance.
+     * Creates on first call, uses double-checked locking for thread safety.
+     */
+    private static Gson getGsonInstance() {
+        if (gsonInstance == null) {
+            synchronized (SerializationUtils.class) {
+                if (gsonInstance == null) {
+                    gsonInstance = gsonBuilder.create();
+                }
+            }
+        }
+        return gsonInstance;
+    }
+
     public static Date getDateOfContentOnDisk(String name) throws Exception {
         File content = new File(name);
         if (!content.exists()) {
@@ -70,14 +87,14 @@ public final class SerializationUtils {
         try {
             JsonObject jsonObject =
                     JsonParser.parseString(Files.readString(content.toPath())).getAsJsonObject();
-            return gsonBuilder.create().fromJson(jsonObject, typeToken.getType());
+            return getGsonInstance().fromJson(jsonObject, typeToken.getType());
         } catch (Exception ex) {
             throw new RuntimeException(ex);
         }
     }
 
     public static <T> void saveDataToDisk(String name, T data) throws IOException {
-        String content = new GsonBuilder().create().toJson(data);
+        String content = getGsonInstance().toJson(data);
         File toSave = new File(name);
         if (!toSave.exists() || (toSave.exists() && toSave.delete())) {
             if (toSave.createNewFile()) {

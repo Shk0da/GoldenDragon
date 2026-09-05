@@ -4,7 +4,7 @@ import com.github.shk0da.goldendragon.config.OrderBookScalpConfig;
 import com.github.shk0da.goldendragon.model.Candle;
 import com.github.shk0da.goldendragon.model.MarketDepthLevel;
 import com.github.shk0da.goldendragon.model.MarketDepthSnapshot;
-import com.github.shk0da.goldendragon.service.TCSService;
+import com.github.shk0da.goldendragon.service.TradingService;
 
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -41,7 +41,7 @@ public final class DensityAnalyzer {
     private static final long SNAPSHOT_DENSITY_THRESHOLD = 1000L; // Local density
     private static final long SNAPSHOT_ANOMALOUS_THRESHOLD = 5000L; // Anomalous density
 
-    private final TCSService tcsService;
+    private final TradingService tradingService;
     private final OrderBookScalpConfig config;
     private final Map<String, VolumeHistory> volumeHistories = new ConcurrentHashMap<>();
 
@@ -125,8 +125,8 @@ public final class DensityAnalyzer {
         }
     }
 
-    public DensityAnalyzer(TCSService tcsService, OrderBookScalpConfig config) {
-        this.tcsService = tcsService;
+    public DensityAnalyzer(TradingService tradingService, OrderBookScalpConfig config) {
+        this.tradingService = tradingService;
         this.config = config;
     }
 

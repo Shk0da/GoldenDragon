@@ -3,21 +3,13 @@ package com.github.shk0da.goldendragon.market;
 import com.github.shk0da.goldendragon.model.Candle;
 import com.github.shk0da.goldendragon.model.TickerInfo;
 import com.github.shk0da.goldendragon.repository.TickerRepository;
-import com.github.shk0da.goldendragon.service.TCSService;
+import com.github.shk0da.goldendragon.service.TradingService;
 import com.github.shk0da.goldendragon.utils.PropertiesUtils;
 
-import java.sql.Timestamp;
 import java.time.OffsetDateTime;
-import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-import java.util.Map;
 import java.util.Properties;
-import java.util.TreeMap;
-
-import ru.tinkoff.piapi.contract.v1.CandleInterval;
-import ru.tinkoff.piapi.contract.v1.HistoricCandle;
-import ru.tinkoff.piapi.contract.v1.Quotation;
 
 /**
  * Live market data provider using TCS API.
@@ -28,14 +20,12 @@ public class LiveMarketDataProvider implements MarketDataProvider {
     private static final int DEFAULT_HOUR_LOOKBACK_DAYS = 60;
     private static final int DEFAULT_MINUTE_LOOKBACK_HOURS = 72;
 
-    private final TCSService tcsService;
+    private final TradingService tcsService;
     private final TickerRepository tickerRepository;
     private final int hourLookbackDays;
     private final int minuteLookbackHours;
-    private static final ThreadLocal<java.text.SimpleDateFormat> CANDLE_TIME_FORMAT =
-            ThreadLocal.withInitial(() -> new java.text.SimpleDateFormat("dd.MM.yyyy HH:mm:ss"));
 
-    public LiveMarketDataProvider(TCSService tcsService) {
+    public LiveMarketDataProvider(TradingService tcsService) {
         this.tcsService = tcsService;
         this.tickerRepository = TickerRepository.INSTANCE;
         int hourDays = DEFAULT_HOUR_LOOKBACK_DAYS;
@@ -75,35 +65,10 @@ public class LiveMarketDataProvider implements MarketDataProvider {
         }
 
         try {
-            List<HistoricCandle> historicCandles = tcsService.getCandles(figi, start, now,
-                    "HOUR".equals(interval)
-                            ? CandleInterval.CANDLE_INTERVAL_HOUR
-                            : CandleInterval.CANDLE_INTERVAL_5_MIN);
-
-            List<Candle> candles = new ArrayList<>();
-            for (HistoricCandle hc : historicCandles) {
-                Timestamp ts = new Timestamp(hc.getTime().getSeconds() * 1000);
-                candles.add(new Candle(
-                        CANDLE_TIME_FORMAT.get().format(ts),
-                        toDouble(hc.getOpen()),
-                        toDouble(hc.getHigh()),
-                        toDouble(hc.getLow()),
-                        toDouble(hc.getClose()),
-                        hc.getVolume()
-                ));
-            }
-            return candles;
+            return tcsService.getCandles(figi, start, now, interval);
         } catch (Exception e) {
             return Collections.emptyList();
         }
-    }
-
-    private static double toDouble(Quotation quotation) {
-        return toDouble(quotation.getUnits(), quotation.getNano());
-    }
-
-    private static double toDouble(long units, int nano) {
-        return units + nano / 1_000_000_000.0;
     }
 
     @Override

@@ -21,7 +21,7 @@ import com.github.shk0da.goldendragon.money.SizingStrategy;
 import com.github.shk0da.goldendragon.money.StopLossManager;
 import com.github.shk0da.goldendragon.money.VolatilityAdjustedSizing;
 import com.github.shk0da.goldendragon.repository.TickerRepository;
-import com.github.shk0da.goldendragon.service.TCSService;
+import com.github.shk0da.goldendragon.service.TradingService;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -172,15 +172,15 @@ public class UnifiedStrategy extends BaseStrategy {
     // Track consecutive losses per ticker for entry cooldown
     private final ConcurrentMap<String, Integer> consecutiveLossTracker = new ConcurrentHashMap<>();
 
-    public UnifiedStrategy(UnifiedTraderConfig unifiedTraderConfig, TCSService tcsService) {
-        this(unifiedTraderConfig, tcsService, new Config());
+    public UnifiedStrategy(UnifiedTraderConfig unifiedTraderConfig, TradingService tradingService) {
+        this(unifiedTraderConfig, tradingService, new Config());
     }
 
     public UnifiedStrategy(
             UnifiedTraderConfig unifiedTraderConfig,
-            TCSService tcsService,
+            TradingService tradingService,
             Config config) {
-        super(unifiedTraderConfig, tcsService, config);
+        super(unifiedTraderConfig, tradingService, config);
 
         this.mmEnabled = config.mmEnabled;
 
@@ -290,8 +290,8 @@ public class UnifiedStrategy extends BaseStrategy {
         Position p = position;
         Group grp = Group.valueOf(unifiedTraderConfig.getTickerGroup(ticker));
 
-        // TMON@ Cash Parking: idle cash goes to TMON@, sell TMON@ when other positions need cash
-        if ("TMON@".equals(ticker) && unifiedTraderConfig.isTmonCashParkingEnabled()) {
+        // Cash Parking: idle cash goes to parking ticker, sell when other positions need cash
+        if (cashParkingManager.isParkingTicker(ticker) && unifiedTraderConfig.isTmonCashParkingEnabled()) {
             return decideTmonCashParking(balance, p, cur.close);
         }
 
@@ -848,13 +848,13 @@ public class UnifiedStrategy extends BaseStrategy {
             return (int) Math.floor(balance / entryPrice);
         }
 
-        if (tcsService != null) {
+        if (tradingService != null) {
             double cashBuffer =
                     Math.max(
                             MARKET_ORDER_CASH_BUFFER_MIN,
                             balance * MARKET_ORDER_CASH_BUFFER_PERCENT);
             double availableCash = Math.max(0.0, balance - cashBuffer);
-            return tcsService.calculateTradeCount(
+            return tradingService.calculateTradeCount(
                     new TickerInfo.Key(ticker, tickerInfo.getType()), availableCash, entryPrice);
         }
 
@@ -862,7 +862,7 @@ public class UnifiedStrategy extends BaseStrategy {
         double orderCost = lot * entryPrice;
         double marginMultiplier = 1.0;
         if (TickerType.FEATURE == tickerInfo.getType()) {
-            marginMultiplier = TCSService.FUTURES_MARGIN_RATE;
+            marginMultiplier = TradingService.FUTURES_MARGIN_RATE;
         }
         int effectiveLeverage = Math.max(1, leverage);
         if (effectiveLeverage > 1) {
@@ -877,7 +877,7 @@ public class UnifiedStrategy extends BaseStrategy {
     }
 
     private int calculateAvailableLiquidity(String ticker, boolean isBuy) {
-        if (tcsService == null) {
+        if (tradingService == null) {
             return Integer.MAX_VALUE;
         }
 
@@ -888,8 +888,8 @@ public class UnifiedStrategy extends BaseStrategy {
 
         String side = isBuy ? "asks" : "bids";
         try {
-            Map<Double, Integer> levels =
-                    tcsService
+            Map<Double, Long> levels =
+                    tradingService
                             .getCurrentPrices(
                                     new TickerInfo.Key(ticker, tickerInfo.getType()), false)
                             .get(side);
@@ -897,7 +897,8 @@ public class UnifiedStrategy extends BaseStrategy {
                 return 0;
             }
 
-            return levels.values().stream().mapToInt(Integer::intValue).sum();
+            long sum = levels.values().stream().mapToLong(Long::longValue).sum();
+            return sum > Integer.MAX_VALUE ? Integer.MAX_VALUE : (int) sum;
         } catch (Exception ex) {
             log("Failed to read " + side + " for " + ticker + ": " + ex.getMessage());
             return 0;
@@ -920,15 +921,15 @@ public class UnifiedStrategy extends BaseStrategy {
             return TickerRepository.INSTANCE.getById(futureKey);
         }
 
-        if (tcsService != null) {
+        if (tradingService != null) {
             try {
-                return tcsService.searchTicker(futureKey);
+                return tradingService.searchTicker(futureKey);
             } catch (Exception ignored) {
                 try {
-                    return tcsService.searchTicker(stockKey);
+                    return tradingService.searchTicker(stockKey);
                 } catch (Exception ignoredToo) {
                     try {
-                        return tcsService.searchTicker(etfKey);
+                        return tradingService.searchTicker(etfKey);
                     } catch (Exception ignoredThree) {
                         return null;
                     }
@@ -1162,17 +1163,18 @@ public class UnifiedStrategy extends BaseStrategy {
     }
 
     /**
-     * TMON@ cash parking logic: when no positions on other tickers, buy TMON@ with available cash;
-     * when other positions need cash, sell TMON@ first.
+     * Cash parking logic: when no positions on other tickers, buy parking ticker with available cash;
+     * when other positions need cash, sell parking ticker first.
      */
     private TradingDecision decideTmonCashParking(
             double balance, Position position, double currentPrice) {
+        String parkingTicker = cashParkingManager.getParkingTicker();
         if (position.quantity > 0) {
             if (hasActiveNonTmonPositions()) {
-                log("TMON@: selling to free cash for other positions");
+                log(parkingTicker + ": selling to free cash for other positions");
                 return new TradingDecision(
                         "CLOSE",
-                        "tmon_sell_for_cash",
+                        "parking_sell_for_cash",
                         0.0,
                         position.quantity,
                         null,
@@ -1180,22 +1182,22 @@ public class UnifiedStrategy extends BaseStrategy {
                         null,
                         new Position(config.cooldownCandles));
             }
-            return new TradingDecision("HOLD", "tmon_parked", 0.0, 0, null, null, null, position);
+            return new TradingDecision("HOLD", "parking_parked", 0.0, 0, null, null, null, position);
         }
 
         if (!hasActiveNonTmonPositions() && balance > 0.0) {
-            TickerInfo tickerInfo = resolveTickerInfo("TMON@");
+            TickerInfo tickerInfo = resolveTickerInfo(parkingTicker);
             if (tickerInfo == null) {
-                log("TMON@: ticker info not found, skipping buy");
-                return new TradingDecision("HOLD", "tmon_ticker_not_found");
+                log(parkingTicker + ": ticker info not found, skipping buy");
+                return new TradingDecision("HOLD", "parking_ticker_not_found");
             }
             int lot = tickerInfo.getLot() != null ? tickerInfo.getLot() : 1;
-            // Align TMON@ sizing with TCSService.calculateTradeCount(), which applies
+            // Align parking sizing with TradingService.calculateTradeCount(), which applies
             // a 1% safety margin to avoid insufficient funds for market orders.
             double effectivePrice = currentPrice * 1.01;
             double effectiveCostPerLot = effectivePrice * lot;
             if (balance < effectiveCostPerLot) {
-                return new TradingDecision("HOLD", "tmon_insufficient_cash");
+                return new TradingDecision("HOLD", "parking_insufficient_cash");
             }
             double costPerLot = currentPrice * lot;
             int buyQty =
@@ -1206,7 +1208,7 @@ public class UnifiedStrategy extends BaseStrategy {
                 double totalCost = buyQty * currentPrice;
                 if (isVerboseLogging()) {
                     log(
-                            "TMON@: buying "
+                            parkingTicker + ": buying "
                                     + buyQty
                                     + " with idle cash "
                                     + String.format("%.2f", totalCost)
@@ -1216,7 +1218,7 @@ public class UnifiedStrategy extends BaseStrategy {
                 }
                 return new TradingDecision(
                         "OPEN",
-                        "tmon_cash_parking",
+                        "parking_cash_parking",
                         1.0,
                         buyQty,
                         null,

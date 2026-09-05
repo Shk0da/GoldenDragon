@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+    <!-- Default application log level: INFO -->
+    <root level="INFO">
+        <appender-ref ref="CONSOLE"/>
+    </root>
+
+    <!-- Our own packages: INFO level (clean output) -->
+    <logger name="com.github.shk0da.goldendragon" level="INFO"/>
+
+    <!-- Tinkoff SDK: WARN (skip debug connection chatter) -->
+    <logger name="ru.tinkoff.piapi" level="WARN"/>
+
+    <!-- gRPC/netty Tinkoff SDK debug: WARN (suppress inbound/outbound frames, ping, headers) -->
+    <logger name="io.grpc.netty.shaded.io.netty" level="WARN"/>
+    <logger name="io.grpc.netty.shaded.io.grpc.netty" level="WARN"/>
+    <logger name="io.grpc" level="WARN"/>
+
+    <!-- Suppress logback initialization INFO logs -->
+    <logger name="ch.qos.logback.classic" level="ERROR"/>
+
+    <!-- Console appender -->
+    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n</pattern>
+        </encoder>
+    </appender>
+</configuration>

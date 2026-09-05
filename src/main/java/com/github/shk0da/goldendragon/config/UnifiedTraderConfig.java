@@ -151,6 +151,7 @@ public class UnifiedTraderConfig {
     private final int leverageMin;
     private final boolean adaptiveLeverageEnabled;
     private final boolean tmonCashParkingEnabled;
+    private final boolean bybit24h;
     private final Map<String, TickerParams> tickerParams;
     private final Properties properties;
 
@@ -173,6 +174,9 @@ public class UnifiedTraderConfig {
         adaptiveLeverageEnabled =
                 Boolean.parseBoolean(
                         properties.getProperty("unifiedTrader.adaptiveLeverage.enabled", "true"));
+        bybit24h =
+                Boolean.parseBoolean(
+                        properties.getProperty("unifiedTrader.bybit24h", "false"));
         tmonCashParkingEnabled =
                 Boolean.parseBoolean(
                         properties.getProperty("unifiedTrader.tmonCashParking.enabled", "false"));
@@ -392,6 +396,10 @@ public class UnifiedTraderConfig {
 
     public boolean isTmonCashParkingEnabled() {
         return tmonCashParkingEnabled;
+    }
+
+    public boolean isBybit24h() {
+        return bybit24h;
     }
 
     /**

@@ -13,7 +13,8 @@ import com.github.shk0da.goldendragon.model.TickerType;
 import com.github.shk0da.goldendragon.money.KillSwitch;
 import com.github.shk0da.goldendragon.money.RiskManager;
 import com.github.shk0da.goldendragon.repository.TickerRepository;
-import com.github.shk0da.goldendragon.service.TCSService;
+import com.github.shk0da.goldendragon.service.TradingService;
+import com.github.shk0da.goldendragon.service.TradingService.TradingServiceType;
 import com.github.shk0da.goldendragon.strategy.OrderBookScalpScreener;
 import com.github.shk0da.goldendragon.strategy.orderbook.diagnostics.OrderBookDiagnosticEvent;
 import com.github.shk0da.goldendragon.strategy.orderbook.diagnostics.OrderBookDiagnosticEventType;
@@ -24,7 +25,7 @@ import com.github.shk0da.goldendragon.strategy.orderbook.diagnostics.OrderBookMe
 import com.github.shk0da.goldendragon.utils.IndicatorsUtil;
 import com.github.shk0da.goldendragon.utils.LoggingUtils;
 import com.github.shk0da.goldendragon.utils.TickerTypeResolver;
-import ru.tinkoff.piapi.contract.v1.HistoricCandle;
+
 
 import java.time.Duration;
 import java.time.Instant;
@@ -43,7 +44,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import static com.github.shk0da.goldendragon.utils.TimeUtils.sleep;
 import static java.util.stream.Collectors.toList;
 import static java.util.stream.Collectors.toSet;
-import static ru.tinkoff.piapi.contract.v1.CandleInterval.CANDLE_INTERVAL_5_MIN;
+
 
 /**
  * Shared order-book trading engine: subscriptions, screening, position management and execution.
@@ -92,7 +93,7 @@ public final class OrderBookTradingEngine implements MarketTickListener {
   // Manual emergency stop state (TODO.md Section 5, item 135)
   private volatile boolean manualEmergencyStopRequested = false;
 
-  private final TCSService tcsService;
+  private final TradingService tradingService;
   private final MainConfig mainConfig;
   private final OrderBookScalpConfig config;
   private final List<OrderBookSignal> signals;
@@ -143,12 +144,12 @@ public final class OrderBookTradingEngine implements MarketTickListener {
   private final TickerBlocklist tickerBlocklist;
 
   public OrderBookTradingEngine(
-      TCSService tcsService,
+      TradingService tradingService,
       MainConfig mainConfig,
       OrderBookScalpConfig config,
       List<OrderBookSignal> signals,
       String strategyName) {
-    this.tcsService = tcsService;
+    this.tradingService = tradingService;
     this.mainConfig = mainConfig;
     this.config = config;
     this.signals = List.copyOf(signals);
@@ -237,7 +238,7 @@ public final class OrderBookTradingEngine implements MarketTickListener {
         config.getQueueFastFillThreshold());
     this.signalPerformanceTracker = new SignalPerformanceTracker(
         config.getSignalPerfWindowSize());
-    DensityAnalyzer densityAnalyzer = new DensityAnalyzer(tcsService, config);
+    DensityAnalyzer densityAnalyzer = new DensityAnalyzer(tradingService, config);
     this.dynamicTakeProfit = new DynamicTakeProfit(
         densityAnalyzer,
         volumeProfileTracker,
@@ -277,7 +278,8 @@ public final class OrderBookTradingEngine implements MarketTickListener {
   }
 
   public void run() {
-    boolean paper = config.isPaperMode() || mainConfig.isTestMode();
+    // Paper trading when Tinkoff sandbox is enabled
+    boolean paper = mainConfig.isSandbox();
     List<String> signalIds = signals.stream().map(OrderBookSignal::id).collect(toList());
     log(
         strategyName
@@ -294,8 +296,8 @@ public final class OrderBookTradingEngine implements MarketTickListener {
             + ", signals="
             + signalIds);
 
-    tcsService.logAccountTradingEligibility();
-    tcsService.logAccountPositions();
+    tradingService.logAccountTradingEligibility();
+    tradingService.logAccountPositions();
 
     try {
       while (true) {
@@ -419,7 +421,7 @@ public final class OrderBookTradingEngine implements MarketTickListener {
       }
     } finally {
       for (TickerRuntime runtime : subscribed) {
-        tcsService.unsubscribeMarketData(runtime.key, this);
+        tradingService.unsubscribeMarketData(runtime.key, this);
         closeOpenPosition(runtime, "session_end", paper);
       }
       logStats("session_end");
@@ -478,7 +480,7 @@ public final class OrderBookTradingEngine implements MarketTickListener {
     }
     Map<TickerInfo.Key, PositionInfo> positions;
     try {
-      positions = tcsService.getCurrentPositions(TickerType.ALL);
+      positions = tradingService.getCurrentPositions(TickerType.ALL);
     } catch (Exception ex) {
       log(strategyName + " position sync failed: " + ex.getMessage());
       return;
@@ -487,7 +489,7 @@ public final class OrderBookTradingEngine implements MarketTickListener {
         subscribed.stream().map(runtime -> runtime.ticker).collect(toSet());
     double availableCash = 0.0;
     try {
-      availableCash = tcsService.getAvailableCash();
+      availableCash = tradingService.getAvailableCash();
     } catch (Exception ex) {
       logThrottled("_close_untracked_cash", strategyName + ": cannot fetch available cash: " + ex.getMessage(), 5);
     }
@@ -514,7 +516,7 @@ public final class OrderBookTradingEngine implements MarketTickListener {
       if (isShort) {
         // Calculate required cash to close short position
         TickerInfo.Key posKey = new TickerInfo.Key(position.getTicker(), position.getInstrumentType());
-        TickerInfo posTickerInfo = tcsService.searchTicker(posKey);
+        TickerInfo posTickerInfo = tradingService.searchTicker(posKey);
         if (posTickerInfo == null) {
           logThrottled(
               "_close_untracked_no_info_" + position.getTicker(),
@@ -525,7 +527,7 @@ public final class OrderBookTradingEngine implements MarketTickListener {
           continue;
         }
         int lot = posTickerInfo.getLot() != null ? Math.max(1, posTickerInfo.getLot()) : 1;
-        double askPrice = tcsService.getLiveAskPrice(posKey);
+        double askPrice = tradingService.getLiveAskPrice(posKey);
         if (askPrice <= 0.0) {
           logThrottled(
               "_close_untracked_no_price_" + position.getTicker(),
@@ -555,7 +557,7 @@ public final class OrderBookTradingEngine implements MarketTickListener {
       } else {
         // LONG position: verify that position actually exists on broker before attempting close
         TickerInfo.Key posKey = new TickerInfo.Key(position.getTicker(), position.getInstrumentType());
-        double bidPrice = tcsService.getLiveBidPrice(posKey);
+        double bidPrice = tradingService.getLiveBidPrice(posKey);
         if (bidPrice <= 0.0) {
           logThrottled(
               "_close_untracked_no_price_" + position.getTicker(),
@@ -581,11 +583,11 @@ public final class OrderBookTradingEngine implements MarketTickListener {
               + position.getBalance()
               + ", closing");
       try {
-        TCSService.OrderExecutionResult result =
+        TradingService.OrderExecutionResult result =
             isShort
-                ? tcsService.closeShortByMarketWithDetails(
+                ? tradingService.closeShortByMarketWithDetails(
                     position.getTicker(), position.getInstrumentType())
-                : tcsService.closeLongByMarketWithDetails(
+                : tradingService.closeLongByMarketWithDetails(
                     position.getTicker(), position.getInstrumentType());
         if (!result.isSuccess()) {
           logThrottled(
@@ -624,7 +626,7 @@ public final class OrderBookTradingEngine implements MarketTickListener {
     }
     Map<TickerInfo.Key, PositionInfo> brokerPositions;
     try {
-      brokerPositions = tcsService.getCurrentPositions(TickerType.ALL);
+      brokerPositions = tradingService.getCurrentPositions(TickerType.ALL);
     } catch (Exception ex) {
       log(strategyName + " position restore sync failed: " + ex.getMessage());
       return;
@@ -691,9 +693,9 @@ public final class OrderBookTradingEngine implements MarketTickListener {
     if (brokerPosition == null || brokerPosition.getBalance() == 0) {
       return;
     }
-    Map<String, Map<Double, Integer>> book;
+    Map<String, Map<Double, Long>> book;
     try {
-      book = tcsService.getCurrentPrices(runtime.key, false);
+      book = tradingService.getCurrentPrices(runtime.key, false);
     } catch (Exception ex) {
       log("Cannot adopt broker position for " + runtime.ticker + ": " + ex.getMessage());
       return;
@@ -795,8 +797,8 @@ public final class OrderBookTradingEngine implements MarketTickListener {
   private void recoverStreamSubscriptions() {
     for (TickerRuntime runtime : runtimesByTicker.values()) {
       try {
-        tcsService.unsubscribeMarketData(runtime.key, this);
-        tcsService.subscribeMarketData(runtime.key, config.getDepth(), this);
+        tradingService.unsubscribeMarketData(runtime.key, this);
+        tradingService.subscribeMarketData(runtime.key, config.getDepth(), this);
         log("Resubscribed to order book: " + runtime.ticker);
       } catch (Exception ex) {
         log("Failed to resubscribe " + runtime.ticker + ": " + ex.getMessage());
@@ -810,7 +812,7 @@ public final class OrderBookTradingEngine implements MarketTickListener {
    */
   private void reconcilePositionAfterClose(TickerRuntime runtime, String signalId, String reason) {
     try {
-      Map<TickerInfo.Key, PositionInfo> brokerPositions = tcsService.getCurrentPositions(TickerType.ALL);
+      Map<TickerInfo.Key, PositionInfo> brokerPositions = tradingService.getCurrentPositions(TickerType.ALL);
       PositionInfo brokerPosition = brokerPositions.get(runtime.key);
 
       if (brokerPosition != null && brokerPosition.getBalance() != 0) {
@@ -840,13 +842,13 @@ public final class OrderBookTradingEngine implements MarketTickListener {
       return true;
     }
     try {
-      initialEquity = tcsService.getTotalPortfolioCost();
+      initialEquity = tradingService.getTotalPortfolioCost();
     } catch (Exception ex) {
       log(
           strategyName
               + ": portfolio cost unavailable, fallback to available cash: "
               + ex.getMessage());
-      Double availableCash = tcsService.getAvailableCash();
+      Double availableCash = tradingService.getAvailableCash();
       initialEquity = availableCash != null ? availableCash : 0.0;
     }
     log(strategyName + ": initialEquity=" + String.format("%.2f", initialEquity));
@@ -930,7 +932,8 @@ public final class OrderBookTradingEngine implements MarketTickListener {
       return;
     }
 
-    boolean paper = config.isPaperMode() || mainConfig.isTestMode();
+    // Paper trading when Tinkoff sandbox is enabled
+    boolean paper = mainConfig.isSandbox();
     double obi =
         OrderBookMath.calculateObi(snapshot.getBids(), snapshot.getAsks(), config.getObiLevels());
     double microEdge = OrderBookMath.calculateMicroEdge(bestBid, bestAsk, bidQty0, askQty0);
@@ -1403,7 +1406,7 @@ public final class OrderBookTradingEngine implements MarketTickListener {
       String signalDescription,
       double quality,
       boolean paper) {
-    if (!tcsService.isTradableForAccount(runtime.tickerInfo)) {
+    if (!tradingService.isTradableForAccount(runtime.tickerInfo)) {
       log("Skip OPEN " + runtime.ticker + ": not tradable for current account");
       return;
     }
@@ -1415,7 +1418,7 @@ public final class OrderBookTradingEngine implements MarketTickListener {
       log("Skip OPEN " + runtime.ticker + ": outside trading hours or low liquidity window");
       return;
     }
-    int units = tcsService.calculateTradeCount(runtime.key, adjustedCash, entryAsk);
+    int units = tradingService.calculateTradeCount(runtime.key, adjustedCash, entryAsk);
     if (units <= 0) {
       logThrottled(runtime.ticker + "_insufficient_cash_open",
           "Skip OPEN " + runtime.ticker + ": insufficient cash for one lot " +
@@ -1431,7 +1434,7 @@ public final class OrderBookTradingEngine implements MarketTickListener {
     double requiredCash = units * entryAsk * lot;
     double currentAvailableCash = 0.0;
     try {
-      currentAvailableCash = tcsService.getAvailableCash();
+      currentAvailableCash = tradingService.getAvailableCash();
     } catch (Exception ex) {
       log("Cannot fetch available cash for " + runtime.ticker + ": " + ex.getMessage());
     }
@@ -1531,7 +1534,7 @@ public final class OrderBookTradingEngine implements MarketTickListener {
     String brokerStopLossOrderId = null;
     double brokerStopLossPrice = 0.0;
 
-    TCSService.OrderExecutionResult result = placeBuyOrderWithRetry(runtime, brokerOrderId);
+    TradingService.OrderExecutionResult result = placeBuyOrderWithRetry(runtime, brokerOrderId);
 
     if (!result.isSuccess()) {
       log("OPEN failed for " + runtime.ticker
@@ -1623,11 +1626,11 @@ public final class OrderBookTradingEngine implements MarketTickListener {
             toBps(expectedValueFraction(runtime.ticker))));
   }
 
-  private TCSService.OrderExecutionResult placeBuyOrderWithRetry(TickerRuntime runtime, String clientOrderId) {
-    TCSService.OrderExecutionResult result = TCSService.OrderExecutionResult.failed();
+  private TradingService.OrderExecutionResult placeBuyOrderWithRetry(TickerRuntime runtime, String clientOrderId) {
+    TradingService.OrderExecutionResult result = TradingService.OrderExecutionResult.failed();
     for (int attempt = 1; attempt <= ORDER_PLACE_ATTEMPTS; attempt++) {
       result =
-          tcsService.buyByMarketWithDetails(
+          tradingService.buyByMarketWithDetails(
               runtime.ticker, runtime.key.getType(), config.getPositionCash(), 0.0, 0.0);
       if (result.isSuccess()) {
         return result;
@@ -1651,13 +1654,13 @@ public final class OrderBookTradingEngine implements MarketTickListener {
    * Places server-side stop-loss order for position protection (TODO.md Section 5).
    * @return OrderId if successful, null otherwise
    */
-  private TCSService.StopLossOrderResult placeServerStopLossOrder(
+  private TradingService.StopLossOrderResult placeServerStopLossOrder(
       TickerRuntime runtime, int units, double stopLossPrice, String direction) {
     try {
       // For BUY positions, SL is a SELL order at stopLossPrice
       // For SHORT positions, SL is a BUY order at stopLossPrice
       String operation = "BUY".equals(direction) ? "Sell" : "Buy";
-      var result = tcsService.createStopLossOrder(
+      var result = tradingService.createStopLossOrder(
           runtime.key,
           units,
           stopLossPrice,
@@ -1669,12 +1672,12 @@ public final class OrderBookTradingEngine implements MarketTickListener {
     }
   }
 
-  private TCSService.OrderExecutionResult sellByMarketWithRetry(
+  private TradingService.OrderExecutionResult sellByMarketWithRetry(
       TickerRuntime runtime, double cashToSell, double fallbackEntryBid) {
-    TCSService.OrderExecutionResult result = TCSService.OrderExecutionResult.failed();
+    TradingService.OrderExecutionResult result = TradingService.OrderExecutionResult.failed();
     for (int attempt = 1; attempt <= ORDER_PLACE_ATTEMPTS; attempt++) {
       result =
-          tcsService.sellByMarketWithDetails(
+          tradingService.sellByMarketWithDetails(
               runtime.ticker, runtime.key.getType(), cashToSell, 0.0, 0.0);
       if (result.isSuccess()) {
         return result;
@@ -1709,7 +1712,7 @@ public final class OrderBookTradingEngine implements MarketTickListener {
       String signalDescription,
       double quality,
       boolean paper) {
-    if (!tcsService.isTradableForAccount(runtime.tickerInfo)) {
+    if (!tradingService.isTradableForAccount(runtime.tickerInfo)) {
       log("Skip SHORT " + runtime.ticker + ": not tradable for current account");
       return;
     }
@@ -1721,7 +1724,7 @@ public final class OrderBookTradingEngine implements MarketTickListener {
       log("Skip SHORT " + runtime.ticker + ": outside trading hours or low liquidity window");
       return;
     }
-    int units = tcsService.calculateTradeCount(runtime.key, adjustedCash, entryBid);
+    int units = tradingService.calculateTradeCount(runtime.key, adjustedCash, entryBid);
     if (units <= 0) {
       logThrottled(runtime.ticker + "_insufficient_cash_short",
           "Skip SHORT " + runtime.ticker + ": insufficient cash for one lot " +
@@ -1737,7 +1740,7 @@ public final class OrderBookTradingEngine implements MarketTickListener {
     double requiredCash = units * entryBid * lot;
     double currentAvailableCash = 0.0;
     try {
-      currentAvailableCash = tcsService.getAvailableCash();
+      currentAvailableCash = tradingService.getAvailableCash();
     } catch (Exception ex) {
       log("Cannot fetch available cash for " + runtime.ticker + ": " + ex.getMessage());
     }
@@ -1749,7 +1752,7 @@ public final class OrderBookTradingEngine implements MarketTickListener {
       return;
     }
 
-    TCSService.OrderExecutionResult result =
+    TradingService.OrderExecutionResult result =
         sellByMarketWithRetry(runtime, adjustedCash, entryBid);
 
     // Dynamic TP/SL based on volatility
@@ -1933,7 +1936,7 @@ public final class OrderBookTradingEngine implements MarketTickListener {
     }
 
     if (paper) {
-      Map<String, Map<Double, Integer>> book = tcsService.getCurrentPrices(runtime.key, false);
+      Map<String, Map<Double, Long>> book = tradingService.getCurrentPrices(runtime.key, false);
       boolean isLong = "LONG".equals(position.direction);
       double grossPnl;
       double exitPrice;
@@ -1997,7 +2000,7 @@ public final class OrderBookTradingEngine implements MarketTickListener {
       return;
     }
 
-    TCSService.OrderExecutionResult result = closePositionWithRetry(runtime);
+    TradingService.OrderExecutionResult result = closePositionWithRetry(runtime);
     if (!result.isSuccess()) {
       if (isBrokerPositionGone(runtime)) {
         log(
@@ -2056,7 +2059,7 @@ public final class OrderBookTradingEngine implements MarketTickListener {
     // Cancel server-side stop-loss if it was set
     if (position.brokerStopLossOrderId != null && !position.brokerStopLossOrderId.isEmpty()) {
       try {
-        tcsService.cancelStopOrder(runtime.key, position.brokerStopLossOrderId, "ServerSL");
+        tradingService.cancelStopOrder(runtime.key, position.brokerStopLossOrderId, "ServerSL");
         log("Cancelled server SL for " + runtime.ticker + ": orderId=" + position.brokerStopLossOrderId);
       } catch (Exception e) {
         log("Failed to cancel server SL for " + runtime.ticker + ": " + e.getMessage());
@@ -2110,7 +2113,7 @@ public final class OrderBookTradingEngine implements MarketTickListener {
   private boolean isBrokerPositionGone(TickerRuntime runtime) {
     try {
       int brokerCount =
-          tcsService.getCountOfCurrentPositions(runtime.key.getType(), runtime.ticker);
+          tradingService.getCountOfCurrentPositions(runtime.key.getType(), runtime.ticker);
       return brokerCount == 0;
     } catch (Exception ex) {
       log("Cannot verify broker position for " + runtime.ticker + ": " + ex.getMessage());
@@ -2118,15 +2121,15 @@ public final class OrderBookTradingEngine implements MarketTickListener {
     }
   }
 
-  private TCSService.OrderExecutionResult closePositionWithRetry(TickerRuntime runtime) {
-    TCSService.OrderExecutionResult result = TCSService.OrderExecutionResult.failed();
+  private TradingService.OrderExecutionResult closePositionWithRetry(TickerRuntime runtime) {
+    TradingService.OrderExecutionResult result = TradingService.OrderExecutionResult.failed();
     boolean isShortShort = "SHORT".equals(runtime.openPosition.direction);
     String closeLabel = isShortShort ? "SHORT" : "LONG";
     for (int attempt = 1; attempt <= ORDER_PLACE_ATTEMPTS; attempt++) {
       result =
           isShortShort
-              ? tcsService.closeShortByMarketWithDetails(runtime.ticker, runtime.key.getType())
-              : tcsService.closeLongByMarketWithDetails(runtime.ticker, runtime.key.getType());
+              ? tradingService.closeShortByMarketWithDetails(runtime.ticker, runtime.key.getType())
+              : tradingService.closeLongByMarketWithDetails(runtime.ticker, runtime.key.getType());
       if (result.isSuccess()) {
         return result;
       }
@@ -2434,7 +2437,7 @@ public final class OrderBookTradingEngine implements MarketTickListener {
     }
 
     try {
-      double availableCash = tcsService.getAvailableCash();
+      double availableCash = tradingService.getAvailableCash();
 
       // getAvailableCash() from Tinkoff API already returns free cash after margin blocking,
       // so we don't need to subtract reservedCapital again (was causing double deduction).
@@ -2446,7 +2449,7 @@ public final class OrderBookTradingEngine implements MarketTickListener {
           ? runtimesByTicker.get(ticker).key
           : new TickerInfo.Key(ticker, TickerType.FEATURE);
 
-      TickerInfo tickerInfo = tcsService.searchTicker(key);
+      TickerInfo tickerInfo = tradingService.searchTicker(key);
       int lot = tickerInfo.getLot() != null ? Math.max(1, tickerInfo.getLot()) : 1;
       // price is per unit, lot is units per lot — price * lot = notional per lot
       double minLotCost = price * lot;
@@ -2516,7 +2519,7 @@ public final class OrderBookTradingEngine implements MarketTickListener {
     TickerInfo.Key key = runtimesByTicker.get(ticker) != null
         ? runtimesByTicker.get(ticker).key
         : new TickerInfo.Key(ticker, TickerType.FEATURE);
-    TickerInfo tickerInfo = tcsService.searchTicker(key);
+    TickerInfo tickerInfo = tradingService.searchTicker(key);
     double marginPerUnit;
     if (tickerInfo != null && tickerInfo.getType() == TickerType.FEATURE) {
       double marginRate = 0.25; // MOEX futures margin ~25%
@@ -2569,7 +2572,7 @@ public final class OrderBookTradingEngine implements MarketTickListener {
 
   private TickerRuntime subscribeSingle(TickerInfo info) {
     String ticker = info.getTicker();
-    if (!tcsService.isTradableForAccount(info)) {
+    if (!tradingService.isTradableForAccount(info)) {
       log(
           "Skip "
               + ticker
@@ -2587,7 +2590,7 @@ public final class OrderBookTradingEngine implements MarketTickListener {
       TickerRuntime runtime = new TickerRuntime(ticker, key, info.getFigi(), info);
       runtimesByTicker.put(ticker, runtime);
       runtimesByFigi.put(info.getFigi(), runtime);
-      tcsService.subscribeMarketData(key, config.getDepth(), this);
+      tradingService.subscribeMarketData(key, config.getDepth(), this);
       log("Subscribed to order book: " + ticker + " (" + key.getType() + ")");
       return runtime;
     } catch (Exception ex) {
@@ -2608,7 +2611,7 @@ public final class OrderBookTradingEngine implements MarketTickListener {
         continue;
       }
       closeOpenPosition(runtime, "rescreen_exit", paper);
-      tcsService.unsubscribeMarketData(runtime.key, this);
+      tradingService.unsubscribeMarketData(runtime.key, this);
       runtimesByTicker.remove(runtime.ticker);
       runtimesByFigi.remove(runtime.figi);
       subscribed.remove(runtime);
@@ -2628,7 +2631,7 @@ public final class OrderBookTradingEngine implements MarketTickListener {
     log("Rescreen complete: watching " + subscribed.size() + " instruments");
   }
 
-  private double resolveBestBid(Map<String, Map<Double, Integer>> book, double fallback) {
+  private double resolveBestBid(Map<String, Map<Double, Long>> book, double fallback) {
     if (book == null || !book.containsKey("bids") || book.get("bids").isEmpty()) {
       return fallback;
     }
@@ -2638,7 +2641,7 @@ public final class OrderBookTradingEngine implements MarketTickListener {
         .orElse(fallback);
   }
 
-  private double resolveBestAsk(Map<String, Map<Double, Integer>> book, double fallback) {
+  private double resolveBestAsk(Map<String, Map<Double, Long>> book, double fallback) {
     if (book == null || !book.containsKey("asks") || book.get("asks").isEmpty()) {
       return fallback;
     }
@@ -2650,19 +2653,37 @@ public final class OrderBookTradingEngine implements MarketTickListener {
 
   private double calculateTradeDelta(TickerInfo.Key key) {
     List<MarketTradeTick> trades =
-        tcsService.getRecentTrades(key, Duration.ofSeconds(config.getTradeFlowWindowSeconds()));
+        tradingService.getRecentTrades(key, Duration.ofSeconds(config.getTradeFlowWindowSeconds()));
     return OrderBookMath.calculateTradeDelta(trades);
   }
 
   private List<TickerInfo> resolveInstruments() {
     List<String> configured = config.getInstruments();
     if (isAllFuturesMode(configured)) {
+      // Crypto mode: load all USDT futures for ByBit and screen the best
+      if (tradingService.getServiceType() == TradingServiceType.BYBIT) {
+        Map<TickerInfo.Key, TickerInfo> allCrypto = tradingService.getFuturesList();
+        List<TickerInfo> cryptoCandidates =
+            allCrypto.values().stream()
+                .filter(info -> "USDT".equalsIgnoreCase(info.getCurrency()))
+                .filter(tradingService::isTradableForAccount)
+                .sorted(Comparator.comparing(TickerInfo::getTicker))
+                .collect(toList());
+        log(
+            "Crypto mode: loaded "
+                + allCrypto.size()
+                + " crypto instruments, "
+                + cryptoCandidates.size()
+                + " tradable for current account");
+        return OrderBookScalpScreener.selectTop(tradingService, cryptoCandidates, config);
+      }
+
       // Load futures
-      Map<TickerInfo.Key, TickerInfo> allFutures = tcsService.getFuturesList();
+      Map<TickerInfo.Key, TickerInfo> allFutures = tradingService.getFuturesList();
       List<TickerInfo> futuresCandidates =
           allFutures.values().stream()
               .filter(info -> "rub".equalsIgnoreCase(info.getCurrency()))
-              .filter(tcsService::isTradableForAccount)
+              .filter(tradingService::isTradableForAccount)
               .sorted(Comparator.comparing(TickerInfo::getTicker))
               .collect(toList());
       log(
@@ -2675,11 +2696,11 @@ public final class OrderBookTradingEngine implements MarketTickListener {
       // Load stocks if enabled
       List<TickerInfo> allCandidates = new ArrayList<>(futuresCandidates);
       if (config.isStocksEnabled()) {
-        Map<TickerInfo.Key, TickerInfo> allStocks = tcsService.getStockList();
+        Map<TickerInfo.Key, TickerInfo> allStocks = tradingService.getStockList();
         List<TickerInfo> stockCandidates =
             allStocks.values().stream()
                 .filter(info -> "rub".equalsIgnoreCase(info.getCurrency()))
-                .filter(tcsService::isTradableForAccount)
+                .filter(tradingService::isTradableForAccount)
                 .sorted(Comparator.comparing(TickerInfo::getTicker))
                 .collect(toList());
         log(
@@ -2691,7 +2712,7 @@ public final class OrderBookTradingEngine implements MarketTickListener {
         allCandidates.addAll(stockCandidates);
       }
 
-      return OrderBookScalpScreener.selectTop(tcsService, allCandidates, config);
+      return OrderBookScalpScreener.selectTop(tradingService, allCandidates, config);
     }
 
     List<TickerInfo> resolved = new ArrayList<>();
@@ -2702,8 +2723,8 @@ public final class OrderBookTradingEngine implements MarketTickListener {
         continue;
       }
       try {
-        TickerInfo info = tcsService.searchTicker(new TickerInfo.Key(ticker, type));
-        if (!tcsService.isTradableForAccount(info)) {
+        TickerInfo info = tradingService.searchTicker(new TickerInfo.Key(ticker, type));
+        if (!tradingService.isTradableForAccount(info)) {
           log("Skip " + ticker + ": not tradable for current account");
           continue;
         }
@@ -3118,16 +3139,8 @@ public final class OrderBookTradingEngine implements MarketTickListener {
       String figi = info.getFigi();
       Instant now = Instant.now();
       Instant from = now.minus(6, ChronoUnit.HOURS);
-      List<HistoricCandle> historicCandles = tcsService.getCandles(figi, from, now, CANDLE_INTERVAL_5_MIN);
-      return historicCandles.stream()
-          .map(hc -> new Candle(
-              hc.getTime().toString(),
-              IndicatorsUtil.toDouble(hc.getOpen()),
-              IndicatorsUtil.toDouble(hc.getHigh()),
-              IndicatorsUtil.toDouble(hc.getLow()),
-              IndicatorsUtil.toDouble(hc.getClose()),
-              hc.getVolume()))
-          .toList();
+      List<Candle> candles = tradingService.getCandles(figi, from, now, "5_MIN");
+      return candles;
     } catch (Exception e) {
       return Collections.emptyList();
     }

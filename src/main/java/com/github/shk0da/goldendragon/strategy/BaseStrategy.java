@@ -1,5 +1,6 @@
 package com.github.shk0da.goldendragon.strategy;
 
+import com.github.shk0da.goldendragon.config.DataCollectorConfig;
 import com.github.shk0da.goldendragon.config.UnifiedTraderConfig;
 import com.github.shk0da.goldendragon.filters.BadWeatherFilter;
 import com.github.shk0da.goldendragon.filters.MarketRegimeFilter;
@@ -16,13 +17,13 @@ import com.github.shk0da.goldendragon.model.TickerInfo;
 import com.github.shk0da.goldendragon.model.TickerType;
 import com.github.shk0da.goldendragon.model.TradingDecision;
 import com.github.shk0da.goldendragon.repository.TickerRepository;
-import com.github.shk0da.goldendragon.service.TCSService;
+import com.github.shk0da.goldendragon.service.TradingService;
+import com.github.shk0da.goldendragon.service.TradingService.TradingServiceType;
 import com.github.shk0da.goldendragon.time.LiveTimeProvider;
 import com.github.shk0da.goldendragon.time.TimeProvider;
+import com.github.shk0da.goldendragon.money.CashParkingManager;
 import com.github.shk0da.goldendragon.utils.IndicatorsUtil;
 import com.github.shk0da.goldendragon.utils.LoggingUtils;
-import ru.tinkoff.piapi.contract.v1.CandleInterval;
-import ru.tinkoff.piapi.contract.v1.HistoricCandle;
 
 import java.io.BufferedReader;
 import java.io.File;
@@ -31,7 +32,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.sql.Timestamp;
+
 import java.text.SimpleDateFormat;
 import java.time.DayOfWeek;
 import java.time.LocalTime;
@@ -50,7 +51,11 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.ReentrantLock;
+import java.util.stream.Collectors;
 
+import static java.util.stream.Collectors.toList;
+
+import static com.github.shk0da.goldendragon.model.TickerType.CRYPTO;
 import static com.github.shk0da.goldendragon.model.TickerType.FEATURE;
 import static com.github.shk0da.goldendragon.model.TickerType.STOCK;
 import static com.github.shk0da.goldendragon.utils.TimeUtils.sleep;
@@ -74,7 +79,7 @@ import static java.util.concurrent.CompletableFuture.runAsync;
  *   <li>Loads and caches historical candles (hourly and 5-minute).
  *   <li>Coordinates parallel ticker processing.
  *   <li>Delegates trading decision to subclass via {@link #decide}.
- *   <li>Executes orders via {@link TCSService} (broker API).
+ *   <li>Executes orders via {@link TradingService} (broker API).
  *   <li>Tracks positions, cooldowns, integrates with Money Management.
  * </ul>
  *
@@ -128,7 +133,7 @@ import static java.util.concurrent.CompletableFuture.runAsync;
  *   <li>Validate direction ({@code BUY}/{@code SELL}) and quantity.
  *   <li>Check concurrent position limit ({@link #MAX_CONCURRENT_POSITIONS} = 8).
  *   <li>Calculate SL/TP as percentage of entry price (defaults 2%/4% if not set).
- *   <li>Call {@code tcsService.buyByMarket} / {@code sellByMarket} with market order and automatic
+ *   <li>Call {@code tradingService.buyByMarket} / {@code sellByMarket} with market order and automatic
  *       SL/TP setup.
   *   <li>Save position, record entry bar for backtest metrics.
   * </ul>
@@ -209,7 +214,7 @@ import static java.util.concurrent.CompletableFuture.runAsync;
  * <h2>Интеграции</h2>
  *
  * <ul>
- *   <li>{@link TCSService} — брокерский API (Tinkoff Invest).
+ *   <li>{@link TradingService} — брокерский API (Tinkoff Invest).
  *   <li>{@code TelegramNotifyService} — уведомления о запуске, сделках, ошибках.
   *   <li>{@link TickerRepository} — справочник инструментов.
   * </ul>
@@ -217,9 +222,10 @@ import static java.util.concurrent.CompletableFuture.runAsync;
  public abstract class BaseStrategy {
 
     protected final Config config;
-    protected final TCSService tcsService;
+    protected final TradingService tradingService;
     protected final UnifiedTraderConfig unifiedTraderConfig;
     protected MarketDataProvider marketDataProvider;
+    protected final CashParkingManager cashParkingManager;
     protected OrderExecutor orderExecutor;
     protected TimeProvider timeProvider;
 
@@ -274,23 +280,24 @@ import static java.util.concurrent.CompletableFuture.runAsync;
 
     protected BaseStrategy(
             UnifiedTraderConfig unifiedTraderConfig,
-            TCSService tcsService,
+            TradingService tradingService,
             Config config) {
-        this(unifiedTraderConfig, tcsService, config, null);
+        this(unifiedTraderConfig, tradingService, config, null);
     }
 
     protected BaseStrategy(
             UnifiedTraderConfig unifiedTraderConfig,
-            TCSService tcsService,
+            TradingService tradingService,
             Config config,
             TimeProvider timeProvider) {
         this.config = config;
-        this.tcsService = tcsService;
+        this.tradingService = tradingService;
         this.unifiedTraderConfig = unifiedTraderConfig;
         this.timeProvider = timeProvider != null ? timeProvider : new LiveTimeProvider();
 
-        this.marketDataProvider = new LiveMarketDataProvider(tcsService);
-        this.orderExecutor = new LiveOrderExecutor(tcsService);
+        this.marketDataProvider = new LiveMarketDataProvider(tradingService);
+        this.orderExecutor = new LiveOrderExecutor(tradingService);
+        this.cashParkingManager = new CashParkingManager(tradingService, marketDataProvider, positionStore);
 
         boolean bwFilterEnabled =
                 unifiedTraderConfig != null
@@ -314,9 +321,48 @@ import static java.util.concurrent.CompletableFuture.runAsync;
         positionStore.put(ticker, position);
     }
 
+    /**
+     * Resolve instruments to trade based on TradingService type.
+     * For BYBIT: load crypto instruments dynamically.
+     * For TINKOFF: use configured instruments from unifiedTraderConfig.
+     */
+    protected List<String> resolveInstruments() {
+        if (tradingService != null && tradingService.getServiceType() == TradingServiceType.BYBIT) {
+            // Load crypto instruments from datacollector.crypto config
+            try {
+                DataCollectorConfig config = new DataCollectorConfig();
+                List<String> cryptoTickers = config.getCryptoInstruments();
+                log(
+                        getStrategyName()
+                                + ": crypto instruments loaded from datacollector.crypto ("
+                                + cryptoTickers.size()
+                                + "): "
+                                + cryptoTickers);
+                return new ArrayList<>(cryptoTickers);
+            } catch (Exception e) {
+                log("Failed to load datacollector.crypto: " + e.getMessage());
+                // Fallback to all USDT futures
+                try {
+                    Map<TickerInfo.Key, TickerInfo> cryptoInstruments = tradingService.getFuturesList();
+                    return cryptoInstruments.values().stream()
+                            .filter(info -> "USDT".equalsIgnoreCase(info.getCurrency()))
+                            .filter(tradingService::isTradableForAccount)
+                            .map(TickerInfo::getTicker)
+                            .sorted()
+                            .collect(toList());
+                } catch (Exception ex2) {
+                    log("Fallback failed to load crypto instruments: " + ex2.getMessage());
+                    return unifiedTraderConfig.getStocks();
+                }
+            }
+        }
+        // TINKOFF or fallback: use configured instruments
+        return unifiedTraderConfig.getStocks();
+    }
+
     public void run() {
-        if (tcsService == null) {
-            log(getStrategyName() + " stopped: tcsService is null.");
+        if (tradingService == null) {
+            log(getStrategyName() + " stopped: tradingService is null.");
             return;
         }
 
@@ -326,8 +372,9 @@ import static java.util.concurrent.CompletableFuture.runAsync;
                 getStrategyName() + " started. Total Portfolio Cost: " + initPortfolioCost;
         log(infoMessage);
 
+        List<String> allTickers = resolveInstruments();
         List<String> activeTickers = new ArrayList<>();
-        for (String ticker : unifiedTraderConfig.getStocks()) {
+        for (String ticker : allTickers) {
             try {
                 if (unifiedTraderConfig.getTickerParams(ticker).enabled) {
                     activeTickers.add(ticker);
@@ -358,7 +405,7 @@ import static java.util.concurrent.CompletableFuture.runAsync;
             var message =
                     getStrategyName() + ": outside working hours, closing positions if needed.";
             log(message);
-            closeAllPositions(tcsService, unifiedTraderConfig);
+            closeAllPositions(tradingService, unifiedTraderConfig);
             return;
         }
 
@@ -390,7 +437,7 @@ import static java.util.concurrent.CompletableFuture.runAsync;
                                     while (isWorkingHours()) {
                                         processTicker(
                                                 name,
-                                                tcsService,
+                                                tradingService,
                                                 unifiedTraderConfig,
                                                 allocatedBalance);
                                         sleep(30_000);
@@ -401,7 +448,7 @@ import static java.util.concurrent.CompletableFuture.runAsync;
 
             allOf(tasks.toArray(new CompletableFuture[0])).join();
         } finally {
-            closeAllPositions(tcsService, unifiedTraderConfig);
+            closeAllPositions(tradingService, unifiedTraderConfig);
             shutdownExecutor(executor);
 
             var endPortfolioCost = safeGetTotalPortfolioCost();
@@ -421,7 +468,7 @@ import static java.util.concurrent.CompletableFuture.runAsync;
             boolean incrementCandlesHeld);
 
     protected void refreshPeerCandles(List<String> tickers) {
-        if (tcsService == null) {
+        if (tradingService == null) {
             return;
         }
 
@@ -439,7 +486,7 @@ import static java.util.concurrent.CompletableFuture.runAsync;
                                 info.getFigi(),
                                 dataDir,
                                 timeProvider != null ? timeProvider.nowOffset() : OffsetDateTime.now(),
-                                CandleInterval.CANDLE_INTERVAL_HOUR);
+                                "HOUR");
                 if (hourCandles != null && !hourCandles.isEmpty()) {
                     snapshot.put(ticker, hourCandles);
                 }
@@ -455,7 +502,7 @@ import static java.util.concurrent.CompletableFuture.runAsync;
 
     public void processTicker(
             String name,
-            TCSService tcsService,
+            TradingService tradingService,
             UnifiedTraderConfig unifiedTraderConfig,
             double allocatedBalance) {
         Long cooldownUntil = tickerCooldown.get(name);
@@ -468,7 +515,7 @@ import static java.util.concurrent.CompletableFuture.runAsync;
                                 + " is on cooldown for "
                                 + (remaining / 1000)
                                 + "s, skipping.";
-                if ("TMON@".equals(name)) {
+                if (cashParkingManager.getParkingTicker().equals(name)) {
                     logThrottled(name + "_cooldown", cooldownMessage, 30);
                 } else {
                     log(cooldownMessage);
@@ -536,37 +583,39 @@ import static java.util.concurrent.CompletableFuture.runAsync;
 
             double balance = allocatedBalance > 0.0 ? allocatedBalance : orderExecutor.getAvailableCash();
 
-            // Include TMON@ parking value into effective cash for position sizing,
-            // so decide() can size a position using cash parked in TMON@
-            // Read TMON@ position from broker (not local store) to handle parallel execution
+            // Include cash parking value into effective cash for position sizing,
+            // so decide() can size a position using cash parked in the parking ticker
+            // Read parking position from broker (not local store) to handle parallel execution
             double effectiveBalance = balance;
-            if (!"TMON@".equals(name) && (tcsService != null || marketDataProvider != null)) {
+            if (!cashParkingManager.getParkingTicker().equals(name) && (tradingService != null || marketDataProvider != null)) {
                 try {
-                    com.github.shk0da.goldendragon.model.PositionInfo tmonInfo =
-                            tcsService != null
-                                    ? tcsService.getCurrentPositions(TickerType.ETF, "TMON@")
-                                    : marketDataProvider.getCurrentPositions(TickerType.ETF, "TMON@");
-                    if (tmonInfo != null && tmonInfo.getBalance() > 0) {
-                        double tmonQty = Math.abs(tmonInfo.getBalance());
-                        Double tmonPrice = tmonInfo.getAveragePositionPrice();
-                        if (tmonPrice != null && tmonPrice > 0) {
-                            double tmonValue = tmonQty * tmonPrice;
-                            effectiveBalance = balance + tmonValue;
+                    String parkingTicker = cashParkingManager.getParkingTicker();
+                    TickerType parkingType = cashParkingManager.getParkingTickerType();
+                    com.github.shk0da.goldendragon.model.PositionInfo parkingInfo =
+                            tradingService != null
+                                    ? tradingService.getCurrentPositions(parkingType, parkingTicker)
+                                    : marketDataProvider.getCurrentPositions(parkingType, parkingTicker);
+                    if (parkingInfo != null && parkingInfo.getBalance() > 0) {
+                        double parkingQty = Math.abs(parkingInfo.getBalance());
+                        Double parkingPrice = parkingInfo.getAveragePositionPrice();
+                        if (parkingPrice != null && parkingPrice > 0) {
+                            double parkingValue = parkingQty * parkingPrice;
+                            effectiveBalance = balance + parkingValue;
                             if (isVerboseLogging()) {
                                 log(
                                         "EFFECTIVE-BALANCE "
                                                 + name
                                                 + ": cash="
                                                 + String.format("%.2f", balance)
-                                                + " + tmon="
-                                                + String.format("%.2f", tmonValue)
+                                                + " + parking="
+                                                + String.format("%.2f", parkingValue)
                                                 + " = "
                                                 + String.format("%.2f", effectiveBalance));
                             }
                         }
                     }
                 } catch (Exception ignored) {
-                    // no TMON@ position in broker
+                    // no parking position in broker
                 }
             }
 
@@ -611,60 +660,66 @@ import static java.util.concurrent.CompletableFuture.runAsync;
             }
 
             if ("OPEN".equals(decision.action)) {
-                // Free cash from TMON@ parking only for the amount missing for the trade
-                if (!"TMON@".equals(name)
+                // Free cash from parking only for the amount missing for the trade
+                if (!cashParkingManager.getParkingTicker().equals(name)
                         && decision.quantity > 0
                         && decision.entryPrice != null) {
                     try {
-                        // read TMON@ position from broker (not local store) to get actual qty
-                        com.github.shk0da.goldendragon.model.PositionInfo tmonInfo =
-                                tcsService != null
-                                        ? tcsService.getCurrentPositions(TickerType.ETF, "TMON@")
-                                        : marketDataProvider.getCurrentPositions(TickerType.ETF, "TMON@");
-                        if (tmonInfo != null && tmonInfo.getBalance() > 0) {
-                            int tmonQty = tmonInfo.getBalance();
-                            Double tmonPriceDouble = tmonInfo.getAveragePositionPrice();
-                            double tmonPrice =
-                                    tmonPriceDouble != null && tmonPriceDouble > 0
-                                            ? tmonPriceDouble
+                        String parkingTicker = cashParkingManager.getParkingTicker();
+                        TickerType parkingType = cashParkingManager.getParkingTickerType();
+                        // read parking position from broker (not local store) to get actual qty
+                        com.github.shk0da.goldendragon.model.PositionInfo parkingInfo =
+                                tradingService != null
+                                        ? tradingService.getCurrentPositions(parkingType, parkingTicker)
+                                        : marketDataProvider.getCurrentPositions(parkingType, parkingTicker);
+                        if (parkingInfo != null && parkingInfo.getBalance() > 0) {
+                            int parkingQty = parkingInfo.getBalance();
+                            Double parkingPriceDouble = parkingInfo.getAveragePositionPrice();
+                            double parkingPrice =
+                                    parkingPriceDouble != null && parkingPriceDouble > 0
+                                            ? parkingPriceDouble
                                             : decision.entryPrice;
                             int lotSize = ticker.getLot() != null ? Math.max(1, ticker.getLot()) : 1;
                             double positionValue = decision.quantity * decision.entryPrice * lotSize;
                             double availableCash0 = orderExecutor.getAvailableCash();
                             double missing = positionValue - availableCash0;
-                            if (missing > 0 && tmonQty > 0 && tmonPrice > 0) {
-                                // sell only the required TMON@ value to free cash for the trade
-                                int tmonLots = tmonInfo.getLots() > 0
-                                        ? tmonInfo.getLots()
+                            if (missing > 0 && parkingQty > 0 && parkingPrice > 0) {
+                                // sell only the required parking value to free cash for the trade
+                                int parkingLots = parkingInfo.getLots() > 0
+                                        ? parkingInfo.getLots()
                                         : 1;
-                                double tmonLotCost = tmonPrice * tmonLots;
+                                double parkingLotCost = parkingPrice * parkingLots;
                                 // whole lots needed to cover the missing amount
-                                int neededLots = (int) Math.ceil(missing / tmonLotCost);
-                                int tmonLotsToSell = Math.min(neededLots, tmonQty);
-                                if (tmonLotsToSell > 0) {
-                                    double cashToFree = tmonLotsToSell * tmonLotCost;
-                                    if (tcsService != null) {
-                                        tcsService.sellByMarket(
-                                                "TMON@", TickerType.ETF, cashToFree, 0.0, 0.0);
+                                int neededLots = (int) Math.ceil(missing / parkingLotCost);
+                                int parkingLotsToSell = Math.min(neededLots, parkingQty);
+                                if (parkingLotsToSell > 0) {
+                                    double cashToFree = parkingLotsToSell * parkingLotCost;
+                                    if (tradingService != null) {
+                                        tradingService.sellByMarketWithDetails(
+                                                parkingTicker, parkingType, cashToFree, 0.0, 0.0);
                                     } else {
                                         marketDataProvider.sellByMarket(
-                                                "TMON@", TickerType.ETF, cashToFree);
+                                                parkingTicker, parkingType, cashToFree);
                                     }
                                     log(
                                             "PARTIALFREE "
                                                     + name
-                                                    + ": sold TMON@ value="
+                                                    + ": sold "
+                                                    + parkingTicker
+                                                    + " value="
                                                     + String.format("%.2f", cashToFree)
                                                     + " ("
-                                                    + tmonLotsToSell
+                                                    + parkingLotsToSell
                                                     + " lots) to cover missing "
                                                     + String.format("%.2f", missing)
                                                     + ", positionValue="
                                                     + String.format("%.2f", positionValue)
                                                     + ", availableCash="
                                                     + String.format("%.2f", availableCash0)
-                                                    + ", TMON@ remaining (est.)="
-                                                    + (tmonQty - tmonLotsToSell));
+                                                    + ", "
+                                                    + parkingTicker
+                                                    + " remaining (est.)="
+                                                    + (parkingQty - parkingLotsToSell));
                                 }
                             }
                         }
@@ -708,34 +763,40 @@ import static java.util.concurrent.CompletableFuture.runAsync;
             return;
         }
 
-        // Pre-trade: sell TMON@ parking to free cash for new positions
+        // Pre-trade: sell parking to free cash for new positions
         if (positionStore != null) {
-            Position tmonPos = positionStore.get("TMON@");
-            if (tmonPos != null
-                    && tmonPos.quantity > 0
-                    && !"TMON@".equals(name)
+            String parkingTicker = cashParkingManager.getParkingTicker();
+            Position parkingPos = positionStore.get(parkingTicker);
+            if (parkingPos != null
+                    && parkingPos.quantity > 0
+                    && !parkingTicker.equals(name)
                     && "BUY".equals(decision.updatedPosition.direction)) {
                 try {
-                    TickerInfo tmonInfo = findTickerInfo("TMON@");
-                    if (tmonInfo != null) {
+                    TickerInfo parkingInfo = findTickerInfo(parkingTicker);
+                    if (parkingInfo != null) {
                         log(
                                 "CASH_FREETRIGGER "
                                         + name
-                                        + ": TMON@ parked="
-                                        + tmonPos.quantity
+                                        + ": "
+                                        + parkingTicker
+                                        + " parked="
+                                        + parkingPos.quantity
                                         + " selling to free cash for "
                                         + name);
-                        if (tcsService != null) {
-                            tcsService.closeLongByMarket("TMON@", TickerType.ETF);
+                        TickerType parkingType = cashParkingManager.getParkingTickerType();
+                        if (tradingService != null) {
+                            tradingService.closeLongByMarket(parkingTicker, parkingType);
                         } else {
-                            marketDataProvider.closeLongByMarket("TMON@", TickerType.ETF);
+                            marketDataProvider.closeLongByMarket(parkingTicker, parkingType);
                         }
-                        positionStore.remove("TMON@");
-                        log("TMON@ sold, positionStore cleared for new position");
+                        positionStore.remove(parkingTicker);
+                        log(parkingTicker + " sold, positionStore cleared for new position");
                     }
                 } catch (Exception ex) {
                     log(
-                            "CASH_FREEFAIL: Failed to sell TMON@ for "
+                            "CASH_FREEFAIL: Failed to sell "
+                                    + parkingTicker
+                                    + " for "
                                     + name
                                     + ": "
                                     + ex.getMessage());
@@ -784,7 +845,7 @@ import static java.util.concurrent.CompletableFuture.runAsync;
         }
         double positionValue = qty * liveAskPrice * lotSize;
 
-        boolean isTmonCashParking = "TMON@".equals(name);
+        boolean isTmonCashParking = cashParkingManager.isParkingTicker(name);
         double slPercent;
         double tpPercent;
         if (isTmonCashParking) {
@@ -825,7 +886,7 @@ import static java.util.concurrent.CompletableFuture.runAsync;
                         + String.format("%.2f", tpPercent)
                         + "%";
 
-        if ("TMON@".equals(name)) {
+        if (cashParkingManager.isParkingTicker(name)) {
             logThrottled(name + "_opening", openingLogMessage, 5);
         } else {
             log(openingLogMessage);
@@ -844,7 +905,7 @@ import static java.util.concurrent.CompletableFuture.runAsync;
                 logOpenCandidateSkipped(name, "order_execution_failed", decision);
                 String failedLogMessage =
                         "Failed to open " + decision.updatedPosition.direction + " for " + name + ".";
-                if ("TMON@".equals(name)) {
+                if (cashParkingManager.isParkingTicker(name)) {
                     // avoid retrying an untradable parking instrument every cycle
                     tickerCooldown.put(name, timeProvider.currentTimeMillis() + COOLDOWN_DURATION_MS);
                     logThrottled(name + "_failed_open", failedLogMessage, 5);
@@ -899,7 +960,7 @@ import static java.util.concurrent.CompletableFuture.runAsync;
                         + quantity
                         + ", entry="
                         + (entryPrice != null ? entryPrice : 0.0);
-        if ("TMON@".equals(name)) {
+        if (cashParkingManager.isParkingTicker(name)) {
             logThrottled(name + "_skipped_" + reason, message, 5);
         } else {
             log(message);
@@ -1006,7 +1067,7 @@ import static java.util.concurrent.CompletableFuture.runAsync;
 
     private void syncProtectiveOrdersIfNeeded(
             String name, TickerInfo ticker, Position previousPosition, Position updatedPosition) {
-        if (tcsService == null || ticker == null || updatedPosition == null || updatedPosition.quantity <= 0) {
+        if (tradingService == null || ticker == null || updatedPosition == null || updatedPosition.quantity <= 0) {
             return;
         }
 
@@ -1020,7 +1081,7 @@ import static java.util.concurrent.CompletableFuture.runAsync;
 
         try {
             throttleApiCall();
-            tcsService.syncProtectiveOrders(name, ticker.getType(), updatedPosition);
+            tradingService.syncProtectiveOrders(name, ticker.getType(), updatedPosition);
         } catch (Exception ex) {
             log("Failed to sync protective orders for " + name + ": " + ex.getMessage());
         }
@@ -1053,13 +1114,13 @@ import static java.util.concurrent.CompletableFuture.runAsync;
     }
 
     /**
-     * Checks if there are any active positions on tickers other than TMON@. Used by TMON@ cash
-     * parking logic to determine whether TMON@ should be sold (to free cash for other positions) or
-     * bought (when idle).
+     * Checks if there are any active positions on tickers other than the cash parking ticker.
+     * Used by cash parking logic to determine whether parking should be sold (to free cash
+     * for other positions) or bought (when idle).
      */
     protected boolean hasActiveNonTmonPositions() {
         for (Map.Entry<String, Position> entry : positionStore.entrySet()) {
-            if ("TMON@".equals(entry.getKey())) {
+            if (cashParkingManager.isParkingTicker(entry.getKey())) {
                 continue;
             }
             if (entry.getValue().quantity > 0) {
@@ -1070,11 +1131,11 @@ import static java.util.concurrent.CompletableFuture.runAsync;
     }
 
     protected Double safeGetTotalPortfolioCost() {
-        if (tcsService == null) {
+        if (tradingService == null) {
             return 0.0;
         }
         try {
-            return tcsService.getTotalPortfolioCost();
+            return tradingService.getTotalPortfolioCost();
         } catch (Exception ex) {
             log("Failed to read portfolio cost: " + ex.getMessage());
             return 0.0;
@@ -1082,34 +1143,52 @@ import static java.util.concurrent.CompletableFuture.runAsync;
     }
 
     protected TickerInfo findTickerInfo(String name) {
-        return TickerRepository.INSTANCE.getAll().values().stream()
-                .filter(
-                        t ->
-                                t.getType() == TickerType.STOCK
-                                        || t.getType() == TickerType.FEATURE
-                                        || t.getType() == TickerType.ETF)
-                .filter(
-                        t ->
-                                t.getName().equalsIgnoreCase(name)
-                                        || t.getTicker().equalsIgnoreCase(name))
-                .findFirst()
-                .orElse(null);
+        // First try TickerRepository (disk cache for Tinkoff instruments)
+        TickerInfo found =
+                TickerRepository.INSTANCE.getAll().values().stream()
+                        .filter(
+                                t ->
+                                        t.getType() == TickerType.STOCK
+                                                || t.getType() == TickerType.FEATURE
+                                                || t.getType() == TickerType.ETF
+                                                || t.getType() == TickerType.CRYPTO)
+                        .filter(
+                                t ->
+                                        t.getName().equalsIgnoreCase(name)
+                                                || t.getTicker().equalsIgnoreCase(name))
+                        .findFirst()
+                        .orElse(null);
+        if (found != null) {
+            return found;
+        }
+
+        // Fallback: search via tradingService (ByBit crypto instruments)
+        if (tradingService != null) {
+            try {
+                return tradingService.searchTicker(new TickerInfo.Key(name, TickerType.CRYPTO));
+            } catch (Exception ignored) {
+                // Return null if tradingService lookup fails
+            }
+        }
+
+        return null;
     }
 
     private void restoreTrackedPositions(List<String> activeTickers) {
-        if (tcsService == null) {
+        if (tradingService == null) {
             return;
         }
 
         Set<String> activeTickerSet = new HashSet<>(activeTickers);
         restoreTrackedPositions(activeTickerSet, STOCK);
         restoreTrackedPositions(activeTickerSet, FEATURE);
+        restoreTrackedPositions(activeTickerSet, CRYPTO);
         logRestoredPositionsReport();
     }
 
     private void restoreTrackedPositions(Set<String> activeTickers, TickerType tickerType) {
         Map<TickerInfo.Key, com.github.shk0da.goldendragon.model.PositionInfo> currentPositions =
-                tcsService.getCurrentPositions(tickerType);
+                tradingService.getCurrentPositions(tickerType);
         currentPositions.values().stream()
                 .filter(positionInfo -> activeTickers.contains(positionInfo.getTicker()))
                 .filter(positionInfo -> positionInfo.getBalance() != 0)
@@ -1126,7 +1205,7 @@ import static java.util.concurrent.CompletableFuture.runAsync;
                             Position restoredPosition =
                                     new Position(direction, entryPrice, null, null, quantity, 0);
                             restoredPosition =
-                                    tcsService.restoreProtectivePosition(
+                                    tradingService.restoreProtectivePosition(
                                             positionInfo.getTicker(), tickerType, restoredPosition);
                             positionStore.put(positionInfo.getTicker(), restoredPosition);
                             initializeLastSeenHourBar(positionInfo.getTicker(), tickerInfo);
@@ -1150,7 +1229,7 @@ import static java.util.concurrent.CompletableFuture.runAsync;
                                                     : 0.0));
 
                             if (entryPrice != null) {
-                                tcsService.syncProtectiveOrders(
+                                tradingService.syncProtectiveOrders(
                                         positionInfo.getTicker(), tickerType, restoredPosition);
                             }
                         });
@@ -1164,7 +1243,7 @@ import static java.util.concurrent.CompletableFuture.runAsync;
                             tickerInfo.getFigi(),
                             unifiedTraderConfig.getDataDir(),
                             timeProvider != null ? timeProvider.nowOffset() : OffsetDateTime.now(),
-                            CandleInterval.CANDLE_INTERVAL_HOUR);
+                            "HOUR");
             if (hourCandles != null && !hourCandles.isEmpty()) {
                 lastSeenHourBarByTicker.put(ticker, hourCandles.get(hourCandles.size() - 1).time);
             }
@@ -1198,63 +1277,50 @@ import static java.util.concurrent.CompletableFuture.runAsync;
     }
 
     protected List<Candle> loadOrRefreshCandles(
-            String name, String figi, String dataDir, OffsetDateTime now, CandleInterval interval) {
+            String name, String figi, String dataDir, OffsetDateTime now, String interval) {
         // Use timeProvider if 'now' is null (for backtest compatibility)
         if (now == null && timeProvider != null) {
             now = timeProvider.nowOffset();
         }
-        if (tcsService == null) {
+        if (tradingService == null) {
             return readCachedCandles(name, dataDir, interval);
         }
 
         String fileName =
-                interval == CandleInterval.CANDLE_INTERVAL_HOUR
+                "HOUR".equals(interval)
                         ? "candlesHOUR.txt"
                         : "candles5_MIN.txt";
         File candleFile = new File(dataDir + "/" + name + "/" + fileName);
 
-        List<Candle> candles = readCachedCandles(name, dataDir, interval);
-        if (candles != null && !candles.isEmpty() && isCandleDataFresh(candles, interval)) {
-            return candles;
+        List<Candle> cachedCandles = readCachedCandles(name, dataDir, interval);
+        if (cachedCandles != null && !cachedCandles.isEmpty() && isCandleDataFresh(cachedCandles, interval)) {
+            return cachedCandles;
         }
 
         throttleApiCall();
 
-        List<HistoricCandle> historicCandles =
-                tcsService.getCandles(
+        List<Candle> freshCandles =
+                tradingService.getCandles(
                         figi,
-                        interval == CandleInterval.CANDLE_INTERVAL_HOUR
+                        "HOUR".equals(interval)
                                 ? now.minusMinutes(7 * 24 * 60)
                                 : now.minusMinutes(6 * 60),
                         now,
                         interval);
 
-        List<Candle> refreshed = new ArrayList<>();
-        for (HistoricCandle hc : historicCandles) {
-            Timestamp ts = new Timestamp(hc.getTime().getSeconds() * 1000);
-            refreshed.add(
-                    new Candle(
-                            CANDLE_TIME_FORMAT.get().format(ts),
-                            IndicatorsUtil.toDouble(hc.getOpen()),
-                            IndicatorsUtil.toDouble(hc.getHigh()),
-                            IndicatorsUtil.toDouble(hc.getLow()),
-                            IndicatorsUtil.toDouble(hc.getClose()),
-                            hc.getVolume()));
+        if (freshCandles != null && !freshCandles.isEmpty()) {
+            writeCandlesToFile(name, dataDir, fileName, freshCandles);
+            return freshCandles;
         }
 
-        if (!refreshed.isEmpty()) {
-            writeCandlesToFile(name, dataDir, fileName, refreshed);
-            return refreshed;
+        if (candleFile.exists() && cachedCandles != null && !cachedCandles.isEmpty()) {
+            return cachedCandles;
         }
 
-        if (candleFile.exists() && candles != null && !candles.isEmpty()) {
-            return candles;
-        }
-
-        return refreshed;
+        return freshCandles;
     }
 
-    protected List<Candle> readCachedCandles(String name, String dataDir, CandleInterval interval) {
+    protected List<Candle> readCachedCandles(String name, String dataDir, String interval) {
         try {
             List<TickerCandle> cached = DataCollector.readCandlesFile(name, dataDir, interval);
             if (cached == null || cached.isEmpty()) {
@@ -1279,7 +1345,7 @@ import static java.util.concurrent.CompletableFuture.runAsync;
         }
     }
 
-    protected boolean isCandleDataFresh(List<Candle> candles, CandleInterval interval) {
+    protected boolean isCandleDataFresh(List<Candle> candles, String interval) {
         if (candles == null || candles.isEmpty()) {
             return false;
         }
@@ -1302,7 +1368,7 @@ import static java.util.concurrent.CompletableFuture.runAsync;
                 return false;
             }
 
-            if (interval == CandleInterval.CANDLE_INTERVAL_HOUR) {
+            if ("HOUR".equals(interval)) {
                 return lastCal.get(Calendar.HOUR_OF_DAY) == nowCal.get(Calendar.HOUR_OF_DAY);
             }
 
@@ -1314,11 +1380,25 @@ import static java.util.concurrent.CompletableFuture.runAsync;
     }
 
     protected boolean isTradingDay() {
+        // For ByBit with 24/7 trading enabled: every day is a trading day
+        if (tradingService != null
+                && tradingService.getServiceType() == TradingServiceType.BYBIT
+                && unifiedTraderConfig != null
+                && unifiedTraderConfig.isBybit24h()) {
+            return true;
+        }
         DayOfWeek day = timeProvider.now().getDayOfWeek();
         return day != DayOfWeek.SATURDAY && day != DayOfWeek.SUNDAY;
     }
 
     protected boolean isWorkingHours() {
+        // For ByBit with 24/7 trading enabled: always trading
+        if (tradingService != null
+                && tradingService.getServiceType() == TradingServiceType.BYBIT
+                && unifiedTraderConfig != null
+                && unifiedTraderConfig.isBybit24h()) {
+            return isTradingDay();
+        }
         if (!isTradingDay()) {
             return false;
         }
@@ -1345,8 +1425,8 @@ import static java.util.concurrent.CompletableFuture.runAsync;
     }
 
     protected void closeAllPositions(
-            TCSService tcsService, UnifiedTraderConfig unifiedTraderConfig) {
-        if (tcsService == null) {
+            TradingService tradingService, UnifiedTraderConfig unifiedTraderConfig) {
+        if (tradingService == null) {
             return;
         }
 
@@ -1379,16 +1459,16 @@ import static java.util.concurrent.CompletableFuture.runAsync;
 
                 boolean closed = false;
                 if ("BUY".equals(position.direction)) {
-                    closed = tcsService.closeLongByMarket(tickerName, ticker.getType());
+                    closed = tradingService.closeLongByMarket(tickerName, ticker.getType());
                 } else if ("SELL".equals(position.direction)) {
-                    closed = tcsService.closeShortByMarket(tickerName, ticker.getType());
+                    closed = tradingService.closeShortByMarket(tickerName, ticker.getType());
                 }
 
                 if (closed) {
                     positionStore.put(tickerName, getCooldownPosition());
                     lastSeenHourBarByTicker.remove(tickerName);
                     double exitPrice =
-                            tcsService.getAvailablePrice(
+                            tradingService.getAvailablePrice(
                                     new TickerInfo.Key(tickerName, ticker.getType()));
                     double entryPrice = position.entryPrice != null ? position.entryPrice : 0.0;
                     double pnl = calculatePnl(position, exitPrice);
@@ -1409,13 +1489,13 @@ import static java.util.concurrent.CompletableFuture.runAsync;
         }
 
         try {
-            tcsService.closeAllByMarket(STOCK);
+            tradingService.closeAllByMarket(STOCK);
         } catch (Exception ex) {
             log("Failed to close all STOCK positions: " + ex.getMessage());
         }
 
         try {
-            tcsService.closeAllByMarket(FEATURE);
+            tradingService.closeAllByMarket(FEATURE);
         } catch (Exception ex) {
             log("Failed to close all FEATURE positions: " + ex.getMessage());
         }
@@ -1484,7 +1564,7 @@ import static java.util.concurrent.CompletableFuture.runAsync;
      * Logs message with throttling to prevent spam of repeated warnings.
      * Only logs if more than {@code throttleMinutes} have passed since the last log for this key.
      *
-     * @param key unique identifier for the log category (e.g., "TMON@_empty_orderbook")
+     * @param key unique identifier for the log category (e.g., "SPYUSDT_heartbeat")
      * @param message message to log
      * @param throttleMinutes minutes to wait between logs for the same key
      */
@@ -1695,23 +1775,24 @@ import static java.util.concurrent.CompletableFuture.runAsync;
 
         double totalCash;
         try {
-            totalCash = tcsService.getAvailableCash();
+            totalCash = tradingService.getAvailableCash();
         } catch (Exception ex) {
             log("Failed to read available cash for allocation: " + ex.getMessage());
             return new HashMap<>();
         }
 
+        String parkingTicker = cashParkingManager.getParkingTicker();
         boolean tmonCashParking =
-                weights.containsKey("TMON@") && unifiedTraderConfig.isTmonCashParkingEnabled();
+                weights.containsKey(parkingTicker) && unifiedTraderConfig.isTmonCashParkingEnabled();
 
         Map<String, Double> allocation = new HashMap<>();
         for (Map.Entry<String, Double> e : weights.entrySet()) {
-            if (tmonCashParking && "TMON@".equals(e.getKey())) {
-                // TMON@ cash parking always uses real-time available cash via
+            if (tmonCashParking && cashParkingManager.isParkingTicker(e.getKey())) {
+                // Cash parking always uses real-time available cash via
                 // getAvailableCash() in processTicker(), not a stale startup snapshot.
                 // Skipping allocation so allocatedBalance = 0.0 and the fallback kicks in.
             } else {
-                // Allocate capital to non-TMON@ tickers (or all tickers if tmonCashParking=false)
+                // Allocate capital to non-parking tickers (or all tickers if tmonCashParking=false)
                 allocation.put(e.getKey(), totalCash * (e.getValue() / totalWeight));
             }
         }
