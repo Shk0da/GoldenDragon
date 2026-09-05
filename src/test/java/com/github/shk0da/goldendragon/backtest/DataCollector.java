@@ -242,9 +242,6 @@ public class DataCollector {
         }
         List<TickerCandle> candles =
             getTickerCandles(name, period, lastCandleTime, 0);
-        if (candles.isEmpty()) {
-            throw new RuntimeException("empty candles");
-        }
 
         if (isReplace) {
             try {
@@ -306,10 +303,14 @@ public class DataCollector {
             String ticker = tickerInfo.getFigi();
             
             var start = getStartWithShift(period, startTime);
+            int daysChecked = 0;
+            int totalCandles = 0;
             while (start.isBefore(currentTime)) {
                 var end = start.plus(1, ChronoUnit.DAYS);
+                daysChecked++;
                 
                 List<com.github.shk0da.goldendragon.model.Candle> periodCandles = tcsService.getCandles(ticker, start, end, period);
+                totalCandles += periodCandles.size();
                 start = end;
 
                 periodCandles.forEach(
@@ -332,6 +333,9 @@ public class DataCollector {
                                 (long) volume));
                     });
                 sleep(100);
+            }
+            if (daysChecked > 0 && totalCandles > 0) {
+                out.println("Downloaded " + totalCandles + " candles for " + name + " " + period);
             }
         } catch (Exception ex) {
             if (counter++ < 2) {
