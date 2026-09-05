@@ -52,7 +52,6 @@ public class CandleDeltaSignal implements CandleScalpSignal {
         int bearishCount = 0;
         double totalVolume = 0.0;
         double prevVolume = 0.0;
-        boolean volumeIncreasing = true;
 
         for (int i = candles.size() - 1; i >= Math.max(0, candles.size() - 5); i--) {
             Candle candle = candles.get(i);
@@ -64,33 +63,30 @@ public class CandleDeltaSignal implements CandleScalpSignal {
                 bearishCount++;
             }
 
-            // Check volume trend
+            // Track volume
             if (i < candles.size() - 1) {
-                if (candle.volume < prevVolume * 0.8) {
-                    volumeIncreasing = false;
-                }
+                prevVolume = candles.get(i + 1).volume;
             }
-            prevVolume = candle.volume;
             totalVolume += candle.volume;
         }
 
         double avgVolume = totalVolume / Math.min(5, candles.size());
         double volumeRatio = avgVolume / Math.max(1.0, getAverageVolume(ticker));
 
-        // LONG signal: 3+ bullish candles, volume increasing
-        if (bullishCount >= 3 && volumeRatio > 1.2) {
-            double quality = Math.min(1.0, (bullishCount * 0.2) + (volumeRatio * 0.3));
+        // LONG signal: 2+ bullish candles (relaxed from 3)
+        if (bullishCount >= 2 && volumeRatio > 0.8) {
+            double quality = Math.min(1.0, (bullishCount * 0.25) + (volumeRatio * 0.2));
             return CandleEntryDecision.enter(
-                SIGNAL_ID + " LONG: " + bullishCount + " bullish candles, volume ratio=" + String.format("%.2f", volumeRatio),
+                SIGNAL_ID + " LONG: " + bullishCount + " bullish, vol=" + String.format("%.2f", volumeRatio),
                 quality
             );
         }
 
-        // SHORT signal: 3+ bearish candles, volume increasing
-        if (bearishCount >= 3 && volumeRatio > 1.2) {
-            double quality = Math.min(1.0, (bearishCount * 0.2) + (volumeRatio * 0.3));
+        // SHORT signal: 2+ bearish candles (relaxed from 3)
+        if (bearishCount >= 2 && volumeRatio > 0.8) {
+            double quality = Math.min(1.0, (bearishCount * 0.25) + (volumeRatio * 0.2));
             return CandleEntryDecision.enter(
-                SIGNAL_ID + " SHORT: " + bearishCount + " bearish candles, volume ratio=" + String.format("%.2f", volumeRatio),
+                SIGNAL_ID + " SHORT: " + bearishCount + " bearish, vol=" + String.format("%.2f", volumeRatio),
                 quality
             );
         }
