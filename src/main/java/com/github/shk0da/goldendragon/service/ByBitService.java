@@ -17,8 +17,6 @@ import com.bybit.api.client.service.BybitApiClientFactory;
 import com.bybit.api.client.domain.market.MarketInterval;
 import com.bybit.api.client.domain.market.request.MarketDataRequest;
 import com.bybit.api.client.domain.account.AccountType;
-import com.bybit.api.client.domain.account.request.AccountDataRequest;
-import com.bybit.api.client.domain.position.request.PositionDataRequest;
 import com.bybit.api.client.domain.trade.request.TradeOrderRequest;
 import com.bybit.api.client.domain.trade.request.CancelOrderRequest;
 import com.bybit.api.client.domain.trade.Side;
@@ -49,6 +47,11 @@ import com.google.gson.JsonParser;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
+import java.io.IOException;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.OffsetDateTime;
@@ -78,7 +81,6 @@ public class ByBitService implements TradingService {
     private final ByBitConfig byBitConfig;
     private final BybitApiTradeRestClient tradeClient;
     private final BybitApiMarketRestClient marketClient;
-    private final BybitApiPositionRestClient positionClient;
     private final BybitApiAccountRestClient accountClient;
     private final Gson gson = new GsonBuilder()
         .setLenient()
@@ -112,29 +114,12 @@ public class ByBitService implements TradingService {
     public ByBitService(ByBitConfig byBitConfig) {
         this.byBitConfig = byBitConfig;
 
-        // Log config for debugging
-        String apiKey = byBitConfig.getApiKey();
-        String apiSecret = byBitConfig.getApiSecret();
-        log("ByBitService: isSandbox=" + byBitConfig.isSandbox() 
-            + ", isTestMode=" + byBitConfig.isTestMode()
-            + ", apiKey=" + (apiKey != null && !apiKey.isEmpty() ? apiKey.substring(0, Math.min(4, apiKey.length())) + "***" : "EMPTY")
-            + ", apiSecret=" + (apiSecret != null && !apiSecret.isEmpty() ? "set" : "EMPTY"));
+        var factory = byBitConfig.isSandbox()
+            ? BybitApiClientFactory.newInstance(byBitConfig.getApiKey(), byBitConfig.getApiSecret(), true)
+            : BybitApiClientFactory.newInstance(byBitConfig.getApiKey(), byBitConfig.getApiSecret(), false);
 
-        // Initialize API clients using factory with proper base URLs
-        String baseUrl = byBitConfig.isSandbox() 
-            ? "https://api-testnet.bybit.com" 
-            : "https://api.bybit.com";
-        log("ByBitService: connecting to " + baseUrl);
-        var factory = BybitApiClientFactory.newInstance(
-            byBitConfig.getApiKey(),
-            byBitConfig.getApiSecret(),
-            baseUrl,
-            false
-        );
-        
         this.tradeClient = factory.newTradeRestClient();
         this.marketClient = factory.newMarketDataRestClient();
-        this.positionClient = factory.newPositionRestClient();
         this.accountClient = factory.newAccountRestClient();
     }
 
@@ -612,76 +597,98 @@ public class ByBitService implements TradingService {
     // ========== ACCOUNT METHODS ==========
 
     @Override
-    public Double getAvailableCash() {
-        return getAccountField("availableToWithdraw");
+    public double getTotalPortfolioCost() {
+        return getAccountFieldV5("totalEquity");
     }
 
     @Override
-    public double getTotalPortfolioCost() {
-        return getAccountField("totalEquity");
+    public Double getAvailableCash() {
+        return getAccountFieldV5("availableToWithdraw");
     }
 
-    private double getAccountField(String fieldName) {
+    private final HttpClient httpClient = HttpClient.newBuilder()
+        .connectTimeout(Duration.ofSeconds(10))
+        .build();
+
+    private double getAccountFieldV5(String fieldName) {
         try {
-            // ByBit Testnet: try CONTRACT account first (futures/perpetuals balance),
-            // then UNIFIED account (spot/margin balance)
+            String apiKey = byBitConfig.getApiKey();
+            String apiSecret = byBitConfig.getApiSecret();
+            
+            if (apiKey == null || apiKey.isEmpty() || apiSecret == null || apiSecret.isEmpty()) {
+                log("ByBitService.getAccountFieldV5: API keys not set");
+                return 0.0;
+            }
+            
+            // ByBit V5 API endpoint - try CONTRACT first (for futures/perpetuals), then UNIFIED
             AccountType[] accountTypes = {AccountType.CONTRACT, AccountType.UNIFIED};
             
             for (AccountType accType : accountTypes) {
                 try {
-                    AccountDataRequest request = AccountDataRequest.builder()
-                        .accountType(accType)
+                    String baseUrl = byBitConfig.isSandbox() 
+                        ? "https://api-testnet.bybit.com" 
+                        : "https://api.bybit.com";
+                    String url = baseUrl + "/v5/account/wallet-balance";
+                    
+                    // Timestamp and signature
+                    long timestamp = System.currentTimeMillis();
+                    String params = "accountType=" + accType.name();
+                    String signData = timestamp + apiKey + "5000" + params;
+                    
+                    // HMAC SHA256 signature
+                    javax.crypto.Mac mac = javax.crypto.Mac.getInstance("HmacSHA256");
+                    mac.init(new javax.crypto.spec.SecretKeySpec(apiSecret.getBytes("UTF-8"), "HmacSHA256"));
+                    String signature = bytesToHex(mac.doFinal(signData.getBytes("UTF-8")));
+                    
+                    // Build request
+                    HttpRequest request = HttpRequest.newBuilder()
+                        .uri(URI.create(url + "?" + params))
+                        .timeout(Duration.ofSeconds(10))
+                        .header("X-BAPI-API-KEY", apiKey)
+                        .header("X-BAPI-SIGN", signature)
+                        .header("X-BAPI-SIGN-TYPE", "2")
+                        .header("X-BAPI-TIMESTAMP", String.valueOf(timestamp))
+                        .header("X-BAPI-RECV-WINDOW", "5000")
+                        .GET()
                         .build();
                     
-                    Object response = accountClient.getWalletBalance(request);
-                    if (response == null) {
+                    // Execute request
+                    HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+                    
+                    if (response.statusCode() != 200) {
+                        log("ByBitService.getAccountFieldV5: " + accType + " HTTP " + response.statusCode() + " - " + response.body());
                         continue;
                     }
                     
-                    if (!(response instanceof LinkedHashMap)) {
+                    // Parse JSON response
+                    JsonObject json = JsonParser.parseString(response.body()).getAsJsonObject();
+                    
+                    if (json.has("retCode") && json.get("retCode").getAsInt() != 0) {
+                        log("ByBitService.getAccountFieldV5: " + accType + " retCode=" + json.get("retCode") 
+                            + ", retMsg=" + (json.has("retMsg") ? json.get("retMsg").getAsString() : "N/A"));
                         continue;
                     }
                     
-                    @SuppressWarnings("unchecked")
-                    LinkedHashMap<String, Object> responseMap = (LinkedHashMap<String, Object>) response;
-                    
-                    Object retCodeObj = responseMap.get("retCode");
-                    if (retCodeObj != null && !"0".equals(retCodeObj.toString())) {
-                        log("ByBitService.getAccountField: " + accType + " retCode=" + retCodeObj + " retMsg=" + responseMap.get("retMsg"));
-                        continue;
-                    }
-                    
-                    Object resultObj = responseMap.get("result");
-                    if (resultObj instanceof LinkedHashMap) {
-                        @SuppressWarnings("unchecked")
-                        LinkedHashMap<String, Object> result = (LinkedHashMap<String, Object>) resultObj;
-                        
-                        Object listObj = result.get("list");
-                        if (listObj instanceof java.util.List && !((java.util.List<?>) listObj).isEmpty()) {
-                            @SuppressWarnings("unchecked")
-                            LinkedHashMap<String, Object> account = (LinkedHashMap<String, Object>) ((java.util.List<?>) listObj).get(0);
-                            
-                            if ("totalEquity".equals(fieldName)) {
-                                Object value = account.get("totalEquity");
-                                if (value != null) {
-                                    double equity = Double.parseDouble(value.toString());
-                                    log("ByBitService.getAccountField: " + accType + " totalEquity=" + equity);
-                                    return equity;
-                                }
-                            } else {
-                                Object coinListObj = account.get("coin");
-                                if (coinListObj instanceof java.util.List) {
-                                    @SuppressWarnings("unchecked")
-                                    java.util.List<LinkedHashMap<String, Object>> coins = 
-                                        (java.util.List<LinkedHashMap<String, Object>>) coinListObj;
-                                    
-                                    for (LinkedHashMap<String, Object> coin : coins) {
-                                        String coinName = (String) coin.get("coin");
-                                        if ("USDT".equals(coinName)) {
-                                            Object value = coin.get(fieldName);
-                                            if (value != null) {
-                                                double fieldValue = Double.parseDouble(value.toString());
-                                                log("ByBitService.getAccountField: " + accType + " " + fieldName + "=" + fieldValue);
+                    if (json.has("result") && json.get("result").isJsonObject()) {
+                        JsonObject resultObj = json.getAsJsonObject("result");
+                        if (resultObj.has("list") && resultObj.get("list").isJsonArray()) {
+                            JsonArray list = resultObj.getAsJsonArray("list");
+                            if (list.size() > 0) {
+                                JsonObject account = list.get(0).getAsJsonObject();
+                                if ("totalEquity".equals(fieldName)) {
+                                    if (account.has("totalEquity")) {
+                                        double equity = account.get("totalEquity").getAsDouble();
+                                        log("ByBitService.getAccountFieldV5: " + accType + " totalEquity=" + equity);
+                                        return equity;
+                                    }
+                                } else {
+                                    if (account.has("coin") && account.get("coin").isJsonArray()) {
+                                        for (JsonElement coinElement : account.getAsJsonArray("coin")) {
+                                            JsonObject coin = coinElement.getAsJsonObject();
+                                            String coinName = coin.get("coin").getAsString();
+                                            if ("USDT".equals(coinName) && coin.has(fieldName)) {
+                                                double fieldValue = coin.get(fieldName).getAsDouble();
+                                                log("ByBitService.getAccountFieldV5: " + accType + " " + fieldName + "=" + fieldValue);
                                                 return fieldValue;
                                             }
                                         }
@@ -691,13 +698,21 @@ public class ByBitService implements TradingService {
                         }
                     }
                 } catch (Exception e) {
-                    log("ByBitService.getAccountField: " + accType + " error=" + e.getMessage());
+                    log("ByBitService.getAccountFieldV5: " + accType + " error=" + e.getMessage());
                 }
             }
         } catch (Exception e) {
-            log("ByBitService.getAccountField error: " + e.getMessage());
+            log("ByBitService.getAccountFieldV5 error: " + e.getMessage());
         }
         return 0.0;
+    }
+    
+    private String bytesToHex(byte[] bytes) {
+        StringBuilder result = new StringBuilder();
+        for (byte b : bytes) {
+            result.append(String.format("%02x", b));
+        }
+        return result.toString();
     }
 
     @Override
@@ -714,21 +729,61 @@ public class ByBitService implements TradingService {
     }
 
     @Override
-    @SuppressWarnings("unchecked")
     public Map<TickerInfo.Key, PositionInfo> getCurrentPositions(TickerType tickerType) {
         Map<TickerInfo.Key, PositionInfo> result = new HashMap<>();
         try {
-            // Build request for positions
-            PositionDataRequest request = PositionDataRequest.builder()
-                .category(CategoryType.LINEAR)
+            String apiKey = byBitConfig.getApiKey();
+            String apiSecret = byBitConfig.getApiSecret();
+            
+            if (apiKey == null || apiKey.isEmpty() || apiSecret == null || apiSecret.isEmpty()) {
+                log("ByBitService.getCurrentPositions: API keys not set");
+                return result;
+            }
+            
+            // ByBit V5 API endpoint for positions
+            String baseUrl = byBitConfig.isSandbox() 
+                ? "https://api-testnet.bybit.com" 
+                : "https://api.bybit.com";
+            String url = baseUrl + "/v5/position/list";
+            
+            // Timestamp and signature
+            long timestamp = System.currentTimeMillis();
+            String params = "category=linear&settleCoin=USDT";
+            String signData = timestamp + apiKey + "5000" + params;
+            
+            // HMAC SHA256 signature
+            javax.crypto.Mac mac = javax.crypto.Mac.getInstance("HmacSHA256");
+            mac.init(new javax.crypto.spec.SecretKeySpec(apiSecret.getBytes("UTF-8"), "HmacSHA256"));
+            String signature = bytesToHex(mac.doFinal(signData.getBytes("UTF-8")));
+            
+            // Build request
+            HttpRequest request = HttpRequest.newBuilder()
+                .uri(URI.create(url + "?" + params))
+                .timeout(Duration.ofSeconds(10))
+                .header("X-BAPI-API-KEY", apiKey)
+                .header("X-BAPI-SIGN", signature)
+                .header("X-BAPI-SIGN-TYPE", "2")
+                .header("X-BAPI-TIMESTAMP", String.valueOf(timestamp))
+                .header("X-BAPI-RECV-WINDOW", "5000")
+                .GET()
                 .build();
             
-            // Call SDK method
-            Object response = positionClient.getPositionInfo(request);
+            // Execute request
+            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+            
+            if (response.statusCode() != 200) {
+                log("ByBitService.getCurrentPositions: HTTP " + response.statusCode() + " - " + response.body());
+                return result;
+            }
             
             // Parse JSON response
-            String jsonStr = gson.toJson(response);
-            JsonObject json = gson.fromJson(jsonStr, JsonObject.class);
+            JsonObject json = JsonParser.parseString(response.body()).getAsJsonObject();
+            
+            if (json.has("retCode") && json.get("retCode").getAsInt() != 0) {
+                log("ByBitService.getCurrentPositions: retCode=" + json.get("retCode") 
+                    + ", retMsg=" + (json.has("retMsg") ? json.get("retMsg").getAsString() : "N/A"));
+                return result;
+            }
             
             if (json.has("result") && json.get("result").isJsonObject()) {
                 JsonObject resultObj = json.getAsJsonObject("result");

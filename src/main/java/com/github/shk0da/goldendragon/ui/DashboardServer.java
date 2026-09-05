@@ -25,6 +25,7 @@ public class DashboardServer {
 
     private final HttpServer server;
     private final TradingService tradingService;
+    private final String currency;
 
     private double totalPnl = 0.0;
     private int totalTrades = 0;
@@ -34,6 +35,7 @@ public class DashboardServer {
 
     public DashboardServer(TradingService tradingService) throws IOException {
         this.tradingService = tradingService;
+        this.currency = tradingService.getServiceType() == TradingService.TradingServiceType.BYBIT ? "USDT" : "RUB";
         this.server = HttpServer.create(new InetSocketAddress(PORT), 0);
         this.server.createContext("/", this::handleRequest);
         this.server.setExecutor(Executors.newFixedThreadPool(4));
@@ -79,6 +81,7 @@ public class DashboardServer {
         stats.put("totalTrades", totalTrades);
         stats.put("winningTrades", winningTrades);
         stats.put("winRate", totalTrades > 0 ? (double) winningTrades / totalTrades : 0.0);
+        stats.put("currency", currency);
 
         String response = gson.toJson(stats);
         byte[] bytes = response.getBytes(StandardCharsets.UTF_8);
@@ -367,10 +370,12 @@ public class DashboardServer {
         sb.append("        </div>\n");
         sb.append("    </div>\n");
         sb.append("    <script>\n");
+        sb.append("        let currency = 'RUB';\n");
         sb.append("        async function loadData() {\n");
         sb.append("            try {\n");
         sb.append("                const statsRes = await fetch('/api/stats');\n");
         sb.append("                const stats = await statsRes.json();\n");
+        sb.append("                currency = stats.currency || 'RUB';\n");
         sb.append("                document.getElementById('balance').textContent = formatMoney(stats.balance);\n");
         sb.append("                const pnlEl = document.getElementById('pnl');\n");
         sb.append("                pnlEl.textContent = formatMoney(stats.totalPnl);\n");
@@ -419,6 +424,12 @@ public class DashboardServer {
         sb.append("        }\n");
         sb.append("        function formatMoney(value) {\n");
         sb.append("            if (value === null || value === undefined) return '-';\n");
+        sb.append("            if (currency === 'USDT') {\n");
+        sb.append("                return new Intl.NumberFormat('en-US', {\n");
+        sb.append("                    minimumFractionDigits: 2,\n");
+        sb.append("                    maximumFractionDigits: 2\n");
+        sb.append("                }).format(value) + ' USDT';\n");
+        sb.append("            }\n");
         sb.append("            return new Intl.NumberFormat('ru-RU', {\n");
         sb.append("                style: 'currency',\n");
         sb.append("                currency: 'RUB',\n");
