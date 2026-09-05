@@ -16,7 +16,6 @@ import com.bybit.api.client.restApi.BybitApiTradeRestClient;
 import com.bybit.api.client.service.BybitApiClientFactory;
 import com.bybit.api.client.domain.market.MarketInterval;
 import com.bybit.api.client.domain.market.request.MarketDataRequest;
-import com.bybit.api.client.domain.account.AccountType;
 import com.bybit.api.client.domain.trade.request.TradeOrderRequest;
 import com.bybit.api.client.domain.trade.request.CancelOrderRequest;
 import com.bybit.api.client.domain.trade.Side;
@@ -603,7 +602,7 @@ public class ByBitService implements TradingService {
 
     @Override
     public Double getAvailableCash() {
-        return getAccountFieldV5("availableToWithdraw");
+        return getAccountFieldV5("totalAvailableBalance");
     }
 
     private final HttpClient httpClient = HttpClient.newBuilder()
@@ -611,98 +610,102 @@ public class ByBitService implements TradingService {
         .build();
 
     private double getAccountFieldV5(String fieldName) {
+        String apiKey = byBitConfig.getApiKey();
+        String apiSecret = byBitConfig.getApiSecret();
+
+        if (apiKey == null || apiKey.isEmpty() || apiSecret == null || apiSecret.isEmpty()) {
+            log("ByBitService.getAccountFieldV5: API keys not set");
+            return 0.0;
+        }
+
+        // ByBit V5 API supports only UNIFIED account type
+        String baseUrl = byBitConfig.isSandbox()
+            ? "https://api-testnet.bybit.com"
+            : "https://api.bybit.com";
+        String url = baseUrl + "/v5/account/wallet-balance";
+
+        // Timestamp and signature
+        long timestamp = System.currentTimeMillis();
+        String params = "accountType=UNIFIED";
+        String signData = timestamp + apiKey + "5000" + params;
+
+        // HMAC SHA256 signature
+        String signature;
         try {
-            String apiKey = byBitConfig.getApiKey();
-            String apiSecret = byBitConfig.getApiSecret();
-            
-            if (apiKey == null || apiKey.isEmpty() || apiSecret == null || apiSecret.isEmpty()) {
-                log("ByBitService.getAccountFieldV5: API keys not set");
-                return 0.0;
-            }
-            
-            // ByBit V5 API endpoint - try CONTRACT first (for futures/perpetuals), then UNIFIED
-            AccountType[] accountTypes = {AccountType.CONTRACT, AccountType.UNIFIED};
-            
-            for (AccountType accType : accountTypes) {
-                try {
-                    String baseUrl = byBitConfig.isSandbox() 
-                        ? "https://api-testnet.bybit.com" 
-                        : "https://api.bybit.com";
-                    String url = baseUrl + "/v5/account/wallet-balance";
-                    
-                    // Timestamp and signature
-                    long timestamp = System.currentTimeMillis();
-                    String params = "accountType=" + accType.name();
-                    String signData = timestamp + apiKey + "5000" + params;
-                    
-                    // HMAC SHA256 signature
-                    javax.crypto.Mac mac = javax.crypto.Mac.getInstance("HmacSHA256");
-                    mac.init(new javax.crypto.spec.SecretKeySpec(apiSecret.getBytes("UTF-8"), "HmacSHA256"));
-                    String signature = bytesToHex(mac.doFinal(signData.getBytes("UTF-8")));
-                    
-                    // Build request
-                    HttpRequest request = HttpRequest.newBuilder()
-                        .uri(URI.create(url + "?" + params))
-                        .timeout(Duration.ofSeconds(10))
-                        .header("X-BAPI-API-KEY", apiKey)
-                        .header("X-BAPI-SIGN", signature)
-                        .header("X-BAPI-SIGN-TYPE", "2")
-                        .header("X-BAPI-TIMESTAMP", String.valueOf(timestamp))
-                        .header("X-BAPI-RECV-WINDOW", "5000")
-                        .GET()
-                        .build();
-                    
-                    // Execute request
-                    HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-                    
-                    if (response.statusCode() != 200) {
-                        log("ByBitService.getAccountFieldV5: " + accType + " HTTP " + response.statusCode() + " - " + response.body());
-                        continue;
-                    }
-                    
-                    // Parse JSON response
-                    JsonObject json = JsonParser.parseString(response.body()).getAsJsonObject();
-                    
-                    if (json.has("retCode") && json.get("retCode").getAsInt() != 0) {
-                        log("ByBitService.getAccountFieldV5: " + accType + " retCode=" + json.get("retCode") 
-                            + ", retMsg=" + (json.has("retMsg") ? json.get("retMsg").getAsString() : "N/A"));
-                        continue;
-                    }
-                    
-                    if (json.has("result") && json.get("result").isJsonObject()) {
-                        JsonObject resultObj = json.getAsJsonObject("result");
-                        if (resultObj.has("list") && resultObj.get("list").isJsonArray()) {
-                            JsonArray list = resultObj.getAsJsonArray("list");
-                            if (list.size() > 0) {
-                                JsonObject account = list.get(0).getAsJsonObject();
-                                if ("totalEquity".equals(fieldName)) {
-                                    if (account.has("totalEquity")) {
-                                        double equity = account.get("totalEquity").getAsDouble();
-                                        log("ByBitService.getAccountFieldV5: " + accType + " totalEquity=" + equity);
-                                        return equity;
-                                    }
-                                } else {
-                                    if (account.has("coin") && account.get("coin").isJsonArray()) {
-                                        for (JsonElement coinElement : account.getAsJsonArray("coin")) {
-                                            JsonObject coin = coinElement.getAsJsonObject();
-                                            String coinName = coin.get("coin").getAsString();
-                                            if ("USDT".equals(coinName) && coin.has(fieldName)) {
-                                                double fieldValue = coin.get(fieldName).getAsDouble();
-                                                log("ByBitService.getAccountFieldV5: " + accType + " " + fieldName + "=" + fieldValue);
-                                                return fieldValue;
-                                            }
+            javax.crypto.Mac mac = javax.crypto.Mac.getInstance("HmacSHA256");
+            mac.init(new javax.crypto.spec.SecretKeySpec(apiSecret.getBytes("UTF-8"), "HmacSHA256"));
+            signature = bytesToHex(mac.doFinal(signData.getBytes("UTF-8")));
+        } catch (Exception e) {
+            log("ByBitService.getAccountFieldV5 signature error: " + e.getMessage());
+            return 0.0;
+        }
+
+        // Build request
+        HttpRequest request = HttpRequest.newBuilder()
+            .uri(URI.create(url + "?" + params))
+            .timeout(Duration.ofSeconds(10))
+            .header("X-BAPI-API-KEY", apiKey)
+            .header("X-BAPI-SIGN", signature)
+            .header("X-BAPI-SIGN-TYPE", "2")
+            .header("X-BAPI-TIMESTAMP", String.valueOf(timestamp))
+            .header("X-BAPI-RECV-WINDOW", "5000")
+            .GET()
+            .build();
+
+        // Retry once on transient empty response
+        for (int attempt = 0; attempt < 2; attempt++) {
+            try {
+                HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+
+                if (response.statusCode() != 200) {
+                    log("ByBitService.getAccountFieldV5: HTTP " + response.statusCode() + " - " + response.body());
+                    return 0.0;
+                }
+
+                JsonObject json = JsonParser.parseString(response.body()).getAsJsonObject();
+
+                if (json.has("retCode") && json.get("retCode").getAsInt() != 0) {
+                    log("ByBitService.getAccountFieldV5: retCode=" + json.get("retCode")
+                        + ", retMsg=" + (json.has("retMsg") ? json.get("retMsg").getAsString() : "N/A"));
+                    return 0.0;
+                }
+
+                if (json.has("result") && json.get("result").isJsonObject()) {
+                    JsonObject resultObj = json.getAsJsonObject("result");
+                    if (resultObj.has("list") && resultObj.get("list").isJsonArray()) {
+                        JsonArray list = resultObj.getAsJsonArray("list");
+                        if (list.size() > 0) {
+                            JsonObject account = list.get(0).getAsJsonObject();
+                            if ("totalEquity".equals(fieldName) || "totalAvailableBalance".equals(fieldName)) {
+                                if (account.has(fieldName)) {
+                                    return account.get(fieldName).getAsDouble();
+                                }
+                            } else {
+                                if (account.has("coin") && account.get("coin").isJsonArray()) {
+                                    for (JsonElement coinElement : account.getAsJsonArray("coin")) {
+                                        JsonObject coin = coinElement.getAsJsonObject();
+                                        String coinName = coin.get("coin").getAsString();
+                                        if ("USDT".equals(coinName) && coin.has(fieldName)) {
+                                            return coin.get(fieldName).getAsDouble();
                                         }
                                     }
                                 }
                             }
                         }
                     }
-                } catch (Exception e) {
-                    log("ByBitService.getAccountFieldV5: " + accType + " error=" + e.getMessage());
                 }
+            } catch (Exception e) {
+                if (attempt == 0) {
+                    try {
+                        Thread.sleep(500);
+                    } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                        return 0.0;
+                    }
+                    continue; // retry once on transient error
+                }
+                log("ByBitService.getAccountFieldV5 error: " + e.getMessage());
             }
-        } catch (Exception e) {
-            log("ByBitService.getAccountFieldV5 error: " + e.getMessage());
         }
         return 0.0;
     }
