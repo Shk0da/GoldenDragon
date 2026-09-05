@@ -113,14 +113,18 @@ public class ByBitService implements TradingService {
         this.byBitConfig = byBitConfig;
 
         // Log config for debugging
+        String apiKey = byBitConfig.getApiKey();
+        String apiSecret = byBitConfig.getApiSecret();
         log("ByBitService: isSandbox=" + byBitConfig.isSandbox() 
             + ", isTestMode=" + byBitConfig.isTestMode()
-            + ", apiKey=" + (byBitConfig.getApiKey() != null && byBitConfig.getApiKey().length() > 0 ? "set" : "EMPTY"));
+            + ", apiKey=" + (apiKey != null && !apiKey.isEmpty() ? apiKey.substring(0, Math.min(4, apiKey.length())) + "***" : "EMPTY")
+            + ", apiSecret=" + (apiSecret != null && !apiSecret.isEmpty() ? "set" : "EMPTY"));
 
         // Initialize API clients using factory with proper base URLs
         String baseUrl = byBitConfig.isSandbox() 
             ? "https://api-testnet.bybit.com" 
             : "https://api.bybit.com";
+        log("ByBitService: connecting to " + baseUrl);
         var factory = BybitApiClientFactory.newInstance(
             byBitConfig.getApiKey(),
             byBitConfig.getApiSecret(),
