@@ -549,9 +549,7 @@ public class BacktestRunner {
         try {
             Path imagesDir = Paths.get("images");
             Files.createDirectories(imagesDir);
-            // Use different filename for crypto (ByBit) vs traditional (Tinkoff) backtests
-            String suffix = isByBitTrading() ? "Crypto" : "";
-            String fileName = strategyName + suffix + ".png";
+            String fileName = strategyName + ".png";
             Path outputPath = imagesDir.resolve(fileName);
             try (FileOutputStream out = new FileOutputStream(outputPath.toFile())) {
                 ChartUtilities.writeChartAsPNG(out, chart, 1200, 600);
@@ -1207,17 +1205,7 @@ public class BacktestRunner {
 
     private List<String> filterEnabledTickers(List<String> tickers, UnifiedTraderConfig config) {
         List<String> result = new ArrayList<>();
-        // When trading.service=BYBIT, only use crypto tickers (USDT pairs).
-        // When trading.service=TINKOFF, only use non-crypto tickers.
-        boolean isByBit = isByBitTrading();
         for (String ticker : tickers) {
-            boolean isCrypto = ticker.endsWith("USDT");
-            if (isByBit && !isCrypto) {
-                continue;  // BYBIT: skip non-crypto tickers
-            }
-            if (!isByBit && isCrypto) {
-                continue;  // TINKOFF: skip crypto tickers
-            }
             try {
                 UnifiedTraderConfig.TickerParams params = config.getTickerParams(ticker);
                 if (params.enabled) {
@@ -1227,19 +1215,6 @@ public class BacktestRunner {
             }
         }
         return result;
-    }
-
-    private boolean isByBitTrading() {
-        String service = System.getProperty("trading.service");
-        if (service == null) {
-            try {
-                Properties props = PropertiesUtils.loadProperties();
-                service = props.getProperty("trading.service", "TINKOFF");
-            } catch (IOException ignored) {
-                service = "TINKOFF";
-            }
-        }
-        return "BYBIT".equalsIgnoreCase(service.trim());
     }
 
     private int upperBound(List<LocalDateTime> times, LocalDateTime target) {
