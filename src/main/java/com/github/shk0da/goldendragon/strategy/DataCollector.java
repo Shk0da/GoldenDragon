@@ -104,6 +104,8 @@ public class DataCollector {
                 try {
                     createDirectories(Paths.get(dataDir + "/" + name));
                     dataCollector.updateCandlesFile(
+                        name, dataDir, "1_MIN", isReplace);
+                    dataCollector.updateCandlesFile(
                         name, dataDir, "5_MIN", isReplace);
                     dataCollector.updateCandlesFile(
                         name, dataDir, "HOUR", isReplace);
@@ -133,6 +135,8 @@ public class DataCollector {
             for (String name : cryptoTickers) {
                 try {
                     createDirectories(Paths.get(dataDir + "/" + name));
+                    dataCollector.updateCandlesFile(
+                        name, dataDir, "1_MIN", isReplace);
                     dataCollector.updateCandlesFile(
                         name, dataDir, "5_MIN", isReplace);
                     dataCollector.updateCandlesFile(
@@ -215,6 +219,7 @@ public class DataCollector {
         for (String name : tickers) {
             try {
                 createDirectories(Paths.get(dataDir + "/" + name));
+                updateCandlesFile(name, dataDir, "1_MIN", isReplace);
                 updateCandlesFile(name, dataDir, "5_MIN", isReplace);
                 updateCandlesFile(name, dataDir, "HOUR", isReplace);
                 if (name.contains("@")) {
@@ -230,6 +235,7 @@ public class DataCollector {
         for (String name : cryptoTickers) {
             try {
                 createDirectories(Paths.get(dataDir + "/" + name));
+                updateCandlesFile(name, dataDir, "1_MIN", isReplace);
                 updateCandlesFile(name, dataDir, "5_MIN", isReplace);
                 updateCandlesFile(name, dataDir, "HOUR", isReplace);
                 createTickerJson(name, dataDir);

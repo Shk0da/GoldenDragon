@@ -402,6 +402,40 @@ public class TCSService implements TradingService {
         }
     }
 
+    @Override
+    public List<Candle> getCandles(String figi, String interval, int count) {
+        CandleInterval candleInterval = mapInterval(interval);
+        // Calculate duration based on interval and count
+        long durationMinutes;
+        switch (candleInterval) {
+            case CANDLE_INTERVAL_1_MIN:
+                durationMinutes = (count + 1);
+                break;
+            case CANDLE_INTERVAL_5_MIN:
+                durationMinutes = (count + 1) * 5;
+                break;
+            case CANDLE_INTERVAL_15_MIN:
+                durationMinutes = (count + 1) * 15;
+                break;
+            case CANDLE_INTERVAL_HOUR:
+                durationMinutes = (count + 1) * 60;
+                break;
+            case CANDLE_INTERVAL_DAY:
+                durationMinutes = (count + 1) * 24 * 60;
+                break;
+            default:
+                durationMinutes = (count + 1) * 60;
+        }
+        
+        Instant end = Instant.now();
+        Instant start = end.minus(durationMinutes, java.time.temporal.ChronoUnit.MINUTES);
+        
+        return investApi.getMarketDataService().getCandlesSync(figi, start, end, candleInterval)
+                .stream()
+                .map(TCSService::mapHistoricCandle)
+                .collect(Collectors.toList());
+    }
+
     /**
      * Returns the last {@code size} hourly candles as domain objects, sorted chronologically.
      *

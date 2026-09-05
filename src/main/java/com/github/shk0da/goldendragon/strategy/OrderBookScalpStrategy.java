@@ -6,47 +6,45 @@ import com.github.shk0da.goldendragon.model.MarketDepthSnapshot;
 import com.github.shk0da.goldendragon.model.MarketTickListener;
 import com.github.shk0da.goldendragon.model.MarketTradeTick;
 import com.github.shk0da.goldendragon.service.TradingService;
-import com.github.shk0da.goldendragon.strategy.orderbook.CumulativeDeltaScalpSignal;
-import com.github.shk0da.goldendragon.strategy.orderbook.OrderBookSignal;
-import com.github.shk0da.goldendragon.strategy.orderbook.OrderBookSignalFactory;
-import com.github.shk0da.goldendragon.strategy.orderbook.OrderBookTradingEngine;
+import com.github.shk0da.goldendragon.strategy.candle.CandleDeltaSignal;
+import com.github.shk0da.goldendragon.strategy.candle.CandleSignalFactory;
+import com.github.shk0da.goldendragon.strategy.candle.CandleTradingEngine;
+import com.github.shk0da.goldendragon.strategy.candle.CandleScalpSignal;
 import java.util.List;
 
 /**
- * High-frequency scalping strategy using cumulative delta and order book densities.
+ * Scalping strategy using candle-based signals.
  *
- * <p>Implements two trading scenarios:
+ * <p>Reads 1-minute candles from TradingService and evaluates signals
+ * for entry/exit decisions. Designed for both Tinkoff and ByBit trading services.
+ *
+ * <p>Configuration via OrderBookScalpConfig:
  * <ul>
- *   <li><b>Scenario A (Bounce):</b> Counter-trend bounce from large density with delta confirmation</li>
- *   <li><b>Scenario B (Breakout):</b> Impulse breakout when density is consumed</li>
+ *   <li>positionCashPercent - percentage of available cash to use for positions (default 90)</li>
+ *   <li>entryQualityThreshold - minimum quality for signal to trigger trade</li>
+ *   <li>other trading parameters</li>
  * </ul>
- *
- * <p>Key features:
- * <ul>
- *   <li>10-second cumulative delta calculation</li>
- *   <li>Dynamic density detection (3x/5x average volume)</li>
- *   <li>Spread protection (max 0.02%)</li>
- *   <li>Emergency exit on density disappearance</li>
- * </ul>
- *
- * <p>For multiple signals in one process use {@link OrderBookOrchestratorStrategy}.
  */
 public class OrderBookScalpStrategy implements MarketTickListener {
 
-    private final OrderBookTradingEngine engine;
+    private final CandleTradingEngine engine;
 
     public OrderBookScalpStrategy(
             TradingService tradingService, MainConfig mainConfig, OrderBookScalpConfig config) {
-        // Use factory to create signals based configuration
-        List<OrderBookSignal> signals = OrderBookSignalFactory.createEnabledSignals(
+        // Create candle-based signals using factory
+        List<CandleScalpSignal> signals = CandleSignalFactory.createEnabledSignals(
             tradingService, config);
         
+        // Load instruments from config
+        List<String> instruments = config.getInstruments();
+        
         this.engine =
-                new OrderBookTradingEngine(
+                new CandleTradingEngine(
                         tradingService,
                         mainConfig,
                         config,
                         signals,
+                        instruments,
                         "OrderBookScalpStrategy");
     }
 
@@ -56,16 +54,17 @@ public class OrderBookScalpStrategy implements MarketTickListener {
 
     @Override
     public void onOrderBook(MarketDepthSnapshot snapshot) {
-        engine.onOrderBook(snapshot);
+        // Not used for candle-based strategy
     }
 
     @Override
     public void onTrade(MarketTradeTick trade) {
-        engine.onTrade(trade);
+        // Not used for candle-based strategy
     }
 
     @Override
     public void onError(Throwable throwable) {
-        engine.onError(throwable);
+        // Not used for candle-based strategy
     }
 }
+

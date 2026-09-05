@@ -361,6 +361,89 @@ public class ByBitService implements TradingService {
             .collect(Collectors.toList());
     }
 
+    /** Helper method to parse candles from MarketDataRequest response. */
+    private List<Candle> getCandlesFromMarketLines(String figi, MarketDataRequest request) {
+        List<Candle> result = new ArrayList<>();
+        try {
+            Object response = marketClient.getMarketLinesData(request);
+            
+            // Parse JSON response
+            JsonObject json = gson.fromJson(gson.toJson(response), JsonObject.class);
+            if (json.has("result") && json.get("result").isJsonObject()) {
+                JsonObject resultObj = json.getAsJsonObject("result");
+                if (resultObj.has("list") && resultObj.get("list").isJsonArray()) {
+                    JsonArray list = resultObj.getAsJsonArray("list");
+                    for (JsonElement element : list) {
+                        JsonArray candle = element.getAsJsonArray();
+                        // ByBit returns timestamp as long (milliseconds since epoch)
+                        long timestamp = candle.get(0).getAsLong();
+                        String time = java.time.Instant.ofEpochMilli(timestamp)
+                            .atOffset(java.time.ZoneOffset.UTC)
+                            .format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
+                        
+                        double open = candle.get(1).getAsDouble();
+                        double high = candle.get(2).getAsDouble();
+                        double low = candle.get(3).getAsDouble();
+                        double close = candle.get(4).getAsDouble();
+                        double volumeDouble = candle.get(5).getAsDouble();
+                        long volume = Math.round(volumeDouble);
+                        
+                        result.add(new Candle(time, open, high, low, close, volume));
+                    }
+                }
+            }
+        } catch (Exception e) {
+            log("ByBitService.getCandles error: " + e.getMessage());
+        }
+        return result;
+    }
+
+    @Override
+    public List<Candle> getCandles(String figi, String interval, int count) {
+        // Map interval string to ByBit interval enum
+        MarketInterval intervalEnum = mapInterval(interval);
+        
+        // Calculate duration based on interval and count
+        long durationMinutes;
+        switch (intervalEnum) {
+            case ONE_MINUTE:
+                durationMinutes = (count + 1);
+                break;
+            case FIVE_MINUTES:
+                durationMinutes = (count + 1) * 5;
+                break;
+            case FIFTEEN_MINUTES:
+                durationMinutes = (count + 1) * 15;
+                break;
+            case HOURLY:
+                durationMinutes = (count + 1) * 60;
+                break;
+            case DAILY:
+                durationMinutes = (count + 1) * 24 * 60;
+                break;
+            default:
+                durationMinutes = (count + 1) * 60;
+        }
+        
+        Instant end = Instant.now();
+        Instant start = end.minus(durationMinutes, java.time.temporal.ChronoUnit.MINUTES);
+        
+        long startMs = start.toEpochMilli();
+        long endMs = end.toEpochMilli();
+        
+        // Use SDK builder pattern for getMarketLinesData
+        MarketDataRequest request = MarketDataRequest.builder()
+            .category(CategoryType.LINEAR)
+            .symbol(figi)
+            .marketInterval(intervalEnum)
+            .start(startMs)
+            .end(endMs)
+            .limit(count + 1)
+            .build();
+        
+        return getCandlesFromMarketLines(figi, request);
+    }
+
     @Override
     @SuppressWarnings("unchecked")
     public Map<String, Map<Double, Long>> getCurrentPrices(TickerInfo.Key key, boolean isPrintGlass) {

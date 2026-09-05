@@ -216,6 +216,12 @@ public interface TradingService {
             String ticker, TickerType type, int count);
 
     /**
+     * Returns the last {@code count} candles for the given symbol and interval.
+     * Useful for live candle-based strategies that poll recent candles.
+     */
+    List<Candle> getCandles(String figi, String interval, int count);
+
+    /**
      * Returns the current prices (bids and asks) for the given ticker.
      */
     Map<String, Map<Double, Long>> getCurrentPrices(TickerInfo.Key key, boolean isPrintGlass);
