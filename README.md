@@ -18,7 +18,7 @@
 | Стратегия | Описание |
 |---|---|
 | `RegimeAwareStrategy` | Основная стратегия с тремя типами сигналов (trend, fx, mixed), свечными паттернами, голосованием и режимом фильтрации рынка (Regime-Aware Filter) |
-| `OrderBookScalpStrategy` | Скальпинг на основе анализа стакана и дельты (Tinkoff и ByBit) |
+| `OrderBookScalpStrategy` | Скальпинг на основе 5-минутных свечей: анализ объёма, дельты и импульса (Tinkoff и ByBit) |
 
 ## Архитектура
 
@@ -55,8 +55,8 @@ src/main/java/com/github/shk0da/goldendragon/
 └── strategy/                 # торговые стратегии
     ├── BaseStrategy          # базовый класс (жизненный цикл, индикаторы)
     ├── UnifiedStrategy       # основная стратегия с режимом фильтрации рынка
-    ├── DataCollector         # сбор данных с Tinkoff и ByBit
-    └── OrderBookScalpStrategy # скальпинг по стакану (Tinkoff и ByBit)
+    ├── DataCollector         # сбор исторических данных (5_MIN, HOUR) с Tinkoff и ByBit
+    └── OrderBookScalpStrategy # скальпинг по 5-мин свечам (Tinkoff и ByBit)
 ```
 
 ## Конфигурация
