@@ -1346,11 +1346,11 @@ public class BacktestRunner {
 
     private double calcMaxDrawdownByEquity(List<EquityPoint> equityCurve) {
         if (equityCurve == null || equityCurve.isEmpty()) return 0.0;
-        double peak = equityCurve.get(0).equity;
+        // Считаем просадку от капитала на начало периода, а не от пика
+        double startCapital = equityCurve.get(0).equity;
         double maxDd = 0.0;
         for (EquityPoint point : equityCurve) {
-            if (point.equity > peak) peak = point.equity;
-            double dd = peak > 0 ? (peak - point.equity) / peak : 0.0;
+            double dd = startCapital > 0 ? (startCapital - point.equity) / startCapital : 0.0;
             if (dd > maxDd) maxDd = dd;
         }
         return maxDd;

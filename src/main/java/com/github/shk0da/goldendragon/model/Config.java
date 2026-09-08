@@ -88,8 +88,8 @@ public class Config {
 
         // Money Management defaults
         this.mmEnabled = true;
-        this.mmRiskPercent = 0.01;
-        this.mmMaxDailyLossPercent = 0.03;
+        this.mmRiskPercent = 0.006;
+        this.mmMaxDailyLossPercent = 0.02;
         this.mmMaxConsecutiveLosses = 3;
         this.mmSizingStrategy = "FIXED";
         this.mmVolatilityBaseAtr = 1.0;
@@ -100,13 +100,13 @@ public class Config {
         this.mmTrailingMultiplier = 0.85;
         this.mmBreakevenActivationR = 0.4;
         this.mmBreakevenBuffer = 0.001;
-        this.mmAdaptiveEnabled = true;
+        this.mmAdaptiveEnabled = false;
         this.mmLossesToReduce = 3;
         this.mmWinsToRestore = 5;
         this.mmRiskReductionFactor = 0.5;
-        this.mmCriticalDrawdownPercent = 0.10;
-        this.mmMaxPositionSize = 0.25;
-        this.shortsEnabled = false;
+        this.mmCriticalDrawdownPercent = 0.15;
+        this.mmMaxPositionSize = 0.20;
+        this.shortsEnabled = true;
     }
 
     public Config(
