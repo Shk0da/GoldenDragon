@@ -411,7 +411,7 @@ public class SimulatedBroker implements MarketDataProvider, OrderExecutor {
                 : rawPrice * (1.0 + DEFAULT_TP_PERCENT / 100.0);
 
         pos.position = new Position(
-                "BUY", slippedEntry, slPrice, tpPrice, quantity, 0, 0, 1);
+                "BUY", slippedEntry, slPrice, tpPrice, null, quantity, 0, 0, 1, false);
         pos.entryPrice = slippedEntry;
         pos.postedMargin = 0.0;  // longs don't post margin
         pos.entryBarIndex = barIndex(ticker, bar);
@@ -467,7 +467,7 @@ public class SimulatedBroker implements MarketDataProvider, OrderExecutor {
                 : rawPrice * (1.0 - DEFAULT_TP_PERCENT / 100.0);
 
         pos.position = new Position(
-                "SELL", slippedEntry, slPrice, tpPrice, quantity, 0, 0, 1);
+                "SELL", slippedEntry, slPrice, tpPrice, null, quantity, 0, 0, 1, false);
         pos.entryPrice = slippedEntry;
         pos.postedMargin = marginRequired;
         pos.entryBarIndex = barIndex(ticker, bar);
@@ -508,6 +508,88 @@ public class SimulatedBroker implements MarketDataProvider, OrderExecutor {
         return closePosition(ticker, pos, bar.close, bar.time, "strategy_close");
     }
 
+    @Override
+    public ExecutionResult partialCloseLong(String ticker, int quantity) {
+        SimulatedPosition pos = positions.get(ticker);
+        if (pos == null || !pos.isLong()) {
+            return ExecutionResult.failed("No long position for " + ticker);
+        }
+        if (quantity <= 0 || quantity >= pos.position.quantity) {
+            return ExecutionResult.failed("Invalid partial close quantity: " + quantity);
+        }
+        Candle bar = getCurrentCandle(ticker, "5_MIN");
+        if (bar == null) {
+            return ExecutionResult.failed("No market data for " + ticker);
+        }
+        
+        int remainingQty = pos.position.quantity - quantity;
+        double exitPrice = bar.close;
+        double commission = exitPrice * quantity * pos.lotSize * getEffectiveCommission(ticker);
+        double proceeds = exitPrice * quantity * pos.lotSize - commission;
+        double entryValue = pos.entryPrice * quantity * pos.lotSize;
+        double pnl = proceeds - entryValue;
+        
+        sharedCash += proceeds;
+        pos.position = new Position(
+                pos.position.direction,
+                pos.entryPrice,
+                pos.position.stopLoss,
+                pos.position.takeProfit,
+                null,
+                remainingQty,
+                pos.position.candlesHeld,
+                0,
+                pos.position.appliedLeverage,
+                true);
+        
+        tradeHistory.add(new BacktestTrade(
+                ticker, "SELL", "PARTIAL_CLOSE", exitPrice, 0.0, quantity,
+                0.0, commission, "partial_close", bar.time, barIndex(ticker, bar)));
+        
+        return ExecutionResult.success(quantity, exitPrice);
+    }
+
+    @Override
+    public ExecutionResult partialCloseShort(String ticker, int quantity) {
+        SimulatedPosition pos = positions.get(ticker);
+        if (pos == null || !pos.isShort()) {
+            return ExecutionResult.failed("No short position for " + ticker);
+        }
+        if (quantity <= 0 || quantity >= Math.abs(pos.position.quantity)) {
+            return ExecutionResult.failed("Invalid partial close quantity: " + quantity);
+        }
+        Candle bar = getCurrentCandle(ticker, "5_MIN");
+        if (bar == null) {
+            return ExecutionResult.failed("No market data for " + ticker);
+        }
+        
+        int remainingQty = Math.abs(pos.position.quantity) - quantity;
+        double exitPrice = bar.close;
+        double commission = exitPrice * quantity * pos.lotSize * getEffectiveCommission(ticker);
+        double proceeds = exitPrice * quantity * pos.lotSize - commission;
+        double entryValue = pos.entryPrice * quantity * pos.lotSize;
+        double pnl = entryValue - proceeds;
+        
+        sharedCash += proceeds;
+        pos.position = new Position(
+                pos.position.direction,
+                pos.entryPrice,
+                pos.position.stopLoss,
+                pos.position.takeProfit,
+                null,
+                remainingQty,
+                pos.position.candlesHeld,
+                0,
+                pos.position.appliedLeverage,
+                true);
+        
+        tradeHistory.add(new BacktestTrade(
+                ticker, "BUY", "PARTIAL_CLOSE", exitPrice, 0.0, quantity,
+                0.0, commission, "partial_close", bar.time, barIndex(ticker, bar)));
+        
+        return ExecutionResult.success(quantity, exitPrice);
+    }
+
     /**
      * Update only protective levels (trailing SL/TP). entry/quantity/direction are NOT changed.
      * TMON@ (cash parking) is skipped — no SL/TP.
@@ -526,10 +608,12 @@ public class SimulatedBroker implements MarketDataProvider, OrderExecutor {
                 p.position.entryPrice,
                 stopLoss,
                 takeProfit,
+                null,
                 p.position.quantity,
                 p.position.candlesHeld,
-                0,  // Position.cooldownRemaining не используется движком; источник истины — SimulatedPosition.cooldownRemaining
-                p.position.appliedLeverage);
+                0,
+                p.position.appliedLeverage,
+                p.position.partialClosed);
     }
 
     /**
@@ -631,10 +715,12 @@ public class SimulatedBroker implements MarketDataProvider, OrderExecutor {
             pos.entryPrice,
             pos.position.stopLoss,
             pos.position.takeProfit,
+            null,
             pos.position.quantity - sharesToSell,
             pos.position.candlesHeld,
-            0,  // Position.cooldownRemaining не используется движком
-            pos.position.appliedLeverage);
+            0,
+            pos.position.appliedLeverage,
+            pos.position.partialClosed);
         return true;
     }
 

@@ -396,6 +396,21 @@ public class TCSService implements TradingService {
         return OrderExecutionResult.failed();
     }
 
+    @Override
+    public OrderExecutionResult closeShortByMarketWithDetails(String name, TickerType type, int quantity) {
+        if (quantity > 0) {
+            log(formatTradeLog("Buy", name, quantity, type, "Market (partial)"));
+
+            if (mainConfig.isTestMode()) {
+                return OrderExecutionResult.testSuccess(
+                        getAvailablePrice(new TickerInfo.Key(name, type)), quantity);
+            }
+            return createOrder(
+                    new TickerInfo.Key(name, type), 0.0, quantity, "Buy", 0.0, 0.0, false);
+        }
+        return OrderExecutionResult.failed();
+    }
+
     /**
      * Closes the entire long position for the given ticker by market order.
      *
@@ -434,6 +449,20 @@ public class TCSService implements TradingService {
                         getAvailablePrice(new TickerInfo.Key(name, type)), count);
             }
             return createOrder(new TickerInfo.Key(name, type), 0.0, count, "Sell", 0.0, 0.0, false);
+        }
+        return OrderExecutionResult.failed();
+    }
+
+    @Override
+    public OrderExecutionResult closeLongByMarketWithDetails(String name, TickerType type, int quantity) {
+        if (quantity > 0) {
+            log(formatTradeLog("Sell", name, quantity, type, "Market (partial)"));
+
+            if (mainConfig.isTestMode()) {
+                return OrderExecutionResult.testSuccess(
+                        getAvailablePrice(new TickerInfo.Key(name, type)), quantity);
+            }
+            return createOrder(new TickerInfo.Key(name, type), 0.0, quantity, "Sell", 0.0, 0.0, false);
         }
         return OrderExecutionResult.failed();
     }

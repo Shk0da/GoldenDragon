@@ -45,6 +45,24 @@ public interface OrderExecutor {
     ExecutionResult closeShort(String ticker);
 
     /**
+     * Partially close a long position.
+     *
+     * @param ticker ticker symbol
+     * @param quantity quantity to close
+     * @return execution result
+     */
+    ExecutionResult partialCloseLong(String ticker, int quantity);
+
+    /**
+     * Partially close a short position.
+     *
+     * @param ticker ticker symbol
+     * @param quantity quantity to close
+     * @return execution result
+     */
+    ExecutionResult partialCloseShort(String ticker, int quantity);
+
+    /**
      * Get available cash balance.
      *
      * @return available cash

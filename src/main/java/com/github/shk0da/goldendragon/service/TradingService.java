@@ -333,6 +333,11 @@ public interface TradingService {
     OrderExecutionResult closeLongByMarketWithDetails(String name, TickerType type);
 
     /**
+     * Partially closes a long position by specified quantity.
+     */
+    OrderExecutionResult closeLongByMarketWithDetails(String name, TickerType type, int quantity);
+
+    /**
      * Closes the entire short position.
      */
     boolean closeShortByMarket(String name, TickerType type);
@@ -341,6 +346,11 @@ public interface TradingService {
      * Closes the entire short position and returns execution details.
      */
     OrderExecutionResult closeShortByMarketWithDetails(String name, TickerType type);
+
+    /**
+     * Partially closes a short position by specified quantity.
+     */
+    OrderExecutionResult closeShortByMarketWithDetails(String name, TickerType type, int quantity);
 
     /**
      * Closes all positions by market orders.

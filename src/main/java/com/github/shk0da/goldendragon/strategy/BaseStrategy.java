@@ -732,6 +732,10 @@ import static java.util.concurrent.CompletableFuture.runAsync;
             if ("CLOSE".equals(decision.action)) {
                 closePosition(name, ticker, storedPosition, decision);
             }
+            
+            if ("PARTIAL_CLOSE".equals(decision.action)) {
+                partialClosePosition(name, ticker, storedPosition, decision);
+            }
         } catch (Exception ex) {
             long cooldownExpiry = timeProvider.currentTimeMillis() + COOLDOWN_DURATION_MS;
             tickerCooldown.put(name, cooldownExpiry);
@@ -932,10 +936,12 @@ import static java.util.concurrent.CompletableFuture.runAsync;
                     orderResult.getExecutedPrice(),
                     decision.stopLoss,
                     decision.takeProfit,
+                    null,
                     orderResult.getExecutedQuantity(),
                     0,
                     0,
-                    decision.updatedPosition.appliedLeverage);
+                    decision.updatedPosition.appliedLeverage,
+                    false);
 
             positionStore.put(name, executedPosition);
             lastSeenHourBarByTicker.put(name, candles.get(candles.size() - 1).time);
@@ -1051,6 +1057,45 @@ import static java.util.concurrent.CompletableFuture.runAsync;
                     name, pnl, entryPrice, exitPrice, closedQuantity, storedPosition.direction);
         } else {
             log("Failed to close position for " + name + " (may not exist in broker account)");
+        }
+    }
+
+    protected void partialClosePosition(
+            String name, TickerInfo ticker, Position storedPosition, TradingDecision decision) {
+        log("PARTIAL_CLOSE for " + name + ": " + decision.quantity + " shares (TP1 hit)");
+        
+        if (storedPosition.quantity <= 0) {
+            log("PARTIAL_CLOSE but no position for " + name + ", skipping.");
+            return;
+        }
+        
+        int closeQty = decision.quantity;
+        if (closeQty <= 0 || closeQty >= storedPosition.quantity) {
+            log("Invalid partial close quantity: " + closeQty + ", position: " + storedPosition.quantity);
+            return;
+        }
+        
+        OrderExecutor.ExecutionResult closeResult;
+        if ("BUY".equals(storedPosition.direction)) {
+            closeResult = orderExecutor.partialCloseLong(name, closeQty);
+        } else {
+            closeResult = orderExecutor.partialCloseShort(name, closeQty);
+        }
+        
+        if (closeResult.isSuccess()) {
+            double entryPrice = storedPosition.entryPrice != null ? storedPosition.entryPrice : 0.0;
+            double exitPrice = closeResult.getExecutedPrice() != null ? closeResult.getExecutedPrice() : decision.entryPrice != null ? decision.entryPrice : 0.0;
+            double pnl = calculatePnlForQuantity(storedPosition, exitPrice, closeQty);
+            
+            positionStore.put(name, decision.updatedPosition);
+            
+            log(
+                    "PARTIAL_CLOSE " + name + ": closed=" + closeQty + ", remaining=" + decision.updatedPosition.quantity +
+                    ", pnl=" + String.format("%.2f", pnl) + ", newStop=" + decision.updatedPosition.stopLoss);
+            
+            onTradeClosed(name, pnl, entryPrice, exitPrice, closeQty, storedPosition.direction);
+        } else {
+            log("Failed to partial close " + name + ": " + closeResult.getErrorMessage());
         }
     }
 

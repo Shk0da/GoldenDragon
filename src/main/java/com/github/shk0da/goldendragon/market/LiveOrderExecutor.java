@@ -139,6 +139,48 @@ public class LiveOrderExecutor implements OrderExecutor {
     }
 
     @Override
+    public ExecutionResult partialCloseLong(String ticker, int quantity) {
+        try {
+            TickerInfo info = tickerRepository.getByName(ticker);
+            if (info == null) {
+                return ExecutionResult.failed("Ticker not found: " + ticker);
+            }
+
+            TradingService.OrderExecutionResult result = tcsService.closeLongByMarketWithDetails(ticker, info.getType(), quantity);
+
+            if (!result.isSuccess()) {
+                return ExecutionResult.failed("Partial close long failed"
+                    + (result.getErrorMessage() != null ? ": " + result.getErrorMessage() : ""));
+            }
+
+            return ExecutionResult.success(result.getExecutedCount(), result.getExecutedPrice());
+        } catch (Exception e) {
+            return ExecutionResult.failed("Exception: " + e.getMessage());
+        }
+    }
+
+    @Override
+    public ExecutionResult partialCloseShort(String ticker, int quantity) {
+        try {
+            TickerInfo info = tickerRepository.getByName(ticker);
+            if (info == null) {
+                return ExecutionResult.failed("Ticker not found: " + ticker);
+            }
+
+            TradingService.OrderExecutionResult result = tcsService.closeShortByMarketWithDetails(ticker, info.getType(), quantity);
+
+            if (!result.isSuccess()) {
+                return ExecutionResult.failed("Partial close short failed"
+                    + (result.getErrorMessage() != null ? ": " + result.getErrorMessage() : ""));
+            }
+
+            return ExecutionResult.success(result.getExecutedCount(), result.getExecutedPrice());
+        } catch (Exception e) {
+            return ExecutionResult.failed("Exception: " + e.getMessage());
+        }
+    }
+
+    @Override
     public double getAvailableCash() {
         try {
             return tcsService.getAvailableCash();

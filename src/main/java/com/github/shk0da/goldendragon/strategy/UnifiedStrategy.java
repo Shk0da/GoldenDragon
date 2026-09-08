@@ -322,6 +322,7 @@ public class UnifiedStrategy extends BaseStrategy {
         if (p.quantity > 0) {
             Double sl = p.stopLoss;
             Double tp = p.takeProfit;
+            Double tp2 = p.takeProfit2;
             String dir = p.direction;
             int maxH = grp == Group.FX ? config.maxCandlesHoldFx : config.maxCandlesHold;
 
@@ -339,7 +340,43 @@ public class UnifiedStrategy extends BaseStrategy {
                         new Position(config.cooldownCandles));
             }
 
-            if (tp != null
+            // Check TP1 (60% position) - move stop to breakeven
+            if (!p.partialClosed && tp != null
+                    && (("BUY".equals(dir) && cur.high >= tp)
+                            || ("SELL".equals(dir) && cur.low <= tp))) {
+                // TP1 hit: close 60% and move SL to breakeven
+                int qty1 = (int) Math.ceil(p.quantity * 0.6);
+                int remainingQty = p.quantity - qty1;
+                double breakevenBuffer = 0.001;
+                double newStop = "BUY".equals(dir) ? p.entryPrice * (1 + breakevenBuffer) : p.entryPrice * (1 - breakevenBuffer);
+                return new TradingDecision(
+                        "PARTIAL_CLOSE",
+                        "take_profit_1",
+                        0.0,
+                        qty1,
+                        newStop,
+                        tp2,
+                        tp,
+                        new Position(p, remainingQty, newStop));
+            }
+
+            // Check TP2 (40% position) - close remaining
+            if (p.partialClosed && tp2 != null
+                    && (("BUY".equals(dir) && cur.high >= tp2)
+                            || ("SELL".equals(dir) && cur.low <= tp2))) {
+                return new TradingDecision(
+                        "CLOSE",
+                        "take_profit_2",
+                        0.0,
+                        p.quantity,
+                        null,
+                        null,
+                        tp2,
+                        new Position(config.cooldownCandles));
+            }
+
+            // Single TP check (fallback for old positions without TP2)
+            if (tp != null && tp2 == null
                     && (("BUY".equals(dir) && cur.high >= tp)
                             || ("SELL".equals(dir) && cur.low <= tp))) {
                 return new TradingDecision(
@@ -480,10 +517,12 @@ public class UnifiedStrategy extends BaseStrategy {
                             p.entryPrice,
                             p.stopLoss,
                             p.takeProfit,
+                            null,
                             p.quantity,
                             p.candlesHeld,
                             p.cooldownRemaining - 1,
-                            p.appliedLeverage));
+                            p.appliedLeverage,
+                            false));
         }
 
         if (p.quantity > 0) {
@@ -724,15 +763,21 @@ public class UnifiedStrategy extends BaseStrategy {
         double tradeConfidence =
                 mmEnabled ? adaptiveCapital.getCurrentRiskPercent() / config.mmRiskPercent : 1.0;
 
+        // Two take-profit levels: TP1 (60% qty) at +1%, TP2 (40% qty) at +2%
+        double tp1Percent = 0.01;
+        double tp2Percent = 0.02;
+        double tp1 = isBuy ? entry * (1 + tp1Percent) : entry * (1 - tp1Percent);
+        double tp2 = isBuy ? entry * (1 + tp2Percent) : entry * (1 - tp2Percent);
+
         return new TradingDecision(
                 "OPEN",
                 signal,
                 tradeConfidence,
                 qty,
                 sl,
-                tp,
+                tp2,
                 entry,
-                new Position(direction, entry, sl, tp, qty, 0, 0, effectiveLeverage));
+                new Position(direction, entry, sl, tp1, tp2, qty, 0, 0, effectiveLeverage, false));
     }
 
     public String trendSignal(List<Candle> candles) {
@@ -831,10 +876,12 @@ public class UnifiedStrategy extends BaseStrategy {
                 entryPrice,
                 stopLoss,
                 takeProfit,
+                null,
                 quantity,
                 candlesHeld,
                 cooldownRemaining,
-                leverage);
+                leverage,
+                src != null && src.partialClosed);
     }
 
     private int calculateMaxAffordableQuantity(
@@ -1224,7 +1271,7 @@ public class UnifiedStrategy extends BaseStrategy {
                         null,
                         null,
                         null,
-                        new Position("BUY", null, null, null, buyQty, 0, 0, 1));
+                        new Position("BUY", null, null, null, null, buyQty, 0, 0, 1, false));
             }
         }
 
