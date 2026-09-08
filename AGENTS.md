@@ -66,6 +66,12 @@
 - Run Backtest (Tinkoff): `./gradlew runBacktest`
 - Data collection: `./gradlew dataCollect`
 
+## Backtest Warnings
+- **Backtest is slow** — takes several minutes to complete. Do NOT run for every small change.
+- **Run backtest only when necessary**: after major logic changes, before commits, or when explicitly requested.
+- **Verify with compilation first**: `./gradlew compileJava` is fast and catches most errors.
+- **Check logs incrementally**: add logging and test with short runs before full backtest.
+
 ## Multi-Service Architecture
 
 The project uses the `TradingService` interface for Tinkoff (TCS):
