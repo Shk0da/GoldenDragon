@@ -29,7 +29,7 @@ import java.util.concurrent.Executors;
 public class DashboardServer {
 
     private static final int PORT = 1040;
-    private static final long POLL_INTERVAL_SECONDS = 10;
+    private static final long POLL_INTERVAL_SECONDS = 120;
     private static final Gson gson = new GsonBuilder().setPrettyPrinting().create();
 
     private final HttpServer server;
@@ -78,21 +78,27 @@ public class DashboardServer {
             }
         } catch (Exception ex) {
             System.err.println("Failed to load trade history: " + ex.getMessage());
+            ex.printStackTrace();
         }
     }
 
     private void calculateStats() {
-        this.totalTrades = tradeHistory.size();
         this.totalPnl = 0.0;
         this.winningTrades = 0;
+        this.totalTrades = 0;
 
         for (Map<String, Object> trade : tradeHistory) {
-            Object pnlObj = trade.get("pnl");
-            if (pnlObj instanceof Number) {
-                double pnl = ((Number) pnlObj).doubleValue();
-                this.totalPnl += pnl;
-                if (pnl > 0) {
-                    this.winningTrades++;
+            String type = (String) trade.get("type");
+            // Count only SELL operations (closed positions) for PnL and Win Rate
+            if ("SELL".equals(type)) {
+                this.totalTrades++;
+                Object pnlObj = trade.get("pnl");
+                if (pnlObj instanceof Number) {
+                    double pnl = ((Number) pnlObj).doubleValue();
+                    this.totalPnl += pnl;
+                    if (pnl > 0) {
+                        this.winningTrades++;
+                    }
                 }
             }
         }
@@ -104,7 +110,6 @@ public class DashboardServer {
 
     public void start() {
         server.start();
-        System.out.println("📊 Dashboard started at http://localhost:" + port);
         startTradePolling();
     }
 
@@ -116,7 +121,6 @@ public class DashboardServer {
                 pollIntervalSeconds,
                 java.util.concurrent.TimeUnit.SECONDS
         );
-        System.out.println("📈 Trade polling started (every " + pollIntervalSeconds + " seconds)");
     }
 
     public void stop() {
@@ -166,6 +170,9 @@ public class DashboardServer {
         stats.put("winningTrades", winningTrades);
         stats.put("winRate", totalTrades > 0 ? (double) winningTrades / totalTrades : 0.0);
         stats.put("currency", currency);
+        // PnL as percentage of portfolio (balance + pnl)
+        double portfolioValue = balance + totalPnl;
+        stats.put("pnlPercent", portfolioValue > 0 ? (totalPnl / portfolioValue) * 100 : 0.0);
 
         String response = gson.toJson(stats);
         byte[] bytes = response.getBytes(StandardCharsets.UTF_8);
@@ -331,6 +338,10 @@ public class DashboardServer {
         sb.append("        .stat-card .value.negative {\n");
         sb.append("            color: var(--tinkoff-red);\n");
         sb.append("        }\n");
+        sb.append("        .stat-card .value .pnl-percent {\n");
+        sb.append("            font-size: 16px;\n");
+        sb.append("            color: #888;\n");
+        sb.append("        }\n");
         sb.append("        .section {\n");
         sb.append("            background: white;\n");
         sb.append("            border-radius: 8px;\n");
@@ -441,6 +452,7 @@ public class DashboardServer {
         sb.append("                    <tr>\n");
         sb.append("                        <th>Time</th>\n");
         sb.append("                        <th>Ticker</th>\n");
+        sb.append("                        <th>Description</th>\n");
         sb.append("                        <th>Type</th>\n");
         sb.append("                        <th>Quantity</th>\n");
         sb.append("                        <th>Price</th>\n");
@@ -448,7 +460,7 @@ public class DashboardServer {
         sb.append("                    </tr>\n");
         sb.append("                </thead>\n");
         sb.append("                <tbody id=\"trades-body\">\n");
-        sb.append("                    <tr><td colspan=\"6\" class=\"loading\">Loading...</td></tr>\n");
+        sb.append("                    <tr><td colspan=\"7\" class=\"loading\">Loading...</td></tr>\n");
         sb.append("                </tbody>\n");
         sb.append("            </table>\n");
         sb.append("        </div>\n");
@@ -462,7 +474,8 @@ public class DashboardServer {
         sb.append("                currency = stats.currency || 'RUB';\n");
         sb.append("                document.getElementById('balance').textContent = formatMoney(stats.balance);\n");
         sb.append("                const pnlEl = document.getElementById('pnl');\n");
-        sb.append("                pnlEl.textContent = formatMoney(stats.totalPnl);\n");
+        sb.append("                const pnlPercent = stats.pnlPercent || 0;\n");
+        sb.append("                pnlEl.innerHTML = formatMoney(stats.totalPnl) + ' <span class=\"pnl-percent\">(' + (pnlPercent >= 0 ? '+' : '') + pnlPercent.toFixed(2) + '%)</span>';\n");
         sb.append("                pnlEl.className = 'value ' + (stats.totalPnl >= 0 ? 'positive' : 'negative');\n");
         sb.append("                document.getElementById('trades').textContent = stats.totalTrades;\n");
         sb.append("                document.getElementById('winrate').textContent = (stats.winRate * 100).toFixed(1) + '%';\n");
@@ -487,12 +500,13 @@ public class DashboardServer {
         sb.append("                const trades = await tradesRes.json();\n");
         sb.append("                const tradesBody = document.getElementById('trades-body');\n");
         sb.append("                if (trades.length === 0) {\n");
-        sb.append("                    tradesBody.innerHTML = '<tr><td colspan=\"6\" class=\"loading\">No trade history</td></tr>';\n");
+        sb.append("                    tradesBody.innerHTML = '<tr><td colspan=\"7\" class=\"loading\">No trade history</td></tr>';\n");
         sb.append("                } else {\n");
         sb.append("                    tradesBody.innerHTML = trades.map(trade => \n");
         sb.append("                        '<tr>' +\n");
         sb.append("                            '<td>' + trade.time + '</td>' +\n");
         sb.append("                            '<td class=\"ticker\">' + trade.ticker + '</td>' +\n");
+        sb.append("                            '<td>' + (trade.description || '-') + '</td>' +\n");
         sb.append("                            '<td>' + trade.type + '</td>' +\n");
         sb.append("                            '<td>' + trade.quantity + '</td>' +\n");
         sb.append("                            '<td>' + formatMoney(trade.price) + '</td>' +\n");
@@ -521,7 +535,7 @@ public class DashboardServer {
         sb.append("            }).format(value);\n");
         sb.append("        }\n");
         sb.append("        loadData();\n");
-        sb.append("        setInterval(loadData, 5000);\n");
+        sb.append("        setInterval(loadData, 120000); // Refresh every 2 minutes\n");
         sb.append("    </script>\n");
         sb.append("</body>\n");
         sb.append("</html>\n");

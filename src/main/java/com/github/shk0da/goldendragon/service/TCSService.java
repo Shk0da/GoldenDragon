@@ -178,7 +178,7 @@ public class TCSService implements TradingService {
     public List<Candle> getCandles(
             String figi, Instant start, Instant end, String interval) {
         CandleInterval candleInterval = mapInterval(interval);
-        return investApi.getMarketDataService().getCandlesSync(figi, start, end, candleInterval)
+        return getCandlesWithRetry(figi, start, end, candleInterval)
                 .stream()
                 .map(TCSService::mapHistoricCandle)
                 .collect(Collectors.toList());
@@ -198,9 +198,7 @@ public class TCSService implements TradingService {
     public List<Candle> getCandles(
             String figi, OffsetDateTime start, OffsetDateTime end, String interval) {
         CandleInterval candleInterval = mapInterval(interval);
-        return investApi
-                .getMarketDataService()
-                .getCandlesSync(figi, start.toInstant(), end.toInstant(), candleInterval)
+        return getCandlesWithRetry(figi, start.toInstant(), end.toInstant(), candleInterval)
                 .stream()
                 .map(TCSService::mapHistoricCandle)
                 .collect(Collectors.toList());
@@ -279,7 +277,7 @@ public class TCSService implements TradingService {
         Instant end = Instant.now();
         Instant start = end.minus(durationMinutes, java.time.temporal.ChronoUnit.MINUTES);
 
-        return investApi.getMarketDataService().getCandlesSync(figi, start, end, candleInterval)
+        return getCandlesWithRetry(figi, start, end, candleInterval)
                 .stream()
                 .map(TCSService::mapHistoricCandle)
                 .collect(Collectors.toList());
@@ -1777,6 +1775,22 @@ public class TCSService implements TradingService {
         }
     }
 
+    private List<HistoricCandle> getCandlesWithRetry(
+            String figi, Instant start, Instant end, CandleInterval candleInterval) {
+        final int maxAttempts = 3;
+        for (int attempt = 1; ; attempt++) {
+            try {
+                return investApi.getMarketDataService().getCandlesSync(figi, start, end, candleInterval);
+            } catch (RuntimeException ex) {
+                if (attempt >= maxAttempts) {
+                    throw ex;
+                }
+                // Silent retry for transient API errors (e.g., "unknown error" from gRPC)
+                sleep(attempt * 500L);
+            }
+        }
+    }
+
     private TickerInfo toFutureTickerInfo(Future future) {
         TickerInfo info =
                 new TickerInfo(
@@ -2620,19 +2634,24 @@ public class TCSService implements TradingService {
         String fromParam = java.time.format.DateTimeFormatter.ISO_INSTANT.format(since);
         String toParam = java.time.format.DateTimeFormatter.ISO_INSTANT.format(now);
         String url =
-                "https://invest-public-api.tbank.ru/rest/tinkoff.public.invest.api.contract.v1.OperationsService/GetOperationsByCursor"
-                        + "?accountId=" + java.net.URLEncoder.encode(mainConfig.getTcsAccountId(), "UTF-8")
-                        + "&from=" + java.net.URLEncoder.encode(fromParam, "UTF-8")
-                        + "&to=" + java.net.URLEncoder.encode(toParam, "UTF-8")
-                        + "&limit=1000"
-                        + "&operationTypes=OPERATION_TYPE_BUY,OPERATION_TYPE_SELL";
+                "https://invest-public-api.tbank.ru/rest/"
+                        + "tinkoff.public.invest.api.contract.v1.OperationsService/GetOperationsByCursor";
+
+        // All Tinkoff gRPC-to-REST bridge endpoints use POST with a JSON body.
+        String body =
+                "{\"accountId\":\"" + mainConfig.getTcsAccountId()
+                        + "\",\"from\":\"" + fromParam
+                        + "\",\"to\":\"" + toParam
+                        + "\",\"limit\":\"1000\""
+                        + ",\"operationTypes\":[\"OPERATION_TYPE_BUY\",\"OPERATION_TYPE_SELL\"]"
+                        + ",\"state\":\"OPERATION_STATE_EXECUTED\"}";
 
         HttpRequest request =
                 HttpRequest.newBuilder()
                         .uri(URI.create(url))
                         .header("Authorization", "Bearer " + mainConfig.getTcsApiKey())
-                        .header("Accept", "application/json")
-                        .GET()
+                        .header("Content-Type", "application/json")
+                        .POST(HttpRequest.BodyPublishers.ofString(body))
                         .build();
 
         HttpResponse<String> response =
@@ -2644,15 +2663,17 @@ public class TCSService implements TradingService {
         }
 
         if (response.statusCode() != 200) {
-            log("Failed to get trade history: status=" + response.statusCode());
+            log("Failed to get trade history: status=" + response.statusCode() + " body=" + response.body());
             return emptyList();
         }
 
         var objectMapper = new com.fasterxml.jackson.databind.ObjectMapper();
         var json = objectMapper.readTree(response.body());
-        var operationsNode = json.path("operations");
+        // GetOperationsByCursor returns 'items' array, not 'operations'
+        var operationsNode = json.has("operations") ? json.path("operations") : json.path("items");
 
         if (!operationsNode.isArray()) {
+            log("No 'items' array in response: " + response.body());
             return emptyList();
         }
 
@@ -2662,9 +2683,19 @@ public class TCSService implements TradingService {
             String type = op.path("type").asText("");
             if ("OPERATION_TYPE_BUY".equals(type) || "OPERATION_TYPE_SELL".equals(type)) {
                 Map<String, Object> trade = new LinkedHashMap<>();
-                trade.put("time", op.path("date").asText());
+                
+                // Format time as "2026-09-08 14:31:05" instead of ISO 8601
+                String timeStr = op.path("date").asText("");
+                if (!timeStr.isEmpty()) {
+                    timeStr = timeStr.replace("T", " ").substring(0, 19);
+                }
+                trade.put("time", timeStr);
 
-                String ticker = op.path("instrumentUid").asText("");
+                // Use 'ticker' field directly (e.g., "GMKN"), fallback to figi if missing
+                String ticker = op.path("ticker").asText("");
+                if (ticker.isEmpty()) {
+                    ticker = op.path("instrumentUid").asText("");
+                }
                 if (ticker.isEmpty()) {
                     ticker = op.path("figi").asText("");
                 }
@@ -2672,9 +2703,20 @@ public class TCSService implements TradingService {
 
                 trade.put("type", type.replace("OPERATION_TYPE_", ""));
                 trade.put("quantity", op.path("quantity").asInt(0));
-                trade.put("price", op.path("price").path("amountString").asDouble(0.0));
+                
+                // Parse price from {units, nano} object
+                var priceNode = op.path("price");
+                double price = 0.0;
+                if (priceNode.has("units")) {
+                    long units = priceNode.path("units").asLong(0);
+                    int nano = priceNode.path("nano").asInt(0);
+                    price = units + (nano / 1_000_000_000.0);
+                }
+                trade.put("price", price);
+                trade.put("description", op.path("description").asText(""));
 
-                double pnl = parsePnlFromJson(op, type);
+                // Use 'yield' field from API - this is the actual PnL in RUB
+                double pnl = parseYieldFromJson(op);
                 trade.put("pnl", pnl);
 
                 trades.add(trade);
@@ -2684,23 +2726,13 @@ public class TCSService implements TradingService {
         return trades;
     }
 
-    private double parsePnlFromJson(com.fasterxml.jackson.databind.JsonNode op, String type) {
-        if ("OPERATION_TYPE_SELL".equalsIgnoreCase(type)) {
-            var payment = op.path("payment");
-            if (payment.isNumber()) {
-                double paymentValue = payment.asDouble(0.0);
-                var trades = op.path("trades");
-                if (trades.isArray() && !trades.isEmpty()) {
-                    double totalCost = 0.0;
-                    for (var trade : trades) {
-                        double tradePrice = trade.path("price").path("amountString").asDouble(0.0);
-                        long tradeQuantity = trade.path("quantity").asLong(0);
-                        totalCost += tradePrice * tradeQuantity;
-                    }
-                    return paymentValue - totalCost;
-                }
-                return paymentValue;
-            }
+    private double parseYieldFromJson(com.fasterxml.jackson.databind.JsonNode op) {
+        // Use 'yield' field from API - this is the actual PnL in RUB
+        var yieldNode = op.path("yield");
+        if (yieldNode.has("units")) {
+            long units = yieldNode.path("units").asLong(0);
+            int nano = yieldNode.path("nano").asInt(0);
+            return units + (nano / 1_000_000_000.0);
         }
         return 0.0;
     }
