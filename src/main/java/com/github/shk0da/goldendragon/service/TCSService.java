@@ -1149,11 +1149,13 @@ public class TCSService implements TradingService {
                         if (stopLoss == null || stopPrice > stopLoss) {
                             stopLoss = stopPrice;
                             protectiveOrders.stopLossOrderId = stopOrder.getStopOrderId();
+                            protectiveOrders.stopLossPrice = stopPrice;
                         }
                     } else {
                         if (takeProfit == null || stopPrice < takeProfit) {
                             takeProfit = stopPrice;
                             protectiveOrders.takeProfit1OrderId = stopOrder.getStopOrderId();
+                            protectiveOrders.takeProfit1Price = stopPrice;
                         }
                     }
                 } else if ("SELL".equals(position.direction)) {
@@ -1161,11 +1163,13 @@ public class TCSService implements TradingService {
                         if (stopLoss == null || stopPrice < stopLoss) {
                             stopLoss = stopPrice;
                             protectiveOrders.stopLossOrderId = stopOrder.getStopOrderId();
+                            protectiveOrders.stopLossPrice = stopPrice;
                         }
                     } else {
                         if (takeProfit == null || stopPrice > takeProfit) {
                             takeProfit = stopPrice;
                             protectiveOrders.takeProfit1OrderId = stopOrder.getStopOrderId();
+                            protectiveOrders.takeProfit1Price = stopPrice;
                         }
                     }
                 }
@@ -1272,9 +1276,9 @@ public class TCSService implements TradingService {
                                             stopOrderDirection,
                                             mainConfig.getTcsAccountId(),
                                             STOP_ORDER_TYPE_STOP_LOSS);
-                    protectiveOrdersByTicker.computeIfAbsent(key, ignored -> new ProtectiveOrders())
-                                    .stopLossOrderId =
-                            stopOrderId;
+                    var protectiveOrders = protectiveOrdersByTicker.computeIfAbsent(key, ignored -> new ProtectiveOrders());
+                    protectiveOrders.stopLossOrderId = stopOrderId;
+                    protectiveOrders.stopLossPrice = bracketPosition.stopLoss;
                 } catch (Exception ex) {
                     var error = "Failed create StopLose: " + ex.getMessage();
                     log(error);
@@ -1307,6 +1311,7 @@ public class TCSService implements TradingService {
                                             STOP_ORDER_TYPE_TAKE_PROFIT);
                     ProtectiveOrders orders = protectiveOrdersByTicker.computeIfAbsent(key, ignored -> new ProtectiveOrders());
                     orders.takeProfit1OrderId = tp1OrderId;
+                    orders.takeProfit1Price = bracketPosition.takeProfit;
                     log("TP1 order placed: qty=" + tp1Quantity + ", price=" + bracketPosition.takeProfit);
                 } catch (Exception ex) {
                     var error = "Failed create TP1: " + ex.getMessage();
@@ -1340,6 +1345,7 @@ public class TCSService implements TradingService {
                                                 STOP_ORDER_TYPE_TAKE_PROFIT);
                         ProtectiveOrders orders = protectiveOrdersByTicker.computeIfAbsent(key, ignored -> new ProtectiveOrders());
                         orders.takeProfit2OrderId = tp2OrderId;
+                        orders.takeProfit2Price = tp2Price;
                         log("TP2 order placed: qty=" + tp2Quantity + ", price=" + tp2Price);
                     } catch (Exception ex) {
                         var error = "Failed create TP2: " + ex.getMessage();
@@ -1384,6 +1390,7 @@ public class TCSService implements TradingService {
                                         mainConfig.getTcsAccountId(),
                                         STOP_ORDER_TYPE_STOP_LOSS);
                 orders.stopLossOrderId = newStopOrderId;
+                orders.stopLossPrice = breakevenPrice;
                 orders.tp1Executed = true;
                 log("Stop-loss moved to breakeven: " + breakevenPrice + ", qty=" + quantity);
             } catch (Exception ex) {
@@ -1404,12 +1411,23 @@ public class TCSService implements TradingService {
             boolean isStopLoss) {
         String currentOrderId =
                 isStopLoss ? protectiveOrders.stopLossOrderId : protectiveOrders.takeProfit1OrderId;
+        Double currentPrice =
+                isStopLoss ? protectiveOrders.stopLossPrice : protectiveOrders.takeProfit1Price;
+        
+        // Skip if order exists and price matches (tolerance: 0.0001)
+        if (currentOrderId != null && price != null && price > 0.0 && 
+            currentPrice != null && Math.abs(currentPrice - price) < 0.0001) {
+            return;
+        }
+        
         if (price == null || price <= 0.0) {
             cancelStopOrder(key, currentOrderId, isStopLoss ? "StopLose" : "TakeProfit");
             if (isStopLoss) {
                 protectiveOrders.stopLossOrderId = null;
+                protectiveOrders.stopLossPrice = null;
             } else {
                 protectiveOrders.takeProfit1OrderId = null;
+                protectiveOrders.takeProfit1Price = null;
             }
             return;
         }
@@ -1438,8 +1456,10 @@ public class TCSService implements TradingService {
                                             : STOP_ORDER_TYPE_TAKE_PROFIT);
             if (isStopLoss) {
                 protectiveOrders.stopLossOrderId = stopOrderId;
+                protectiveOrders.stopLossPrice = price;
             } else {
                 protectiveOrders.takeProfit1OrderId = stopOrderId;
+                protectiveOrders.takeProfit1Price = price;
             }
             log(
                     key.getTicker()
@@ -1458,8 +1478,10 @@ public class TCSService implements TradingService {
             log(error);
             if (isStopLoss) {
                 protectiveOrders.stopLossOrderId = null;
+                protectiveOrders.stopLossPrice = null;
             } else {
                 protectiveOrders.takeProfit1OrderId = null;
+                protectiveOrders.takeProfit1Price = null;
             }
         }
     }
@@ -1488,8 +1510,11 @@ public class TCSService implements TradingService {
     private static class ProtectiveOrders {
 
         private String stopLossOrderId;
+        private Double stopLossPrice;
         private String takeProfit1OrderId;  // TP1: 60% @ +1%
+        private Double takeProfit1Price;
         private String takeProfit2OrderId;  // TP2: 40% @ +2%
+        private Double takeProfit2Price;
         private boolean tp1Executed = false;
     }
 
