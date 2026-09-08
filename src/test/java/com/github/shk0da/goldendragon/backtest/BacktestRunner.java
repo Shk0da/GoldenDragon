@@ -885,7 +885,7 @@ public class BacktestRunner {
                 broker.getTotalPortfolioValue()));
         }
         for (SimulatedBroker.BacktestTrade bt : broker.getTradeHistory()) {
-            if ("CLOSE".equals(bt.action)) {
+            if ("CLOSE".equals(bt.action) || "PARTIAL_CLOSE".equals(bt.action)) {
                 List<TradeResult> tickerTrades = tradesByTicker.get(bt.ticker);
                 if (tickerTrades != null) {
                     tickerTrades.add(
@@ -1005,6 +1005,20 @@ public class BacktestRunner {
                 }
                 brokerPos = broker.getPositionState(ticker);
                 brokerPos.cooldownRemaining = cooldownCandles;
+                return;
+            case "PARTIAL_CLOSE":
+                if (brokerPos.isLong()) {
+                    broker.partialCloseLong(ticker, decision.quantity);
+                } else if (brokerPos.isShort()) {
+                    broker.partialCloseShort(ticker, decision.quantity);
+                }
+                // Update position with new stop loss (breakeven) and remaining quantity
+                if (decision.updatedPosition != null) {
+                    broker.updateProtectiveLevels(
+                        ticker,
+                        decision.updatedPosition.stopLoss,
+                        decision.updatedPosition.takeProfit);
+                }
                 return;
             case "HOLD":
                 if (decision.updatedPosition != null && brokerPos.hasOpenPosition()) {

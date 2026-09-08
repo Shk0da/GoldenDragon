@@ -543,8 +543,8 @@ public class SimulatedBroker implements MarketDataProvider, OrderExecutor {
                 true);
         
         tradeHistory.add(new BacktestTrade(
-                ticker, "SELL", "PARTIAL_CLOSE", exitPrice, 0.0, quantity,
-                0.0, commission, "partial_close", bar.time, barIndex(ticker, bar)));
+                ticker, "SELL", "PARTIAL_CLOSE", pos.entryPrice, exitPrice, quantity,
+                pnl, commission, "partial_close", bar.time, barIndex(ticker, bar)));
         
         return ExecutionResult.success(quantity, exitPrice);
     }
@@ -584,8 +584,8 @@ public class SimulatedBroker implements MarketDataProvider, OrderExecutor {
                 true);
         
         tradeHistory.add(new BacktestTrade(
-                ticker, "BUY", "PARTIAL_CLOSE", exitPrice, 0.0, quantity,
-                0.0, commission, "partial_close", bar.time, barIndex(ticker, bar)));
+                ticker, "BUY", "PARTIAL_CLOSE", pos.entryPrice, exitPrice, quantity,
+                pnl, commission, "partial_close", bar.time, barIndex(ticker, bar)));
         
         return ExecutionResult.success(quantity, exitPrice);
     }
