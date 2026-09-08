@@ -1697,6 +1697,9 @@ import static java.util.concurrent.CompletableFuture.runAsync;
                         && weights.containsKey(parkingTicker)
                         && unifiedTraderConfig.isTmonCashParkingEnabled();
 
+        // Each position gets totalCash / MAX_CONCURRENT_POSITIONS, not totalCash / tickers.size()
+        double capitalPerPosition = totalCash / MAX_CONCURRENT_POSITIONS;
+
         Map<String, Double> allocation = new HashMap<>();
         for (Map.Entry<String, Double> e : weights.entrySet()) {
             if (tmonCashParking && cashParkingManager.isParkingTicker(e.getKey())) {
@@ -1704,8 +1707,7 @@ import static java.util.concurrent.CompletableFuture.runAsync;
                 // getAvailableCash() in processTicker(), not a stale startup snapshot.
                 // Skipping allocation so allocatedBalance = 0.0 and the fallback kicks in.
             } else {
-                // Allocate capital to non-parking tickers (or all tickers if tmonCashParking=false)
-                allocation.put(e.getKey(), totalCash * (e.getValue() / totalWeight));
+                allocation.put(e.getKey(), capitalPerPosition);
             }
         }
 
