@@ -156,7 +156,7 @@ import static java.util.concurrent.CompletableFuture.runAsync;
  * <h2>Временные ограничения</h2>
  *
  * <ul>
- *   <li>Торговая сессия: {@link #WORK_START_TIME} (08:30) — {@link #EOD_CLOSE_TIME} (21:00).
+ *   <li>Торговая сессия: {@link #WORK_START_TIME} (10:00) — {@link #EOD_CLOSE_TIME} (21:00).
  *   <li>Торговые дни: пн–пт ({@link #isTradingDay}).
  *   <li>{@link #isEndOfDayReached} — триггер для принудительного закрытия позиций.
  * </ul>
@@ -225,7 +225,7 @@ import static java.util.concurrent.CompletableFuture.runAsync;
     protected static final long API_CALL_DELAY_MS = 100;
     protected static final Object API_LOCK = new Object();
 
-    protected static final LocalTime WORK_START_TIME = LocalTime.of(8, 30);
+    protected static final LocalTime WORK_START_TIME = LocalTime.of(10, 0);
     protected static final LocalTime EOD_CLOSE_TIME = LocalTime.of(21, 0);
 
     protected static long lastApiCallTime = 0;
