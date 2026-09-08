@@ -592,7 +592,7 @@ import static java.util.concurrent.CompletableFuture.runAsync;
                         if (parkingPrice != null && parkingPrice > 0) {
                             double parkingValue = parkingQty * parkingPrice;
                             effectiveBalance = balance + parkingValue;
-                            if (isVerboseLogging()) {
+                            if (unifiedTraderConfig != null && unifiedTraderConfig.isLogEffectiveBalance()) {
                                 log(
                                         "EFFECTIVE-BALANCE "
                                                 + name

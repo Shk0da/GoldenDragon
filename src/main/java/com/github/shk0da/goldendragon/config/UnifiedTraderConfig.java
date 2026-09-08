@@ -152,6 +152,7 @@ public class UnifiedTraderConfig {
     private final boolean adaptiveLeverageEnabled;
     private final boolean tmonCashParkingEnabled;
     private final boolean logHoldReasons;
+    private final boolean logEffectiveBalance;
     private final Map<String, TickerParams> tickerParams;
     private final Properties properties;
 
@@ -180,6 +181,9 @@ public class UnifiedTraderConfig {
         logHoldReasons =
                 Boolean.parseBoolean(
                         properties.getProperty("unifiedTrader.logHoldReasons", "false"));
+        logEffectiveBalance =
+                Boolean.parseBoolean(
+                        properties.getProperty("unifiedTrader.logEffectiveBalance", "false"));
         this.tickerParams = loadTickerParams(properties);
     }
 
@@ -423,6 +427,14 @@ public class UnifiedTraderConfig {
     public boolean isLogHoldReasons() {
         return Boolean.parseBoolean(
                 properties.getProperty("unifiedTrader.logHoldReasons", "false"));
+    }
+
+    /**
+     * Controls logging of effective balance calculations. By default disabled to reduce log verbosity.
+     */
+    public boolean isLogEffectiveBalance() {
+        return Boolean.parseBoolean(
+                properties.getProperty("unifiedTrader.logEffectiveBalance", "false"));
     }
 
     /**
