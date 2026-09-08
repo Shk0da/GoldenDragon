@@ -840,7 +840,10 @@ import static java.util.concurrent.CompletableFuture.runAsync;
             }
         } else if (qty <= 0) {
             double availableCash = orderExecutor.getAvailableCash();
-            qty = (int) Math.floor(availableCash / (liveAskPrice * lotSize));
+            // Strong entry: use 1/2 cash instead of 1/MAX_CONCURRENT_POSITIONS
+            boolean strong = isStrongEntry(decision, candles);
+            double cashToUse = strong ? availableCash / 2.0 : availableCash / MAX_CONCURRENT_POSITIONS;
+            qty = (int) Math.floor(cashToUse / (liveAskPrice * lotSize));
             if (qty <= 0) {
                 logOpenCandidateSkipped(name, "insufficient_cash", decision);
                 return;
@@ -1712,5 +1715,24 @@ import static java.util.concurrent.CompletableFuture.runAsync;
         }
 
         return allocation;
+    }
+
+    protected boolean isStrongEntry(TradingDecision decision, List<Candle> hourCandles) {
+        if (decision.confidence > 0.8) {
+            return true;
+        }
+        
+        if (decision.reason != null && decision.reason.contains("TREND") && decision.reason.contains("ADX")) {
+            try {
+                String adxPart = decision.reason.substring(decision.reason.indexOf("ADX") + 3);
+                adxPart = adxPart.replaceAll("[^0-9.]", "").split("_")[0];
+                double adx = Double.parseDouble(adxPart);
+                if (adx > 40) {
+                    return true;
+                }
+            } catch (Exception ignored) {}
+        }
+        
+        return false;
     }
 }
