@@ -466,13 +466,19 @@ import static java.util.concurrent.CompletableFuture.runAsync;
                 if (hourCandles != null && !hourCandles.isEmpty()) {
                     snapshot.put(ticker, hourCandles);
                 }
-            } catch (Exception ex) {
-                String msg = ex.getMessage() != null ? ex.getMessage() : ex.getClass().getSimpleName();
-                Throwable cause = ex.getCause();
-                if (cause != null && cause.getMessage() != null) {
-                    msg = cause.getMessage();
-                }
-                log("refreshPeerCandles failed for " + ticker + ": " + msg);
+    } catch (Exception ex) {
+        String msg = ex.getMessage();
+        Throwable cause = ex.getCause();
+        if (cause != null && cause.getMessage() != null) {
+            msg = cause.getMessage();
+        }
+        if (msg == null || msg.isEmpty()) {
+            msg = ex.getClass().getSimpleName();
+        }
+        logThrottled(
+                "refreshPeer_" + ticker,
+                "refreshPeerCandles failed for " + ticker + ": " + msg,
+                5);
             }
         }
 
