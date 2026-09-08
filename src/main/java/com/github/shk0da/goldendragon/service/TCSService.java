@@ -1153,7 +1153,7 @@ public class TCSService implements TradingService {
                     } else {
                         if (takeProfit == null || stopPrice < takeProfit) {
                             takeProfit = stopPrice;
-                            protectiveOrders.takeProfitOrderId = stopOrder.getStopOrderId();
+                            protectiveOrders.takeProfit1OrderId = stopOrder.getStopOrderId();
                         }
                     }
                 } else if ("SELL".equals(position.direction)) {
@@ -1165,14 +1165,14 @@ public class TCSService implements TradingService {
                     } else {
                         if (takeProfit == null || stopPrice > takeProfit) {
                             takeProfit = stopPrice;
-                            protectiveOrders.takeProfitOrderId = stopOrder.getStopOrderId();
+                            protectiveOrders.takeProfit1OrderId = stopOrder.getStopOrderId();
                         }
                     }
                 }
             }
 
             if (protectiveOrders.stopLossOrderId != null
-                    || protectiveOrders.takeProfitOrderId != null) {
+                    || protectiveOrders.takeProfit1OrderId != null) {
                 protectiveOrdersByTicker.put(key, protectiveOrders);
             }
 
@@ -1285,32 +1285,111 @@ public class TCSService implements TradingService {
 
         if (bracketPosition.takeProfit != null) {
             if (!mainConfig.isSandbox()) {
+                // TP1: 60% of position at takeProfit price (+1%)
+                int tp1Quantity = (int) Math.ceil(quantity * 0.6);
                 sleep(1_000);
                 try {
                     StopOrderDirection stopOrderDirection =
                             ORDER_DIRECTION_BUY == direction
                                     ? STOP_ORDER_DIRECTION_SELL
                                     : STOP_ORDER_DIRECTION_BUY;
-                    Quotation takeProfitPrice = createQuotation(bracketPosition.takeProfit);
-                    String stopOrderId =
+                    Quotation tp1Price = createQuotation(bracketPosition.takeProfit);
+                    String tp1OrderId =
                             investApi
                                     .getStopOrdersService()
                                     .postStopOrderGoodTillCancelSync(
                                             figi,
-                                            quantity,
-                                            takeProfitPrice,
-                                            takeProfitPrice,
+                                            tp1Quantity,
+                                            tp1Price,
+                                            tp1Price,
                                             stopOrderDirection,
                                             mainConfig.getTcsAccountId(),
                                             STOP_ORDER_TYPE_TAKE_PROFIT);
-                    protectiveOrdersByTicker.computeIfAbsent(key, ignored -> new ProtectiveOrders())
-                                    .takeProfitOrderId =
-                            stopOrderId;
+                    ProtectiveOrders orders = protectiveOrdersByTicker.computeIfAbsent(key, ignored -> new ProtectiveOrders());
+                    orders.takeProfit1OrderId = tp1OrderId;
+                    log("TP1 order placed: qty=" + tp1Quantity + ", price=" + bracketPosition.takeProfit);
                 } catch (Exception ex) {
-                    var error = "Failed create TakeProfit: " + ex.getMessage();
+                    var error = "Failed create TP1: " + ex.getMessage();
                     log(error);
                     ex.printStackTrace();
                 }
+
+                // TP2: 40% of position at +2% from entry
+                int tp2Quantity = quantity - tp1Quantity;
+                if (tp2Quantity > 0 && bracketPosition.entryPrice != null) {
+                    double tp2Price = "BUY".equals(bracketPosition.direction)
+                            ? bracketPosition.entryPrice * 1.02
+                            : bracketPosition.entryPrice * 0.98;
+                    sleep(1_000);
+                    try {
+                        StopOrderDirection stopOrderDirection =
+                                ORDER_DIRECTION_BUY == direction
+                                        ? STOP_ORDER_DIRECTION_SELL
+                                        : STOP_ORDER_DIRECTION_BUY;
+                        Quotation tp2Quotation = createQuotation(tp2Price);
+                        String tp2OrderId =
+                                investApi
+                                        .getStopOrdersService()
+                                        .postStopOrderGoodTillCancelSync(
+                                                figi,
+                                                tp2Quantity,
+                                                tp2Quotation,
+                                                tp2Quotation,
+                                                stopOrderDirection,
+                                                mainConfig.getTcsAccountId(),
+                                                STOP_ORDER_TYPE_TAKE_PROFIT);
+                        ProtectiveOrders orders = protectiveOrdersByTicker.computeIfAbsent(key, ignored -> new ProtectiveOrders());
+                        orders.takeProfit2OrderId = tp2OrderId;
+                        log("TP2 order placed: qty=" + tp2Quantity + ", price=" + tp2Price);
+                    } catch (Exception ex) {
+                        var error = "Failed create TP2: " + ex.getMessage();
+                        log(error);
+                        ex.printStackTrace();
+                    }
+                }
+            }
+        }
+    }
+
+    @Override
+    public void moveStopLossToBreakeven(TickerInfo.Key key, double entryPrice, int quantity, String direction) {
+        ProtectiveOrders orders = protectiveOrdersByTicker.get(key);
+        if (orders == null || orders.stopLossOrderId == null) {
+            return;
+        }
+
+        cancelStopOrder(key, orders.stopLossOrderId, "StopLose");
+        orders.stopLossOrderId = null;
+
+        if (!mainConfig.isSandbox()) {
+            sleep(1_000);
+            try {
+                String figi = figiByName(key);
+                StopOrderDirection stopOrderDirection =
+                        "BUY".equals(direction) ? STOP_ORDER_DIRECTION_SELL : STOP_ORDER_DIRECTION_BUY;
+                double breakevenPrice = "BUY".equals(direction)
+                        ? entryPrice * 1.001
+                        : entryPrice * 0.999;
+                Quotation breakevenQuotation = createQuotation(breakevenPrice);
+
+                String newStopOrderId =
+                        investApi
+                                .getStopOrdersService()
+                                .postStopOrderGoodTillCancelSync(
+                                        figi,
+                                        quantity,
+                                        breakevenQuotation,
+                                        breakevenQuotation,
+                                        stopOrderDirection,
+                                        mainConfig.getTcsAccountId(),
+                                        STOP_ORDER_TYPE_STOP_LOSS);
+                orders.stopLossOrderId = newStopOrderId;
+                orders.tp1Executed = true;
+                log("Stop-loss moved to breakeven: " + breakevenPrice + ", qty=" + quantity);
+            } catch (Exception ex) {
+                var error = "Failed to move SL to breakeven: " + ex.getMessage();
+                log(error);
+                ex.printStackTrace();
             }
         }
     }
@@ -1324,13 +1403,13 @@ public class TCSService implements TradingService {
             ProtectiveOrders protectiveOrders,
             boolean isStopLoss) {
         String currentOrderId =
-                isStopLoss ? protectiveOrders.stopLossOrderId : protectiveOrders.takeProfitOrderId;
+                isStopLoss ? protectiveOrders.stopLossOrderId : protectiveOrders.takeProfit1OrderId;
         if (price == null || price <= 0.0) {
             cancelStopOrder(key, currentOrderId, isStopLoss ? "StopLose" : "TakeProfit");
             if (isStopLoss) {
                 protectiveOrders.stopLossOrderId = null;
             } else {
-                protectiveOrders.takeProfitOrderId = null;
+                protectiveOrders.takeProfit1OrderId = null;
             }
             return;
         }
@@ -1360,7 +1439,7 @@ public class TCSService implements TradingService {
             if (isStopLoss) {
                 protectiveOrders.stopLossOrderId = stopOrderId;
             } else {
-                protectiveOrders.takeProfitOrderId = stopOrderId;
+                protectiveOrders.takeProfit1OrderId = stopOrderId;
             }
             log(
                     key.getTicker()
@@ -1380,7 +1459,7 @@ public class TCSService implements TradingService {
             if (isStopLoss) {
                 protectiveOrders.stopLossOrderId = null;
             } else {
-                protectiveOrders.takeProfitOrderId = null;
+                protectiveOrders.takeProfit1OrderId = null;
             }
         }
     }
@@ -1409,7 +1488,9 @@ public class TCSService implements TradingService {
     private static class ProtectiveOrders {
 
         private String stopLossOrderId;
-        private String takeProfitOrderId;
+        private String takeProfit1OrderId;  // TP1: 60% @ +1%
+        private String takeProfit2OrderId;  // TP2: 40% @ +2%
+        private boolean tp1Executed = false;
     }
 
     /**

@@ -338,6 +338,11 @@ public interface TradingService {
     OrderExecutionResult closeLongByMarketWithDetails(String name, TickerType type, int quantity);
 
     /**
+     * Move stop-loss to breakeven after TP1 execution.
+     */
+    void moveStopLossToBreakeven(TickerInfo.Key key, double entryPrice, int quantity, String direction);
+
+    /**
      * Closes the entire short position.
      */
     boolean closeShortByMarket(String name, TickerType type);
