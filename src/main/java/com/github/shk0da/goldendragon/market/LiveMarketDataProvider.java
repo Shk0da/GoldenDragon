@@ -67,7 +67,7 @@ public class LiveMarketDataProvider implements MarketDataProvider {
         try {
             return tcsService.getCandles(figi, start, now, interval);
         } catch (Exception e) {
-            return Collections.emptyList();
+            throw new RuntimeException("Failed to get candles for " + ticker + " (" + interval + "): " + e.getMessage(), e);
         }
     }
 

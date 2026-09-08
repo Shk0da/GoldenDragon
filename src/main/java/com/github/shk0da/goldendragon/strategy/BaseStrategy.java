@@ -466,15 +466,8 @@ import static java.util.concurrent.CompletableFuture.runAsync;
                 if (hourCandles != null && !hourCandles.isEmpty()) {
                     snapshot.put(ticker, hourCandles);
                 }
-    } catch (Exception ex) {
-        String msg = ex.getMessage();
-        Throwable cause = ex.getCause();
-        if (cause != null && cause.getMessage() != null) {
-            msg = cause.getMessage();
-        }
-        if (msg == null || msg.isEmpty()) {
-            msg = ex.getClass().getSimpleName();
-        }
+            } catch (Exception ex) {
+        String msg = resolveRootMessage(ex);
         logThrottled(
                 "refreshPeer_" + ticker,
                 "refreshPeerCandles failed for " + ticker + ": " + msg,
@@ -742,8 +735,8 @@ import static java.util.concurrent.CompletableFuture.runAsync;
         } catch (Exception ex) {
             long cooldownExpiry = timeProvider.currentTimeMillis() + COOLDOWN_DURATION_MS;
             tickerCooldown.put(name, cooldownExpiry);
-            String message = getStrategyName() + " error for " + name + ": " + ex.getMessage();
-            log(message);
+            String message = getStrategyName() + " error for " + name + ": " + resolveRootMessage(ex);
+            logThrottled(name + "_error", message, 5);
         } finally {
             lock.unlock();
         }
@@ -1437,6 +1430,22 @@ import static java.util.concurrent.CompletableFuture.runAsync;
     /** Verbose diagnostic logging flag; trades and errors are always logged. */
     protected boolean isVerboseLogging() {
         return unifiedTraderConfig == null || unifiedTraderConfig.isVerboseLoggingEnabled();
+    }
+
+    private static String resolveRootMessage(Throwable ex) {
+        Throwable root = ex;
+        while (root.getCause() != null && root.getCause() != root) {
+            root = root.getCause();
+        }
+        String msg = root.getMessage();
+        if (msg != null && !msg.isEmpty() && !"unknown error".equalsIgnoreCase(msg) && !msg.contains("Failed to get candles")) {
+            return msg;
+        }
+        msg = ex.getMessage();
+        if (msg != null && !msg.isEmpty() && !"unknown error".equalsIgnoreCase(msg) && !msg.contains("Failed to get candles")) {
+            return msg;
+        }
+        return root.getClass().getSimpleName() + ": " + (msg != null ? msg : "null");
     }
 
     protected static void shutdownExecutor(ExecutorService executor) {
