@@ -1145,8 +1145,9 @@ public class TCSService implements TradingService {
                     continue;
                 }
 
+                // Use stopPrice (activation price) instead of price for market stop orders
                 double stopPrice =
-                        toDouble(stopOrder.getPrice().getUnits(), stopOrder.getPrice().getNano());
+                        toDouble(stopOrder.getStopPrice().getUnits(), stopOrder.getStopPrice().getNano());
                 if ("BUY".equals(position.direction)) {
                     if (position.entryPrice != null && stopPrice <= position.entryPrice) {
                         if (stopLoss == null || stopPrice > stopLoss) {
