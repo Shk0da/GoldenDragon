@@ -104,3 +104,4 @@ tickers.json
 /docs/
 /output/
 backtest-report.txt
+/.omo/
