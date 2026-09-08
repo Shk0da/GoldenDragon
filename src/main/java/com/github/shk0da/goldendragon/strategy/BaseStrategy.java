@@ -531,7 +531,10 @@ import static java.util.concurrent.CompletableFuture.runAsync;
             // Get candles from market data provider (works in both backtest and live)
             List<Candle> hourCandles = marketDataProvider.getCandles(name, "HOUR");
             if (hourCandles == null || hourCandles.isEmpty()) {
-                log("No hourly candles for " + name + ", skipping.");
+                logThrottled(
+                        name + "_no_hour",
+                        "No hourly candles for " + name + ", skipping.",
+                        5);
                 return;
             }
 
@@ -540,7 +543,10 @@ import static java.util.concurrent.CompletableFuture.runAsync;
             if (useMinCandles) {
                 minuteCandles = marketDataProvider.getCandles(name, "5_MIN");
                 if (minuteCandles == null || minuteCandles.isEmpty()) {
-                    log("No minute candles for " + name + ", skipping.");
+                    logThrottled(
+                            name + "_no_minute",
+                            "No minute candles for " + name + ", skipping.",
+                            5);
                     return;
                 }
             } else {
