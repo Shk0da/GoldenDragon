@@ -16,6 +16,7 @@ import com.github.shk0da.goldendragon.model.TickerCandle;
 import com.github.shk0da.goldendragon.model.TickerInfo;
 import com.github.shk0da.goldendragon.model.TickerType;
 import com.github.shk0da.goldendragon.model.TradingDecision;
+import com.github.shk0da.goldendragon.repository.CandleRepository;
 import com.github.shk0da.goldendragon.repository.TickerRepository;
 import com.github.shk0da.goldendragon.service.TradingService;
 import com.github.shk0da.goldendragon.time.LiveTimeProvider;
@@ -363,6 +364,10 @@ import static java.util.concurrent.CompletableFuture.runAsync;
 
         onDailyReset();
 
+        log("Loading historical candles for " + activeTickers.size() + " tickers...");
+        loadCandlesForAllTickers(activeTickers);
+        log("Candle cache initialized. Stats: " + CandleRepository.getInstance().getStats());
+
         if (!isWorkingHours() && isTradingDay() && timeProvider.now().toLocalTime().isBefore(WORK_START_TIME)) {
             log("Trading session not started yet (current: " + timeProvider.now().toLocalTime() + ", start: " + WORK_START_TIME + "). Waiting...");
         }
@@ -450,33 +455,31 @@ import static java.util.concurrent.CompletableFuture.runAsync;
             return;
         }
 
-        Map<String, List<Candle>> snapshot = new HashMap<>();
+        CandleRepository repository = CandleRepository.getInstance();
+        OffsetDateTime now = timeProvider != null ? timeProvider.nowOffset() : OffsetDateTime.now();
 
         for (String ticker : tickers) {
             try {
                 TickerInfo info = findTickerInfo(ticker);
-                if (info == null) continue;
+                if (info == null || info.getFigi() == null) {
+                    continue;
+                }
 
-                List<Candle> hourCandles =
-                        loadCandlesFromApi(
-                                ticker,
-                                info.getFigi(),
-                                timeProvider != null ? timeProvider.nowOffset() : OffsetDateTime.now(),
-                                "HOUR");
+                List<Candle> hourCandles = loadCandlesFromApi(ticker, info.getFigi(), now, "HOUR");
                 if (hourCandles != null && !hourCandles.isEmpty()) {
-                    snapshot.put(ticker, hourCandles);
+                    repository.putCandles(ticker, "HOUR", hourCandles);
+                }
+
+                List<Candle> minCandles = loadCandlesFromApi(ticker, info.getFigi(), now, "5_MIN");
+                if (minCandles != null && !minCandles.isEmpty()) {
+                    repository.putCandles(ticker, "5_MIN", minCandles);
                 }
             } catch (Exception ex) {
-        String msg = resolveRootMessage(ex);
-        logThrottled(
-                "refreshPeer_" + ticker,
-                "refreshPeerCandles failed for " + ticker + ": " + msg,
-                5);
+                logThrottled(
+                        "refreshPeer_" + ticker,
+                        "refreshPeerCandles failed for " + ticker + ": " + resolveRootMessage(ex),
+                        5);
             }
-        }
-
-        if (!snapshot.isEmpty()) {
-            setPeerCandles(snapshot);
         }
     }
 
@@ -527,12 +530,12 @@ import static java.util.concurrent.CompletableFuture.runAsync;
                 return;
             }
 
-            // Get candles from market data provider (works in both backtest and live)
-            List<Candle> hourCandles = marketDataProvider.getCandles(name, "HOUR");
+            CandleRepository repository = CandleRepository.getInstance();
+            List<Candle> hourCandles = repository.getLastCandles(name, "HOUR", 100);
             if (hourCandles == null || hourCandles.isEmpty()) {
                 logThrottled(
                         name + "_no_hour",
-                        "No hourly candles for " + name + ", skipping.",
+                        "No hourly candles for " + name + " (cache empty), skipping.",
                         5);
                 return;
             }
@@ -540,11 +543,11 @@ import static java.util.concurrent.CompletableFuture.runAsync;
             boolean useMinCandles = tickerParams.useMinuteCandles;
             List<Candle> minuteCandles;
             if (useMinCandles) {
-                minuteCandles = marketDataProvider.getCandles(name, "5_MIN");
+                minuteCandles = repository.getLastCandles(name, "5_MIN", 100);
                 if (minuteCandles == null || minuteCandles.isEmpty()) {
                     logThrottled(
                             name + "_no_minute",
-                            "No minute candles for " + name + ", skipping.",
+                            "No minute candles for " + name + " (cache empty), skipping.",
                             5);
                     return;
                 }
@@ -1264,7 +1267,6 @@ import static java.util.concurrent.CompletableFuture.runAsync;
 
     protected List<Candle> loadCandlesFromApi(
             String name, String figi, OffsetDateTime now, String interval) {
-        // Use timeProvider if 'now' is null (for backtest compatibility)
         if (now == null && timeProvider != null) {
             now = timeProvider.nowOffset();
         }
@@ -1281,6 +1283,34 @@ import static java.util.concurrent.CompletableFuture.runAsync;
                         : now.minusMinutes(6 * 60),
                 now,
                 interval);
+    }
+
+    protected void loadCandlesForAllTickers(List<String> tickers) {
+        CandleRepository repository = CandleRepository.getInstance();
+        OffsetDateTime now = timeProvider != null ? timeProvider.nowOffset() : OffsetDateTime.now();
+        OffsetDateTime hourStart = now.minusDays(30);
+        OffsetDateTime minStart = now.minusHours(72);
+
+        for (String ticker : tickers) {
+            try {
+                TickerInfo info = findTickerInfo(ticker);
+                if (info == null || info.getFigi() == null) {
+                    continue;
+                }
+
+                List<Candle> hourCandles = loadCandlesFromApi(ticker, info.getFigi(), hourStart, "HOUR");
+                if (hourCandles != null && !hourCandles.isEmpty()) {
+                    repository.putCandles(ticker, "HOUR", hourCandles);
+                }
+
+                List<Candle> minCandles = loadCandlesFromApi(ticker, info.getFigi(), minStart, "5_MIN");
+                if (minCandles != null && !minCandles.isEmpty()) {
+                    repository.putCandles(ticker, "5_MIN", minCandles);
+                }
+            } catch (Exception ex) {
+                log("Failed to load candles for " + ticker + ": " + resolveRootMessage(ex));
+            }
+        }
     }
 
     protected boolean isTradingDay() {
