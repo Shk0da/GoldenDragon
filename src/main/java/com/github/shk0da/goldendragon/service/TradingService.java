@@ -376,4 +376,9 @@ public interface TradingService {
      * Restores protective position from broker orders.
      */
     Position restoreProtectivePosition(String name, TickerType type, Position position);
+
+    /**
+     * Returns trade history from broker operations since the given timestamp.
+     */
+    List<Map<String, Object>> getTradeHistory(Instant since);
 }

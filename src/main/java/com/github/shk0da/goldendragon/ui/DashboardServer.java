@@ -11,6 +11,7 @@ import java.io.IOException;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Date;
@@ -38,6 +39,8 @@ public class DashboardServer {
     private int winningTrades = 0;
     private double balance = 0.0;
     private final List<Map<String, Object>> tradeHistory = Collections.synchronizedList(new ArrayList<>());
+    private volatile Instant appStartTime;
+    private volatile java.util.concurrent.ScheduledExecutorService tradePoller;
 
     public DashboardServer(TradingService tradingService) throws IOException {
         this.tradingService = tradingService;
@@ -45,15 +48,70 @@ public class DashboardServer {
         this.server = HttpServer.create(new InetSocketAddress(PORT), 0);
         this.server.createContext("/", this::handleRequest);
         this.server.setExecutor(Executors.newFixedThreadPool(4));
+        this.appStartTime = Instant.now();
+        loadTradeHistory();
+    }
+
+    private void loadTradeHistory() {
+        try {
+            List<Map<String, Object>> trades = tradingService.getTradeHistory(appStartTime);
+            synchronized (tradeHistory) {
+                tradeHistory.clear();
+                tradeHistory.addAll(trades);
+                calculateStats();
+            }
+        } catch (Exception ex) {
+            System.err.println("Failed to load trade history: " + ex.getMessage());
+        }
+    }
+
+    private void calculateStats() {
+        this.totalTrades = tradeHistory.size();
+        this.totalPnl = 0.0;
+        this.winningTrades = 0;
+
+        for (Map<String, Object> trade : tradeHistory) {
+            Object pnlObj = trade.get("pnl");
+            if (pnlObj instanceof Number) {
+                double pnl = ((Number) pnlObj).doubleValue();
+                this.totalPnl += pnl;
+                if (pnl > 0) {
+                    this.winningTrades++;
+                }
+            }
+        }
     }
 
     public void start() {
         server.start();
         System.out.println("📊 Dashboard started at http://localhost:" + PORT);
+        startTradePolling();
+    }
+
+    private void startTradePolling() {
+        tradePoller = Executors.newSingleThreadScheduledExecutor();
+        ((java.util.concurrent.ScheduledExecutorService) tradePoller).scheduleAtFixedRate(
+                this::loadTradeHistory,
+                0,
+                10,
+                java.util.concurrent.TimeUnit.SECONDS
+        );
+        System.out.println("📈 Trade polling started (every 10 seconds)");
     }
 
     public void stop() {
         server.stop(0);
+        if (tradePoller != null) {
+            tradePoller.shutdown();
+            try {
+                if (!tradePoller.awaitTermination(5, java.util.concurrent.TimeUnit.SECONDS)) {
+                    tradePoller.shutdownNow();
+                }
+            } catch (InterruptedException ex) {
+                tradePoller.shutdownNow();
+                Thread.currentThread().interrupt();
+            }
+        }
     }
 
     private void handleRequest(com.sun.net.httpserver.HttpExchange exchange) throws IOException {

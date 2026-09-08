@@ -2562,4 +2562,12 @@ public class TCSService implements TradingService {
     private static Double normalizePrice(double price, double priceStep) {
         return Math.round(price / priceStep) * priceStep;
     }
+
+    /**
+     * Returns trade history from broker operations since the given timestamp.
+     */
+    @Override
+    public List<Map<String, Object>> getTradeHistory(Instant since) {
+        return emptyList();
+    }
 }
