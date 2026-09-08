@@ -135,8 +135,14 @@ public class CashParkingManager {
                     ? parkingPriceDouble
                     : cashToFree / parkingQty;
 
-            int parkingLots = parkingInfo.getLots() > 0 ? parkingInfo.getLots() : 1;
-            double parkingLotCost = parkingPrice * parkingLots;
+            TickerInfo.Key parkingKey = new TickerInfo.Key(parkingTicker, parkingType);
+            TickerInfo parkingTickerInfo = tradingService != null
+                    ? tradingService.searchTicker(parkingKey)
+                    : null;
+            int parkingLotSize = parkingTickerInfo != null && parkingTickerInfo.getLot() != null
+                    ? Math.max(1, parkingTickerInfo.getLot())
+                    : 1;
+            double parkingLotCost = parkingPrice * parkingLotSize;
             int neededLots = (int) Math.ceil(cashToFree / parkingLotCost);
             int parkingLotsToSell = Math.min(neededLots, parkingQty);
 

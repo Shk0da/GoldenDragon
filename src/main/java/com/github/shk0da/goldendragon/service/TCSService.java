@@ -497,6 +497,15 @@ public class TCSService implements TradingService {
         }
 
         if (0.0 == tickerPrice) {
+            // Fallback to portfolio average price if order book is empty (e.g., illiquid ETF like TMON@)
+            PositionInfo positionInfo = getCurrentPositions(type, name);
+            if (positionInfo != null && positionInfo.getAveragePositionPrice() != null && positionInfo.getAveragePositionPrice() > 0) {
+                tickerPrice = positionInfo.getAveragePositionPrice();
+                log("Using portfolio average price for " + name + ": " + tickerPrice);
+            }
+        }
+
+        if (0.0 == tickerPrice) {
             log("Warn: short will be skipped - " + name + " by price " + tickerPrice);
             return OrderExecutionResult.failed();
         }

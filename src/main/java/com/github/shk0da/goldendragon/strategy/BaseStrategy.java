@@ -101,8 +101,7 @@ import static java.util.concurrent.CompletableFuture.runAsync;
  *       after error).
  *   <li>Check trading hours and {@code tickerParams.enabled} flag.
  *   <li>Find {@link TickerInfo} in {@link TickerRepository}.
- *   <li>Load candles via {@link #loadOrRefreshCandles} from the trading service API (disk cache
- *       only in backtest mode).
+ *   <li>Load candles via {@link #loadCandlesFromApi} from the trading service API.
  *   <li>Hourly candles required; 5-minute only if {@code tickerParams.useMinuteCandles}.
  *   <li>Detect hourly bar change ({@code hourChanged}) for correct {@code candlesHeld} increment in
  *       open position.
@@ -110,7 +109,8 @@ import static java.util.concurrent.CompletableFuture.runAsync;
  *   <li>Call abstract {@link #decide} — get {@link TradingDecision}.
  *   <li>Route by action:
  *       <ul>
- *         <li>{@code HOLD} — update position in {@link #positionStore}.
+ *         <li>{@code HOLD} — update position in {@link #positionStore} (reasons logged only if
+ *             {@code unifiedTrader.logHoldReasons=true}).
  *         <li>{@code OPEN} — open position via {@link #openPosition}.
  *         <li>{@code CLOSE} — close via {@link #closePosition}.
  *       </ul>
@@ -141,7 +141,7 @@ import static java.util.concurrent.CompletableFuture.runAsync;
  * <h2>Data Management (Candles)</h2>
  *
  * <ul>
- *   <li>{@link #loadOrRefreshCandles} — live API loading; disk cache only in backtest mode.
+ *   <li>{@link #loadCandlesFromApi} — loads candles from the trading service API.
  *   <li>{@link #throttleApiCall} — global rate-limiter (100ms between calls, synchronization via
  *       {@link #API_LOCK}).
  *   <li>{@link #refreshPeerCandles} — parallel hourly candle update for all tickers for group
@@ -439,7 +439,6 @@ import static java.util.concurrent.CompletableFuture.runAsync;
         }
 
         Map<String, List<Candle>> snapshot = new HashMap<>();
-        String dataDir = unifiedTraderConfig.getDataDir();
 
         for (String ticker : tickers) {
             try {
@@ -447,17 +446,21 @@ import static java.util.concurrent.CompletableFuture.runAsync;
                 if (info == null) continue;
 
                 List<Candle> hourCandles =
-                        loadOrRefreshCandles(
+                        loadCandlesFromApi(
                                 ticker,
                                 info.getFigi(),
-                                dataDir,
                                 timeProvider != null ? timeProvider.nowOffset() : OffsetDateTime.now(),
                                 "HOUR");
                 if (hourCandles != null && !hourCandles.isEmpty()) {
                     snapshot.put(ticker, hourCandles);
                 }
             } catch (Exception ex) {
-                log("refreshPeerCandles failed for " + ticker + ": " + ex.getMessage());
+                String msg = ex.getMessage() != null ? ex.getMessage() : ex.getClass().getSimpleName();
+                Throwable cause = ex.getCause();
+                if (cause != null && cause.getMessage() != null) {
+                    msg = cause.getMessage();
+                }
+                log("refreshPeerCandles failed for " + ticker + ": " + msg);
             }
         }
 
@@ -591,16 +594,17 @@ import static java.util.concurrent.CompletableFuture.runAsync;
                     decide(name, hourCandles, minuteCandles, storedPosition, effectiveBalance, hourChanged);
 
             if ("HOLD".equals(decision.action)) {
-                // keep hold reasons visible with coarse throttling to avoid log spam
-                logThrottled(
-                    "hold_" + name,
-                    "HOLD "
-                        + name
-                        + ": reason="
-                        + decision.reason
-                        + " balance="
-                        + String.format("%.2f", balance),
-                    30);
+                if (unifiedTraderConfig.isLogHoldReasons()) {
+                    logThrottled(
+                        "hold_" + name,
+                        "HOLD "
+                            + name
+                            + ": reason="
+                            + decision.reason
+                            + " balance="
+                            + String.format("%.2f", balance),
+                        30);
+                }
             } else {
                 logThrottled(
                     "decision_" + name,
@@ -654,11 +658,16 @@ import static java.util.concurrent.CompletableFuture.runAsync;
                             double missing = positionValue - availableCash0;
                             if (missing > 0 && parkingQty > 0 && parkingPrice > 0) {
                                 // sell only the required parking value to free cash for the trade
-                                int parkingLots = parkingInfo.getLots() > 0
-                                        ? parkingInfo.getLots()
-                                        : 1;
-                                double parkingLotCost = parkingPrice * parkingLots;
-                                // whole lots needed to cover the missing amount
+                                TickerInfo.Key parkingKey = new TickerInfo.Key(parkingTicker, parkingType);
+                                TickerInfo parkingTickerInfo = tradingService != null
+                                        ? tradingService.searchTicker(parkingKey)
+                                        : null;
+                                int parkingLotSize =
+                                        parkingTickerInfo != null && parkingTickerInfo.getLot() != null
+                                                ? Math.max(1, parkingTickerInfo.getLot())
+                                                : 1;
+                                double parkingLotCost = parkingPrice * parkingLotSize;
+                                // lots needed to cover the missing amount
                                 int neededLots = (int) Math.ceil(missing / parkingLotCost);
                                 int parkingLotsToSell = Math.min(neededLots, parkingQty);
                                 if (parkingLotsToSell > 0) {
@@ -1203,15 +1212,9 @@ import static java.util.concurrent.CompletableFuture.runAsync;
 
     private void initializeLastSeenHourBar(String ticker, TickerInfo tickerInfo) {
         try {
-            List<Candle> hourCandles =
-                    loadOrRefreshCandles(
-                            ticker,
-                            tickerInfo.getFigi(),
-                            unifiedTraderConfig.getDataDir(),
-                            timeProvider != null ? timeProvider.nowOffset() : OffsetDateTime.now(),
-                            "HOUR");
-            if (hourCandles != null && !hourCandles.isEmpty()) {
-                lastSeenHourBarByTicker.put(ticker, hourCandles.get(hourCandles.size() - 1).time);
+            List<Candle> lastCandles = tradingService.getLastCandles(ticker, tickerInfo.getType(), 1);
+            if (lastCandles != null && !lastCandles.isEmpty()) {
+                lastSeenHourBarByTicker.put(ticker, lastCandles.get(0).time);
             }
         } catch (Exception ex) {
             log("Failed to initialize last seen hour bar for " + ticker + ": " + ex.getMessage());
@@ -1242,14 +1245,14 @@ import static java.util.concurrent.CompletableFuture.runAsync;
         log(report.toString());
     }
 
-    protected List<Candle> loadOrRefreshCandles(
-            String name, String figi, String dataDir, OffsetDateTime now, String interval) {
+    protected List<Candle> loadCandlesFromApi(
+            String name, String figi, OffsetDateTime now, String interval) {
         // Use timeProvider if 'now' is null (for backtest compatibility)
         if (now == null && timeProvider != null) {
             now = timeProvider.nowOffset();
         }
         if (tradingService == null) {
-            return readCachedCandles(name, dataDir, interval);
+            return null;
         }
 
         throttleApiCall();
@@ -1261,31 +1264,6 @@ import static java.util.concurrent.CompletableFuture.runAsync;
                         : now.minusMinutes(6 * 60),
                 now,
                 interval);
-    }
-
-    protected List<Candle> readCachedCandles(String name, String dataDir, String interval) {
-        try {
-            List<TickerCandle> cached = CandleFileReader.readCandlesFile(name, dataDir, interval);
-            if (cached == null || cached.isEmpty()) {
-                return null;
-            }
-
-            List<Candle> candles = new ArrayList<>(cached.size());
-            for (TickerCandle tc : cached) {
-                candles.add(
-                        new Candle(
-                                tc.getDate(),
-                                tc.getOpen(),
-                                tc.getHigh(),
-                                tc.getLow(),
-                                tc.getClose(),
-                                tc.getVolume()));
-            }
-            return candles;
-        } catch (Exception ex) {
-            log("Failed to read cached candles for " + name + ": " + ex.getMessage());
-            return null;
-        }
     }
 
     protected boolean isTradingDay() {

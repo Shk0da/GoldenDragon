@@ -151,6 +151,7 @@ public class UnifiedTraderConfig {
     private final int leverageMin;
     private final boolean adaptiveLeverageEnabled;
     private final boolean tmonCashParkingEnabled;
+    private final boolean logHoldReasons;
     private final Map<String, TickerParams> tickerParams;
     private final Properties properties;
 
@@ -176,6 +177,9 @@ public class UnifiedTraderConfig {
         tmonCashParkingEnabled =
                 Boolean.parseBoolean(
                         properties.getProperty("unifiedTrader.tmonCashParking.enabled", "false"));
+        logHoldReasons =
+                Boolean.parseBoolean(
+                        properties.getProperty("unifiedTrader.logHoldReasons", "false"));
         this.tickerParams = loadTickerParams(properties);
     }
 
@@ -410,6 +414,15 @@ public class UnifiedTraderConfig {
     public boolean isVerboseLoggingEnabled() {
         return Boolean.parseBoolean(
                 properties.getProperty("unifiedTrader.verboseLogging.enabled", "true"));
+    }
+
+    /**
+     * Controls logging of HOLD reasons. By default disabled to reduce log verbosity.
+     * Trade executions and errors are always logged.
+     */
+    public boolean isLogHoldReasons() {
+        return Boolean.parseBoolean(
+                properties.getProperty("unifiedTrader.logHoldReasons", "false"));
     }
 
     /**
