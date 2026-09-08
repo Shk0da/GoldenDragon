@@ -2590,99 +2590,118 @@ public class TCSService implements TradingService {
 
     /**
      * Returns trade history from broker operations since the given timestamp.
+     * Uses REST API with retry logic for rate limiting.
      */
     @Override
     public List<Map<String, Object>> getTradeHistory(Instant since) {
         try {
-            String fromParam = java.net.URLEncoder.encode(since.toString(), "UTF-8");
-            String path = "/v2/operations?accountId=" + mainConfig.getTcsAccountId() + "&from=" + fromParam;
-            String url = "https://invest-public-api.tinkoff.ru" + path;
+            // Retry with exponential backoff for 429 errors
+            int maxRetries = 3;
+            int retryDelayMs = 1000;
 
-            HttpRequest request =
-                    HttpRequest.newBuilder()
-                            .uri(URI.create(url))
-                            .header("Authorization", "Bearer " + mainConfig.getTcsApiKey())
-                            .header("Accept", "application/json")
-                            .GET()
-                            .build();
-
-            HttpResponse<String> response =
-                    MainConfig.httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-
-            if (response.statusCode() != 200) {
-                log("Failed to get trade history: status=" + response.statusCode());
-                return emptyList();
-            }
-
-            var objectMapper = new com.fasterxml.jackson.databind.ObjectMapper();
-            var json = objectMapper.readTree(response.body());
-            var operationsNode = json.path("operations");
-
-            if (!operationsNode.isArray()) {
-                return emptyList();
-            }
-
-            List<Map<String, Object>> trades = new ArrayList<>();
-
-            for (var op : operationsNode) {
-                String type = op.path("type").asText("");
-                if ("OPERATION_TYPE_BUY".equalsIgnoreCase(type) || "OPERATION_TYPE_SELL".equalsIgnoreCase(type)) {
-                    Map<String, Object> trade = new LinkedHashMap<>();
-                    trade.put("time", op.path("date").asText());
-                    trade.put("ticker", op.path("instrument").path("ticker").asText(""));
-                    trade.put("type", type.replace("OPERATION_TYPE_", ""));
-                    trade.put("quantity", op.path("quantity").asInt(0));
-                    trade.put("price", op.path("price").asDouble(0.0));
-
-                    double pnl = parsePnl(op, type);
-                    trade.put("pnl", pnl);
-
-                    trades.add(trade);
+            for (int attempt = 0; attempt < maxRetries; attempt++) {
+                List<Map<String, Object>> result = fetchTradeHistory(since);
+                if (result != null) {
+                    return result;
+                }
+                if (attempt < maxRetries - 1) {
+                    Thread.sleep(retryDelayMs * (attempt + 1));
                 }
             }
-
-            return trades;
+            return emptyList();
         } catch (Exception ex) {
-            log("Failed to get trade history: " + ex.getMessage());
+            log("Failed to get trade history after retries: " + ex.getMessage());
             return emptyList();
         }
     }
 
-    private double parsePnl(com.fasterxml.jackson.databind.JsonNode op, String type) {
-        // For SELL operations, calculate PnL as (payment - cost_basis)
-        // For BUY operations, PnL is realized only when position is closed
-        var payment = op.path("payment");
-        if (payment.isNumber()) {
-            double paymentValue = payment.asDouble(0.0);
-            // For SELL: payment is positive (received cash), PnL = payment - cost_basis
-            // For BUY: payment is negative (spent cash), PnL = 0 (not realized yet)
-            if ("OPERATION_TYPE_SELL".equalsIgnoreCase(type)) {
-                // Try to get cost basis from operation
-                var costBasis = op.path("trades").path(0).path("price").asDouble(0.0);
-                if (costBasis > 0) {
-                    var quantity = op.path("quantity");
-                    if (quantity.isNumber()) {
-                        double costBasisTotal = costBasis * quantity.asDouble(0.0);
-                        return paymentValue - costBasisTotal;
-                    }
+    private List<Map<String, Object>> fetchTradeHistory(Instant since) throws Exception {
+        Instant now = Instant.now();
+        String fromParam = java.time.format.DateTimeFormatter.ISO_INSTANT.format(since);
+        String toParam = java.time.format.DateTimeFormatter.ISO_INSTANT.format(now);
+        String url =
+                "https://invest-public-api.tbank.ru/rest/tinkoff.public.invest.api.contract.v1.OperationsService/GetOperationsByCursor"
+                        + "?accountId=" + java.net.URLEncoder.encode(mainConfig.getTcsAccountId(), "UTF-8")
+                        + "&from=" + java.net.URLEncoder.encode(fromParam, "UTF-8")
+                        + "&to=" + java.net.URLEncoder.encode(toParam, "UTF-8")
+                        + "&limit=1000"
+                        + "&operationTypes=OPERATION_TYPE_BUY,OPERATION_TYPE_SELL";
+
+        HttpRequest request =
+                HttpRequest.newBuilder()
+                        .uri(URI.create(url))
+                        .header("Authorization", "Bearer " + mainConfig.getTcsApiKey())
+                        .header("Accept", "application/json")
+                        .GET()
+                        .build();
+
+        HttpResponse<String> response =
+                MainConfig.httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+
+        if (response.statusCode() == 429) {
+            log("Rate limited (429), will retry...");
+            return null; // signal to retry
+        }
+
+        if (response.statusCode() != 200) {
+            log("Failed to get trade history: status=" + response.statusCode());
+            return emptyList();
+        }
+
+        var objectMapper = new com.fasterxml.jackson.databind.ObjectMapper();
+        var json = objectMapper.readTree(response.body());
+        var operationsNode = json.path("operations");
+
+        if (!operationsNode.isArray()) {
+            return emptyList();
+        }
+
+        List<Map<String, Object>> trades = new ArrayList<>();
+
+        for (var op : operationsNode) {
+            String type = op.path("type").asText("");
+            if ("OPERATION_TYPE_BUY".equals(type) || "OPERATION_TYPE_SELL".equals(type)) {
+                Map<String, Object> trade = new LinkedHashMap<>();
+                trade.put("time", op.path("date").asText());
+
+                String ticker = op.path("instrumentUid").asText("");
+                if (ticker.isEmpty()) {
+                    ticker = op.path("figi").asText("");
                 }
-                // Fallback: use payment as PnL (may not be accurate)
+                trade.put("ticker", ticker.isEmpty() ? "UNKNOWN" : ticker);
+
+                trade.put("type", type.replace("OPERATION_TYPE_", ""));
+                trade.put("quantity", op.path("quantity").asInt(0));
+                trade.put("price", op.path("price").path("amountString").asDouble(0.0));
+
+                double pnl = parsePnlFromJson(op, type);
+                trade.put("pnl", pnl);
+
+                trades.add(trade);
+            }
+        }
+
+        return trades;
+    }
+
+    private double parsePnlFromJson(com.fasterxml.jackson.databind.JsonNode op, String type) {
+        if ("OPERATION_TYPE_SELL".equalsIgnoreCase(type)) {
+            var payment = op.path("payment");
+            if (payment.isNumber()) {
+                double paymentValue = payment.asDouble(0.0);
+                var trades = op.path("trades");
+                if (trades.isArray() && !trades.isEmpty()) {
+                    double totalCost = 0.0;
+                    for (var trade : trades) {
+                        double tradePrice = trade.path("price").path("amountString").asDouble(0.0);
+                        long tradeQuantity = trade.path("quantity").asLong(0);
+                        totalCost += tradePrice * tradeQuantity;
+                    }
+                    return paymentValue - totalCost;
+                }
                 return paymentValue;
-            } else {
-                // BUY operation: PnL not realized yet
-                return 0.0;
             }
         }
-
-        var cashVariance = op.path("cashVariance").path("amountString").asText("");
-        if (!cashVariance.isEmpty()) {
-            try {
-                return Double.parseDouble(cashVariance);
-            } catch (NumberFormatException ignored) {
-                return 0.0;
-            }
-        }
-
         return 0.0;
     }
 }
