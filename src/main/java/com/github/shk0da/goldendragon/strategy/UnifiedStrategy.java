@@ -340,39 +340,27 @@ public class UnifiedStrategy extends BaseStrategy {
                         new Position(config.cooldownCandles));
             }
 
-            // Check TP1 (60% position) - move stop to breakeven
+            // Check TP1 (60% position) - move stop to breakeven via TCSService
             if (!p.partialClosed && tp != null
                     && (("BUY".equals(dir) && cur.high >= tp)
                             || ("SELL".equals(dir) && cur.low <= tp))) {
-                // TP1 hit: close 60% and move SL to breakeven
-                int qty1 = (int) Math.ceil(p.quantity * 0.6);
-                int remainingQty = p.quantity - qty1;
-                double breakevenBuffer = 0.001;
-                double newStop = "BUY".equals(dir) ? p.entryPrice * (1 + breakevenBuffer) : p.entryPrice * (1 - breakevenBuffer);
-                return new TradingDecision(
-                        "PARTIAL_CLOSE",
-                        "take_profit_1",
-                        0.0,
-                        qty1,
-                        newStop,
-                        tp2,
-                        tp,
-                        new Position(p, remainingQty, newStop));
-            }
-
-            // Check TP2 (40% position) - close remaining
-            if (p.partialClosed && tp2 != null
-                    && (("BUY".equals(dir) && cur.high >= tp2)
-                            || ("SELL".equals(dir) && cur.low <= tp2))) {
-                return new TradingDecision(
-                        "CLOSE",
-                        "take_profit_2",
-                        0.0,
-                        p.quantity,
-                        null,
-                        null,
-                        tp2,
-                        new Position(config.cooldownCandles));
+                if (tradingService != null) {
+                    try {
+                        TickerInfo ti = findTickerInfo(ticker);
+                        if (ti != null) {
+                            // Move SL to breakeven via TCS stop-order
+                            tradingService.moveStopLossToBreakeven(
+                                new TickerInfo.Key(ticker, ti.getType()),
+                                p.entryPrice,
+                                p.quantity,
+                                dir
+                            );
+                            log("TP1 hit: moved SL to breakeven via TCS stop-order, " + p.quantity + " shares remaining");
+                        }
+                    } catch (Exception ex) {
+                        log("Failed to move SL to breakeven: " + ex.getMessage());
+                    }
+                }
             }
 
             // Single TP check (fallback for old positions without TP2)
