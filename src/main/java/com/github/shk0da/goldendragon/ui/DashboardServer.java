@@ -12,6 +12,7 @@ import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Date;
@@ -28,11 +29,14 @@ import java.util.concurrent.Executors;
 public class DashboardServer {
 
     private static final int PORT = 1040;
+    private static final long POLL_INTERVAL_SECONDS = 10;
     private static final Gson gson = new GsonBuilder().setPrettyPrinting().create();
 
     private final HttpServer server;
     private final TradingService tradingService;
     private final String currency;
+    private final int port;
+    private final long pollIntervalSeconds;
 
     private double totalPnl = 0.0;
     private int totalTrades = 0;
@@ -43,9 +47,19 @@ public class DashboardServer {
     private volatile java.util.concurrent.ScheduledExecutorService tradePoller;
 
     public DashboardServer(TradingService tradingService) throws IOException {
+        this(tradingService, PORT, POLL_INTERVAL_SECONDS);
+    }
+
+    public DashboardServer(TradingService tradingService, int port) throws IOException {
+        this(tradingService, port, POLL_INTERVAL_SECONDS);
+    }
+
+    public DashboardServer(TradingService tradingService, int port, long pollIntervalSeconds) throws IOException {
         this.tradingService = tradingService;
         this.currency = "RUB";
-        this.server = HttpServer.create(new InetSocketAddress(PORT), 0);
+        this.port = port;
+        this.pollIntervalSeconds = pollIntervalSeconds;
+        this.server = HttpServer.create(new InetSocketAddress(port), 0);
         this.server.createContext("/", this::handleRequest);
         this.server.setExecutor(Executors.newFixedThreadPool(4));
         this.appStartTime = Instant.now();
@@ -54,7 +68,9 @@ public class DashboardServer {
 
     private void loadTradeHistory() {
         try {
-            List<Map<String, Object>> trades = tradingService.getTradeHistory(appStartTime);
+            Instant todayStart = Instant.now().atZone(ZoneId.systemDefault()).toLocalDate()
+                    .atStartOfDay(ZoneId.systemDefault()).toInstant();
+            List<Map<String, Object>> trades = tradingService.getTradeHistory(todayStart);
             synchronized (tradeHistory) {
                 tradeHistory.clear();
                 tradeHistory.addAll(trades);
@@ -82,9 +98,13 @@ public class DashboardServer {
         }
     }
 
+    public int getPort() {
+        return port;
+    }
+
     public void start() {
         server.start();
-        System.out.println("📊 Dashboard started at http://localhost:" + PORT);
+        System.out.println("📊 Dashboard started at http://localhost:" + port);
         startTradePolling();
     }
 
@@ -93,10 +113,10 @@ public class DashboardServer {
         ((java.util.concurrent.ScheduledExecutorService) tradePoller).scheduleAtFixedRate(
                 this::loadTradeHistory,
                 0,
-                10,
+                pollIntervalSeconds,
                 java.util.concurrent.TimeUnit.SECONDS
         );
-        System.out.println("📈 Trade polling started (every 10 seconds)");
+        System.out.println("📈 Trade polling started (every " + pollIntervalSeconds + " seconds)");
     }
 
     public void stop() {

@@ -38,6 +38,9 @@ import ru.tinkoff.piapi.core.stream.MarketDataSubscriptionService;
 
 import java.io.IOException;
 import java.math.BigDecimal;
+import java.net.URI;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -47,6 +50,7 @@ import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -1413,13 +1417,25 @@ public class TCSService implements TradingService {
                 isStopLoss ? protectiveOrders.stopLossOrderId : protectiveOrders.takeProfit1OrderId;
         Double currentPrice =
                 isStopLoss ? protectiveOrders.stopLossPrice : protectiveOrders.takeProfit1Price;
-        
+
         // Skip if order exists and price matches (tolerance: 0.0001)
-        if (currentOrderId != null && price != null && price > 0.0 && 
+        if (currentOrderId != null && price != null && price > 0.0 &&
             currentPrice != null && Math.abs(currentPrice - price) < 0.0001) {
             return;
         }
-        
+
+        // DO NOT cancel if order already exists on exchange (restored by restoreProtectivePosition).
+        // Cancelling stop orders that are already active on exchange is FORBIDDEN.
+        if (currentOrderId != null && (price == null || price <= 0.0)) {
+            log(
+                    key.getTicker()
+                            + " "
+                            + (isStopLoss ? "StopLose" : "TakeProfit")
+                            + " preserved (already on exchange): "
+                            + currentOrderId);
+            return;
+        }
+
         if (price == null || price <= 0.0) {
             cancelStopOrder(key, currentOrderId, isStopLoss ? "StopLose" : "TakeProfit");
             if (isStopLoss) {
@@ -2568,6 +2584,96 @@ public class TCSService implements TradingService {
      */
     @Override
     public List<Map<String, Object>> getTradeHistory(Instant since) {
-        return emptyList();
+        try {
+            String fromParam = java.net.URLEncoder.encode(since.toString(), "UTF-8");
+            String path = "/v2/operations?accountId=" + mainConfig.getTcsAccountId() + "&from=" + fromParam;
+            String url = "https://invest-public-api.tinkoff.ru" + path;
+
+            HttpRequest request =
+                    HttpRequest.newBuilder()
+                            .uri(URI.create(url))
+                            .header("Authorization", "Bearer " + mainConfig.getTcsApiKey())
+                            .header("Accept", "application/json")
+                            .GET()
+                            .build();
+
+            HttpResponse<String> response =
+                    MainConfig.httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+
+            if (response.statusCode() != 200) {
+                log("Failed to get trade history: status=" + response.statusCode());
+                return emptyList();
+            }
+
+            var objectMapper = new com.fasterxml.jackson.databind.ObjectMapper();
+            var json = objectMapper.readTree(response.body());
+            var operationsNode = json.path("operations");
+
+            if (!operationsNode.isArray()) {
+                return emptyList();
+            }
+
+            List<Map<String, Object>> trades = new ArrayList<>();
+
+            for (var op : operationsNode) {
+                String type = op.path("type").asText("");
+                if ("OPERATION_TYPE_BUY".equalsIgnoreCase(type) || "OPERATION_TYPE_SELL".equalsIgnoreCase(type)) {
+                    Map<String, Object> trade = new LinkedHashMap<>();
+                    trade.put("time", op.path("date").asText());
+                    trade.put("ticker", op.path("instrument").path("ticker").asText(""));
+                    trade.put("type", type.replace("OPERATION_TYPE_", ""));
+                    trade.put("quantity", op.path("quantity").asInt(0));
+                    trade.put("price", op.path("price").asDouble(0.0));
+
+                    double pnl = parsePnl(op, type);
+                    trade.put("pnl", pnl);
+
+                    trades.add(trade);
+                }
+            }
+
+            return trades;
+        } catch (Exception ex) {
+            log("Failed to get trade history: " + ex.getMessage());
+            return emptyList();
+        }
+    }
+
+    private double parsePnl(com.fasterxml.jackson.databind.JsonNode op, String type) {
+        // For SELL operations, calculate PnL as (payment - cost_basis)
+        // For BUY operations, PnL is realized only when position is closed
+        var payment = op.path("payment");
+        if (payment.isNumber()) {
+            double paymentValue = payment.asDouble(0.0);
+            // For SELL: payment is positive (received cash), PnL = payment - cost_basis
+            // For BUY: payment is negative (spent cash), PnL = 0 (not realized yet)
+            if ("OPERATION_TYPE_SELL".equalsIgnoreCase(type)) {
+                // Try to get cost basis from operation
+                var costBasis = op.path("trades").path(0).path("price").asDouble(0.0);
+                if (costBasis > 0) {
+                    var quantity = op.path("quantity");
+                    if (quantity.isNumber()) {
+                        double costBasisTotal = costBasis * quantity.asDouble(0.0);
+                        return paymentValue - costBasisTotal;
+                    }
+                }
+                // Fallback: use payment as PnL (may not be accurate)
+                return paymentValue;
+            } else {
+                // BUY operation: PnL not realized yet
+                return 0.0;
+            }
+        }
+
+        var cashVariance = op.path("cashVariance").path("amountString").asText("");
+        if (!cashVariance.isEmpty()) {
+            try {
+                return Double.parseDouble(cashVariance);
+            } catch (NumberFormatException ignored) {
+                return 0.0;
+            }
+        }
+
+        return 0.0;
     }
 }

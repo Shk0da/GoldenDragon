@@ -130,37 +130,51 @@ public interface TradingService {
     /**
      * Returns the list of all tradable futures.
      */
-    Map<TickerInfo.Key, TickerInfo> getFuturesList();
+    default Map<TickerInfo.Key, TickerInfo> getFuturesList() {
+        return java.util.Collections.emptyMap();
+    }
 
     /**
      * Returns the list of all tradable stocks.
      */
-    Map<TickerInfo.Key, TickerInfo> getStockList();
+    default Map<TickerInfo.Key, TickerInfo> getStockList() {
+        return java.util.Collections.emptyMap();
+    }
 
     /**
      * Returns the list of all tradable ETFs.
      */
-    Map<TickerInfo.Key, TickerInfo> getEtfList();
+    default Map<TickerInfo.Key, TickerInfo> getEtfList() {
+        return java.util.Collections.emptyMap();
+    }
 
     /**
      * Returns the list of all tradable bonds.
      */
-    Map<TickerInfo.Key, TickerInfo> getBondList();
+    default Map<TickerInfo.Key, TickerInfo> getBondList() {
+        return java.util.Collections.emptyMap();
+    }
 
     /**
      * Returns the list of all tradable currencies.
      */
-    Map<TickerInfo.Key, TickerInfo> getCurrenciesList();
+    default Map<TickerInfo.Key, TickerInfo> getCurrenciesList() {
+        return java.util.Collections.emptyMap();
+    }
 
     /**
      * Searches for a ticker by its key.
      */
-    TickerInfo searchTicker(TickerInfo.Key key);
+    default TickerInfo searchTicker(TickerInfo.Key key) {
+        return null;
+    }
 
     /**
      * Returns the FIGI/symbol identifier for the given ticker key.
      */
-    String figiByName(TickerInfo.Key key);
+    default String figiByName(TickerInfo.Key key) {
+        return null;
+    }
 
     // ==================== MARKET DATA METHODS ====================
 
@@ -168,115 +182,151 @@ public interface TradingService {
      * Retrieves historical candles for the given FIGI/symbol and time range.
      * Returns domain Candle objects (broker-agnostic).
      */
-    List<Candle> getCandles(
+    default List<Candle> getCandles(
             String figi, Instant start, Instant end,
-            String interval);
+            String interval) {
+        return java.util.Collections.emptyList();
+    }
 
     /**
      * Retrieves historical candles using OffsetDateTime parameters.
      * Returns domain Candle objects (broker-agnostic).
      */
-    List<Candle> getCandles(
+    default List<Candle> getCandles(
             String figi, OffsetDateTime start, OffsetDateTime end,
-            String interval);
+            String interval) {
+        return java.util.Collections.emptyList();
+    }
 
     /**
      * Returns the last {@code size} hourly candles as domain objects.
      */
-    List<Candle> getLastCandles(
-            String ticker, TickerType type, int size);
+    default List<Candle> getLastCandles(
+            String ticker, TickerType type, int size) {
+        return java.util.Collections.emptyList();
+    }
 
     /**
      * Returns the last {@code count} candles for the given symbol and interval.
      * Useful for live candle-based strategies that poll recent candles.
      */
-    List<Candle> getCandles(String figi, String interval, int count);
+    default List<Candle> getCandles(String figi, String interval, int count) {
+        return java.util.Collections.emptyList();
+    }
 
     /**
      * Returns the current prices (bids and asks) for the given ticker.
      */
-    Map<String, Map<Double, Long>> getCurrentPrices(TickerInfo.Key key, boolean isPrintGlass);
+    default Map<String, Map<Double, Long>> getCurrentPrices(TickerInfo.Key key, boolean isPrintGlass) {
+        return java.util.Collections.emptyMap();
+    }
 
     /**
      * Returns the best available price for a single instrument.
      */
-    double getAvailablePrice(TickerInfo.Key key);
+    default double getAvailablePrice(TickerInfo.Key key) {
+        return 0;
+    }
 
     /**
      * Returns the best (lowest) live ask price from the orderbook.
      */
-    double getLiveAskPrice(TickerInfo.Key key);
+    default double getLiveAskPrice(TickerInfo.Key key) {
+        return 0;
+    }
 
     /**
      * Returns the best bid price from the current order book.
      */
-    double getLiveBidPrice(TickerInfo.Key key);
+    default double getLiveBidPrice(TickerInfo.Key key) {
+        return 0;
+    }
 
     /**
      * Returns the best available price for a given quantity from the specified side.
      */
-    double getAvailablePrice(TickerInfo.Key key, int count, String type, boolean isPrintGlass);
+    default double getAvailablePrice(TickerInfo.Key key, int count, String type, boolean isPrintGlass) {
+        return 0;
+    }
 
     // ==================== ACCOUNT METHODS ====================
 
     /**
      * Returns the available cash balance.
      */
-    Double getAvailableCash();
+    default Double getAvailableCash() {
+        return 0.0;
+    }
 
     /**
      * Returns the total portfolio value.
      */
-    double getTotalPortfolioCost();
+    default double getTotalPortfolioCost() {
+        return 0;
+    }
 
     /**
      * Returns the current balance of the position for the given ticker.
      */
-    int getCountOfCurrentPositions(TickerType tickerType, String tickerName);
+    default int getCountOfCurrentPositions(TickerType tickerType, String tickerName) {
+        return 0;
+    }
 
     /**
      * Returns the position info for the given ticker name.
      */
-    PositionInfo getCurrentPositions(TickerType tickerType, String tickerName);
+    default PositionInfo getCurrentPositions(TickerType tickerType, String tickerName) {
+        return null;
+    }
 
     /**
      * Returns all current positions.
      */
-    Map<TickerInfo.Key, PositionInfo> getCurrentPositions(TickerType tickerType);
+    default Map<TickerInfo.Key, PositionInfo> getCurrentPositions(TickerType tickerType) {
+        return java.util.Collections.emptyMap();
+    }
 
     // ==================== TRADING METHODS ====================
 
     /**
      * Calculates the maximum number of instruments that can be traded.
      */
-    int calculateTradeCount(TickerInfo.Key key, double availableCash, double price);
+    default int calculateTradeCount(TickerInfo.Key key, double availableCash, double price) {
+        return 0;
+    }
 
     /**
      * Calculates the total cash required to trade.
      */
-    double getRequiredCashForOrder(TickerInfo.Key key, int count, double price);
+    default double getRequiredCashForOrder(TickerInfo.Key key, int count, double price) {
+        return 0;
+    }
 
     /**
      * Creates an order and returns 1 on success or 0 on failure.
      */
-    int createOrder(TickerInfo.Key key, double price, int count, String operation);
+    default int createOrder(TickerInfo.Key key, double price, int count, String operation) {
+        return 0;
+    }
 
     /**
      * Creates an order with optional protective orders.
      */
-    OrderExecutionResult createOrder(
+    default OrderExecutionResult createOrder(
             TickerInfo.Key key,
             double price,
             int count,
             String operation,
             double takeProfit,
             double stopLose,
-            boolean isFullPrice);
+            boolean isFullPrice) {
+        return null;
+    }
 
     /**
      * Creates an order with the full set of parameters.
      */
-    OrderExecutionResult createOrder(
+    default OrderExecutionResult createOrder(
             TickerInfo.Key key,
             double price,
             int count,
@@ -284,101 +334,131 @@ public interface TradingService {
             double takeProfit,
             double stopLose,
             boolean isFullPrice,
-            double cashToUse);
+            double cashToUse) {
+        return null;
+    }
 
     /**
      * Buys by market price and returns execution details.
      */
-    OrderExecutionResult buyByMarketWithDetails(
-            String name, TickerType type, double cashToBuy, double takeProfit, double stopLose);
+    default OrderExecutionResult buyByMarketWithDetails(
+            String name, TickerType type, double cashToBuy, double takeProfit, double stopLose) {
+        return null;
+    }
 
     /**
      * Sells by market price and returns execution details.
      */
-    OrderExecutionResult sellByMarketWithDetails(
-            String name, TickerType type, double cashToSell, double takeProfit, double stopLose);
+    default OrderExecutionResult sellByMarketWithDetails(
+            String name, TickerType type, double cashToSell, double takeProfit, double stopLose) {
+        return null;
+    }
 
     /**
      * Buys the given cash amount.
      */
-    OrderExecutionResult buy(
+    default OrderExecutionResult buy(
             String name,
             TickerType type,
             double cashToBuy,
             boolean byMarket,
             double takeProfit,
             double stopLose,
-            boolean isFullPrice);
+            boolean isFullPrice) {
+        return null;
+    }
 
     /**
      * Sells the given cash amount.
      */
-    OrderExecutionResult sell(
+    default OrderExecutionResult sell(
             String name,
             TickerType type,
             double cashToSell,
             boolean byMarket,
             double takeProfit,
             double stopLose,
-            boolean isFullPrice);
+            boolean isFullPrice) {
+        return null;
+    }
 
     /**
      * Closes the entire long position.
      */
-    boolean closeLongByMarket(String name, TickerType type);
+    default boolean closeLongByMarket(String name, TickerType type) {
+        return false;
+    }
 
     /**
      * Closes the entire long position and returns execution details.
      */
-    OrderExecutionResult closeLongByMarketWithDetails(String name, TickerType type);
+    default OrderExecutionResult closeLongByMarketWithDetails(String name, TickerType type) {
+        return null;
+    }
 
     /**
      * Partially closes a long position by specified quantity.
      */
-    OrderExecutionResult closeLongByMarketWithDetails(String name, TickerType type, int quantity);
+    default OrderExecutionResult closeLongByMarketWithDetails(String name, TickerType type, int quantity) {
+        return null;
+    }
 
     /**
      * Move stop-loss to breakeven after TP1 execution.
      */
-    void moveStopLossToBreakeven(TickerInfo.Key key, double entryPrice, int quantity, String direction);
+    default void moveStopLossToBreakeven(TickerInfo.Key key, double entryPrice, int quantity, String direction) {
+    }
 
     /**
      * Closes the entire short position.
      */
-    boolean closeShortByMarket(String name, TickerType type);
+    default boolean closeShortByMarket(String name, TickerType type) {
+        return false;
+    }
 
     /**
      * Closes the entire short position and returns execution details.
      */
-    OrderExecutionResult closeShortByMarketWithDetails(String name, TickerType type);
+    default OrderExecutionResult closeShortByMarketWithDetails(String name, TickerType type) {
+        return null;
+    }
 
     /**
      * Partially closes a short position by specified quantity.
      */
-    OrderExecutionResult closeShortByMarketWithDetails(String name, TickerType type, int quantity);
+    default OrderExecutionResult closeShortByMarketWithDetails(String name, TickerType type, int quantity) {
+        return null;
+    }
 
     /**
      * Closes all positions by market orders.
      */
-    void closeAllByMarket(TickerType type);
+    default void closeAllByMarket(TickerType type) {
+    }
 
     /**
      * Cancels a stop order.
      */
-    void cancelStopOrder(TickerInfo.Key key, String stopOrderId, String orderTypeName);
+    default void cancelStopOrder(TickerInfo.Key key, String stopOrderId, String orderTypeName) {
+    }
 
     /**
      * Synchronizes protective orders.
      */
-    void syncProtectiveOrders(String name, TickerType type, Position position);
+    default void syncProtectiveOrders(String name, TickerType type, Position position) {
+    }
 
     /**
      * Restores protective position from broker orders.
      */
-    Position restoreProtectivePosition(String name, TickerType type, Position position);
+    default Position restoreProtectivePosition(String name, TickerType type, Position position) {
+        return null;
+    }
 
     /**
      * Returns trade history from broker operations since the given timestamp.
      */
-    List<Map<String, Object>> getTradeHistory(Instant since);
+    default List<Map<String, Object>> getTradeHistory(Instant since) {
+        return java.util.Collections.emptyList();
+    }
 }
