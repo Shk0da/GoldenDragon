@@ -919,13 +919,7 @@ import static java.util.concurrent.CompletableFuture.runAsync;
                 logOpenCandidateSkipped(name, "order_execution_failed", decision);
                 String failedLogMessage =
                         "Failed to open " + decision.updatedPosition.direction + " for " + name + ".";
-                if (cashParkingManager.isParkingTicker(name)) {
-                    // avoid retrying an untradable parking instrument every cycle
-                    tickerCooldown.put(name, timeProvider.currentTimeMillis() + COOLDOWN_DURATION_MS);
-                    logThrottled(name + "_failed_open", failedLogMessage, 5);
-                } else {
-                    log(failedLogMessage);
-                }
+                log(failedLogMessage);
                 return;
             }
 
