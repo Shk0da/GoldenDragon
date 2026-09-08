@@ -1154,12 +1154,16 @@ import static java.util.concurrent.CompletableFuture.runAsync;
             double exitPrice,
             int quantity,
             String direction) {
+        log("onTradeClosed: " + ticker + " pnl=" + String.format("%.2f", pnl) + " qty=" + quantity);
         // Update dashboard statistics
         if (dashboard != null) {
             boolean isWin = pnl > 0;
             dashboard.updateStats(pnl, isWin);
             dashboard.addTrade(ticker, direction, quantity, exitPrice, pnl);
             dashboard.updateBalance(safeGetTotalPortfolioCost());
+            log("Dashboard updated: " + ticker);
+        } else {
+            log("Dashboard is null, skipping update");
         }
     }
 
