@@ -830,7 +830,15 @@ import static java.util.concurrent.CompletableFuture.runAsync;
 
         // Use strategy-computed quantity
         int qty = decision.quantity;
-        if (qty <= 0) {
+        boolean isTmonCashParking = cashParkingManager.isParkingTicker(name);
+        if (isTmonCashParking) {
+            double availableCash = orderExecutor.getAvailableCash();
+            qty = (int) Math.floor(availableCash / (liveAskPrice * lotSize));
+            if (qty <= 0) {
+                logOpenCandidateSkipped(name, "insufficient_cash", decision);
+                return;
+            }
+        } else if (qty <= 0) {
             double availableCash = orderExecutor.getAvailableCash();
             qty = (int) Math.floor(availableCash / (liveAskPrice * lotSize));
             if (qty <= 0) {
@@ -839,8 +847,6 @@ import static java.util.concurrent.CompletableFuture.runAsync;
             }
         }
         double positionValue = qty * liveAskPrice * lotSize;
-
-        boolean isTmonCashParking = cashParkingManager.isParkingTicker(name);
         double slPercent;
         double tpPercent;
         if (isTmonCashParking) {
@@ -888,9 +894,22 @@ import static java.util.concurrent.CompletableFuture.runAsync;
         }
 
         try {
-            // Execute order through order executor (works in both backtest and live)
+            // Parking ticker bypasses orderExecutor to avoid the 1% safety margin
+            // (it buys with the entire available cash, so the margin would always fail)
             OrderExecutor.ExecutionResult orderResult;
-            if ("BUY".equals(decision.updatedPosition.direction)) {
+            if (isTmonCashParking && tradingService != null) {
+                double cash = orderExecutor.getAvailableCash();
+                TradingService.OrderExecutionResult r =
+                        tradingService.buyByMarketWithDetails(
+                                name, ticker.getType(), cash, tpPercent, slPercent);
+                if (r.isSuccess()) {
+                    orderResult = OrderExecutor.ExecutionResult.success(
+                            r.getExecutedCount(), r.getExecutedPrice());
+                } else {
+                    orderResult = OrderExecutor.ExecutionResult.failed(
+                            r.getErrorMessage());
+                }
+            } else if ("BUY".equals(decision.updatedPosition.direction)) {
                 orderResult = orderExecutor.buy(name, qty, slPercent, tpPercent);
             } else { // SELL
                 orderResult = orderExecutor.sell(name, qty, slPercent, tpPercent);
