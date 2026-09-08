@@ -361,10 +361,19 @@ import static java.util.concurrent.CompletableFuture.runAsync;
 
         restoreTrackedPositions(activeTickers);
 
-        // Daily reset for Money Management
         onDailyReset();
 
-        if (isEndOfDayReached() || !isTradingDay()) {
+        while (!isWorkingHours() && isTradingDay()) {
+            LocalTime now = timeProvider.now().toLocalTime();
+            if (now.isBefore(WORK_START_TIME)) {
+                log("Trading session not started yet (current: " + now + ", start: " + WORK_START_TIME + "). Waiting...");
+                sleep(60_000);
+            } else {
+                break;
+            }
+        }
+
+        if (!isWorkingHours()) {
             var message =
                     getStrategyName() + ": outside working hours, closing positions if needed.";
             log(message);
