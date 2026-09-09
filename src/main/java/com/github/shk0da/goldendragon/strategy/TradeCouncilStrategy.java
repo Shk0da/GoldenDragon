@@ -30,6 +30,47 @@ import static java.net.http.HttpRequest.*;
 import static java.net.http.HttpResponse.*;
 
 /**
+ * Pending order with entry conditions from LLM debate.
+ */
+class PendingOrder {
+    final String ticker;
+    final String direction;
+    final Double entryPrice;
+    final Double stopLoss;
+    final Double takeProfit;
+    final Integer quantity;
+    final String reasoning;
+    final long createdAt;
+    final long expiresAt;
+
+    PendingOrder(String ticker, String direction, Double entryPrice, Double stopLoss, 
+                 Double takeProfit, Integer quantity, String reasoning, long ttlMs) {
+        this.ticker = ticker;
+        this.direction = direction;
+        this.entryPrice = entryPrice;
+        this.stopLoss = stopLoss;
+        this.takeProfit = takeProfit;
+        this.quantity = quantity;
+        this.reasoning = reasoning;
+        this.createdAt = System.currentTimeMillis();
+        this.expiresAt = this.createdAt + ttlMs;
+    }
+
+    boolean isExpired() {
+        return System.currentTimeMillis() > expiresAt;
+    }
+
+    boolean shouldEnter(double currentPrice, boolean isLong) {
+        if (entryPrice == null) return false;
+        if (isLong) {
+            return currentPrice <= entryPrice * 1.002;
+        } else {
+            return currentPrice >= entryPrice * 0.998;
+        }
+    }
+}
+
+/**
  * TradeCouncil Strategy - AI-powered trading strategy using LLM debate system.
  *
  * <p>Strategy workflow:
@@ -66,6 +107,8 @@ public class TradeCouncilStrategy extends BaseStrategy {
     // Cooldown tracking: ticker -> lastDebateTime
     private final Map<String, Long> debateCooldowns = new ConcurrentHashMap<>();
 
+    private final Map<String, PendingOrder> pendingOrders = new ConcurrentHashMap<>();
+
     // Semaphore for sequential LLM access
     private final Semaphore llmSemaphore = new Semaphore(1);
 
@@ -77,6 +120,7 @@ public class TradeCouncilStrategy extends BaseStrategy {
 
     private static final long DEBATE_COOLDOWN_MS = 5 * 60 * 1000L;
     private static final int H1_CANDLES = 72;
+    private static final int M15_CANDLES = 64;
 
     public TradeCouncilStrategy(UnifiedTraderConfig unifiedTraderConfig, TradingService tradingService) {
         this(unifiedTraderConfig, tradingService, new com.github.shk0da.goldendragon.model.Config());
@@ -127,13 +171,6 @@ public class TradeCouncilStrategy extends BaseStrategy {
             return new TradingDecision("HOLD", "HAS_ACTIVE_POSITION");
         }
 
-        // Skip if already in cooldown
-        Long lastDebate = debateCooldowns.get(ticker);
-        if (lastDebate != null && (System.currentTimeMillis() - lastDebate) < DEBATE_COOLDOWN_MS) {
-            return new TradingDecision("HOLD", "DEBATE_COOLDOWN");
-        }
-
-        // Get current price
         Double currentPrice = getCurrentPrice(ticker, hourCandles, minuteCandles);
         if (currentPrice == null) {
             return new TradingDecision("HOLD", "NO_PRICE_DATA");
@@ -141,7 +178,36 @@ public class TradeCouncilStrategy extends BaseStrategy {
 
         lastPrices.put(ticker, currentPrice);
 
-        // Check if price is near any key level
+        PendingOrder pending = pendingOrders.get(ticker);
+        if (pending != null) {
+            if (pending.isExpired()) {
+                log("⏰ Pending order expired for " + ticker + ": " + pending.direction + " @ " + pending.entryPrice);
+                pendingOrders.remove(ticker);
+                return new TradingDecision("HOLD", "ORDER_EXPIRED");
+            }
+
+            boolean isLong = "LONG".equalsIgnoreCase(pending.direction);
+            if (pending.shouldEnter(currentPrice, isLong)) {
+                log("✅ ENTRY CONDITION MET for " + ticker + ": " + pending.direction + 
+                    " @ " + currentPrice + " (target: " + pending.entryPrice + ")");
+                log("   Reasoning: " + pending.reasoning);
+                pendingOrders.remove(ticker);
+
+                return new TradingDecision(
+                    pending.direction,
+                    pending.reasoning,
+                    0.0,
+                    pending.quantity,
+                    pending.stopLoss,
+                    pending.takeProfit,
+                    pending.entryPrice,
+                    null
+                );
+            }
+
+            return new TradingDecision("HOLD", "WAITING_FOR_ENTRY");
+        }
+
         Map<String, Double> levels = keyLevels.get(ticker);
         if (levels == null || levels.isEmpty()) {
             return new TradingDecision("HOLD", "NO_LEVELS");
@@ -152,20 +218,45 @@ public class TradeCouncilStrategy extends BaseStrategy {
             return new TradingDecision("HOLD", "PRICE_NOT_NEAR_LEVEL");
         }
 
-        log("=== CONSENSIUM START === " + ticker + ": Price " + currentPrice + " approached level " + nearLevel + " (" + levels.get(nearLevel) + ")");
+        // Skip if already in cooldown
+        Long lastDebate = debateCooldowns.get(ticker);
+        if (lastDebate != null && (System.currentTimeMillis() - lastDebate) < DEBATE_COOLDOWN_MS) {
+            return new TradingDecision("HOLD", "DEBATE_COOLDOWN");
+        }
 
-        // Trigger debate
+        log("=== CONSENSIUM START === " + ticker + ": Price " + currentPrice + " approached level " + nearLevel + " (" + levels.get(nearLevel) + ")");
         log("Debate in progress for " + ticker + " (rounds=" + tcConfig.getDebateRounds() + ")");
+
         try {
             TradingDecision debateResult = triggerDebate(ticker, hourCandles, minuteCandles, currentPrice, levels);
 
-            log("=== CONSENSIUM RESULT === " + ticker + ": " + (debateResult != null ?
-                "Action=" + debateResult.action + ", Reason=" + debateResult.reason : "NULL"));
-
             if (debateResult != null && !"HOLD".equals(debateResult.action) && !"NO_TRADE".equals(debateResult.action)) {
                 debateCooldowns.put(ticker, System.currentTimeMillis());
-                return debateResult;
+
+                if (debateResult.entryPrice != null) {
+                    PendingOrder newOrder = new PendingOrder(
+                        ticker,
+                        debateResult.action,
+                        debateResult.entryPrice,
+                        debateResult.stopLoss,
+                        debateResult.takeProfit,
+                        debateResult.quantity,
+                        debateResult.reason,
+                        5 * 60 * 1000L
+                    );
+                    pendingOrders.put(ticker, newOrder);
+                    log("⏳ PENDING ORDER CREATED: " + ticker + " " + newOrder.direction + 
+                        " @ " + newOrder.entryPrice + " (SL: " + newOrder.stopLoss + 
+                        ", TP: " + newOrder.takeProfit + ", Qty: " + newOrder.quantity + ")");
+                    log("   Reasoning: " + newOrder.reasoning);
+                    log("   Expires in 5 minutes");
+                }
+
+                return new TradingDecision("HOLD", "ORDER_PLACED");
             }
+
+            log("=== CONSENSIUM RESULT === " + ticker + ": " + (debateResult != null ?
+                "Action=" + debateResult.action + ", Reason=" + debateResult.reason : "NULL"));
         } catch (Exception e) {
             log("Debate failed for " + ticker + ": " + e.getMessage());
         }
