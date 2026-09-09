@@ -170,7 +170,13 @@ public class TradeCouncilStrategy extends BaseStrategy {
         PendingOrder pending = pendingOrders.get(ticker);
         if (pending != null) {
             if (pending.isExpired()) {
-                log("⏰ Pending order expired for " + ticker + ": " + pending.direction + " @ " + pending.entryPrice);
+                long ageMinutes = (System.currentTimeMillis() - pending.createdAt) / 60000L;
+                double currentPriceForLog = currentPrice != null ? currentPrice : 0.0;
+                log("⏰ PENDING ORDER EXPIRED: " + ticker + " " + pending.direction +
+                    " @ " + pending.entryPrice + " (entry target: " + pending.entryPrice + 
+                    ", current: " + String.format("%.2f", currentPriceForLog) +
+                    ", age: " + ageMinutes + " min, TTL: " + pending.ttlMinutes + " min)");
+                log("   Reasoning: " + pending.reasoning);
                 pendingOrders.remove(ticker);
                 analysisWriteLock.lock();
                 try {
