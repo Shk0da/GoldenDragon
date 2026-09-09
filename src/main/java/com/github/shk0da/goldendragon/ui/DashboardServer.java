@@ -1,6 +1,7 @@
 package com.github.shk0da.goldendragon.ui;
 
 import com.github.shk0da.goldendragon.model.PositionInfo;
+import com.github.shk0da.goldendragon.model.TickerType;
 import com.github.shk0da.goldendragon.model.TickerInfo;
 import com.github.shk0da.goldendragon.service.TradingService;
 import com.google.gson.Gson;
@@ -143,6 +144,8 @@ public class DashboardServer {
 
         if ("/api/stats".equals(path)) {
             handleStats(exchange);
+        } else if ("/api/positions/close".equals(path)) {
+            handleClosePosition(exchange);
         } else if ("/api/positions".equals(path)) {
             handlePositions(exchange);
         } else if ("/api/trades".equals(path)) {
@@ -233,6 +236,82 @@ public class DashboardServer {
             trades = new ArrayList<>(tradeHistory);
         }
         String response = gson.toJson(trades);
+        byte[] bytes = response.getBytes(StandardCharsets.UTF_8);
+        exchange.getResponseHeaders().set("Content-Type", "application/json");
+        exchange.getResponseHeaders().set("Access-Control-Allow-Origin", "*");
+        exchange.sendResponseHeaders(200, bytes.length);
+        try (OutputStream os = exchange.getResponseBody()) {
+            os.write(bytes);
+        }
+    }
+
+    private void handleClosePosition(com.sun.net.httpserver.HttpExchange exchange) throws IOException {
+        String body = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
+        Map<String, Object> request = gson.fromJson(body, Map.class);
+
+        String ticker = (String) request.get("ticker");
+        Double fractionObj = (Double) request.get("fraction");
+        double fraction = fractionObj != null ? fractionObj : 1.0;
+
+        Map<String, Object> result = new HashMap<>();
+
+        if (ticker == null || fraction <= 0) {
+            result.put("success", false);
+            result.put("error", "Invalid parameters");
+        } else {
+            try {
+                TickerInfo info = tradingService.searchTicker(new TickerInfo.Key(ticker, TickerType.STOCK));
+                if (info == null) {
+                    info = tradingService.searchTicker(new TickerInfo.Key(ticker, TickerType.FEATURE));
+                }
+                if (info == null) {
+                    info = tradingService.searchTicker(new TickerInfo.Key(ticker, TickerType.CRYPTO));
+                }
+
+                if (info == null) {
+                    result.put("success", false);
+                    result.put("error", "Ticker not found: " + ticker);
+                } else {
+                    Map<TickerInfo.Key, PositionInfo> positions = tradingService.getCurrentPositions(info.getKey().getType());
+                    PositionInfo pos = positions.get(info.getKey());
+                    if (pos == null || pos.getBalance() <= 0) {
+                        result.put("success", false);
+                        result.put("error", "No open position for " + ticker);
+                    } else {
+                        // Calculate quantity to close based on fraction
+                        int balance = pos.getBalance();
+                        int quantityToClose = (int) Math.floor(balance * fraction);
+                        if (quantityToClose <= 0) {
+                            result.put("success", false);
+                            result.put("error", "Calculated quantity is 0 (balance=" + balance + ", fraction=" + fraction + ")");
+                        } else if (quantityToClose > Math.abs(balance)) {
+                            quantityToClose = Math.abs(balance); // Don't close more than position size
+                        }
+
+                        // Close based on balance sign: positive = long, negative = short
+                        boolean closed;
+                        if (balance > 0) {
+                            closed = tradingService.closeLongByMarketWithDetails(ticker, info.getKey().getType(), quantityToClose) != null;
+                        } else {
+                            closed = tradingService.closeShortByMarketWithDetails(ticker, info.getKey().getType(), quantityToClose) != null;
+                        }
+                        result.put("success", closed);
+                        result.put("quantity", quantityToClose);
+                        if (!closed) {
+                            result.put("error", "Failed to close position");
+                        } else {
+                            result.put("message", "Closed " + quantityToClose + " of " + balance + " (" + (fraction * 100) + "%)");
+                        }
+                    }
+                }
+            } catch (Exception e) {
+                result.put("success", false);
+                result.put("error", e.getMessage());
+                e.printStackTrace();
+            }
+        }
+
+        String response = gson.toJson(result);
         byte[] bytes = response.getBytes(StandardCharsets.UTF_8);
         exchange.getResponseHeaders().set("Content-Type", "application/json");
         exchange.getResponseHeaders().set("Access-Control-Allow-Origin", "*");
@@ -411,6 +490,9 @@ public class DashboardServer {
         sb.append("            padding: 40px;\n");
         sb.append("            color: #666;\n");
         sb.append("        }\n");
+        sb.append("        .action-btn {\n");
+        sb.append("            margin-right: 10px;\n");
+        sb.append("        }\n");
         sb.append("    </style>\n");
         sb.append("</head>\n");
         sb.append("<body>\n");
@@ -448,10 +530,11 @@ public class DashboardServer {
         sb.append("                        <th>Quantity</th>\n");
         sb.append("                        <th>Avg Price</th>\n");
         sb.append("                        <th>Expected PnL</th>\n");
+        sb.append("                        <th>Actions</th>\n");
         sb.append("                    </tr>\n");
         sb.append("                </thead>\n");
         sb.append("                <tbody id=\"positions-body\">\n");
-        sb.append("                    <tr><td colspan=\"4\" class=\"loading\">Loading...</td></tr>\n");
+        sb.append("                    <tr><td colspan=\"5\" class=\"loading\">Loading...</td></tr>\n");
         sb.append("                </tbody>\n");
         sb.append("            </table>\n");
         sb.append("        </div>\n");
@@ -477,6 +560,15 @@ public class DashboardServer {
         sb.append("    </div>\n");
         sb.append("    <script>\n");
         sb.append("        let currency = 'RUB';\n");
+        sb.append("        function formatTimeMSK(isoTime) {\n");
+        sb.append("            if (!isoTime) return '-';\n");
+        sb.append("            try {\n");
+        sb.append("                const date = new Date(isoTime);\n");
+        sb.append("                return date.toLocaleString('ru-RU', { timeZone: 'Europe/Moscow', hour12: false, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' });\n");
+        sb.append("            } catch (e) {\n");
+        sb.append("                return isoTime;\n");
+        sb.append("            }\n");
+        sb.append("        }\n");
         sb.append("        async function loadData() {\n");
         sb.append("            try {\n");
         sb.append("                const statsRes = await fetch('/api/stats');\n");
@@ -493,7 +585,7 @@ public class DashboardServer {
         sb.append("                const positions = await positionsRes.json();\n");
         sb.append("                const positionsBody = document.getElementById('positions-body');\n");
         sb.append("                if (positions.length === 0) {\n");
-        sb.append("                    positionsBody.innerHTML = '<tr><td colspan=\"4\" class=\"loading\">No open positions</td></tr>';\n");
+        sb.append("                    positionsBody.innerHTML = '<tr><td colspan=\"5\" class=\"loading\">No open positions</td></tr>';\n");
         sb.append("                } else {\n");
         sb.append("                    positionsBody.innerHTML = positions.map(pos => \n");
         sb.append("                        '<tr>' +\n");
@@ -502,6 +594,10 @@ public class DashboardServer {
         sb.append("                            '<td>' + formatMoney(pos.averagePrice) + '</td>' +\n");
         sb.append("                            '<td class=\"' + (pos.expectedYield >= 0 ? 'positive' : 'negative') + '\">' +\n");
         sb.append("                                formatMoney(pos.expectedYield) +\n");
+        sb.append("                            '</td>' +\n");
+        sb.append("                            '<td>' +\n");
+        sb.append("                                '<button class=\"action-btn close-half\" onclick=\"closePosition(\\\'' + pos.ticker + '\\', 0.5)\" title=\"Close 50%\">🔽 50%</button>' +\n");
+        sb.append("                                '<button class=\"action-btn close-all\" onclick=\"closePosition(\\\'' + pos.ticker + '\\', 1.0)\" title=\"Close All\">❌ Close</button>' +\n");
         sb.append("                            '</td>' +\n");
         sb.append("                        '</tr>'\n");
         sb.append("                    ).join('');\n");
@@ -514,7 +610,7 @@ public class DashboardServer {
         sb.append("                } else {\n");
         sb.append("                    tradesBody.innerHTML = trades.map(trade => \n");
         sb.append("                        '<tr>' +\n");
-        sb.append("                            '<td>' + trade.time + '</td>' +\n");
+        sb.append("                            '<td>' + formatTimeMSK(trade.time) + '</td>' +\n");
         sb.append("                            '<td class=\"ticker\">' + trade.ticker + '</td>' +\n");
         sb.append("                            '<td>' + (trade.description || '-') + '</td>' +\n");
         sb.append("                            '<td>' + trade.type + '</td>' +\n");
@@ -543,6 +639,25 @@ public class DashboardServer {
         sb.append("                currency: 'RUB',\n");
         sb.append("                minimumFractionDigits: 2\n");
         sb.append("            }).format(value);\n");
+        sb.append("        }\n");
+        sb.append("        async function closePosition(ticker, fraction) {\n");
+        sb.append("            if (!confirm('Close ' + (fraction * 100) + '% of ' + ticker + '?')) return;\n");
+        sb.append("            try {\n");
+        sb.append("                const res = await fetch('/api/positions/close', {\n");
+        sb.append("                    method: 'POST',\n");
+        sb.append("                    headers: {'Content-Type': 'application/json'},\n");
+        sb.append("                    body: JSON.stringify({ticker, fraction})\n");
+        sb.append("                });\n");
+        sb.append("                const result = await res.json();\n");
+        sb.append("                if (result.success) {\n");
+        sb.append("                    alert(result.message || ('Closed ' + ticker));\n");
+        sb.append("                    loadData();\n");
+        sb.append("                } else {\n");
+        sb.append("                    alert('Error: ' + result.error);\n");
+        sb.append("                }\n");
+        sb.append("            } catch (error) {\n");
+        sb.append("                alert('Error: ' + error.message);\n");
+        sb.append("            }\n");
         sb.append("        }\n");
         sb.append("        loadData();\n");
         sb.append("        setInterval(loadData, 120000); // Refresh every 2 minutes\n");
