@@ -4,6 +4,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 /**
  * Backtest quality evaluator implementing the 5-dimension scoring framework.
@@ -175,9 +176,9 @@ public class BacktestExpertEvaluator {
 
         DimensionResult sampleSize = evaluateSampleSize(allTrades);
         DimensionResult expectancy = evaluateExpectancy(allTrades, initialBalance);
-        DimensionResult riskManagement = evaluateRiskManagement(allTrades, portfolioResults, initialBalance);
+        DimensionResult riskManagement = evaluateRiskManagement(allTrades, portfolioResults, initialBalance, commissionRate);
         DimensionResult robustness = evaluateRobustness(portfolioResults);
-        DimensionResult executionRealism = evaluateExecutionRealism(allTrades, commissionRate);
+        DimensionResult executionRealism = evaluateExecutionRealism(allTrades);
 
         List<String> redFlags = detectRedFlags(allTrades, portfolioResults, initialBalance);
         List<String> summaryRecommendations =
@@ -373,7 +374,8 @@ public class BacktestExpertEvaluator {
     private static DimensionResult evaluateRiskManagement(
         List<BacktestRunner.TradeResult> allTrades,
         Map<String, BacktestRunner.PortfolioPeriodResult> portfolioResults,
-        double initialBalance) {
+        double initialBalance,
+        double commissionRate) {
         DimensionResult result = new DimensionResult("Risk Management", 0.0);
 
         // Find max drawdown across all periods
@@ -471,6 +473,40 @@ public class BacktestExpertEvaluator {
             }
         }
 
+        // R-Multiple Analysis (Риск-инженер)
+        if (!allTrades.isEmpty()) {
+            // Default risk percent = 2% of entry value per trade
+            double riskPercent = 0.02;
+            MetricsCalculator.RMultipleStats rStats = MetricsCalculator.calculateRMultipleStats(allTrades, riskPercent);
+            
+            result.addFinding("R-Multiple Stats (avg, median, stdDev): " +
+                String.format("%.2f, %.2f, %.2f", rStats.avg, rStats.median, rStats.stdDev));
+
+            // Calmar Ratio (CAGR / MaxDD)
+            double totalPnL = portfolioResults.values().stream().mapToDouble(pr -> pr.pnl).sum();
+            double totalReturn = initialBalance > 0 ? totalPnL / initialBalance : 0.0;
+            // Estimate years from number of periods (assuming monthly periods)
+            int numPeriods = portfolioResults.size();
+            double estimatedYears = Math.max(0.5, (double) numPeriods / 12.0);
+            double calmarRatio = MetricsCalculator.calculateCalmarRatio(totalReturn, estimatedYears, maxDD);
+            result.addFinding("Calmar Ratio: " + String.format("%.2f", calmarRatio));
+
+            if (rStats.avg > 1.0) {
+                score = Math.min(20.0, score + 1.0);
+                result.addFinding("Positive avg R-Multiple (>1.0) — trades profitable relative to risk");
+            } else if (rStats.avg < -0.5) {
+                score = Math.max(0.0, score - 2.0);
+                result.addFinding("Negative avg R-Multiple (<-0.5) — trades lose more than risk");
+                result.addRecommendation("Review exit logic — trades may be exiting too early");
+            }
+
+            // Kill Switch recommendation: stop if max DD exceeds threshold
+            if (maxDD > 0.20) {
+                result.addFinding("⚠️ MAX DD EXCEEDED 20% — Kill Switch should halt live trading");
+                result.addRecommendation("Implement Kill Switch in SimulatedBroker with maxDD limit");
+            }
+        }
+
         return new DimensionResult("Risk Management", score);
     }
 
@@ -541,6 +577,15 @@ public class BacktestExpertEvaluator {
         result.addFinding("Average drawdown: " + String.format("%.2f%%", avgDD * 100));
         result.addFinding("Max drawdown: " + String.format("%.2f%%", maxDD * 100));
 
+        // Calculate Sortino Ratio (downside deviation only)
+        List<Double> negativeReturns = periodReturns.stream()
+            .filter(r -> r < 0)
+            .collect(Collectors.toList());
+        if (!negativeReturns.isEmpty()) {
+            double sortinoRatio = MetricsCalculator.calculateSortinoRatio(periodReturns, 0.05, 12);
+            result.addFinding("Sortino Ratio (downside): " + String.format("%.2f", sortinoRatio));
+        }
+
         // Scoring
         double score;
 
@@ -581,42 +626,34 @@ public class BacktestExpertEvaluator {
             }
         }
 
-        // Return stability (0–6 points)
+        // Return stability with Sharpe Ratio (0–6 points)
         if (periodReturns.size() > 1) {
-            double avgReturn =
-                periodReturns.stream().mapToDouble(Double::doubleValue).average().orElse(0.0);
-            double variance =
-                periodReturns.stream()
-                    .mapToDouble(r -> Math.pow(r - avgReturn, 2))
-                    .average()
-                    .orElse(0.0);
-            double stdDev = Math.sqrt(variance);
-
-            if (avgReturn > 0 && stdDev > 0) {
-                double sharpe = avgReturn / stdDev;
-                if (sharpe > 1.5) {
-                    score += 6.0;
-                    result.addFinding(
-                        "Excellent return stability (Sharpe="
-                            + String.format("%.2f", sharpe)
-                            + ")");
-                } else if (sharpe > 1.0) {
-                    score += 4.0;
-                    result.addFinding(
-                        "Good return stability (Sharpe=" + String.format("%.2f", sharpe) + ")");
-                } else if (sharpe > 0.5) {
-                    score += 2.0;
-                    result.addFinding(
-                        "Moderate return stability (Sharpe="
-                            + String.format("%.2f", sharpe)
-                            + ")");
-                } else {
-                    score += 0.0;
-                    result.addFinding(
-                        "Poor return stability (Sharpe=" + String.format("%.2f", sharpe) + ")");
-                    result.addRecommendation(
-                        "Returns are noisy — consider smoothing or longer holding periods");
-                }
+            // Use MetricsCalculator for proper annualized Sharpe Ratio
+            // Assuming monthly returns (12 periods per year) and 5% risk-free rate
+            double sharpeRatio = MetricsCalculator.calculateSharpeRatio(periodReturns, 0.05, 12);
+            
+            if (sharpeRatio > 1.5) {
+                score += 6.0;
+                result.addFinding(
+                    "Excellent return stability (Annualized Sharpe="
+                        + String.format("%.2f", sharpeRatio)
+                        + ")");
+            } else if (sharpeRatio > 1.0) {
+                score += 4.0;
+                result.addFinding(
+                    "Good return stability (Annualized Sharpe=" + String.format("%.2f", sharpeRatio) + ")");
+            } else if (sharpeRatio > 0.5) {
+                score += 2.0;
+                result.addFinding(
+                    "Moderate return stability (Annualized Sharpe="
+                        + String.format("%.2f", sharpeRatio)
+                        + ")");
+            } else {
+                score += 0.0;
+                result.addFinding(
+                    "Poor return stability (Annualized Sharpe=" + String.format("%.2f", sharpeRatio) + ")");
+                result.addRecommendation(
+                    "Returns are noisy — consider smoothing or longer holding periods");
             }
         }
 
@@ -628,7 +665,7 @@ public class BacktestExpertEvaluator {
     // =========================================================================
 
     private static DimensionResult evaluateExecutionRealism(
-        List<BacktestRunner.TradeResult> allTrades, double commissionRate) {
+        List<BacktestRunner.TradeResult> allTrades) {
         DimensionResult result = new DimensionResult("Execution Realism", 0.0);
 
         if (allTrades.isEmpty()) {
@@ -643,8 +680,8 @@ public class BacktestExpertEvaluator {
 
         for (BacktestRunner.TradeResult trade : allTrades) {
             double tradeValue = trade.entry * trade.qty;
-            double commission = tradeValue * commissionRate * 2.0; // round-trip
-            totalCommission += commission;
+            // Use actual commission from TradeResult (already net in pnl)
+            totalCommission += trade.commission;
             avgTradeValue += tradeValue;
 
             if (Math.abs(trade.pnl) < 0.01) {
@@ -1094,6 +1131,16 @@ public class BacktestExpertEvaluator {
             System.out.println("-".repeat(60));
             for (int i = 0; i < result.getRedFlags().size(); i++) {
                 System.out.println("  " + (i + 1) + ". " + result.getRedFlags().get(i));
+            }
+        }
+
+        // Advanced Risk Metrics (Риск-инженер)
+        System.out.println();
+        System.out.println("ADVANCED RISK METRICS:");
+        System.out.println("-".repeat(60));
+        for (String finding : result.getRiskManagement().getFindings()) {
+            if (finding.contains("R-Multiple") || finding.contains("Calmar")) {
+                System.out.println("  • " + finding);
             }
         }
 

@@ -129,6 +129,7 @@ public class BacktestRunner {
         public final double exit;
         public final int qty;
         public final double pnl;
+        public final double commission;
         public final String reason;
         public final String time;
 
@@ -139,6 +140,7 @@ public class BacktestRunner {
             double exit,
             int qty,
             double pnl,
+            double commission,
             String reason,
             String time) {
             this.ticker = ticker;
@@ -147,6 +149,7 @@ public class BacktestRunner {
             this.exit = exit;
             this.qty = qty;
             this.pnl = pnl;
+            this.commission = commission;
             this.reason = reason;
             this.time = time;
         }
@@ -662,6 +665,26 @@ public class BacktestRunner {
             }
         }
         System.out.println(portRow);
+        
+        // Print trade details with exit reasons (SL/TP parity verification)
+        System.out.println("\nTRADE DETAILS (exit reasons):");
+        System.out.println("-".repeat(100));
+        for (String ticker : allTickers) {
+            for (String label : periodLabels) {
+                Map<String, TickerPeriodResult> tickerData = allData.get(label);
+                TickerPeriodResult result = tickerData != null ? tickerData.get(ticker) : null;
+                if (result != null && !result.trades.isEmpty()) {
+                    for (TradeResult trade : result.trades) {
+                        System.out.println(
+                            String.format("  %-10s %s: %s @ %.2f → %.2f, qty=%d, PnL=%+.2f, reason=%s",
+                                ticker, label, trade.dir, trade.entry, trade.exit,
+                                trade.qty, trade.pnl, trade.reason));
+                    }
+                }
+            }
+        }
+        System.out.println("-".repeat(100));
+        
         StringBuilder avgRow = new StringBuilder();
         avgRow.append(String.format("%-10s", "СРЕДНЕЕ"));
         double totalPnl = 0;
@@ -891,7 +914,7 @@ public class BacktestRunner {
                     tickerTrades.add(
                         new TradeResult(
                             bt.ticker, bt.direction, bt.entryPrice, bt.exitPrice,
-                            bt.quantity, bt.pnl, bt.reason, bt.time));
+                            bt.quantity, bt.pnl, bt.commission, bt.reason, bt.time));
                 }
             }
         }
@@ -998,10 +1021,12 @@ public class BacktestRunner {
                 brokerPos.cooldownRemaining = cooldownCandles;
                 return;
             case "CLOSE":
+                // Use reason from strategy decision (e.g. sl_hit, tp_hit, strategy_close, expired)
+                String closeReason = decision.reason != null && !decision.reason.isEmpty() ? decision.reason : "strategy_close";
                 if (brokerPos.isLong()) {
-                    broker.closeLong(ticker);
+                    broker.closePositionByStrategy(ticker, closeReason);
                 } else if (brokerPos.isShort()) {
-                    broker.closeShort(ticker);
+                    broker.closePositionByStrategy(ticker, closeReason);
                 }
                 brokerPos = broker.getPositionState(ticker);
                 brokerPos.cooldownRemaining = cooldownCandles;
@@ -1344,13 +1369,17 @@ public class BacktestRunner {
         return !time.isBefore(WORK_START_TIME) && time.isBefore(EOD_CLOSE_TIME);
     }
 
-    private double calcMaxDrawdownByEquity(List<EquityPoint> equityCurve) {
+    static double calcMaxDrawdownByEquity(List<EquityPoint> equityCurve) {
         if (equityCurve == null || equityCurve.isEmpty()) return 0.0;
-        // Считаем просадку от капитала на начало периода, а не от пика
-        double startCapital = equityCurve.get(0).equity;
+        // Исправление (Квант-инженер): считаем просадку от пика (peak-to-trough), а не от startCapital
+        // Это стандартная financial definition для Max Drawdown
+        double peak = equityCurve.get(0).equity;
         double maxDd = 0.0;
         for (EquityPoint point : equityCurve) {
-            double dd = startCapital > 0 ? (startCapital - point.equity) / startCapital : 0.0;
+            if (point.equity > peak) {
+                peak = point.equity;
+            }
+            double dd = peak > 0 ? (peak - point.equity) / peak : 0.0;
             if (dd > maxDd) maxDd = dd;
         }
         return maxDd;
@@ -1409,6 +1438,8 @@ public class BacktestRunner {
         int totalTrades;
         double profitFactor;
         double averageMonthlyReturn;
+        double sharpeRatio;
+        double sortinoRatio;
 
         StrategyMetrics(String strategyName) {
             this.strategyName = strategyName;
@@ -1448,6 +1479,9 @@ public class BacktestRunner {
         if (returns.size() > 1) {
             metrics.averageMonthlyReturn =
                 returns.stream().mapToDouble(r -> r).average().orElse(0.0);
+            // Calculate Sharpe and Sortino ratios (annualized, 12 periods/year, 5% risk-free rate)
+            metrics.sharpeRatio = MetricsCalculator.calculateSharpeRatio(returns, 0.05, 12);
+            metrics.sortinoRatio = MetricsCalculator.calculateSortinoRatio(returns, 0.05, 12);
         }
         for (Map.Entry<String, Map<String, TickerPeriodResult>> entry : allData.entrySet()) {
             Map<String, TickerPeriodResult> tickerPeriodResults = entry.getValue();
@@ -1473,8 +1507,8 @@ public class BacktestRunner {
         System.out.println();
         String header =
             String.format(
-                "%-20s %15s %10s %10s %10s %10s %10s",
-                "Стратегия", "Total PnL", "WinRate%", "MaxDD%", "Trades", "PF", "Score");
+                "%-20s %15s %10s %10s %10s %10s %10s %8s %8s",
+                "Стратегия", "Total PnL", "WinRate%", "MaxDD%", "Trades", "PF", "Score", "Sharpe", "Sortino");
         System.out.println(header);
         System.out.println("-".repeat(header.length()));
         List<StrategyMetrics> sortedMetrics = new ArrayList<>(strategyMetricsMap.values());
@@ -1483,18 +1517,21 @@ public class BacktestRunner {
             double score = calculateScore(m);
             System.out.println(
                 String.format(
-                    "%-20s %15s %10.1f %10.1f %10d %10.2f %10.1f",
+                    "%-20s %15s %10.1f %10.1f %10d %10.2f %10.1f %8.2f %8.2f",
                     m.strategyName,
                     formatCompactPnL(m.totalPnL),
                     m.avgWinRate * 100.0,
                     m.maxDrawdown * 100.0,
                     m.totalTrades,
                     m.profitFactor,
-                    score));
+                    score,
+                    m.sharpeRatio,
+                    m.sortinoRatio));
         }
         System.out.println();
         System.out.println("Legend:");
         System.out.println("  Score = (WinRate% × 0.4) + ((20 - MaxDD%) × 0.3) + (PF × 0.3)");
+        System.out.println("  Sharpe/Sortino: annualized (12 periods/year, 5% risk-free rate)");
         System.out.println("  Best strategy has highest score");
         System.out.println();
         if (!sortedMetrics.isEmpty()) {

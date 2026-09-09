@@ -101,8 +101,60 @@ public class SimulatedBroker implements MarketDataProvider, OrderExecutor {
      */
     private double tmonRealizedPnl = 0.0;
 
+    /** Safety margin matching LiveOrderExecutor (1%) to prevent insufficient funds on market orders. */
+    private static final double ORDER_QUANTITY_SAFETY_MARGIN = 1.01;
+
+    /**
+     * Kill Switch state: peak portfolio value for drawdown tracking.
+     * Initialized in constructor.
+     */
+    private double portfolioPeak;
+
+    /**
+     * Kill Switch threshold: maximum allowed drawdown as decimal (e.g., 0.20 for 20%).
+     */
+    private final double maxDrawdownThreshold;
+
+    /**
+     * Kill Switch flag: if true, all new OPEN operations are blocked.
+     */
+    private boolean killSwitchTriggered = false;
+    
+    /**
+     * Internal flag to prevent recursive Kill Switch checks during reset.
+     */
+    private boolean isResettingKillSwitch = false;
+
     public double getTmonRealizedPnl() {
         return tmonRealizedPnl;
+    }
+
+    public boolean isKillSwitchTriggered() {
+        return killSwitchTriggered;
+    }
+
+    /**
+     * Reset Kill Switch and allow trading again.
+     * Also resets portfolio peak to current value to avoid immediate re-trigger.
+     */
+    public void resetKillSwitch() {
+        killSwitchTriggered = false;
+        portfolioPeak = getTotalPortfolioValue();
+        System.out.println("Kill Switch RESET — trading resumed (peak reset to current portfolio value)");
+    }
+
+    public SimulatedBroker(double initialBalance, double commissionRate, double slippage) {
+        this(initialBalance, commissionRate, slippage, 0.20); // default 20% max DD
+    }
+
+    public SimulatedBroker(double initialBalance, double commissionRate, double slippage, double maxDrawdownThreshold) {
+        this.initialBalance = initialBalance;
+        this.sharedCash = initialBalance;
+        this.commissionRate = commissionRate;
+        this.slippage = slippage;
+        this.maxDrawdownThreshold = maxDrawdownThreshold;
+        this.portfolioPeak = initialBalance;
+        this.killSwitchTriggered = false;
     }
 
     /**
@@ -190,13 +242,6 @@ public class SimulatedBroker implements MarketDataProvider, OrderExecutor {
         }
     }
 
-    public SimulatedBroker(double initialBalance, double commissionRate, double slippage) {
-        this.initialBalance = initialBalance;
-        this.sharedCash = initialBalance;
-        this.commissionRate = commissionRate;
-        this.slippage = slippage;
-    }
-
     /**
      * Load full historical candles for a ticker/interval. Prices are only accessible at or before
      * {@link #currentTime}.
@@ -251,6 +296,7 @@ public class SimulatedBroker implements MarketDataProvider, OrderExecutor {
 
     /**
      * Total portfolio value = cash + all open positions marked at current bar price.
+     * Also updates portfolio peak and checks Kill Switch threshold.
      */
     public double getTotalPortfolioValue() {
         double total = sharedCash;
@@ -264,7 +310,47 @@ public class SimulatedBroker implements MarketDataProvider, OrderExecutor {
                 }
             }
         }
+        // Update peak and check Kill Switch
+        if (total > portfolioPeak) {
+            portfolioPeak = total;
+        }
+        checkKillSwitch(total);
         return total;
+    }
+
+    /**
+     * Check if portfolio drawdown exceeds threshold and trigger Kill Switch.
+     */
+    private void checkKillSwitch(double currentPortfolioValue) {
+        if (killSwitchTriggered) {
+            return; // already triggered
+        }
+        if (isResettingKillSwitch) {
+            return; // prevent recursive check during reset
+        }
+        if (portfolioPeak <= 0) {
+            return; // avoid division by zero
+        }
+        double drawdown = (portfolioPeak - currentPortfolioValue) / portfolioPeak;
+        if (drawdown > maxDrawdownThreshold) {
+            killSwitchTriggered = true;
+            System.out.println(
+                "KILL SWITCH TRIGGERED: Portfolio drawdown "
+                + String.format("%.2f%%", drawdown * 100)
+                + " exceeds threshold "
+                + String.format("%.2f%%", maxDrawdownThreshold * 100)
+                + " (peak=" + String.format("%.0f", portfolioPeak)
+                + ", current=" + String.format("%.0f", currentPortfolioValue) + ")");
+            closeAll("kill_switch");
+            // Auto-reset Kill Switch after all positions are closed
+            isResettingKillSwitch = true;
+            killSwitchTriggered = false;
+            portfolioPeak = getTotalPortfolioValue(); // reset peak to current value
+            isResettingKillSwitch = false;
+            System.out.println(
+                "Kill Switch AUTO-RESET: trading resumed (peak reset to " 
+                + String.format("%.0f", portfolioPeak) + ")");
+        }
     }
 
     /**
@@ -372,7 +458,11 @@ public class SimulatedBroker implements MarketDataProvider, OrderExecutor {
     // ========================================================================
 
     @Override
-    public ExecutionResult buy(String ticker, int quantity, Double stopLossPercent, Double takeProfitPercent) {
+    public ExecutionResult buy(String ticker, int quantity, Double stopLossPrice, Double takeProfitPrice) {
+        // Kill Switch: block new OPENs if triggered
+        if (killSwitchTriggered) {
+            return ExecutionResult.failed("Kill Switch triggered — trading halted");
+        }
         SimulatedPosition pos = getPositionState(ticker);
         if (pos.hasOpenPosition()) {
             return ExecutionResult.failed("Position already exists for " + ticker);
@@ -391,7 +481,7 @@ public class SimulatedBroker implements MarketDataProvider, OrderExecutor {
         int lotSize = info != null && info.getLot() != null ? Math.max(1, info.getLot()) : 1;
 
         double slippedEntry = rawPrice * (1.0 + slippage);
-        double entryNotional = notional(quantity, lotSize, slippedEntry);
+        double entryNotional = notional(quantity, lotSize, slippedEntry) * ORDER_QUANTITY_SAFETY_MARGIN;
         double commission = entryNotional * getEffectiveCommission(ticker);
         if (entryNotional + commission > sharedCash) {
             return ExecutionResult.failed(
@@ -399,19 +489,18 @@ public class SimulatedBroker implements MarketDataProvider, OrderExecutor {
                             + ", available " + sharedCash);
         }
 
+        // Adjust back to actual execution (without safety margin) for accurate PnL
+        entryNotional = entryNotional / ORDER_QUANTITY_SAFETY_MARGIN;
         sharedCash -= (entryNotional + commission);
         pos.lotSize = lotSize;
 
-        // Default SL/TP mirroring live openPosition (2% / 4%)
-        double slPrice = stopLossPercent != null
-                ? rawPrice * (1.0 - stopLossPercent / 100.0)
-                : rawPrice * (1.0 - DEFAULT_SL_PERCENT / 100.0);
-        double tpPrice = takeProfitPercent != null
-                ? rawPrice * (1.0 + takeProfitPercent / 100.0)
-                : rawPrice * (1.0 + DEFAULT_TP_PERCENT / 100.0);
+        // Use SL/TP prices directly (parity with live TCS stop-orders)
+        // If not provided, use defaults (2% SL / 4% TP)
+        double sl = stopLossPrice != null ? stopLossPrice : rawPrice * (1.0 - DEFAULT_SL_PERCENT / 100.0);
+        double tp = takeProfitPrice != null ? takeProfitPrice : rawPrice * (1.0 + DEFAULT_TP_PERCENT / 100.0);
 
         pos.position = new Position(
-                "BUY", slippedEntry, slPrice, tpPrice, null, quantity, 0, 0, 1, false);
+                "BUY", slippedEntry, sl, tp, null, quantity, 0, 0, 1, false);
         pos.entryPrice = slippedEntry;
         pos.postedMargin = 0.0;  // longs don't post margin
         pos.entryBarIndex = barIndex(ticker, bar);
@@ -427,7 +516,11 @@ public class SimulatedBroker implements MarketDataProvider, OrderExecutor {
     }
 
     @Override
-    public ExecutionResult sell(String ticker, int quantity, Double stopLossPercent, Double takeProfitPercent) {
+    public ExecutionResult sell(String ticker, int quantity, Double stopLossPrice, Double takeProfitPrice) {
+        // Kill Switch: block new OPENs if triggered
+        if (killSwitchTriggered) {
+            return ExecutionResult.failed("Kill Switch triggered — trading halted");
+        }
         SimulatedPosition pos = getPositionState(ticker);
         if (pos.hasOpenPosition()) {
             return ExecutionResult.failed("Position already exists for " + ticker);
@@ -446,7 +539,7 @@ public class SimulatedBroker implements MarketDataProvider, OrderExecutor {
         int lotSize = info != null && info.getLot() != null ? Math.max(1, info.getLot()) : 1;
 
         double slippedEntry = rawPrice * (1.0 - slippage);
-        double entryNotional = notional(quantity, lotSize, slippedEntry);
+        double entryNotional = notional(quantity, lotSize, slippedEntry) * ORDER_QUANTITY_SAFETY_MARGIN;
         double marginRequired = entryNotional * SHORT_MARGIN_RATIO;
         double commission = entryNotional * getEffectiveCommission(ticker);
         if (marginRequired + commission > sharedCash) {
@@ -455,19 +548,22 @@ public class SimulatedBroker implements MarketDataProvider, OrderExecutor {
                             + ", available " + sharedCash);
         }
 
+        // Adjust back to actual execution (without safety margin) for accurate PnL
+        entryNotional = entryNotional / ORDER_QUANTITY_SAFETY_MARGIN;
+        marginRequired = entryNotional * SHORT_MARGIN_RATIO;
+        
         // Post margin at open, return it at close
         sharedCash -= (marginRequired + commission);
         pos.lotSize = lotSize;
 
-        double slPrice = stopLossPercent != null
-                ? rawPrice * (1.0 + stopLossPercent / 100.0)
-                : rawPrice * (1.0 + DEFAULT_SL_PERCENT / 100.0);
-        double tpPrice = takeProfitPercent != null
-                ? rawPrice * (1.0 - takeProfitPercent / 100.0)
-                : rawPrice * (1.0 - DEFAULT_TP_PERCENT / 100.0);
+        // Use SL/TP prices directly (parity with live TCS stop-orders)
+        // For short: SL above entry, TP below entry
+        // If not provided, use defaults (2% SL / 4% TP)
+        double sl = stopLossPrice != null ? stopLossPrice : rawPrice * (1.0 + DEFAULT_SL_PERCENT / 100.0);
+        double tp = takeProfitPrice != null ? takeProfitPrice : rawPrice * (1.0 - DEFAULT_TP_PERCENT / 100.0);
 
         pos.position = new Position(
-                "SELL", slippedEntry, slPrice, tpPrice, null, quantity, 0, 0, 1, false);
+                "SELL", slippedEntry, sl, tp, null, quantity, 0, 0, 1, false);
         pos.entryPrice = slippedEntry;
         pos.postedMargin = marginRequired;
         pos.entryBarIndex = barIndex(ticker, bar);
@@ -506,6 +602,21 @@ public class SimulatedBroker implements MarketDataProvider, OrderExecutor {
             return ExecutionResult.failed("No market data for " + ticker);
         }
         return closePosition(ticker, pos, bar.close, bar.time, "strategy_close");
+    }
+
+    /**
+     * Close position with a custom reason (for strategy-decided closes).
+     */
+    public ExecutionResult closePositionByStrategy(String ticker, String reason) {
+        SimulatedPosition pos = positions.get(ticker);
+        if (pos == null || !pos.hasOpenPosition()) {
+            return ExecutionResult.failed("No position for " + ticker);
+        }
+        Candle bar = getCurrentCandle(ticker, "5_MIN");
+        if (bar == null) {
+            return ExecutionResult.failed("No market data for " + ticker);
+        }
+        return closePosition(ticker, pos, bar.close, bar.time, reason);
     }
 
     @Override
@@ -617,10 +728,19 @@ public class SimulatedBroker implements MarketDataProvider, OrderExecutor {
     }
 
     /**
-     * Check SL/TP on the given bar and close position if triggered, at the SL/TP price.
+     * Check SL/TP on the given bar and close position if triggered.
+     *
+     * <p><b>Parity with live TCS:</b> In live trading, protective orders are posted as
+     * {@code EXCHANGE_ORDER_TYPE_MARKET} stop-orders. When the trigger price is touched,
+     * the order converts to a market order and executes at the CURRENT MARKET PRICE,
+     * NOT exactly at the stop level. This method replicates that behavior by using
+     * {@code currentBar.close} as the fill price (market price at trigger moment).</p>
      *
      * <p><b>Invariant (Block 9.1):</b> Does NOT check cooldownRemaining — SL/TP triggers even
      * immediately after entry. This ensures positions are properly protected from the first bar.</p>
+     *
+     * <p><b>Risk Engineer priority:</b> When both SL and TP are hit on the same bar
+     * (unknowable intrabar sequence), execution occurs at SL (pessimistic choice).</p>
      *
      * @return execution result if the position was closed, or null if none triggered
      */
@@ -640,10 +760,11 @@ public class SimulatedBroker implements MarketDataProvider, OrderExecutor {
         if (!slHit && !tpHit) {
             return null;
         }
-        // Pessimistic: if both hit, close at SL first
-        double exitPrice = slHit ? sl : tp;
+        // Pessimistic: if both hit, close at SL first (matches Risk Engineer priority)
+        // Parity with live TCS: execute at market price (bar close), not at SL/TP level
+        double exitPrice = currentBar.close;
         String reason = slHit ? "sl_hit" : "tp_hit";
-        // closePosition applies slippage internally, so pass the raw SL/TP price
+        // closePosition applies slippage internally to the market price
         return closePosition(ticker, pos, exitPrice, currentBar.time, reason);
     }
 
@@ -809,6 +930,10 @@ public class SimulatedBroker implements MarketDataProvider, OrderExecutor {
         pos.position = new Position();
         pos.entryPrice = 0.0;
         pos.postedMargin = 0.0;
+        
+        // Kill Switch check after position close (matches live onTradeClosed behavior)
+        checkKillSwitch(getTotalPortfolioValue());
+        
         return ExecutionResult.success(quantity, exitPrice);
     }
 
