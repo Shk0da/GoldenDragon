@@ -1882,7 +1882,6 @@ public class TCSService implements TradingService {
         if (tickerRepository.containsKey(key)) {
             return applyTickerLotOverride(tickerRepository.getById(key));
         }
-        log("Search ticker '" + key.getTicker() + "'...");
         sleep(550);
 
         TickerInfo tickerInfo;
@@ -2684,7 +2683,7 @@ public class TCSService implements TradingService {
             String type = op.path("type").asText("");
             if ("OPERATION_TYPE_BUY".equals(type) || "OPERATION_TYPE_SELL".equals(type)) {
                 Map<String, Object> trade = new LinkedHashMap<>();
-                
+
                 // Format time as "2026-09-08 14:31:05" instead of ISO 8601
                 String timeStr = op.path("date").asText("");
                 if (!timeStr.isEmpty()) {
@@ -2704,7 +2703,7 @@ public class TCSService implements TradingService {
 
                 trade.put("type", type.replace("OPERATION_TYPE_", ""));
                 trade.put("quantity", op.path("quantity").asInt(0));
-                
+
                 // Parse price from {units, nano} object
                 var priceNode = op.path("price");
                 double price = 0.0;

@@ -27,6 +27,7 @@ dependencies {
 }
 
 task uberJar(type: Jar) {
+    group = 'build'
     manifest {
         attributes 'Main-Class': 'com.github.shk0da.goldendragon.GoldenDragon'
     }
@@ -59,6 +60,7 @@ task runBacktest(type: JavaExec) {
 }
 
 task runStrategy(type: JavaExec) {
+    group = 'trading'
     mainClass = 'com.github.shk0da.goldendragon.GoldenDragon'
     classpath = sourceSets.test.runtimeClasspath
     workingDir = rootDir
@@ -67,6 +69,18 @@ task runStrategy(type: JavaExec) {
             '-Dstdout.encoding=UTF-8', '-Dstderr.encoding=UTF-8'
     def strategyName = project.findProperty('strategy') ?: 'RegimeAwareStrategy'
     args strategyName
+}
+
+task runStrategyAI(type: JavaExec) {
+    group = 'trading'
+    description = 'Run TradeCouncilStrategy (AI-powered trading with LLM debate system)'
+    mainClass = 'com.github.shk0da.goldendragon.GoldenDragon'
+    classpath = sourceSets.test.runtimeClasspath
+    workingDir = rootDir
+    // utf-8 console output so cyrillic survives redirection to a file
+    jvmArgs '--add-opens', 'java.base/java.time=ALL-UNNAMED',
+            '-Dstdout.encoding=UTF-8', '-Dstderr.encoding=UTF-8'
+    args 'TradeCouncilStrategy'
 }
 
 test {

@@ -93,6 +93,22 @@ public final class StrategyRegistry {
                         "Stop RegimeAwareStrategy",
                         (mc, ts, args) ->
                                 new RegimeAwareStrategy(new UnifiedTraderConfig(), ts).run()));
+
+        register(
+                "TradeCouncilStrategy",
+                runAndNotify(
+                        "TradeCouncilStrategy",
+                        "Stop TradeCouncilStrategy",
+                        (mc, ts, args) -> {
+                            try {
+                                TradeCouncilStrategy strategy = new TradeCouncilStrategy(new UnifiedTraderConfig(), ts);
+                                strategy.buildKeyLevels();
+                                strategy.run();
+                            } catch (Exception e) {
+                                out.printf("TradeCouncilStrategy initialization error: %s%n", e.getMessage());
+                                e.printStackTrace();
+                            }
+                        }));
     }
 
     public static Entry get(String name) {

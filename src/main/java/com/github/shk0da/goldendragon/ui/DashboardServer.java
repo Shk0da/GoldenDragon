@@ -189,8 +189,18 @@ public class DashboardServer {
 
         if (tradingService != null) {
             try {
-                Map<TickerInfo.Key, PositionInfo> allPositions = tradingService.getCurrentPositions(
+                Map<TickerInfo.Key, PositionInfo> stockPositions = tradingService.getCurrentPositions(
                         com.github.shk0da.goldendragon.model.TickerType.STOCK);
+                Map<TickerInfo.Key, PositionInfo> featurePositions = tradingService.getCurrentPositions(
+                        com.github.shk0da.goldendragon.model.TickerType.FEATURE);
+                Map<TickerInfo.Key, PositionInfo> cryptoPositions = tradingService.getCurrentPositions(
+                        com.github.shk0da.goldendragon.model.TickerType.CRYPTO);
+
+                Map<TickerInfo.Key, PositionInfo> allPositions = new HashMap<>();
+                allPositions.putAll(stockPositions);
+                allPositions.putAll(featurePositions);
+                allPositions.putAll(cryptoPositions);
+
                 for (Map.Entry<TickerInfo.Key, PositionInfo> entry : allPositions.entrySet()) {
                     PositionInfo pos = entry.getValue();
                     if (pos.getBalance() != null && pos.getBalance() != 0) {

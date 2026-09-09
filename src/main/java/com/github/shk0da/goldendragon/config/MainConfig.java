@@ -1,12 +1,9 @@
 package com.github.shk0da.goldendragon.config;
 
 import com.github.shk0da.goldendragon.utils.PropertiesUtils;
+
 import java.net.http.HttpClient;
-import java.text.DateFormat;
-import java.text.SimpleDateFormat;
 import java.time.Duration;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.Properties;
 
 /**
@@ -14,26 +11,6 @@ import java.util.Properties;
  * client configuration.
  */
 public class MainConfig {
-
-    public static final String HEADER_COOKIES = "Cookie";
-    public static final String HEADER_USER_AGENT = "User-Agent";
-    public static final String USER_AGENT =
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/87.0.4280.88 Safari/537.36";
-
-    public static final List<Integer> CALENDAR_WORK_DAYS =
-            new ArrayList<>() {
-                {
-                    add(2);
-                    add(3);
-                    add(4);
-                    add(5);
-                    add(6);
-                }
-            };
-
-    public static final DateFormat dateFormat = new SimpleDateFormat("dd.MM.yyyy");
-    public static final DateFormat dateTimeFormat = new SimpleDateFormat("dd.MM.yyyy HH:mm:ss");
-    public static final DateFormat dateFormatUs = new SimpleDateFormat("yyyy-MM-dd");
 
     public static final HttpClient httpClient =
             HttpClient.newBuilder()
