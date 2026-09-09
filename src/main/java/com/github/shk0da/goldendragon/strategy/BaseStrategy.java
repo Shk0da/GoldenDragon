@@ -1,5 +1,6 @@
 package com.github.shk0da.goldendragon.strategy;
 
+import com.github.shk0da.goldendragon.config.MainConfig;
 import com.github.shk0da.goldendragon.config.UnifiedTraderConfig;
 import com.github.shk0da.goldendragon.filters.BadWeatherFilter;
 import com.github.shk0da.goldendragon.filters.MarketRegimeFilter;
@@ -201,9 +202,10 @@ import static java.util.concurrent.CompletableFuture.runAsync;
   *   <li>{@link TickerRepository} — справочник инструментов.
   * </ul>
   */
- public abstract class BaseStrategy {
+  public abstract class BaseStrategy {
 
     protected final Config config;
+    protected final MainConfig mainConfig;
     protected final TradingService tradingService;
     protected final UnifiedTraderConfig unifiedTraderConfig;
     protected MarketDataProvider marketDataProvider;
@@ -263,7 +265,7 @@ import static java.util.concurrent.CompletableFuture.runAsync;
             UnifiedTraderConfig unifiedTraderConfig,
             TradingService tradingService,
             Config config) {
-        this(unifiedTraderConfig, tradingService, config, null);
+        this(unifiedTraderConfig, tradingService, config, null, null);
     }
 
     protected BaseStrategy(
@@ -271,7 +273,17 @@ import static java.util.concurrent.CompletableFuture.runAsync;
             TradingService tradingService,
             Config config,
             TimeProvider timeProvider) {
+        this(unifiedTraderConfig, tradingService, config, timeProvider, null);
+    }
+
+    protected BaseStrategy(
+            UnifiedTraderConfig unifiedTraderConfig,
+            TradingService tradingService,
+            Config config,
+            TimeProvider timeProvider,
+            MainConfig mainConfig) {
         this.config = config;
+        this.mainConfig = mainConfig;
         this.tradingService = tradingService;
         this.unifiedTraderConfig = unifiedTraderConfig;
         this.timeProvider = timeProvider != null ? timeProvider : new LiveTimeProvider();
@@ -548,6 +560,11 @@ import static java.util.concurrent.CompletableFuture.runAsync;
             }
 
             Position storedPosition = positionStore.getOrDefault(name, new Position());
+
+            if (storedPosition.quantity > 0 && mainConfig != null && mainConfig.isSandbox()) {
+                checkAndClosePositionBySLTP(name, ticker, storedPosition);
+                storedPosition = positionStore.getOrDefault(name, new Position());
+            }
 
             boolean hourChanged = false;
             if (storedPosition.quantity > 0) {
@@ -1135,6 +1152,79 @@ import static java.util.concurrent.CompletableFuture.runAsync;
             tradingService.syncProtectiveOrders(name, ticker.getType(), updatedPosition);
         } catch (Exception ex) {
             log("Failed to sync protective orders for " + name + ": " + ex.getMessage());
+        }
+    }
+
+    /**
+     * Virtual SL/TP check for sandbox mode.
+     * Server-side stop orders are disabled in sandbox, so we check and close positions locally.
+     */
+    private void checkAndClosePositionBySLTP(String name, TickerInfo ticker, Position position) {
+        if (position.stopLoss == null && position.takeProfit == null) {
+            return;
+        }
+
+        try {
+            MarketPrices prices = marketDataProvider.getLivePrices(name);
+            double currentPrice = prices.getBid() != null && prices.getBid() > 0
+                    ? prices.getBid()
+                    : (prices.getAsk() != null && prices.getAsk() > 0 ? prices.getAsk() : 0.0);
+
+            if (currentPrice <= 0.0) {
+                return;
+            }
+
+            boolean shouldClose = false;
+            String reason = null;
+
+            if ("BUY".equals(position.direction)) {
+                if (position.stopLoss != null && currentPrice <= position.stopLoss) {
+                    shouldClose = true;
+                    reason = "STOP_LOSS";
+                } else if (position.takeProfit != null && currentPrice >= position.takeProfit) {
+                    shouldClose = true;
+                    reason = "TAKE_PROFIT";
+                }
+            } else if ("SELL".equals(position.direction)) {
+                if (position.stopLoss != null && currentPrice >= position.stopLoss) {
+                    shouldClose = true;
+                    reason = "STOP_LOSS";
+                } else if (position.takeProfit != null && currentPrice <= position.takeProfit) {
+                    shouldClose = true;
+                    reason = "TAKE_PROFIT";
+                }
+            }
+
+            if (shouldClose) {
+                log("SANDBOX VIRTUAL SL/TP HIT: " + name + " " + reason +
+                    " (dir=" + position.direction + ", entry=" + position.entryPrice +
+                    ", SL=" + position.stopLoss + ", TP=" + position.takeProfit +
+                    ", current=" + currentPrice + ")");
+
+                TradingService.OrderExecutionResult closeResult;
+                if ("BUY".equals(position.direction)) {
+                    closeResult = tradingService.closeLongByMarketWithDetails(name, ticker.getType());
+                } else {
+                    closeResult = tradingService.closeShortByMarketWithDetails(name, ticker.getType());
+                }
+
+                if (closeResult != null && closeResult.isSuccess()) {
+                    int closedQuantity = closeResult.getExecutedCount() > 0
+                            ? closeResult.getExecutedCount() : position.quantity;
+                    double exitPrice = closeResult.getExecutedPrice() != null
+                            ? closeResult.getExecutedPrice() : currentPrice;
+                    double entryPrice = position.entryPrice != null ? position.entryPrice : 0.0;
+                    double pnl = calculatePnlForQuantity(position, exitPrice, closedQuantity);
+
+                    positionStore.put(name, getCooldownPosition());
+                    lastSeenHourBarByTicker.remove(name);
+                    onTradeClosed(name, pnl, entryPrice, exitPrice, closedQuantity, position.direction);
+                } else {
+                    log("Failed to close position for " + name + " via TradingService");
+                }
+            }
+        } catch (Exception ex) {
+            log("Failed to check SL/TP for " + name + ": " + ex.getMessage());
         }
     }
 

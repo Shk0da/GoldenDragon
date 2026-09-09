@@ -2,6 +2,7 @@ package com.github.shk0da.goldendragon.strategy;
 
 import com.github.shk0da.goldendragon.config.MainConfig;
 import com.github.shk0da.goldendragon.config.UnifiedTraderConfig;
+import com.github.shk0da.goldendragon.model.Config;
 import com.github.shk0da.goldendragon.service.TradingService;
 
 import java.util.LinkedHashMap;
@@ -92,7 +93,7 @@ public final class StrategyRegistry {
                         "RegimeAwareStrategy",
                         "Stop RegimeAwareStrategy",
                         (mc, ts, args) ->
-                                new RegimeAwareStrategy(new UnifiedTraderConfig(), ts).run()));
+                                new RegimeAwareStrategy(new UnifiedTraderConfig(), ts, new Config(), mc).run()));
 
         register(
                 "TradeCouncilStrategy",
@@ -101,7 +102,7 @@ public final class StrategyRegistry {
                         "Stop TradeCouncilStrategy",
                         (mc, ts, args) -> {
                             try {
-                                TradeCouncilStrategy strategy = new TradeCouncilStrategy(new UnifiedTraderConfig(), ts);
+                                TradeCouncilStrategy strategy = new TradeCouncilStrategy(new UnifiedTraderConfig(), ts, new Config(), mc);
                                 strategy.buildKeyLevels();
                                 strategy.run();
                             } catch (Exception e) {
@@ -142,7 +143,7 @@ public final class StrategyRegistry {
      */
     public static BaseStrategy createBacktest(String strategyName, UnifiedTraderConfig config, TradingService tradingService) {
         if ("RegimeAwareStrategy".equals(strategyName)) {
-            return new RegimeAwareStrategy(config, tradingService);
+            return new RegimeAwareStrategy(config, tradingService, new Config(), null);
         } else {
             throw new IllegalArgumentException("Unknown strategy: " + strategyName);
         }

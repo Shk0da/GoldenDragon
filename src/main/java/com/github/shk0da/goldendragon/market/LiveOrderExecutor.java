@@ -36,11 +36,17 @@ public class LiveOrderExecutor implements OrderExecutor {
             double cash = tcsService.getAvailableCash();
             double askPrice = tcsService.getLiveAskPrice(key);
 
-            // Apply the same 1% safety margin as TradingService.calculateTradeCount() so the
-            // executed quantity matches the requested quantity (avoids silently buying fewer).
             double value = quantity * askPrice * info.getLot() * ORDER_QUANTITY_SAFETY_MARGIN;
-            if (value > cash) {
-                return ExecutionResult.failed("Insufficient cash: needed " + value + ", available " + cash);
+            if (value > cash && askPrice > 0 && info.getLot() > 0) {
+                int maxQuantity = (int) (cash / (askPrice * info.getLot() * ORDER_QUANTITY_SAFETY_MARGIN));
+                if (maxQuantity <= 0) {
+                    return ExecutionResult.failed(
+                            "Insufficient cash: needed "
+                                    + String.format("%.2f", value)
+                                    + ", available " + String.format("%.2f", cash));
+                }
+                quantity = maxQuantity;
+                value = quantity * askPrice * info.getLot() * ORDER_QUANTITY_SAFETY_MARGIN;
             }
 
             TradingService.OrderExecutionResult result = tcsService.buyByMarketWithDetails(
@@ -73,13 +79,18 @@ public class LiveOrderExecutor implements OrderExecutor {
             double askPrice = tcsService.getLiveAskPrice(key);
 
             double positionValue = quantity * askPrice * info.getLot();
-            // short positions require margin, not full position value
-            double requiredMargin = positionValue * SHORT_MARGIN_RATIO;
-            if (requiredMargin > cash) {
-                return ExecutionResult.failed(
-                        "Insufficient margin for short: needed "
-                                + String.format("%.2f", requiredMargin)
-                                + ", available " + String.format("%.2f", cash));
+
+            // sandbox may require full position value, not just margin — reduce quantity
+            if (positionValue > cash && askPrice > 0 && info.getLot() > 0) {
+                int maxQuantity = (int) (cash / (askPrice * info.getLot()));
+                if (maxQuantity <= 0) {
+                    return ExecutionResult.failed(
+                            "Insufficient cash for short: needed "
+                                    + String.format("%.2f", positionValue)
+                                    + ", available " + String.format("%.2f", cash));
+                }
+                quantity = maxQuantity;
+                positionValue = quantity * askPrice * info.getLot();
             }
 
             TradingService.OrderExecutionResult result = tcsService.sellByMarketWithDetails(

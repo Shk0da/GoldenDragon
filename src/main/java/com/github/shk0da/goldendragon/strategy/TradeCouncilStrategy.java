@@ -1,8 +1,10 @@
 package com.github.shk0da.goldendragon.strategy;
 
+import com.github.shk0da.goldendragon.config.MainConfig;
 import com.github.shk0da.goldendragon.config.TradeCouncilConfig;
 import com.github.shk0da.goldendragon.config.UnifiedTraderConfig;
 import com.github.shk0da.goldendragon.model.Candle;
+import com.github.shk0da.goldendragon.model.Config;
 import com.github.shk0da.goldendragon.model.PendingOrder;
 import com.github.shk0da.goldendragon.model.Position;
 import com.github.shk0da.goldendragon.model.TickerInfo;
@@ -28,6 +30,7 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.stream.Collectors;
 
+import static com.github.shk0da.goldendragon.money.CashParkingManager.TINKOFF_PARKING_TICKER;
 import static java.net.http.HttpRequest.BodyPublishers;
 import static java.net.http.HttpRequest.newBuilder;
 import static java.net.http.HttpResponse.BodyHandlers;
@@ -91,17 +94,24 @@ public class TradeCouncilStrategy extends BaseStrategy {
     private static final long DEBATE_COOLDOWN_MS = 5 * 60 * 1000L; // 5 min after pending order created
     private static final long NO_TRADE_COOLDOWN_MS = 10 * 60 * 1000L; // 10 min after debate without trade
     private static final int H1_CANDLES = 72;
-    private static final int M15_CANDLES = 64;
 
     public TradeCouncilStrategy(UnifiedTraderConfig unifiedTraderConfig, TradingService tradingService) {
-        this(unifiedTraderConfig, tradingService, new com.github.shk0da.goldendragon.model.Config());
+        this(unifiedTraderConfig, tradingService, new Config(), null);
     }
 
     public TradeCouncilStrategy(
         UnifiedTraderConfig unifiedTraderConfig,
         TradingService tradingService,
-        com.github.shk0da.goldendragon.model.Config config) {
-        super(unifiedTraderConfig, tradingService, config);
+        Config config) {
+        this(unifiedTraderConfig, tradingService, config, null);
+    }
+
+    public TradeCouncilStrategy(
+        UnifiedTraderConfig unifiedTraderConfig,
+        TradingService tradingService,
+        Config config,
+        MainConfig mainConfig) {
+        super(unifiedTraderConfig, tradingService, config, null, mainConfig);
 
         try {
             this.tcConfig = new TradeCouncilConfig();
@@ -136,6 +146,10 @@ public class TradeCouncilStrategy extends BaseStrategy {
     ) {
         if (ticker == null || ticker.isEmpty()) {
             return new TradingDecision("HOLD", "EMPTY_TICKER");
+        }
+
+        if (TINKOFF_PARKING_TICKER.equals(ticker)) {
+            return new TradingDecision("HOLD", "PARKING_TICKER");
         }
 
         if (position != null && position.quantity != 0) {
@@ -594,19 +608,20 @@ public class TradeCouncilStrategy extends BaseStrategy {
 
     private TradingDecision parseDecision(String json, String ticker, double currentPrice) {
         try {
-            // Simple JSON parsing
             String decision = extractJsonValue(json, "decision");
             String entryStr = extractJsonValue(json, "entry");
             String stopStr = extractJsonValue(json, "stop");
-            String tpStr = extractJsonValue(json, "position_size");
+            String positionSizeStr = extractJsonValue(json, "position_size");
             String confidenceStr = extractJsonValue(json, "confidence");
             String reasoning = extractJsonValue(json, "reasoning");
             String ttlMinutesStr = extractJsonValue(json, "ttlMinutes");
 
+            Double takeProfit = extractJsonArrayFirstValue(json, "take_profits");
+
             double entry = entryStr != null ? Double.parseDouble(entryStr) : currentPrice;
             double stop = stopStr != null ? Double.parseDouble(stopStr) : 0.0;
             double confidence = confidenceStr != null ? Double.parseDouble(confidenceStr) : 50.0;
-            int ttlMinutes = ttlMinutesStr != null ? Integer.parseInt(ttlMinutesStr) : 30; // Default 30 min
+            int ttlMinutes = ttlMinutesStr != null ? Integer.parseInt(ttlMinutesStr) : 30;
 
             String action = "HOLD";
             double positionMultiplier = 0.3;
@@ -616,9 +631,8 @@ public class TradeCouncilStrategy extends BaseStrategy {
                 action = "SELL";
             }
 
-            // Map position size to numeric multiplier (English values from LLM)
-            if (tpStr != null) {
-                switch (tpStr) {
+            if (positionSizeStr != null) {
+                switch (positionSizeStr) {
                     case "FullCapital":
                         positionMultiplier = 1.0;
                         break;
@@ -633,7 +647,6 @@ public class TradeCouncilStrategy extends BaseStrategy {
                 }
             }
 
-            // Calculate position size based on risk and multiplier
             double riskAmount = (tcConfig.getRiskPerTradePercent() / 100.0) * 1000000 * positionMultiplier;
             int quantity = 0;
             if (stop > 0 && action != null) {
@@ -643,8 +656,11 @@ public class TradeCouncilStrategy extends BaseStrategy {
                 }
             }
 
+            double finalTakeProfit = takeProfit != null ? takeProfit : entry * 1.03;
+
             log("Parsed decision: " + action + " " + ticker + " qty=" + quantity +
-                " entry=" + entry + " stop=" + stop + " confidence=" + confidence + " ttl=" + ttlMinutes + "min");
+                " entry=" + entry + " stop=" + stop + " tp=" + finalTakeProfit +
+                " confidence=" + confidence + " ttl=" + ttlMinutes + "min");
 
             return new TradingDecision(
                 action,
@@ -652,7 +668,7 @@ public class TradeCouncilStrategy extends BaseStrategy {
                 confidence,
                 quantity,
                 stop,
-                entry * 1.03, // Default 3% take-profit
+                finalTakeProfit,
                 entry,
                 null,
                 ttlMinutes
@@ -661,6 +677,28 @@ public class TradeCouncilStrategy extends BaseStrategy {
         } catch (Exception e) {
             log("Failed to parse decision: " + e.getMessage());
             return new TradingDecision("HOLD", "PARSE_ERROR: " + e.getMessage());
+        }
+    }
+
+    private Double extractJsonArrayFirstValue(String json, String key) {
+        if (json == null || key == null) return null;
+        int keyIndex = json.indexOf("\"" + key + "\"");
+        if (keyIndex == -1) return null;
+
+        int bracketIndex = json.indexOf("[", keyIndex);
+        if (bracketIndex == -1 || bracketIndex - keyIndex > 50) return null;
+
+        int closeBracket = json.indexOf("]", bracketIndex);
+        if (closeBracket == -1) return null;
+
+        String arrayContent = json.substring(bracketIndex + 1, closeBracket).trim();
+        if (arrayContent.isEmpty()) return null;
+
+        String firstValue = arrayContent.split(",")[0].trim();
+        try {
+            return Double.parseDouble(firstValue);
+        } catch (NumberFormatException e) {
+            return null;
         }
     }
 

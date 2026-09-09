@@ -18,7 +18,7 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 public class CashParkingManager {
 
-    private static final String TINKOFF_PARKING_TICKER = "TMON@";
+    public static final String TINKOFF_PARKING_TICKER = "TMON@";
     private static final TickerType TINKOFF_PARKING_TYPE = TickerType.ETF;
 
     private final TradingService tradingService;

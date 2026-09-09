@@ -1,5 +1,6 @@
 package com.github.shk0da.goldendragon.strategy;
 
+import com.github.shk0da.goldendragon.config.MainConfig;
 import com.github.shk0da.goldendragon.config.UnifiedTraderConfig;
 import com.github.shk0da.goldendragon.model.Candle;
 import com.github.shk0da.goldendragon.model.Config;
@@ -45,14 +46,22 @@ public class RegimeAwareStrategy extends BaseStrategy {
     }
 
     public RegimeAwareStrategy(UnifiedTraderConfig unifiedTraderConfig, TradingService tradingService) {
-        this(unifiedTraderConfig, tradingService, new Config());
+        this(unifiedTraderConfig, tradingService, new Config(), null);
     }
 
     public RegimeAwareStrategy(
             UnifiedTraderConfig unifiedTraderConfig,
             TradingService tradingService,
             Config config) {
-        super(unifiedTraderConfig, tradingService, config);
+        this(unifiedTraderConfig, tradingService, config, null);
+    }
+
+    public RegimeAwareStrategy(
+            UnifiedTraderConfig unifiedTraderConfig,
+            TradingService tradingService,
+            Config config,
+            MainConfig mainConfig) {
+        super(unifiedTraderConfig, tradingService, config, null, mainConfig);
 
         // Single UnifiedStrategy instance
         this.unifiedStrategy = new UnifiedStrategy(unifiedTraderConfig, tradingService, config);
