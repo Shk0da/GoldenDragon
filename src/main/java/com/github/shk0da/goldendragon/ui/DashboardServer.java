@@ -266,13 +266,13 @@ public class DashboardServer {
                 } else {
                     Map<TickerInfo.Key, PositionInfo> positions = tradingService.getCurrentPositions(info.getKey().getType());
                     PositionInfo pos = positions.get(info.getKey());
-                    if (pos == null || pos.getBalance() <= 0) {
+                    if (pos == null || pos.getBalance() == 0) {
                         result.put("success", false);
                         result.put("error", "No open position for " + ticker);
                     } else {
                         // Calculate quantity to close based on fraction
                         int balance = pos.getBalance();
-                        int quantityToClose = (int) Math.floor(balance * fraction);
+                        int quantityToClose = (int) Math.floor(Math.abs(balance) * fraction);
                         if (quantityToClose <= 0) {
                             result.put("success", false);
                             result.put("error", "Calculated quantity is 0 (balance=" + balance + ", fraction=" + fraction + ")");

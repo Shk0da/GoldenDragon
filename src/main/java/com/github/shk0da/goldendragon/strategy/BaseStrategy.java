@@ -12,6 +12,7 @@ import com.github.shk0da.goldendragon.market.OrderExecutor;
 import com.github.shk0da.goldendragon.model.Candle;
 import com.github.shk0da.goldendragon.model.Config;
 import com.github.shk0da.goldendragon.model.Position;
+import com.github.shk0da.goldendragon.model.PositionInfo;
 import com.github.shk0da.goldendragon.model.TickerInfo;
 import com.github.shk0da.goldendragon.model.TickerType;
 import com.github.shk0da.goldendragon.model.TradingDecision;
@@ -591,7 +592,7 @@ import static java.util.concurrent.CompletableFuture.runAsync;
                 try {
                     String parkingTicker = cashParkingManager.getParkingTicker();
                     TickerType parkingType = cashParkingManager.getParkingTickerType();
-                    com.github.shk0da.goldendragon.model.PositionInfo parkingInfo =
+                    PositionInfo parkingInfo =
                             tradingService != null
                                     ? tradingService.getCurrentPositions(parkingType, parkingTicker)
                                     : marketDataProvider.getCurrentPositions(parkingType, parkingTicker);
@@ -670,7 +671,7 @@ import static java.util.concurrent.CompletableFuture.runAsync;
                         String parkingTicker = cashParkingManager.getParkingTicker();
                         TickerType parkingType = cashParkingManager.getParkingTickerType();
                         // read parking position from broker (not local store) to get actual qty
-                        com.github.shk0da.goldendragon.model.PositionInfo parkingInfo =
+                        PositionInfo parkingInfo =
                                 tradingService != null
                                         ? tradingService.getCurrentPositions(parkingType, parkingTicker)
                                         : marketDataProvider.getCurrentPositions(parkingType, parkingTicker);
@@ -1329,7 +1330,7 @@ import static java.util.concurrent.CompletableFuture.runAsync;
     }
 
     private void restoreTrackedPositions(Set<String> activeTickers, TickerType tickerType) {
-        Map<TickerInfo.Key, com.github.shk0da.goldendragon.model.PositionInfo> currentPositions =
+        Map<TickerInfo.Key, PositionInfo> currentPositions =
                 tradingService.getCurrentPositions(tickerType);
         currentPositions.values().stream()
                 .filter(positionInfo -> activeTickers.contains(positionInfo.getTicker()))
