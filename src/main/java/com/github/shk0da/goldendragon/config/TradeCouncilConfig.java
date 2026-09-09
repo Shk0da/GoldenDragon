@@ -64,7 +64,7 @@ public class TradeCouncilConfig {
         );
         this.arbiterPrompt = properties.getProperty(
             "tradecouncil.prompt.arbiter",
-            "You are an arbitrator. Listen to all opinions, evaluate agreement and decide: CONSENSUS or CONTINUE. Output final decision as JSON: {\"decision\":\"LONG|SHORT|NO_TRADE\", \"entry\":number, \"stop\":number, \"take_profits\":[number], \"risk_reward\":number, \"position_size\":\"FullCapital|HalfCapital|SmallPosition\", \"confidence\":number (0-100), \"reasoning\":\"text\"}"
+            "You are an arbitrator. Listen to all opinions, evaluate agreement and decide: CONSENSUS or CONTINUE. Output final decision as JSON: {\"decision\":\"LONG|SHORT|NO_TRADE\", \"entry\":number, \"stop\":number, \"take_profits\":[number], \"risk_reward\":number, \"position_size\":\"FullCapital|HalfCapital|SmallPosition\", \"confidence\":number (0-100), \"ttlMinutes\":number (10-60), \"reasoning\":\"text\"}. ttlMinutes: how long to wait for entry (10-60 min, shorter for volatile instruments, longer for stable trends)"
         );
         this.consensusPrompt = properties.getProperty(
             "tradecouncil.prompt.consensus",

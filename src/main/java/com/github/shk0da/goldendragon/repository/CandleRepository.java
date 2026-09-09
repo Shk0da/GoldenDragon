@@ -2,9 +2,13 @@ package com.github.shk0da.goldendragon.repository;
 
 import com.github.shk0da.goldendragon.model.Candle;
 
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.stream.Collectors;
 
 /**
  * In-memory cache for candle data.
@@ -27,7 +31,8 @@ public class CandleRepository {
 
     /**
      * Store candles for a ticker and interval.
-     * Replaces existing candles for this ticker/interval combination.
+     * Merges new candles with existing ones, deduplicates by time (last one wins).
+     * Preserves chronological order.
      *
      * @param ticker ticker symbol
      * @param interval candle interval (HOUR, 5_MIN, etc.)
@@ -37,8 +42,24 @@ public class CandleRepository {
         if (candles == null || candles.isEmpty()) {
             return;
         }
-        candleCache.computeIfAbsent(ticker, k -> new ConcurrentHashMap<>())
-                .put(interval, new ArrayList<>(candles));
+
+        // Get existing candles
+        List<Candle> existing = candleCache
+            .computeIfAbsent(ticker, k -> new ConcurrentHashMap<>())
+            .get(interval);
+
+        // Merge with existing (deduplicate by time, last wins)
+        Map<String, Candle> merged = new LinkedHashMap<>();
+        if (existing != null) {
+            for (Candle c : existing) {
+                merged.put(c.time, c);
+            }
+        }
+        for (Candle c : candles) {
+            merged.put(c.time, c);  // New candles overwrite duplicates
+        }
+
+        candleCache.get(ticker).put(interval, new ArrayList<>(merged.values()));
     }
 
     /**

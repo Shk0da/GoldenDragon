@@ -10,9 +10,10 @@ public class TradingDecision {
     public final Double takeProfit;
     public final Double entryPrice;
     public final Position updatedPosition;
+    public final int ttlMinutes;
 
     public TradingDecision(String action, String reason) {
-        this(action, reason, 0.0, 0, null, null, null, null);
+        this(action, reason, 0.0, 0, null, null, null, null, 30);
     }
 
     public TradingDecision(
@@ -24,6 +25,19 @@ public class TradingDecision {
             Double takeProfit,
             Double entryPrice,
             Position updatedPosition) {
+        this(action, reason, confidence, quantity, stopLoss, takeProfit, entryPrice, updatedPosition, 30);
+    }
+
+    public TradingDecision(
+            String action,
+            String reason,
+            double confidence,
+            int quantity,
+            Double stopLoss,
+            Double takeProfit,
+            Double entryPrice,
+            Position updatedPosition,
+            int ttlMinutes) {
         this.action = action;
         this.reason = reason;
         this.confidence = confidence;
@@ -32,5 +46,6 @@ public class TradingDecision {
         this.takeProfit = takeProfit;
         this.entryPrice = entryPrice;
         this.updatedPosition = updatedPosition;
+        this.ttlMinutes = ttlMinutes;
     }
 }

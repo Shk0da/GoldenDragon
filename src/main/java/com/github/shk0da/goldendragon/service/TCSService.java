@@ -2633,8 +2633,13 @@ public class TCSService implements TradingService {
         Instant now = Instant.now();
         String fromParam = java.time.format.DateTimeFormatter.ISO_INSTANT.format(since);
         String toParam = java.time.format.DateTimeFormatter.ISO_INSTANT.format(now);
-        String url =
-                "https://invest-public-api.tbank.ru/rest/"
+
+        // Use sandbox URL for sandbox mode, production URL otherwise
+        String baseUrl = mainConfig.isSandbox()
+            ? "https://sandbox-invest-public-api.tbank.ru"
+            : "https://invest-public-api.tbank.ru";
+
+        String url = baseUrl + "/rest/"
                         + "tinkoff.public.invest.api.contract.v1.OperationsService/GetOperationsByCursor";
 
         // All Tinkoff gRPC-to-REST bridge endpoints use POST with a JSON body.

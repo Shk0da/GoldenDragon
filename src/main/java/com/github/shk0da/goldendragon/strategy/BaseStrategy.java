@@ -1,7 +1,6 @@
 package com.github.shk0da.goldendragon.strategy;
 
 import com.github.shk0da.goldendragon.config.UnifiedTraderConfig;
-import com.github.shk0da.goldendragon.utils.CandleFileReader;
 import com.github.shk0da.goldendragon.filters.BadWeatherFilter;
 import com.github.shk0da.goldendragon.filters.MarketRegimeFilter;
 import com.github.shk0da.goldendragon.market.LiveMarketDataProvider;
@@ -12,18 +11,16 @@ import com.github.shk0da.goldendragon.market.OrderExecutor;
 import com.github.shk0da.goldendragon.model.Candle;
 import com.github.shk0da.goldendragon.model.Config;
 import com.github.shk0da.goldendragon.model.Position;
-import com.github.shk0da.goldendragon.model.TickerCandle;
 import com.github.shk0da.goldendragon.model.TickerInfo;
 import com.github.shk0da.goldendragon.model.TickerType;
 import com.github.shk0da.goldendragon.model.TradingDecision;
+import com.github.shk0da.goldendragon.money.CashParkingManager;
 import com.github.shk0da.goldendragon.repository.CandleRepository;
 import com.github.shk0da.goldendragon.repository.TickerRepository;
 import com.github.shk0da.goldendragon.service.TradingService;
 import com.github.shk0da.goldendragon.time.LiveTimeProvider;
 import com.github.shk0da.goldendragon.time.TimeProvider;
-import com.github.shk0da.goldendragon.money.CashParkingManager;
 import com.github.shk0da.goldendragon.ui.DashboardServer;
-import com.github.shk0da.goldendragon.utils.IndicatorsUtil;
 import com.github.shk0da.goldendragon.utils.LoggingUtils;
 
 import java.io.IOException;
@@ -42,9 +39,6 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.ReentrantLock;
-import java.util.stream.Collectors;
-
-import static java.util.stream.Collectors.toList;
 
 import static com.github.shk0da.goldendragon.model.TickerType.CRYPTO;
 import static com.github.shk0da.goldendragon.model.TickerType.FEATURE;
@@ -553,7 +547,7 @@ import static java.util.concurrent.CompletableFuture.runAsync;
                 minuteCandles = hourCandles;
             }
 
-                        Position storedPosition = positionStore.getOrDefault(name, new Position());
+            Position storedPosition = positionStore.getOrDefault(name, new Position());
 
             boolean hourChanged = false;
             if (storedPosition.quantity > 0) {
@@ -733,7 +727,7 @@ import static java.util.concurrent.CompletableFuture.runAsync;
             if ("CLOSE".equals(decision.action)) {
                 closePosition(name, ticker, storedPosition, decision);
             }
-            
+
             if ("PARTIAL_CLOSE".equals(decision.action)) {
                 partialClosePosition(name, ticker, storedPosition, decision);
             }
@@ -1064,36 +1058,36 @@ import static java.util.concurrent.CompletableFuture.runAsync;
     protected void partialClosePosition(
             String name, TickerInfo ticker, Position storedPosition, TradingDecision decision) {
         log("PARTIAL_CLOSE for " + name + ": " + decision.quantity + " shares (TP1 hit)");
-        
+
         if (storedPosition.quantity <= 0) {
             log("PARTIAL_CLOSE but no position for " + name + ", skipping.");
             return;
         }
-        
+
         int closeQty = decision.quantity;
         if (closeQty <= 0 || closeQty >= storedPosition.quantity) {
             log("Invalid partial close quantity: " + closeQty + ", position: " + storedPosition.quantity);
             return;
         }
-        
+
         OrderExecutor.ExecutionResult closeResult;
         if ("BUY".equals(storedPosition.direction)) {
             closeResult = orderExecutor.partialCloseLong(name, closeQty);
         } else {
             closeResult = orderExecutor.partialCloseShort(name, closeQty);
         }
-        
+
         if (closeResult.isSuccess()) {
             double entryPrice = storedPosition.entryPrice != null ? storedPosition.entryPrice : 0.0;
             double exitPrice = closeResult.getExecutedPrice() != null ? closeResult.getExecutedPrice() : decision.entryPrice != null ? decision.entryPrice : 0.0;
             double pnl = calculatePnlForQuantity(storedPosition, exitPrice, closeQty);
-            
+
             positionStore.put(name, decision.updatedPosition);
-            
+
             log(
                     "PARTIAL_CLOSE " + name + ": closed=" + closeQty + ", remaining=" + decision.updatedPosition.quantity +
                     ", pnl=" + String.format("%.2f", pnl) + ", newStop=" + decision.updatedPosition.stopLoss);
-            
+
             onTradeClosed(name, pnl, entryPrice, exitPrice, closeQty, storedPosition.direction);
         } else {
             log("Failed to partial close " + name + ": " + closeResult.getErrorMessage());
@@ -1771,7 +1765,7 @@ import static java.util.concurrent.CompletableFuture.runAsync;
         if (decision.confidence > 0.8) {
             return true;
         }
-        
+
         if (decision.reason != null && decision.reason.contains("TREND") && decision.reason.contains("ADX")) {
             try {
                 String adxPart = decision.reason.substring(decision.reason.indexOf("ADX") + 3);
@@ -1782,7 +1776,7 @@ import static java.util.concurrent.CompletableFuture.runAsync;
                 }
             } catch (Exception ignored) {}
         }
-        
+
         return false;
     }
 }

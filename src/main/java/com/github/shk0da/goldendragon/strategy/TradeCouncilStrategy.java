@@ -26,8 +26,9 @@ import java.util.concurrent.Semaphore;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
 
-import static java.net.http.HttpRequest.*;
-import static java.net.http.HttpResponse.*;
+import static java.net.http.HttpRequest.BodyPublishers;
+import static java.net.http.HttpRequest.newBuilder;
+import static java.net.http.HttpResponse.BodyHandlers;
 
 /**
  * Pending order with entry conditions from LLM debate.
@@ -42,9 +43,10 @@ class PendingOrder {
     final String reasoning;
     final long createdAt;
     final long expiresAt;
+    final int ttlMinutes;
 
-    PendingOrder(String ticker, String direction, Double entryPrice, Double stopLoss, 
-                 Double takeProfit, Integer quantity, String reasoning, long ttlMs) {
+    PendingOrder(String ticker, String direction, Double entryPrice, Double stopLoss,
+                 Double takeProfit, Integer quantity, String reasoning, int ttlMinutes) {
         this.ticker = ticker;
         this.direction = direction;
         this.entryPrice = entryPrice;
@@ -52,8 +54,9 @@ class PendingOrder {
         this.takeProfit = takeProfit;
         this.quantity = quantity;
         this.reasoning = reasoning;
+        this.ttlMinutes = ttlMinutes;
         this.createdAt = System.currentTimeMillis();
-        this.expiresAt = this.createdAt + ttlMs;
+        this.expiresAt = this.createdAt + (ttlMinutes * 60L * 1000L);
     }
 
     boolean isExpired() {
@@ -188,7 +191,7 @@ public class TradeCouncilStrategy extends BaseStrategy {
 
             boolean isLong = "LONG".equalsIgnoreCase(pending.direction);
             if (pending.shouldEnter(currentPrice, isLong)) {
-                log("✅ ENTRY CONDITION MET for " + ticker + ": " + pending.direction + 
+                log("✅ ENTRY CONDITION MET for " + ticker + ": " + pending.direction +
                     " @ " + currentPrice + " (target: " + pending.entryPrice + ")");
                 log("   Reasoning: " + pending.reasoning);
                 pendingOrders.remove(ticker);
@@ -242,14 +245,14 @@ public class TradeCouncilStrategy extends BaseStrategy {
                         debateResult.takeProfit,
                         debateResult.quantity,
                         debateResult.reason,
-                        5 * 60 * 1000L
+                        debateResult.ttlMinutes
                     );
                     pendingOrders.put(ticker, newOrder);
-                    log("⏳ PENDING ORDER CREATED: " + ticker + " " + newOrder.direction + 
-                        " @ " + newOrder.entryPrice + " (SL: " + newOrder.stopLoss + 
+                    log("⏳ PENDING ORDER CREATED: " + ticker + " " + newOrder.direction +
+                        " @ " + newOrder.entryPrice + " (SL: " + newOrder.stopLoss +
                         ", TP: " + newOrder.takeProfit + ", Qty: " + newOrder.quantity + ")");
                     log("   Reasoning: " + newOrder.reasoning);
-                    log("   Expires in 5 minutes");
+                    log("   Expires in " + newOrder.ttlMinutes + " minutes");
                 }
 
                 return new TradingDecision("HOLD", "ORDER_PLACED");
@@ -363,7 +366,7 @@ public class TradeCouncilStrategy extends BaseStrategy {
             levels.put("PIVOT", avgPrice);
         }
 
-        log(ticker + ": Found " + (supportHits.size() + resistanceHits.size()) + 
+        log(ticker + ": Found " + (supportHits.size() + resistanceHits.size()) +
             " significant levels (2+ hits)");
 
         return levels;
@@ -417,7 +420,9 @@ public class TradeCouncilStrategy extends BaseStrategy {
     }
 
     private Double getCurrentPrice(String ticker, List<Candle> hourCandles, List<Candle> minuteCandles) {
-        if (tradingService != null && ticker != null) {
+        if (ticker == null) return null;
+
+        if (tradingService != null) {
             try {
                 TickerInfo info = findTickerInfo(ticker);
                 if (info != null && info.getFigi() != null) {
@@ -428,7 +433,7 @@ public class TradeCouncilStrategy extends BaseStrategy {
                     }
                 }
             } catch (Exception e) {
-                log("Failed to get live price for " + ticker + ": " + e.getMessage());
+                // Ignore and fallback to candle close
             }
         }
 
@@ -573,10 +578,12 @@ public class TradeCouncilStrategy extends BaseStrategy {
             String tpStr = extractJsonValue(json, "position_size");
             String confidenceStr = extractJsonValue(json, "confidence");
             String reasoning = extractJsonValue(json, "reasoning");
+            String ttlMinutesStr = extractJsonValue(json, "ttlMinutes");
 
             double entry = entryStr != null ? Double.parseDouble(entryStr) : currentPrice;
             double stop = stopStr != null ? Double.parseDouble(stopStr) : 0.0;
             double confidence = confidenceStr != null ? Double.parseDouble(confidenceStr) : 50.0;
+            int ttlMinutes = ttlMinutesStr != null ? Integer.parseInt(ttlMinutesStr) : 30; // Default 30 min
 
             String action = "HOLD";
             double positionMultiplier = 0.3;
@@ -614,7 +621,7 @@ public class TradeCouncilStrategy extends BaseStrategy {
             }
 
             log("Parsed decision: " + action + " " + ticker + " qty=" + quantity +
-                " entry=" + entry + " stop=" + stop + " confidence=" + confidence);
+                " entry=" + entry + " stop=" + stop + " confidence=" + confidence + " ttl=" + ttlMinutes + "min");
 
             return new TradingDecision(
                 action,
@@ -624,7 +631,8 @@ public class TradeCouncilStrategy extends BaseStrategy {
                 stop,
                 entry * 1.03, // Default 3% take-profit
                 entry,
-                null
+                null,
+                ttlMinutes
             );
 
         } catch (Exception e) {
