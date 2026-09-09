@@ -126,8 +126,23 @@ public final class StrategyRegistry {
      * @return a BaseStrategy instance ready for backtest processing
      */
     public static BaseStrategy createBacktest(String strategyName, UnifiedTraderConfig config) {
+        return createBacktest(strategyName, config, null);
+    }
+
+    /**
+     * Create a backtest strategy instance for a given name with TradingService.
+     *
+     * <p>Used by BacktestRunner to instantiate strategies with backtest TradingService.
+     * The backtest broker is already set via {@link BaseStrategy#setBacktestBroker}.</p>
+     *
+     * @param strategyName name of the strategy to create
+     * @param config trader configuration
+     * @param tradingService backtest trading service (can be null)
+     * @return a BaseStrategy instance ready for backtest processing
+     */
+    public static BaseStrategy createBacktest(String strategyName, UnifiedTraderConfig config, TradingService tradingService) {
         if ("RegimeAwareStrategy".equals(strategyName)) {
-            return new RegimeAwareStrategy(config, null);
+            return new RegimeAwareStrategy(config, tradingService);
         } else {
             throw new IllegalArgumentException("Unknown strategy: " + strategyName);
         }

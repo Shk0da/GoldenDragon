@@ -3,6 +3,7 @@ package com.github.shk0da.goldendragon.backtest;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.github.shk0da.goldendragon.config.MainConfig;
+import com.github.shk0da.goldendragon.model.Candle;
 import com.github.shk0da.goldendragon.model.TickerCandle;
 import com.github.shk0da.goldendragon.model.TickerInfo;
 import com.github.shk0da.goldendragon.model.TickerType;
@@ -42,7 +43,6 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
-import static com.github.shk0da.goldendragon.utils.IndicatorsUtil.toDouble;
 import static com.github.shk0da.goldendragon.utils.SerializationUtils.getDateOfContentOnDisk;
 import static com.github.shk0da.goldendragon.utils.SerializationUtils.loadDataFromDisk;
 import static com.github.shk0da.goldendragon.utils.SerializationUtils.saveDataToDisk;
@@ -302,15 +302,15 @@ public class DataCollector {
             }
 
             String ticker = tickerInfo.getFigi();
-            
+
             var start = getStartWithShift(period, startTime);
             int daysChecked = 0;
             AtomicInteger newCandles = new AtomicInteger(0);
             while (start.isBefore(currentTime)) {
                 var end = start.plus(1, ChronoUnit.DAYS);
                 daysChecked++;
-                
-                List<com.github.shk0da.goldendragon.model.Candle> periodCandles = tcsService.getCandles(ticker, start, end, period);
+
+                List<Candle> periodCandles = tcsService.getCandles(ticker, start, end, period);
                 start = end;
 
                 periodCandles.forEach(
@@ -428,12 +428,12 @@ public class DataCollector {
         String name, String dir, String period) {
         List<TickerCandle> tickers = new ArrayList<>();
         String filePath = dir + "/" + name + "/candles" + period + ".txt";
-        
+
         // Return empty list if file doesn't exist (first run)
         if (!Files.exists(Path.of(filePath))) {
             return tickers;
         }
-        
+
         try (BufferedReader br =
                  new BufferedReader(
                      new FileReader(filePath))) {

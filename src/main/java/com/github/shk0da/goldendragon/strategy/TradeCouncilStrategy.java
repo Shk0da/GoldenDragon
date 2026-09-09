@@ -132,8 +132,8 @@ public class TradeCouncilStrategy extends BaseStrategy {
         List<Candle> minuteCandles,
         Position position,
         double balance,
-        boolean incrementCandlesHeld) {
-
+        boolean incrementCandlesHeld
+    ) {
         if (ticker == null || ticker.isEmpty()) {
             return new TradingDecision("HOLD", "EMPTY_TICKER");
         }
@@ -142,64 +142,46 @@ public class TradeCouncilStrategy extends BaseStrategy {
             return new TradingDecision("HOLD", "HAS_ACTIVE_POSITION");
         }
 
-        // Check if another ticker is currently being analyzed (with write lock)
-        analysisWriteLock.lock();
-        try {
-            if (currentlyAnalyzingTicker != null && !currentlyAnalyzingTicker.equals(ticker)) {
-                return new TradingDecision("HOLD", "ANALYSIS_IN_PROGRESS");
+        PendingOrder pending = pendingOrders.get(ticker);
+        if (null == pending) {
+            // Check if another ticker is currently being analyzed (with write lock)
+            analysisWriteLock.lock();
+            try {
+                if (currentlyAnalyzingTicker != null && !currentlyAnalyzingTicker.equals(ticker)) {
+                    return new TradingDecision("HOLD", "ANALYSIS_IN_PROGRESS");
+                }
+                // Reserve this ticker for analysis
+                currentlyAnalyzingTicker = ticker;
+            } finally {
+                analysisWriteLock.unlock();
             }
-            // Reserve this ticker for analysis
-            currentlyAnalyzingTicker = ticker;
-        } finally {
-            analysisWriteLock.unlock();
         }
 
         Double currentPrice = getCurrentPrice(ticker, hourCandles, minuteCandles);
         if (currentPrice == null) {
-            analysisWriteLock.lock();
-            try {
-                currentlyAnalyzingTicker = null;
-            } finally {
-                analysisWriteLock.unlock();
-            }
             return new TradingDecision("HOLD", "NO_PRICE_DATA");
         }
-
         lastPrices.put(ticker, currentPrice);
 
-        PendingOrder pending = pendingOrders.get(ticker);
         if (pending != null) {
             if (pending.isExpired()) {
                 long ageMinutes = (System.currentTimeMillis() - pending.createdAt) / 60000L;
                 double currentPriceForLog = currentPrice != null ? currentPrice : 0.0;
                 log("⏰ PENDING ORDER EXPIRED: " + ticker + " " + pending.direction +
-                    " @ " + pending.entryPrice + " (entry target: " + pending.entryPrice + 
+                    " @ " + pending.entryPrice + " (entry target: " + pending.entryPrice +
                     ", current: " + String.format("%.2f", currentPriceForLog) +
                     ", age: " + ageMinutes + " min, TTL: " + pending.ttlMinutes + " min)");
                 log("   Reasoning: " + pending.reasoning);
                 pendingOrders.remove(ticker);
-                analysisWriteLock.lock();
-                try {
-                    currentlyAnalyzingTicker = null;
-                } finally {
-                    analysisWriteLock.unlock();
-                }
                 return new TradingDecision("HOLD", "ORDER_EXPIRED");
             }
 
-                        boolean isLong = "LONG".equalsIgnoreCase(pending.direction)
+            boolean isLong = "LONG".equalsIgnoreCase(pending.direction)
                 || "BUY".equalsIgnoreCase(pending.direction);
             if (pending.shouldEnter(currentPrice, isLong)) {
                 log("✅ ENTRY CONDITION MET for " + ticker + ": " + pending.direction +
                     " @ " + currentPrice + " (target: " + pending.entryPrice + ")");
                 pendingOrders.remove(ticker);
-                analysisWriteLock.lock();
-                try {
-                    currentlyAnalyzingTicker = null;
-                } finally {
-                    analysisWriteLock.unlock();
-                }
-
                 return new TradingDecision(
                     "OPEN",
                     pending.reasoning,
@@ -218,35 +200,16 @@ public class TradeCouncilStrategy extends BaseStrategy {
                     )
                 );
             }
-
-            analysisWriteLock.lock();
-            try {
-                currentlyAnalyzingTicker = null;
-            } finally {
-                analysisWriteLock.unlock();
-            }
             return new TradingDecision("HOLD", "WAITING_FOR_ENTRY");
         }
 
         Map<String, Double> levels = keyLevels.get(ticker);
         if (levels == null || levels.isEmpty()) {
-            analysisWriteLock.lock();
-            try {
-                currentlyAnalyzingTicker = null;
-            } finally {
-                analysisWriteLock.unlock();
-            }
             return new TradingDecision("HOLD", "NO_LEVELS");
         }
 
         String nearLevel = findNearLevel(ticker, currentPrice, levels);
         if (nearLevel == null) {
-            analysisWriteLock.lock();
-            try {
-                currentlyAnalyzingTicker = null;
-            } finally {
-                analysisWriteLock.unlock();
-            }
             return new TradingDecision("HOLD", "PRICE_NOT_NEAR_LEVEL");
         }
 
@@ -304,13 +267,14 @@ public class TradeCouncilStrategy extends BaseStrategy {
                 "Action=" + debateResult.action + ", Reason=" + debateResult.reason : "NULL"));
         } catch (Exception e) {
             log("Debate failed for " + ticker + ": " + e.getMessage());
+            return new TradingDecision("HOLD", "DEBATE_ERROR");
+        } finally {
             analysisWriteLock.lock();
             try {
                 currentlyAnalyzingTicker = null;
             } finally {
                 analysisWriteLock.unlock();
             }
-            return new TradingDecision("HOLD", "DEBATE_ERROR");
         }
 
         // Clear currently analyzing ticker and set 10 min cooldown for no-trade result
@@ -580,7 +544,7 @@ public class TradeCouncilStrategy extends BaseStrategy {
         history.forEach((n, a) -> summary.append("[").append(n).append("]:\n").append(a).append("\n"));
 
         String result = callLLM(tcConfig.getArbiterModel(), tcConfig.getArbiterPrompt(),
-            "Market data:\n" + marketData + "\n\nExpert opinions:\n" + summary.toString() + "\n\nMake the final decision.",
+            "Market data:\n" + marketData + "\n\nExpert opinions:\n" + summary + "\n\nMake the final decision.",
             0.2);
 
         log(ticker + " | Arbiter decision: " + result);

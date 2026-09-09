@@ -1,8 +1,8 @@
 package com.github.shk0da.goldendragon.ui;
 
 import com.github.shk0da.goldendragon.model.PositionInfo;
-import com.github.shk0da.goldendragon.model.TickerType;
 import com.github.shk0da.goldendragon.model.TickerInfo;
+import com.github.shk0da.goldendragon.model.TickerType;
 import com.github.shk0da.goldendragon.service.TradingService;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
@@ -64,7 +64,6 @@ public class DashboardServer {
         this.server.createContext("/", this::handleRequest);
         this.server.setExecutor(Executors.newFixedThreadPool(4));
         this.appStartTime = Instant.now();
-        loadTradeHistory();
     }
 
     private void loadTradeHistory() {
@@ -111,17 +110,7 @@ public class DashboardServer {
 
     public void start() {
         server.start();
-        startTradePolling();
-    }
-
-    private void startTradePolling() {
-        tradePoller = Executors.newSingleThreadScheduledExecutor();
-        ((java.util.concurrent.ScheduledExecutorService) tradePoller).scheduleAtFixedRate(
-                this::loadTradeHistory,
-                0,
-                pollIntervalSeconds,
-                java.util.concurrent.TimeUnit.SECONDS
-        );
+        // Don't poll trade history - load on-demand when /api/trades is requested
     }
 
     public void stop() {
@@ -231,6 +220,9 @@ public class DashboardServer {
     }
 
     private void handleTrades(com.sun.net.httpserver.HttpExchange exchange) throws IOException {
+        // Load trade history on-demand when requested
+        loadTradeHistory();
+
         List<Map<String, Object>> trades;
         synchronized (tradeHistory) {
             trades = new ArrayList<>(tradeHistory);
