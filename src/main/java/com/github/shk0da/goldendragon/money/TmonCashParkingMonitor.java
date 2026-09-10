@@ -108,16 +108,17 @@ public class TmonCashParkingMonitor implements Runnable {
                 return;
             }
 
-            // Calculate how many lots we can buy (with 1% safety margin like in UnifiedStrategy)
+            // Calculate how many lots we can buy (use 95% of available cash to avoid insufficient funds error)
+            double usableCash = availableCash * 0.95;
             double effectivePrice = currentPrice * 1.01;
             double effectiveCostPerLot = effectivePrice * lot;
 
-            if (availableCash < effectiveCostPerLot) {
+            if (usableCash < effectiveCostPerLot) {
                 // Not enough cash to buy even one lot
                 return;
             }
 
-            int buyLots = (int) Math.floor(availableCash / effectiveCostPerLot);
+            int buyLots = (int) Math.floor(usableCash / effectiveCostPerLot);
             if (buyLots <= 0) {
                 return;
             }
