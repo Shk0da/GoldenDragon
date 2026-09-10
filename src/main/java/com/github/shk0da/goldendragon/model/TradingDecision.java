@@ -6,6 +6,7 @@ public class TradingDecision {
     public final String reason;
     public final double confidence;
     public final int quantity;
+    public final Double depositPercent;
     public final Double stopLoss;
     public final Double takeProfit;
     public final Double entryPrice;
@@ -13,7 +14,7 @@ public class TradingDecision {
     public final int ttlMinutes;
 
     public TradingDecision(String action, String reason) {
-        this(action, reason, 0.0, 0, null, null, null, null, 30);
+        this(action, reason, 0.0, 0, null, null, null, null, null, 30);
     }
 
     public TradingDecision(
@@ -25,7 +26,7 @@ public class TradingDecision {
             Double takeProfit,
             Double entryPrice,
             Position updatedPosition) {
-        this(action, reason, confidence, quantity, stopLoss, takeProfit, entryPrice, updatedPosition, 30);
+        this(action, reason, confidence, quantity, null, stopLoss, takeProfit, entryPrice, updatedPosition, 30);
     }
 
     public TradingDecision(
@@ -33,6 +34,7 @@ public class TradingDecision {
             String reason,
             double confidence,
             int quantity,
+            Double depositPercent,
             Double stopLoss,
             Double takeProfit,
             Double entryPrice,
@@ -42,6 +44,7 @@ public class TradingDecision {
         this.reason = reason;
         this.confidence = confidence;
         this.quantity = quantity;
+        this.depositPercent = depositPercent;
         this.stopLoss = stopLoss;
         this.takeProfit = takeProfit;
         this.entryPrice = entryPrice;

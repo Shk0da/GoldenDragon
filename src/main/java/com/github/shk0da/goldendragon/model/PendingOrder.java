@@ -11,20 +11,20 @@ public class PendingOrder {
     public final Double entryPrice;
     public final Double stopLoss;
     public final Double takeProfit;
-    public final Integer quantity;
+    public final Double depositPercent;
     public final String reasoning;
     public final long createdAt;
     public final long expiresAt;
     public final int ttlMinutes;
 
     public PendingOrder(String ticker, String direction, Double entryPrice, Double stopLoss,
-                        Double takeProfit, Integer quantity, String reasoning, int ttlMinutes) {
+                        Double takeProfit, Double depositPercent, String reasoning, int ttlMinutes) {
         this.ticker = ticker;
         this.direction = direction;
         this.entryPrice = entryPrice;
         this.stopLoss = stopLoss;
         this.takeProfit = takeProfit;
-        this.quantity = quantity;
+        this.depositPercent = depositPercent;
         this.reasoning = reasoning;
         this.ttlMinutes = ttlMinutes;
         this.createdAt = System.currentTimeMillis();

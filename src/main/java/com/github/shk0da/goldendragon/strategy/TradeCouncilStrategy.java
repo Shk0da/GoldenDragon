@@ -196,11 +196,16 @@ public class TradeCouncilStrategy extends BaseStrategy {
                 log("✅ ENTRY CONDITION MET for " + ticker + ": " + pending.direction +
                     " @ " + currentPrice + " (target: " + pending.entryPrice + ")");
                 pendingOrders.remove(ticker);
+                
+                int quantity = calculateQuantityFromDepositPercent(ticker, pending.depositPercent, pending.entryPrice, balance);
+                log("   Calculated quantity: " + quantity + " (deposit%: " + pending.depositPercent + ", balance: " + balance + ")");
+                
                 return new TradingDecision(
                     "OPEN",
                     pending.reasoning,
                     0.0,
-                    pending.quantity,
+                    quantity,
+                    pending.depositPercent,
                     pending.stopLoss,
                     pending.takeProfit,
                     pending.entryPrice,
@@ -209,9 +214,10 @@ public class TradeCouncilStrategy extends BaseStrategy {
                         pending.entryPrice,
                         pending.stopLoss,
                         pending.takeProfit,
-                        pending.quantity,
+                        quantity,
                         0
-                    )
+                    ),
+                    pending.ttlMinutes
                 );
             }
             return new TradingDecision("HOLD", "WAITING_FOR_ENTRY");
@@ -262,14 +268,14 @@ public class TradeCouncilStrategy extends BaseStrategy {
                         debateResult.entryPrice,
                         debateResult.stopLoss,
                         debateResult.takeProfit,
-                        debateResult.quantity,
+                        debateResult.depositPercent,
                         debateResult.reason,
                         debateResult.ttlMinutes
                     );
                     pendingOrders.put(ticker, newOrder);
                     log("⏳ PENDING ORDER CREATED: " + ticker + " " + newOrder.direction +
                         " @ " + newOrder.entryPrice + " (SL: " + newOrder.stopLoss +
-                        ", TP: " + newOrder.takeProfit + ", Qty: " + newOrder.quantity + ")");
+                        ", TP: " + newOrder.takeProfit + ", Deposit%: " + newOrder.depositPercent + ")");
                     log("   Reasoning: " + newOrder.reasoning);
                     log("   Expires in " + newOrder.ttlMinutes + " minutes");
                 }
@@ -647,18 +653,11 @@ public class TradeCouncilStrategy extends BaseStrategy {
                 }
             }
 
-            double riskAmount = (tcConfig.getRiskPerTradePercent() / 100.0) * 1000000 * positionMultiplier;
-            int quantity = 0;
-            if (stop > 0 && action != null) {
-                double riskPerShare = Math.abs(entry - stop);
-                if (riskPerShare > 0) {
-                    quantity = (int) (riskAmount / riskPerShare);
-                }
-            }
+            double depositPercent = tcConfig.getRiskPerTradePercent() * positionMultiplier;
 
             double finalTakeProfit = takeProfit != null ? takeProfit : entry * 1.03;
 
-            log("Parsed decision: " + action + " " + ticker + " qty=" + quantity +
+            log("Parsed decision: " + action + " " + ticker + " depositPercent=" + depositPercent +
                 " entry=" + entry + " stop=" + stop + " tp=" + finalTakeProfit +
                 " confidence=" + confidence + " ttl=" + ttlMinutes + "min");
 
@@ -666,7 +665,8 @@ public class TradeCouncilStrategy extends BaseStrategy {
                 action,
                 reasoning != null ? reasoning : "LLM_DECISION",
                 confidence,
-                quantity,
+                0,
+                depositPercent,
                 stop,
                 finalTakeProfit,
                 entry,
@@ -853,5 +853,45 @@ public class TradeCouncilStrategy extends BaseStrategy {
         if (avgL == 0) return 100.0;
         double rs = avgG / avgL;
         return Math.round((100 - (100 / (1 + rs))) * 100.0) / 100.0;
+    }
+
+    /**
+     * Calculate quantity from deposit percent, entry price and available balance.
+     * Uses available balance to determine how many units can be bought.
+     *
+     * @param ticker ticker symbol
+     * @param depositPercent percent of deposit to use (e.g., 1.0 for 1%)
+     * @param entryPrice entry price
+     * @param balance available balance
+     * @return quantity in units (0 if calculation fails)
+     */
+    private int calculateQuantityFromDepositPercent(String ticker, Double depositPercent, double entryPrice, double balance) {
+        if (depositPercent == null || depositPercent <= 0 || entryPrice <= 0 || balance <= 0) {
+            log("⚠️ Invalid parameters for quantity calculation: depositPercent=" + depositPercent +
+                ", entryPrice=" + entryPrice + ", balance=" + balance);
+            return 0;
+        }
+
+        TickerInfo info = findTickerInfo(ticker);
+        if (info == null) {
+            log("⚠️ TickerInfo not found for " + ticker);
+            return 0;
+        }
+
+        double amountToUse = balance * (depositPercent / 100.0);
+        double rawQuantity = amountToUse / entryPrice;
+
+        Integer lot = info.getLot();
+        int minLot = (lot != null && lot > 0) ? lot : 1;
+
+        if (rawQuantity < minLot) {
+            log("⚠️ Calculated quantity " + rawQuantity + " below min lot " + minLot + " for " + ticker);
+            return 0;
+        }
+
+        int quantity = (int) (rawQuantity / minLot) * minLot;
+        log("💰 Quantity calculated: " + quantity + " units (deposit%=" + depositPercent +
+            ", balance=" + balance + ", amount=" + amountToUse + ", entry=" + entryPrice + ")");
+        return quantity;
     }
 }
