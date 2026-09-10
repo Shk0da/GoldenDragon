@@ -1283,8 +1283,8 @@ public class TCSService implements TradingService {
 
         if (bracketPosition.takeProfit != null) {
             if (!mainConfig.isSandbox()) {
-                // TP1: 60% of position at full takeProfit price
-                int tp1Quantity = (int) Math.ceil(quantity * 0.6);
+                // TP1: 40% of position at full takeProfit price
+                int tp1Quantity = (int) Math.ceil(quantity * 0.4);
                 StopOrderDirection stopOrderDirection =
                         ORDER_DIRECTION_BUY == direction
                                 ? STOP_ORDER_DIRECTION_SELL
@@ -1304,7 +1304,7 @@ public class TCSService implements TradingService {
                     log("WARN: TP1 order FAILED, qty=" + tp1Quantity + " left unprotected");
                 }
 
-                // TP2: remaining 40% at midpoint between entry and takeProfit
+                // TP2: remaining 60% at midpoint between entry and takeProfit
                 int tp2Quantity = quantity - tp1Quantity;
                 if (tp2Quantity > 0 && bracketPosition.entryPrice != null) {
                     double tp2Price = (bracketPosition.entryPrice + bracketPosition.takeProfit) / 2.0;
