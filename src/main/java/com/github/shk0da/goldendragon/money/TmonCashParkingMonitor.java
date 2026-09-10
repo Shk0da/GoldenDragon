@@ -77,11 +77,22 @@ public class TmonCashParkingMonitor implements Runnable {
         }
 
         try {
+            // Check if there are any active non-TMON positions
+            // If yes, skip buying - strategy will handle TMON selling/buying
+            if (hasActiveNonTmonPositions()) {
+                return;
+            }
+
             // Check current parking position
             PositionInfo parkingPosition = cashParkingManager.getParkingPosition();
             double currentParkingQty = (parkingPosition != null && parkingPosition.getBalance() > 0)
                     ? parkingPosition.getBalance()
                     : 0.0;
+
+            // Don't buy more if we already have a significant parking position
+            if (currentParkingQty > 0) {
+                return;
+            }
 
             // Get available cash from trading service
             double availableCash = getAvailableCash();
@@ -157,6 +168,23 @@ public class TmonCashParkingMonitor implements Runnable {
             }
         }
         return 0.0;
+    }
+
+    /**
+     * Check if there are any active non-TMON positions.
+     * @return true if there are active positions in other tickers
+     */
+    private boolean hasActiveNonTmonPositions() {
+        String parkingTicker = cashParkingManager.getParkingTicker();
+        for (Map.Entry<String, Position> entry : positionStore.entrySet()) {
+            if (parkingTicker != null && parkingTicker.equals(entry.getKey())) {
+                continue;
+            }
+            if (entry.getValue().quantity > 0) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
