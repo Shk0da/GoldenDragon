@@ -157,7 +157,6 @@ public class UnifiedStrategy extends BaseStrategy {
     // Money Management components
     private final RiskManager riskManager;
     private final PositionSizer positionSizer;
-    private final StopLossManager stopLossManager;
     private final AdaptiveCapital adaptiveCapital;
     private final KillSwitch killSwitch;
     private final PerformanceTracker performanceTracker;
@@ -206,12 +205,6 @@ public class UnifiedStrategy extends BaseStrategy {
                     new RiskManager(
                             config.mmMaxDailyLossPercent,
                             config.mmMaxConsecutiveLosses);
-            this.stopLossManager =
-                    new StopLossManager(
-                            config.mmTrailingActivationR,
-                            config.mmTrailingMultiplier,
-                            config.mmBreakevenActivationR,
-                            config.mmBreakevenBuffer);
             this.adaptiveCapital =
                     new AdaptiveCapital(
                             config.mmRiskPercent,
@@ -232,7 +225,6 @@ public class UnifiedStrategy extends BaseStrategy {
         } else {
             this.positionSizer = null;
             this.riskManager = null;
-            this.stopLossManager = null;
             this.adaptiveCapital = null;
             this.killSwitch = null;
             this.performanceTracker = null;
@@ -253,6 +245,10 @@ public class UnifiedStrategy extends BaseStrategy {
             Position position,
             double balance,
             boolean incrementCandlesHeld) {
+        if (cashParkingManager.isParkingTicker(ticker) && unifiedTraderConfig.isTmonCashParkingEnabled()) {
+            return new TradingDecision("HOLD", "PARKING_TICKER");
+        }
+
         if (hourCandles == null
                 || hourCandles.size() < 60
                 || minuteCandles == null
@@ -289,11 +285,6 @@ public class UnifiedStrategy extends BaseStrategy {
         Candle cur = minuteCandles.get(minuteCandles.size() - 1);
         Position p = position;
         Group grp = Group.valueOf(unifiedTraderConfig.getTickerGroup(ticker));
-
-        // Cash Parking: idle cash goes to parking ticker, sell when other positions need cash
-        if (cashParkingManager.isParkingTicker(ticker) && unifiedTraderConfig.isTmonCashParkingEnabled()) {
-            return decideTmonCashParking(balance, p, cur.close);
-        }
 
         if (position.quantity > 0 && incrementCandlesHeld) {
             p =

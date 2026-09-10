@@ -2,6 +2,7 @@ package com.github.shk0da.goldendragon.money;
 
 import com.github.shk0da.goldendragon.market.MarketDataProvider;
 import com.github.shk0da.goldendragon.model.Position;
+import com.github.shk0da.goldendragon.model.PositionInfo;
 import com.github.shk0da.goldendragon.model.TickerInfo;
 import com.github.shk0da.goldendragon.model.TickerType;
 import com.github.shk0da.goldendragon.service.TradingService;
@@ -70,7 +71,7 @@ public class CashParkingManager {
      * Get the current parking position from the broker.
      * @return PositionInfo or null if not found
      */
-    public com.github.shk0da.goldendragon.model.PositionInfo getParkingPosition() {
+    public PositionInfo getParkingPosition() {
         if (tradingService == null && marketDataProvider == null) {
             return null;
         }
@@ -97,7 +98,7 @@ public class CashParkingManager {
      * @return value or 0.0 if not found
      */
     public double getParkingValue() {
-        com.github.shk0da.goldendragon.model.PositionInfo parkingInfo = getParkingPosition();
+        PositionInfo parkingInfo = getParkingPosition();
         if (parkingInfo == null || parkingInfo.getBalance() <= 0) {
             return 0.0;
         }
@@ -124,7 +125,7 @@ public class CashParkingManager {
         TickerType parkingType = getParkingTickerType();
 
         try {
-            com.github.shk0da.goldendragon.model.PositionInfo parkingInfo = getParkingPosition();
+            PositionInfo parkingInfo = getParkingPosition();
             if (parkingInfo == null || parkingInfo.getBalance() <= 0) {
                 return;
             }
