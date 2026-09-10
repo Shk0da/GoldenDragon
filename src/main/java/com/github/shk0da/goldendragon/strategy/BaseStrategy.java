@@ -17,6 +17,7 @@ import com.github.shk0da.goldendragon.model.TickerInfo;
 import com.github.shk0da.goldendragon.model.TickerType;
 import com.github.shk0da.goldendragon.model.TradingDecision;
 import com.github.shk0da.goldendragon.money.CashParkingManager;
+import com.github.shk0da.goldendragon.money.TmonCashParkingMonitor;
 import com.github.shk0da.goldendragon.repository.CandleRepository;
 import com.github.shk0da.goldendragon.repository.TickerRepository;
 import com.github.shk0da.goldendragon.service.TradingService;
@@ -233,6 +234,7 @@ import static java.util.concurrent.CompletableFuture.runAsync;
     protected final Map<String, Position> positionStore = new ConcurrentHashMap<>();
     private final Map<String, ReentrantLock> tickerLocks = new ConcurrentHashMap<>();
     protected DashboardServer dashboard;
+    protected TmonCashParkingMonitor tmonCashParkingMonitor;
     protected final Map<String, String> lastSeenHourBarByTicker = new ConcurrentHashMap<>();
     protected volatile Map<String, List<Candle>> peerCandles = new ConcurrentHashMap<>();
     protected final Map<String, Long> throttledLogLastTime = new ConcurrentHashMap<>();
@@ -345,6 +347,19 @@ import static java.util.concurrent.CompletableFuture.runAsync;
             log("Failed to start dashboard: " + ex.getMessage());
         }
 
+        // Start TMON cash parking monitor (separate thread, runs every 5 minutes)
+        if (unifiedTraderConfig.isTmonCashParkingEnabled()) {
+            tmonCashParkingMonitor = new TmonCashParkingMonitor(
+                    tradingService,
+                    marketDataProvider,
+                    cashParkingManager,
+                    positionStore);
+            Thread parkingThread = new Thread(tmonCashParkingMonitor, "TmonCashParkingMonitor");
+            parkingThread.setDaemon(true);
+            parkingThread.start();
+            log("TMON cash parking monitor started (interval: 5 min)");
+        }
+
         List<String> allTickers = resolveInstruments();
         List<String> activeTickers = new ArrayList<>();
         for (String ticker : allTickers) {
@@ -437,6 +452,10 @@ import static java.util.concurrent.CompletableFuture.runAsync;
 
             allOf(tasks.toArray(new CompletableFuture[0])).join();
         } finally {
+            if (tmonCashParkingMonitor != null) {
+                tmonCashParkingMonitor.stop();
+                log("TMON cash parking monitor stopped");
+            }
             if (dashboard != null) {
                 dashboard.stop();
             }
