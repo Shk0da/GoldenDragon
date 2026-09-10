@@ -226,7 +226,7 @@ import static java.util.concurrent.CompletableFuture.runAsync;
     protected static final int MIN_CANDLES_THRESHOLD = 5;
 
     protected static final LocalTime WORK_START_TIME = LocalTime.of(10, 0);
-    protected static final LocalTime EOD_CLOSE_TIME = LocalTime.of(21, 0);
+    protected static final LocalTime EOD_CLOSE_TIME = LocalTime.of(19, 0);
 
     protected static long lastApiCallTime = 0;
 
@@ -520,7 +520,7 @@ import static java.util.concurrent.CompletableFuture.runAsync;
         if (tmonCashParkingMonitor != null) {
             tmonCashParkingMonitor.setTradingInProgress(true);
         }
-        
+
         Long cooldownUntil = tickerCooldown.get(name);
         if (cooldownUntil != null) {
             long remaining = cooldownUntil - timeProvider.currentTimeMillis();
