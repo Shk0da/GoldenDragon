@@ -1283,9 +1283,8 @@ public class TCSService implements TradingService {
 
         if (bracketPosition.takeProfit != null) {
             if (!mainConfig.isSandbox()) {
-                // TP1: 60% of position at takeProfit price (+1%)
+                // TP1: 60% of position at full takeProfit price
                 int tp1Quantity = (int) Math.ceil(quantity * 0.6);
-                sleep(1_000);
                 StopOrderDirection stopOrderDirection =
                         ORDER_DIRECTION_BUY == direction
                                 ? STOP_ORDER_DIRECTION_SELL
@@ -1301,15 +1300,14 @@ public class TCSService implements TradingService {
                     orders.takeProfit1OrderId = tp1OrderId;
                     orders.takeProfit1Price = bracketPosition.takeProfit;
                     log("TP1 order placed: qty=" + tp1Quantity + ", price=" + bracketPosition.takeProfit);
+                } else  {
+                    log("WARN: TP1 order FAILED, qty=" + tp1Quantity + " left unprotected");
                 }
 
-                // TP2: 40% of position at +2% from entry
+                // TP2: remaining 40% at midpoint between entry and takeProfit
                 int tp2Quantity = quantity - tp1Quantity;
                 if (tp2Quantity > 0 && bracketPosition.entryPrice != null) {
-                    double tp2Price = "BUY".equals(bracketPosition.direction)
-                            ? bracketPosition.entryPrice * 1.02
-                            : bracketPosition.entryPrice * 0.98;
-                    sleep(1_000);
+                    double tp2Price = (bracketPosition.entryPrice + bracketPosition.takeProfit) / 2.0;
                     String tp2OrderId = postMarketStopOrder(
                             figi,
                             tp2Quantity,
@@ -1321,6 +1319,8 @@ public class TCSService implements TradingService {
                         orders.takeProfit2OrderId = tp2OrderId;
                         orders.takeProfit2Price = tp2Price;
                         log("TP2 order placed: qty=" + tp2Quantity + ", price=" + tp2Price);
+                    } else  {
+                        log("WARN: TP2 order FAILED, qty=" + tp2Quantity + " left unprotected");
                     }
                 }
             }
