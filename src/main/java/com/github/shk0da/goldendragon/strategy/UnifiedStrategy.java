@@ -310,82 +310,6 @@ public class UnifiedStrategy extends BaseStrategy {
                             position.cooldownRemaining);
         }
 
-        if (p.quantity > 0) {
-            Double sl = p.stopLoss;
-            Double tp = p.takeProfit;
-            Double tp2 = p.takeProfit2;
-            String dir = p.direction;
-            int maxH = grp == Group.FX ? config.maxCandlesHoldFx : config.maxCandlesHold;
-
-            if (sl != null
-                    && (("BUY".equals(dir) && cur.low <= sl)
-                            || ("SELL".equals(dir) && cur.high >= sl))) {
-                return new TradingDecision(
-                        "CLOSE",
-                        "stop_loss",
-                        0.0,
-                        p.quantity,
-                        null,
-                        null,
-                        sl,
-                        new Position(config.cooldownCandles));
-            }
-
-            // Check TP1 (60% position) - move stop to breakeven via TCSService
-            if (!p.partialClosed && tp != null
-                    && (("BUY".equals(dir) && cur.high >= tp)
-                            || ("SELL".equals(dir) && cur.low <= tp))) {
-                if (tradingService != null) {
-                    try {
-                        TickerInfo ti = findTickerInfo(ticker);
-                        if (ti != null) {
-                            // Move SL to breakeven via TCS stop-order
-                            tradingService.moveStopLossToBreakeven(
-                                new TickerInfo.Key(ticker, ti.getType()),
-                                p.entryPrice,
-                                p.quantity,
-                                dir
-                            );
-                            log("TP1 hit: moved SL to breakeven via TCS stop-order, " + p.quantity + " shares remaining");
-                        }
-                    } catch (Exception ex) {
-                        log("Failed to move SL to breakeven: " + ex.getMessage());
-                    }
-                }
-            }
-
-            // Single TP check (fallback for old positions without TP2)
-            if (tp != null && tp2 == null
-                    && (("BUY".equals(dir) && cur.high >= tp)
-                            || ("SELL".equals(dir) && cur.low <= tp))) {
-                return new TradingDecision(
-                        "CLOSE",
-                        "take_profit",
-                        0.0,
-                        p.quantity,
-                        null,
-                        null,
-                        tp,
-                        new Position(config.cooldownCandles));
-            }
-
-            if (p.candlesHeld >= maxH) {
-                return new TradingDecision(
-                        "CLOSE",
-                        "expired",
-                        0.0,
-                        p.quantity,
-                        null,
-                        null,
-                        cur.close,
-                        new Position(config.cooldownCandles));
-            }
-
-            // StopLoss is set immediately when position is opened
-            // StopLoss moves to breakeven ONLY after TP1 is hit (see TP1 check above)
-            // No trailing stop logic - only breakeven move after TP1
-        }
-
         if (p.cooldownRemaining > 0) {
             return new TradingDecision(
                     "HOLD",
@@ -530,21 +454,6 @@ public class UnifiedStrategy extends BaseStrategy {
 
         double slMult = tpCfg.mmEnabled ? tpCfg.mmAtrStopMultiplier : tpCfg.slMult;
         double tpMult = tpCfg.tpMult;
-        double riskP =
-                tpCfg.mmEnabled && mmEnabled
-                        ? adaptiveCapital.getCurrentRiskPercent()
-                        : tpCfg.riskP;
-        if (strongTrend) {
-            riskP *= adx >= HOT_TREND_ADX ? 1.45 : 1.20;
-        }
-        if (rangeRegime) {
-            riskP *= 0.65;
-        }
-        if (Group.FX == grp) {
-            riskP *= 0.75;
-        }
-        riskP = Math.max(0.005, Math.min(riskP, 0.03));
-
         double slDist = dAtr * slMult;
         double tpDist = dAtr * tpMult;
 
@@ -562,7 +471,6 @@ public class UnifiedStrategy extends BaseStrategy {
         }
 
         double sl = isBuy ? entry - slDist : entry + slDist;
-        double tp = isBuy ? entry + tpDist : entry - tpDist;
 
         int maxLeverage =
                 fixedEntryLeverage != null ? fixedEntryLeverage : Math.max(1, tpCfg.leverage);

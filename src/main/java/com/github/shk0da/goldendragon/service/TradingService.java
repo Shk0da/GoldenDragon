@@ -1,16 +1,11 @@
 package com.github.shk0da.goldendragon.service;
 
 import com.github.shk0da.goldendragon.model.Candle;
-import com.github.shk0da.goldendragon.model.MarketDepthSnapshot;
-import com.github.shk0da.goldendragon.model.MarketTickListener;
-import com.github.shk0da.goldendragon.model.MarketTradeTick;
 import com.github.shk0da.goldendragon.model.Position;
 import com.github.shk0da.goldendragon.model.PositionInfo;
-import com.github.shk0da.goldendragon.model.TickerCandle;
 import com.github.shk0da.goldendragon.model.TickerInfo;
 import com.github.shk0da.goldendragon.model.TickerType;
 
-import java.time.Duration;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.util.List;
@@ -401,12 +396,6 @@ public interface TradingService {
      */
     default OrderExecutionResult closeLongByMarketWithDetails(String name, TickerType type, int quantity) {
         return null;
-    }
-
-    /**
-     * Move stop-loss to breakeven after TP1 execution.
-     */
-    default void moveStopLossToBreakeven(TickerInfo.Key key, double entryPrice, int quantity, String direction) {
     }
 
     /**
