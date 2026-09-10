@@ -516,6 +516,11 @@ import static java.util.concurrent.CompletableFuture.runAsync;
             TradingService tradingService,
             UnifiedTraderConfig unifiedTraderConfig,
             double allocatedBalance) {
+        // Set trading in progress flag to prevent TMON monitor from interfering
+        if (tmonCashParkingMonitor != null) {
+            tmonCashParkingMonitor.setTradingInProgress(true);
+        }
+        
         Long cooldownUntil = tickerCooldown.get(name);
         if (cooldownUntil != null) {
             long remaining = cooldownUntil - timeProvider.currentTimeMillis();
@@ -774,6 +779,10 @@ import static java.util.concurrent.CompletableFuture.runAsync;
             String message = getStrategyName() + " error for " + name + ": " + resolveRootMessage(ex);
             logThrottled(name + "_error", message, 5);
         } finally {
+            // Reset trading in progress flag after processing is complete
+            if (tmonCashParkingMonitor != null) {
+                tmonCashParkingMonitor.setTradingInProgress(false);
+            }
             lock.unlock();
         }
     }

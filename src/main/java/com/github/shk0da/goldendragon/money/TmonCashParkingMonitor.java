@@ -25,6 +25,7 @@ public class TmonCashParkingMonitor implements Runnable {
     private final CashParkingManager cashParkingManager;
     private final Map<String, Position> positionStore;
     private volatile boolean running = true;
+    private volatile boolean tradingInProgress = false;
 
     public TmonCashParkingMonitor(
             TradingService tradingService,
@@ -35,6 +36,13 @@ public class TmonCashParkingMonitor implements Runnable {
         this.marketDataProvider = marketDataProvider;
         this.cashParkingManager = cashParkingManager;
         this.positionStore = positionStore;
+    }
+
+    /**
+     * Set trading in progress flag to prevent monitor from buying during active trading.
+     */
+    public void setTradingInProgress(boolean tradingInProgress) {
+        this.tradingInProgress = tradingInProgress;
     }
 
     @Override
@@ -76,21 +84,15 @@ public class TmonCashParkingMonitor implements Runnable {
             return;
         }
 
+        // Skip if strategy is actively trading
+        if (tradingInProgress) {
+            return;
+        }
+
         try {
-            // Check if there are any active non-TMON positions
-            // If yes, skip buying - strategy will handle TMON selling/buying
-            if (hasActiveNonTmonPositions()) {
-                return;
-            }
-
-            // Check current parking position
+            // Check current parking position - don't buy if already have position
             PositionInfo parkingPosition = cashParkingManager.getParkingPosition();
-            double currentParkingQty = (parkingPosition != null && parkingPosition.getBalance() > 0)
-                    ? parkingPosition.getBalance()
-                    : 0.0;
-
-            // Don't buy more if we already have a significant parking position
-            if (currentParkingQty > 0) {
+            if (parkingPosition != null && parkingPosition.getBalance() > 0) {
                 return;
             }
 
@@ -168,23 +170,6 @@ public class TmonCashParkingMonitor implements Runnable {
             }
         }
         return 0.0;
-    }
-
-    /**
-     * Check if there are any active non-TMON positions.
-     * @return true if there are active positions in other tickers
-     */
-    private boolean hasActiveNonTmonPositions() {
-        String parkingTicker = cashParkingManager.getParkingTicker();
-        for (Map.Entry<String, Position> entry : positionStore.entrySet()) {
-            if (parkingTicker != null && parkingTicker.equals(entry.getKey())) {
-                continue;
-            }
-            if (entry.getValue().quantity > 0) {
-                return true;
-            }
-        }
-        return false;
     }
 
     /**
