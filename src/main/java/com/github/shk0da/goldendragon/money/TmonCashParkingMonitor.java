@@ -3,7 +3,6 @@ package com.github.shk0da.goldendragon.money;
 import com.github.shk0da.goldendragon.market.MarketDataProvider;
 import com.github.shk0da.goldendragon.market.MarketPrices;
 import com.github.shk0da.goldendragon.model.Position;
-import com.github.shk0da.goldendragon.model.PositionInfo;
 import com.github.shk0da.goldendragon.model.TickerInfo;
 import com.github.shk0da.goldendragon.service.TradingService;
 import com.github.shk0da.goldendragon.utils.LoggingUtils;
@@ -90,12 +89,6 @@ public class TmonCashParkingMonitor implements Runnable {
         }
 
         try {
-            // Check current parking position - don't buy if already have position
-            PositionInfo parkingPosition = cashParkingManager.getParkingPosition();
-            if (parkingPosition != null && parkingPosition.getBalance() > 0) {
-                return;
-            }
-
             // Get available cash from trading service
             double availableCash = getAvailableCash();
             if (availableCash <= 0) {

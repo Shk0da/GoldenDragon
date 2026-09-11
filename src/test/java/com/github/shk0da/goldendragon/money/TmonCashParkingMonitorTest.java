@@ -73,9 +73,9 @@ class TmonCashParkingMonitorTest {
         }
 
         @Test
-        @DisplayName("Should skip when parking position already exists")
-        void shouldSkipWhenPositionExists() {
-            // Given: parkingInfo has balance > 0
+        @DisplayName("Should buy more TMON when parking position exists and free cash available")
+        void shouldBuyMoreWhenPositionExists() {
+            // Given: parking position exists but there is free cash to top up
             tradingService.cash = 100_000.0;
             tradingService.parkingInfo = new PositionInfo(
                     "FIGI", TMON, "ISIN", "ETF", 100, 0.0, 100, TMON_PRICE, TMON);
@@ -83,7 +83,8 @@ class TmonCashParkingMonitorTest {
 
             monitor.monitorAndBuyTmon();
 
-            then(tradingService.lastBuyValue).isZero();
+            then(tradingService.lastBuyValue).isCloseTo(94_000.0, within(0.01));
+            then(tradingService.lastBuyTicker).isEqualTo(TMON);
         }
     }
 
