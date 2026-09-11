@@ -17,6 +17,7 @@ import com.github.shk0da.goldendragon.model.TickerInfo;
 import com.github.shk0da.goldendragon.model.TickerType;
 import com.github.shk0da.goldendragon.model.TradingDecision;
 import com.github.shk0da.goldendragon.money.CashParkingManager;
+import com.github.shk0da.goldendragon.money.LossStreakMonitor;
 import com.github.shk0da.goldendragon.money.TmonCashParkingMonitor;
 import com.github.shk0da.goldendragon.repository.CandleRepository;
 import com.github.shk0da.goldendragon.repository.TickerRepository;
@@ -233,6 +234,8 @@ import static java.util.concurrent.CompletableFuture.runAsync;
     protected final Map<String, Long> tickerCooldown = new ConcurrentHashMap<>();
     protected final Map<String, Position> positionStore = new ConcurrentHashMap<>();
     private final Map<String, ReentrantLock> tickerLocks = new ConcurrentHashMap<>();
+    private LossStreakMonitor lossStreakMonitor;
+    protected volatile boolean tradingHalted = false;
     protected DashboardServer dashboard;
     protected TmonCashParkingMonitor tmonCashParkingMonitor;
     protected final Map<String, String> lastSeenHourBarByTicker = new ConcurrentHashMap<>();
@@ -360,6 +363,25 @@ import static java.util.concurrent.CompletableFuture.runAsync;
             log("TMON cash parking monitor started (interval: 5 min)");
         }
 
+        // Start loss streak monitor (separate thread, checks broker history periodically)
+        if (mainConfig != null && mainConfig.isLossStreakEnabled()) {
+            lossStreakMonitor =
+                    new LossStreakMonitor(
+                            tradingService,
+                            mainConfig.getLossStreakThreshold(),
+                            mainConfig.getLossStreakCheckIntervalMinutes() * 60_000L,
+                            this::haltTrading);
+            Thread lossStreakThread = new Thread(lossStreakMonitor, "LossStreakMonitor");
+            lossStreakThread.setDaemon(true);
+            lossStreakThread.start();
+            log(
+                    "Loss streak monitor started (interval: "
+                            + mainConfig.getLossStreakCheckIntervalMinutes()
+                            + " min, threshold: "
+                            + mainConfig.getLossStreakThreshold()
+                            + ")");
+        }
+
         List<String> allTickers = resolveInstruments();
         List<String> activeTickers = new ArrayList<>();
         for (String ticker : allTickers) {
@@ -456,6 +478,10 @@ import static java.util.concurrent.CompletableFuture.runAsync;
                 tmonCashParkingMonitor.stop();
                 log("TMON cash parking monitor stopped");
             }
+            if (lossStreakMonitor != null) {
+                lossStreakMonitor.stop();
+                log("Loss streak monitor stopped");
+            }
             if (dashboard != null) {
                 dashboard.stop();
             }
@@ -469,6 +495,17 @@ import static java.util.concurrent.CompletableFuture.runAsync;
     }
 
     protected abstract String getStrategyName();
+
+    /** Halt trading: block new entries and close all positions. Called by LossStreakMonitor. */
+    private void haltTrading() {
+        tradingHalted = true;
+        if (tmonCashParkingMonitor != null) {
+            tmonCashParkingMonitor.stop();
+            log("TMON cash parking monitor stopped (loss streak halt)");
+        }
+        log("LOSS_STREAK: Halting trading, closing all positions...");
+        closeAllPositions(tradingService, unifiedTraderConfig);
+    }
 
     public abstract TradingDecision decide(
             String ticker,
@@ -516,6 +553,10 @@ import static java.util.concurrent.CompletableFuture.runAsync;
             TradingService tradingService,
             UnifiedTraderConfig unifiedTraderConfig,
             double allocatedBalance) {
+        if (tradingHalted) {
+            return;
+        }
+
         // Set trading in progress flag to prevent TMON monitor from interfering
         if (tmonCashParkingMonitor != null) {
             tmonCashParkingMonitor.setTradingInProgress(true);
