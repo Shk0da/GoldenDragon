@@ -36,7 +36,7 @@ public class DashboardServer {
     private final HttpServer server;
     private final TradingService tradingService;
     private final String currency;
-    private final int port;
+    private int port;
     private final long pollIntervalSeconds;
 
     private double totalPnl = 0.0;
@@ -60,10 +60,26 @@ public class DashboardServer {
         this.currency = "RUB";
         this.port = port;
         this.pollIntervalSeconds = pollIntervalSeconds;
-        this.server = HttpServer.create(new InetSocketAddress(port), 0);
+        this.server = createServer(port);
         this.server.createContext("/", this::handleRequest);
         this.server.setExecutor(Executors.newFixedThreadPool(4));
         this.appStartTime = Instant.now();
+    }
+
+    /**
+     * Create the HTTP server on the requested port, falling back to the next port
+     * when the requested one is already in use.
+     */
+    private HttpServer createServer(int requestedPort) throws IOException {
+        try {
+            return HttpServer.create(new InetSocketAddress(requestedPort), 0);
+        } catch (IOException ex) {
+            int fallbackPort = requestedPort + 1;
+            System.err.println(
+                    "Dashboard port " + requestedPort + " is busy, trying " + fallbackPort);
+            this.port = fallbackPort;
+            return HttpServer.create(new InetSocketAddress(fallbackPort), 0);
+        }
     }
 
     private void loadTradeHistory() {
