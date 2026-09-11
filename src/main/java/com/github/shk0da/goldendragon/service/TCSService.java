@@ -1255,6 +1255,7 @@ public class TCSService implements TradingService {
                 var protectiveOrders = protectiveOrdersByTicker.computeIfAbsent(key, ignored -> new ProtectiveOrders());
                 protectiveOrders.stopLossOrderId = stopOrderId;
                 protectiveOrders.stopLossPrice = bracketPosition.stopLoss;
+                log("SL order placed: qty=" + quantity + ", price=" + bracketPosition.stopLoss);
             } else {
                 log("WARN: SL order FAILED, qty=" + quantity + " left unprotected");
             }
