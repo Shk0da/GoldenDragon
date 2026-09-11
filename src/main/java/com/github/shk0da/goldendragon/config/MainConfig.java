@@ -23,6 +23,9 @@ public class MainConfig {
     private final boolean isSandbox;
     private final boolean writeMarketDepthTicks;
     private final java.util.Map<String, Integer> tickerLotOverrides;
+    private final boolean lossStreakEnabled;
+    private final int lossStreakThreshold;
+    private final int lossStreakCheckIntervalMinutes;
 
     private String tcsAccountId;
     private final String tcsApiKey;
@@ -36,6 +39,12 @@ public class MainConfig {
         this.tcsAccountId = properties.getProperty("tcs.accountId");
         this.tcsApiKey = properties.getProperty("tcs.apiKey");
         this.tickerLotOverrides = loadTickerLotOverrides(properties);
+        this.lossStreakEnabled =
+                Boolean.parseBoolean(properties.getProperty("killswitch.lossStreak.enabled", "true"));
+        this.lossStreakThreshold =
+                Integer.parseInt(properties.getProperty("killswitch.lossStreak.threshold", "3"));
+        this.lossStreakCheckIntervalMinutes =
+                Integer.parseInt(properties.getProperty("killswitch.lossStreak.checkIntervalMinutes", "5"));
     }
 
     private java.util.Map<String, Integer> loadTickerLotOverrides(Properties properties) {
@@ -69,6 +78,18 @@ public class MainConfig {
 
     public java.util.Map<String, Integer> getTickerLotOverrides() {
         return tickerLotOverrides;
+    }
+
+    public boolean isLossStreakEnabled() {
+        return lossStreakEnabled;
+    }
+
+    public int getLossStreakThreshold() {
+        return lossStreakThreshold;
+    }
+
+    public int getLossStreakCheckIntervalMinutes() {
+        return lossStreakCheckIntervalMinutes;
     }
 
     public MainConfig withAccountId(String accountId) {
