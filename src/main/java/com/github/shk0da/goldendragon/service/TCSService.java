@@ -1513,7 +1513,7 @@ public class TCSService implements TradingService {
                                                 it.getCurrency(),
                                                 it.getName(),
                                                 TickerType.STOCK.name()))
-                        .collect(Collectors.toMap(TickerInfo::getKey, it -> it, (o, n) -> n));
+                        .collect(Collectors.toMap(TickerInfo::getKey, it -> it, TCSService::preferRuble));
         cachedStockList = loadedStocks;
         cachedStockListAt = Instant.now();
         return loadedStocks;
@@ -1539,7 +1539,7 @@ public class TCSService implements TradingService {
                                         it.getCurrency(),
                                         it.getName(),
                                         TickerType.BOND.name()))
-                .collect(Collectors.toMap(TickerInfo::getKey, it -> it, (o, n) -> n));
+                .collect(Collectors.toMap(TickerInfo::getKey, it -> it, TCSService::preferRuble));
     }
 
     /**
@@ -1562,7 +1562,7 @@ public class TCSService implements TradingService {
                                         it.getCurrency(),
                                         it.getName(),
                                         TickerType.ETF.name()))
-                .collect(Collectors.toMap(TickerInfo::getKey, it -> it, (o, n) -> n));
+                .collect(Collectors.toMap(TickerInfo::getKey, it -> it, TCSService::preferRuble));
     }
 
     /**
@@ -1585,7 +1585,7 @@ public class TCSService implements TradingService {
                                         it.getCurrency(),
                                         it.getName(),
                                         TickerType.CURRENCY.name()))
-                .collect(Collectors.toMap(TickerInfo::getKey, it -> it, (o, n) -> n));
+                .collect(Collectors.toMap(TickerInfo::getKey, it -> it, TCSService::preferRuble));
     }
 
     /**
@@ -1598,7 +1598,7 @@ public class TCSService implements TradingService {
         List<Future> futures = fetchTradableFuturesWithRetry();
         return futures.stream()
                 .map(this::toFutureTickerInfo)
-                .collect(Collectors.toMap(TickerInfo::getKey, it -> it, (o, n) -> n));
+                .collect(Collectors.toMap(TickerInfo::getKey, it -> it, TCSService::preferRuble));
     }
 
     private List<Future> fetchTradableFuturesWithRetry() {
@@ -1620,6 +1620,17 @@ public class TCSService implements TradingService {
                 sleep(attempt * 1_000L);
             }
         }
+    }
+
+    private static TickerInfo preferRuble(TickerInfo first, TickerInfo second) {
+        if (isRuble(first)) {
+            return first;
+        }
+        return second;
+    }
+
+    private static boolean isRuble(TickerInfo info) {
+        return info != null && "RUB".equalsIgnoreCase(info.getCurrency());
     }
 
     private List<HistoricCandle> getCandlesWithRetry(
