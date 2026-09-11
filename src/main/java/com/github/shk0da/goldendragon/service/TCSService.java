@@ -981,7 +981,8 @@ public class TCSService implements TradingService {
                                 isFullPrice,
                                 executedCount,
                                 tickerInfo);
-                placeOrLogProtectiveOrders(figi, response.getOrderId(), executedCount, key, direction, bracketPosition);
+                int lots = Math.max(1, executedCount / lotSize);
+                placeOrLogProtectiveOrders(figi, response.getOrderId(), lots, key, direction, bracketPosition);
             }
 
             return OrderExecutionResult.success(
@@ -1255,9 +1256,9 @@ public class TCSService implements TradingService {
                 var protectiveOrders = protectiveOrdersByTicker.computeIfAbsent(key, ignored -> new ProtectiveOrders());
                 protectiveOrders.stopLossOrderId = stopOrderId;
                 protectiveOrders.stopLossPrice = bracketPosition.stopLoss;
-                log("SL order placed: qty=" + quantity + ", price=" + bracketPosition.stopLoss);
+                log(key.getTicker() + " | SL order placed: lots=" + quantity + ", price=" + bracketPosition.stopLoss);
             } else {
-                log("WARN: SL order FAILED, qty=" + quantity + " left unprotected");
+                log("WARN: " + key.getTicker() + " | SL order FAILED, lots=" + quantity + " left unprotected");
             }
         }
 
@@ -1279,9 +1280,9 @@ public class TCSService implements TradingService {
                     ProtectiveOrders orders = protectiveOrdersByTicker.computeIfAbsent(key, ignored -> new ProtectiveOrders());
                     orders.takeProfit2OrderId = tp2OrderId;
                     orders.takeProfit2Price = tp2Price;
-                    log("TP order placed: qty=" + quantity + ", price=" + tp2Price);
+                    log(key.getTicker() + " | TP order placed: lots=" + quantity + ", price=" + tp2Price);
                 } else {
-                    log("WARN: TP order FAILED, qty=" + quantity + " left unprotected");
+                    log("WARN: " + key.getTicker() + " |  TP order FAILED, lots=" + quantity + " left unprotected");
                 }
             }
         }
