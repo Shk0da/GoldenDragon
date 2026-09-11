@@ -60,6 +60,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -1301,6 +1302,14 @@ public class TCSService implements TradingService {
                     "https://invest-public-api.tbank.ru/rest/"
                             + "tinkoff.public.invest.api.contract.v1.StopOrdersService/PostStopOrder";
 
+            UUID orderUuid;
+            try {
+                orderUuid = UUID.fromString(orderId);
+            } catch (Exception ex) {
+                log("Failed parse orderId=" + orderId + " to UUID");
+                orderUuid = UUID.randomUUID();
+            }
+
             String body =
                     "{\"figi\":\"" + figi
                             + "\",\"quantity\":\"" + quantity
@@ -1312,7 +1321,7 @@ public class TCSService implements TradingService {
                             + ",\"stopOrderType\":\"" + stopOrderType.name()
                             + "\",\"instrumentId\":\"" + figi
                             + "\",\"exchangeOrderType\":\"EXCHANGE_ORDER_TYPE_MARKET\""
-                            + ",\"orderId\":\"" + orderId + "\"}";
+                            + ",\"orderId\":\"" + orderUuid + "\"}";
 
             HttpRequest request =
                     HttpRequest.newBuilder()
