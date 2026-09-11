@@ -418,7 +418,7 @@ import static java.util.concurrent.CompletableFuture.runAsync;
             log("Trading session not started yet (current: " + timeProvider.now().toLocalTime() + ", start: " + WORK_START_TIME + "). Waiting...");
         }
 
-        while (!isWorkingHours() && isTradingDay()) {
+        while (!isWorkingHours() && isTradingDay() && !tradingHalted) {
             LocalTime now = timeProvider.now().toLocalTime();
             if (now.isBefore(WORK_START_TIME)) {
                 sleep(60_000);
@@ -444,7 +444,7 @@ import static java.util.concurrent.CompletableFuture.runAsync;
             tasks.add(
                     runAsync(
                             () -> {
-                                while (isWorkingHours()) {
+                                while (isWorkingHours() && !tradingHalted) {
                                     try {
                                         refreshPeerCandles(activeTickers);
                                     } catch (Exception ex) {
@@ -460,7 +460,7 @@ import static java.util.concurrent.CompletableFuture.runAsync;
                 tasks.add(
                         runAsync(
                                 () -> {
-                                    while (isWorkingHours()) {
+                                    while (isWorkingHours() && !tradingHalted) {
                                         processTicker(
                                                 name,
                                                 tradingService,
@@ -505,6 +505,7 @@ import static java.util.concurrent.CompletableFuture.runAsync;
         }
         log("LOSS_STREAK: Halting trading, closing all positions...");
         closeAllPositions(tradingService, unifiedTraderConfig);
+        log("LOSS_STREAK: Strategy will stop");
     }
 
     public abstract TradingDecision decide(
