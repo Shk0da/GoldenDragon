@@ -3,8 +3,10 @@ package com.github.shk0da.goldendragon.backtest;
 import com.github.shk0da.goldendragon.config.UnifiedTraderConfig;
 import com.github.shk0da.goldendragon.market.OrderExecutor.ExecutionResult;
 import com.github.shk0da.goldendragon.model.Candle;
+import com.github.shk0da.goldendragon.model.TickerInfo;
 import com.github.shk0da.goldendragon.model.TickerType;
 import com.github.shk0da.goldendragon.model.TradingDecision;
+import com.github.shk0da.goldendragon.repository.TickerRepository;
 import com.github.shk0da.goldendragon.strategy.BaseStrategy;
 import com.github.shk0da.goldendragon.strategy.StrategyRegistry;
 import com.github.shk0da.goldendragon.utils.PropertiesUtils;
@@ -995,7 +997,11 @@ public class BacktestRunner {
                         && "TMON@".equals(parkingTickerForBacktest)
                         && decision.quantity > 0
                         && decision.entryPrice != null) {
-                    double positionValue = decision.quantity * decision.entryPrice;
+                    TickerInfo tickerInfo = TickerRepository.INSTANCE.getByName(ticker);
+                    int lotSize = tickerInfo != null && tickerInfo.getLot() != null
+                            ? Math.max(1, tickerInfo.getLot())
+                            : 1;
+                    double positionValue = decision.quantity * decision.entryPrice * lotSize;
                     double availableCash = broker.getSharedCash();
                     double missing = positionValue - availableCash;
                     if (missing > 0) {

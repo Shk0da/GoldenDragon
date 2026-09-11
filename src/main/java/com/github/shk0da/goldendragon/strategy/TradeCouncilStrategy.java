@@ -195,11 +195,24 @@ public class TradeCouncilStrategy extends BaseStrategy {
             if (pending.shouldEnter(currentPrice, isLong)) {
                 log("✅ ENTRY CONDITION MET for " + ticker + ": " + pending.direction +
                     " @ " + currentPrice + " (target: " + pending.entryPrice + ")");
-                pendingOrders.remove(ticker);
-                
+
                 int quantity = calculateQuantityFromDepositPercent(ticker, pending.depositPercent, pending.entryPrice, balance);
+                if (quantity <= 0) {
+                    // Not enough cash for deposit-percent sizing: free parked cash and use
+                    // entryCashPercent of the available amount (cash + parking value)
+                    quantity = calculateQuantityFromAvailableCash(ticker, pending.entryPrice, balance);
+                    log("   Fallback quantity from available cash: " + quantity +
+                        " (cash%: " + tcConfig.getEntryCashPercent() + ", balance: " + balance + ")");
+                }
                 log("   Calculated quantity: " + quantity + " (deposit%: " + pending.depositPercent + ", balance: " + balance + ")");
-                
+
+                if (quantity <= 0) {
+                    // keep pending order for retry when funds become available
+                    return new TradingDecision("HOLD", "INSUFFICIENT_FUNDS");
+                }
+
+                pendingOrders.remove(ticker);
+
                 return new TradingDecision(
                     "OPEN",
                     pending.reasoning,
@@ -865,7 +878,7 @@ public class TradeCouncilStrategy extends BaseStrategy {
      * @param balance available balance
      * @return quantity in units (0 if calculation fails)
      */
-    private int calculateQuantityFromDepositPercent(String ticker, Double depositPercent, double entryPrice, double balance) {
+    int calculateQuantityFromDepositPercent(String ticker, Double depositPercent, double entryPrice, double balance) {
         if (depositPercent == null || depositPercent <= 0 || entryPrice <= 0 || balance <= 0) {
             log("⚠️ Invalid parameters for quantity calculation: depositPercent=" + depositPercent +
                 ", entryPrice=" + entryPrice + ", balance=" + balance);
@@ -889,9 +902,41 @@ public class TradeCouncilStrategy extends BaseStrategy {
             return 0;
         }
 
-        int quantity = (int) (rawQuantity / minLot) * minLot;
-        log("💰 Quantity calculated: " + quantity + " units (deposit%=" + depositPercent +
+        int quantity = (int) (rawQuantity / minLot);
+        log("💰 Quantity calculated: " + quantity + " lots (deposit%=" + depositPercent +
             ", balance=" + balance + ", amount=" + amountToUse + ", entry=" + entryPrice + ")");
+        return quantity;
+    }
+
+    /**
+     * Calculates position quantity in lots from a percentage of the available balance.
+     * Used as a fallback when deposit-percent sizing yields less than one lot.
+     *
+     * @param ticker ticker symbol
+     * @param entryPrice entry price
+     * @param balance available balance (cash + parking value)
+     * @return quantity in lots (0 if calculation fails)
+     */
+    int calculateQuantityFromAvailableCash(String ticker, double entryPrice, double balance) {
+        if (entryPrice <= 0 || balance <= 0) {
+            return 0;
+        }
+
+        TickerInfo info = findTickerInfo(ticker);
+        if (info == null) {
+            log("⚠️ TickerInfo not found for " + ticker);
+            return 0;
+        }
+
+        Integer lot = info.getLot();
+        int lotSize = (lot != null && lot > 0) ? lot : 1;
+        double amountToUse = balance * (tcConfig.getEntryCashPercent() / 100.0);
+        int quantity = (int) (amountToUse / (entryPrice * lotSize));
+        if (quantity <= 0) {
+            log("⚠️ Available cash " + String.format("%.2f", amountToUse) +
+                " below one lot " + String.format("%.2f", entryPrice * lotSize) + " for " + ticker);
+            return 0;
+        }
         return quantity;
     }
 }
