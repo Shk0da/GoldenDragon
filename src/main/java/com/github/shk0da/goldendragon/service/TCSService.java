@@ -1302,14 +1302,6 @@ public class TCSService implements TradingService {
                     "https://invest-public-api.tbank.ru/rest/"
                             + "tinkoff.public.invest.api.contract.v1.StopOrdersService/PostStopOrder";
 
-            UUID orderUuid;
-            try {
-                orderUuid = UUID.fromString(orderId);
-            } catch (Exception ex) {
-                log("Failed parse orderId=" + orderId + " to UUID");
-                orderUuid = UUID.randomUUID();
-            }
-
             String body =
                     "{\"figi\":\"" + figi
                             + "\",\"quantity\":\"" + quantity
@@ -1321,7 +1313,7 @@ public class TCSService implements TradingService {
                             + ",\"stopOrderType\":\"" + stopOrderType.name()
                             + "\",\"instrumentId\":\"" + figi
                             + "\",\"exchangeOrderType\":\"EXCHANGE_ORDER_TYPE_MARKET\""
-                            + ",\"orderId\":\"" + orderUuid + "\"}";
+                            + ",\"orderId\":\"" + UUID.randomUUID() + "\"}";
 
             HttpRequest request =
                     HttpRequest.newBuilder()
@@ -1336,10 +1328,10 @@ public class TCSService implements TradingService {
 
             if (response.statusCode() != 200) {
                 log(
-                        "Failed to post market stop order: status="
-                                + response.statusCode()
-                                + " body="
-                                + response.body());
+                    "Failed to post market stop order for " + orderId + ": status="
+                        + response.statusCode()
+                        + " body="
+                        + response.body());
                 return null;
             }
 
