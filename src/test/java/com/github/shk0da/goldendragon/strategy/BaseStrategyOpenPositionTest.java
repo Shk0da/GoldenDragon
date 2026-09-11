@@ -212,10 +212,26 @@ class BaseStrategyOpenPositionTest {
         }
     }
 
+    @Nested
+    @DisplayName("When trading is halted by loss streak")
+    class TradingHalted {
+
+        @Test
+        @DisplayName("Should not call decide() in processTicker")
+        void shouldNotCallDecide_WhenTradingHalted() {
+            strategy.tradingHalted = true;
+
+            strategy.processTick(NLMK);
+
+            then(strategy.decideCalls).isZero();
+        }
+    }
+
     /** Minimal strategy exposing openPosition and processTicker for testing. */
     private static class TestStrategy extends BaseStrategy {
 
         TradingDecision nextDecision;
+        int decideCalls = 0;
 
         TestStrategy(UnifiedTraderConfig unifiedTraderConfig, TradingService tradingService, Config config) {
             super(unifiedTraderConfig, tradingService, config);
@@ -234,6 +250,7 @@ class BaseStrategyOpenPositionTest {
                 Position position,
                 double balance,
                 boolean incrementCandlesHeld) {
+            decideCalls++;
             return nextDecision != null ? nextDecision : new TradingDecision("HOLD", "test");
         }
 
