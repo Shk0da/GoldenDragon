@@ -74,7 +74,7 @@ public class TmonCashParkingMonitor implements Runnable {
     /**
      * Main monitoring logic: check for free cash and buy TMON@ if available.
      */
-    private void monitorAndBuyTmon() {
+    void monitorAndBuyTmon() {
         if (!cashParkingManager.isParkingEnabled()) {
             return;
         }
