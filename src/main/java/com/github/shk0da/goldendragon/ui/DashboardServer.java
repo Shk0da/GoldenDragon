@@ -310,13 +310,15 @@ public class DashboardServer {
                         result.put("error", "No open position for " + ticker);
                     } else {
                         // Calculate quantity to close based on fraction
+                        // Use lots (not balance) since order API expects quantity in lots
+                        int lots = pos.getLots();
                         int balance = pos.getBalance();
-                        int quantityToClose = (int) Math.floor(Math.abs(balance) * fraction);
+                        int quantityToClose = (int) Math.floor(Math.abs(lots) * fraction);
                         if (quantityToClose <= 0) {
                             result.put("success", false);
-                            result.put("error", "Calculated quantity is 0 (balance=" + balance + ", fraction=" + fraction + ")");
-                        } else if (quantityToClose > Math.abs(balance)) {
-                            quantityToClose = Math.abs(balance); // Don't close more than position size
+                            result.put("error", "Calculated quantity is 0 (lots=" + lots + ", fraction=" + fraction + ")");
+                        } else if (quantityToClose > Math.abs(lots)) {
+                            quantityToClose = Math.abs(lots); // Don't close more than position size
                         }
 
                         // Close based on balance sign: positive = long, negative = short
@@ -331,7 +333,7 @@ public class DashboardServer {
                         if (!closed) {
                             result.put("error", "Failed to close position");
                         } else {
-                            result.put("message", "Closed " + quantityToClose + " of " + balance + " (" + (fraction * 100) + "%)");
+                            result.put("message", "Closed " + quantityToClose + " of " + lots + " lots (" + (fraction * 100) + "%)");
                         }
                     }
                 }
