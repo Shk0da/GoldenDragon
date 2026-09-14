@@ -190,21 +190,22 @@ public class TradeCouncilStrategy extends BaseStrategy {
                 return new TradingDecision("HOLD", "ORDER_EXPIRED");
             }
 
-            boolean isLong = "LONG".equalsIgnoreCase(pending.direction)
-                || "BUY".equalsIgnoreCase(pending.direction);
-            if (pending.shouldEnter(currentPrice, isLong)) {
-                log("✅ ENTRY CONDITION MET for " + ticker + ": " + pending.direction +
-                    " @ " + currentPrice + " (target: " + pending.entryPrice + ")");
+            if (pending.shouldEnter(currentPrice)) {
+                logThrottled(ticker + "_entry_met",
+                    "✅ ENTRY CONDITION MET for " + ticker + ": " + pending.direction +
+                        " @ " + currentPrice + " (target: " + pending.entryPrice + ")", 5);
 
                 int quantity = calculateQuantityFromDepositPercent(ticker, pending.depositPercent, pending.entryPrice, balance);
                 if (quantity <= 0) {
                     // Not enough cash for deposit-percent sizing: free parked cash and use
                     // entryCashPercent of the available amount (cash + parking value)
                     quantity = calculateQuantityFromAvailableCash(ticker, pending.entryPrice, balance);
-                    log("   Fallback quantity from available cash: " + quantity +
-                        " (cash%: " + tcConfig.getEntryCashPercent() + ", balance: " + balance + ")");
+                    logThrottled(ticker + "_qty_fallback",
+                        "   Fallback quantity from available cash: " + quantity +
+                            " (cash%: " + tcConfig.getEntryCashPercent() + ", balance: " + balance + ")", 5);
                 }
-                log("   Calculated quantity: " + quantity + " (deposit%: " + pending.depositPercent + ", balance: " + balance + ")");
+                logThrottled(ticker + "_qty_calc",
+                    "   Calculated quantity: " + quantity + " (deposit%: " + pending.depositPercent + ", balance: " + balance + ")", 5);
 
                 if (quantity <= 0) {
                     // keep pending order for retry when funds become available
@@ -283,12 +284,14 @@ public class TradeCouncilStrategy extends BaseStrategy {
                         debateResult.takeProfit,
                         debateResult.depositPercent,
                         debateResult.reason,
-                        debateResult.ttlMinutes
+                        debateResult.ttlMinutes,
+                        currentPrice
                     );
                     pendingOrders.put(ticker, newOrder);
                     log("⏳ PENDING ORDER CREATED: " + ticker + " " + newOrder.direction +
                         " @ " + newOrder.entryPrice + " (SL: " + newOrder.stopLoss +
-                        ", TP: " + newOrder.takeProfit + ", Deposit%: " + newOrder.depositPercent + ")");
+                        ", TP: " + newOrder.takeProfit + ", Deposit%: " + newOrder.depositPercent +
+                        ", mode: " + newOrder.describeEntryMode() + ")");
                     log("   Reasoning: " + newOrder.reasoning);
                     log("   Expires in " + newOrder.ttlMinutes + " minutes");
                 }
@@ -898,7 +901,8 @@ public class TradeCouncilStrategy extends BaseStrategy {
         int minLot = (lot != null && lot > 0) ? lot : 1;
 
         if (rawQuantity < minLot) {
-            log("⚠️ Calculated quantity " + rawQuantity + " below min lot " + minLot + " for " + ticker);
+            logThrottled(ticker + "_qty_min_lot",
+                "⚠️ Calculated quantity " + rawQuantity + " below min lot " + minLot + " for " + ticker, 5);
             return 0;
         }
 
@@ -933,8 +937,9 @@ public class TradeCouncilStrategy extends BaseStrategy {
         double amountToUse = balance * (tcConfig.getEntryCashPercent() / 100.0);
         int quantity = (int) (amountToUse / (entryPrice * lotSize));
         if (quantity <= 0) {
-            log("⚠️ Available cash " + String.format("%.2f", amountToUse) +
-                " below one lot " + String.format("%.2f", entryPrice * lotSize) + " for " + ticker);
+            logThrottled(ticker + "_qty_cash_lot",
+                "⚠️ Available cash " + String.format("%.2f", amountToUse) +
+                    " below one lot " + String.format("%.2f", entryPrice * lotSize) + " for " + ticker, 5);
             return 0;
         }
         return quantity;
