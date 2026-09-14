@@ -52,7 +52,7 @@ class TmonCashParkingMonitorTest {
             // buyLots = floor(95000 / 101) = 940
             // totalCost = 940 * 100 * 1 = 94_000
             tradingService.cash = 100_000.0;
-            marketDataProvider.askPrice = TMON_PRICE;
+            tradingService.askPrice = TMON_PRICE;
 
             monitor.monitorAndBuyTmon();
 
@@ -65,7 +65,7 @@ class TmonCashParkingMonitorTest {
         void shouldSkipWhenInsufficientCash() {
             // Given: usableCash = 50 * 0.95 = 47.5, effectiveCostPerLot = 101 → skip
             tradingService.cash = 50.0;
-            marketDataProvider.askPrice = TMON_PRICE;
+            tradingService.askPrice = TMON_PRICE;
 
             monitor.monitorAndBuyTmon();
 
@@ -79,7 +79,7 @@ class TmonCashParkingMonitorTest {
             tradingService.cash = 100_000.0;
             tradingService.parkingInfo = new PositionInfo(
                     "FIGI", TMON, "ISIN", "ETF", 100, 0.0, 100, TMON_PRICE, TMON);
-            marketDataProvider.askPrice = TMON_PRICE;
+            tradingService.askPrice = TMON_PRICE;
 
             monitor.monitorAndBuyTmon();
 
@@ -91,6 +91,7 @@ class TmonCashParkingMonitorTest {
     private static class FakeTradingService implements TradingService {
 
         double cash;
+        Double askPrice;
         double lastBuyValue;
         String lastBuyTicker;
         PositionInfo parkingInfo;
@@ -109,6 +110,15 @@ class TmonCashParkingMonitorTest {
         public TickerInfo searchTicker(TickerInfo.Key key) {
             return new TickerInfo(
                     "FIGI_TMON", TMON, "ISIN_TMON", 0.01, TMON_LOT, "RUB", TMON, "ETF");
+        }
+
+        @Override
+        public double getAvailablePrice(
+                TickerInfo.Key key, int count, String type, boolean isPrintGlass) {
+            if ("asks".equals(type) && askPrice != null) {
+                return askPrice;
+            }
+            return 0.0;
         }
 
         @Override

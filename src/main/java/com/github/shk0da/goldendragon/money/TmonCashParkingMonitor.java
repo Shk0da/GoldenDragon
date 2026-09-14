@@ -1,7 +1,6 @@
 package com.github.shk0da.goldendragon.money;
 
 import com.github.shk0da.goldendragon.market.MarketDataProvider;
-import com.github.shk0da.goldendragon.market.MarketPrices;
 import com.github.shk0da.goldendragon.model.Position;
 import com.github.shk0da.goldendragon.model.TickerInfo;
 import com.github.shk0da.goldendragon.service.TradingService;
@@ -166,17 +165,17 @@ public class TmonCashParkingMonitor implements Runnable {
     }
 
     /**
-     * Get current market price for parking ticker.
+     * Get current ask price for parking ticker from the order book.
+     * Uses only the ask side (unlike getLivePrices which requires both ask and bid).
      */
     private Double getCurrentPrice(String ticker) {
-        if (marketDataProvider != null) {
+        if (tradingService != null) {
             try {
-                MarketPrices prices = marketDataProvider.getLivePrices(ticker);
-                if (prices != null && prices.getAsk() != null && prices.getAsk() > 0) {
-                    return prices.getAsk();
-                }
-                if (prices != null && prices.getBid() != null && prices.getBid() > 0) {
-                    return prices.getBid();
+                TickerInfo.Key key = new TickerInfo.Key(
+                        ticker, cashParkingManager.getParkingTickerType());
+                double price = tradingService.getAvailablePrice(key, 1, "asks", false);
+                if (price > 0) {
+                    return price;
                 }
             } catch (Exception e) {
                 // Ignore, will return null
