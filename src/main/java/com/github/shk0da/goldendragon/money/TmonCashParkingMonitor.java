@@ -132,6 +132,16 @@ public class TmonCashParkingMonitor implements Runnable {
             double totalCost = buyLots * currentPrice * lot;
 
             if (tradingService != null) {
+                // Re-check capital to guard against race with strategy parking path
+                double freshCash = getAvailableCash();
+                if (freshCash < totalCost) {
+                    LoggingUtils.log(
+                            "TMON_MONITOR: Insufficient capital for " + parkingTicker
+                                    + " buy (need=" + String.format("%.2f", totalCost)
+                                    + ", have=" + String.format("%.2f", freshCash) + "), skipping");
+                    return;
+                }
+
                 tradingService.buyByMarketWithDetails(
                         parkingTicker,
                         cashParkingManager.getParkingTickerType(),

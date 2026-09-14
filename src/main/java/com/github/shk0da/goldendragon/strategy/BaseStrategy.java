@@ -980,6 +980,15 @@ import static java.util.concurrent.CompletableFuture.runAsync;
             OrderExecutor.ExecutionResult orderResult;
             if (isTmonCashParking && tradingService != null) {
                 double cash = orderExecutor.getAvailableCash();
+                // Re-check capital to guard against race with TMON monitor path
+                double minCost = liveAskPrice * lotSize;
+                if (cash < minCost) {
+                    logOpenCandidateSkipped(name, "insufficient_cash_at_execution", decision);
+                    log("Insufficient capital to buy " + name
+                            + " (have=" + String.format("%.2f", cash)
+                            + ", need=" + String.format("%.2f", minCost) + "), skipping");
+                    return;
+                }
                 TradingService.OrderExecutionResult r =
                         tradingService.buyByMarketWithDetails(
                                 name, ticker.getType(), cash, tpPercent, slPercent);
