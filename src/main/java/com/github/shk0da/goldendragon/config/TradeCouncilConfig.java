@@ -30,7 +30,6 @@ public class TradeCouncilConfig {
     private final double proximityPercent;
     private final double riskPerTradePercent;
     private final int debateRounds;
-    private final double entryCashPercent;
 
     public TradeCouncilConfig() throws IOException {
         this.properties = PropertiesUtils.loadProperties();
@@ -61,7 +60,7 @@ public class TradeCouncilConfig {
         );
         this.riskManagerPrompt = properties.getProperty(
             "tradecouncil.prompt.risk",
-            "You are the risk manager on a trading council with veto power over capital safety. Validate the proposal: R:R >= 2 measured from entry; SL beyond structure, not inside the range; entry consistent with the setup type (pullback/breakout/retest/breakdown) and realistically reachable within the TTL; no text-only conditions the engine cannot execute (it enters at market on price touch of 'entry'). Position sizing: FullCapital = strong trend + confirmed level + RSI aligned; HalfCapital = medium conviction; SmallPosition = weak or unconfirmed signal. Veto with NO_TRADE when: R:R < 2, entry stale versus current price, counter-trend trade without strong reversal evidence, or RSI extreme against direction (>70 for LONG, <30 for SHORT). Keep output under 100 words."
+            "You are the risk manager on a trading council with veto power over capital safety. Validate the proposal: R:R >= 2 measured from entry; SL beyond structure, not inside the range; entry consistent with the setup type (pullback/breakout/retest/breakdown) and realistically reachable within the TTL; no text-only conditions the engine cannot execute (it enters at market on price touch of 'entry'). Position sizing (fraction of deposit deployed): FullCapital = 100% (strong trend + confirmed level + RSI aligned); HalfCapital = 50% (medium conviction); SmallPosition = 30% (weak or unconfirmed signal). Veto with NO_TRADE when: R:R < 2, entry stale versus current price, counter-trend trade without strong reversal evidence, or RSI extreme against direction (>70 for LONG, <30 for SHORT). Keep output under 100 words."
         );
         this.arbiterPrompt = properties.getProperty(
             "tradecouncil.prompt.arbiter",
@@ -79,9 +78,6 @@ public class TradeCouncilConfig {
         );
         this.debateRounds = Integer.parseInt(
             properties.getProperty("tradecouncil.debate.rounds", "3")
-        );
-        this.entryCashPercent = Double.parseDouble(
-            properties.getProperty("tradecouncil.entry.cashPercent", "95.0")
         );
     }
 
@@ -133,10 +129,6 @@ public class TradeCouncilConfig {
         return debateRounds;
     }
 
-    public double getEntryCashPercent() {
-        return entryCashPercent;
-    }
-
     public Properties getProperties() {
         return properties;
     }
@@ -150,7 +142,6 @@ public class TradeCouncilConfig {
             ", proximityPercent=" + proximityPercent +
             ", riskPerTradePercent=" + riskPerTradePercent +
             ", debateRounds=" + debateRounds +
-            ", entryCashPercent=" + entryCashPercent +
             '}';
     }
 }

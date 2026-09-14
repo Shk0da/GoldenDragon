@@ -96,42 +96,32 @@ class TradeCouncilQuantityTest {
     }
 
     @Nested
-    @DisplayName("calculateQuantityFromAvailableCash")
-    class AvailableCash {
+    @DisplayName("positionSizeToDepositPercent")
+    class PositionSizeToDepositPercent {
 
         @Test
-        @DisplayName("Should return quantity in lots from 95% of available balance")
-        void shouldReturnLots() {
-            // Given: 95% of 100_000 = 95_000, / (71.2 * 10) = 133.42 -> 133 lots
-            // When
-            int quantity = strategy.calculateQuantityFromAvailableCash(NLMK, 71.2, 100_000.0);
-
-            // Then
-            then(quantity).isEqualTo(133);
+        @DisplayName("Should map FullCapital to 100% of deposit")
+        void shouldMap_FullCapital() {
+            then(strategy.positionSizeToDepositPercent("FullCapital")).isEqualTo(100.0);
         }
 
         @Test
-        @DisplayName("Should return 0 when available cash is below one lot")
-        void shouldReturnZero_WhenBelowOneLot() {
-            // Given: 95% of 500 = 475 < 712 (one lot of NLMK)
-            // When
-            int quantity = strategy.calculateQuantityFromAvailableCash(NLMK, 71.2, 500.0);
-
-            // Then
-            then(quantity).isZero();
+        @DisplayName("Should map HalfCapital to 50% of deposit")
+        void shouldMap_HalfCapital() {
+            then(strategy.positionSizeToDepositPercent("HalfCapital")).isEqualTo(50.0);
         }
 
         @Test
-        @DisplayName("Should return 0 for non-positive entry price or balance")
-        void shouldReturnZero_WhenInvalidPriceOrBalance() {
-            then(strategy.calculateQuantityFromAvailableCash(NLMK, 0.0, 100_000.0)).isZero();
-            then(strategy.calculateQuantityFromAvailableCash(NLMK, 71.2, 0.0)).isZero();
+        @DisplayName("Should map SmallPosition to 30% of deposit")
+        void shouldMap_SmallPosition() {
+            then(strategy.positionSizeToDepositPercent("SmallPosition")).isEqualTo(30.0);
         }
 
         @Test
-        @DisplayName("Should return 0 when ticker info is missing")
-        void shouldReturnZero_WhenTickerNotFound() {
-            then(strategy.calculateQuantityFromAvailableCash("UNKNOWN", 71.2, 100_000.0)).isZero();
+        @DisplayName("Should default to 30% for missing or unknown labels")
+        void shouldDefault_ToSmallPosition() {
+            then(strategy.positionSizeToDepositPercent(null)).isEqualTo(30.0);
+            then(strategy.positionSizeToDepositPercent("Unknown")).isEqualTo(30.0);
         }
     }
 }

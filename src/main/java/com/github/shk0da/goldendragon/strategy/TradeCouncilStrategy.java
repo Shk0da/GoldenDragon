@@ -196,14 +196,6 @@ public class TradeCouncilStrategy extends BaseStrategy {
                         " @ " + currentPrice + " (target: " + pending.entryPrice + ")", 5);
 
                 int quantity = calculateQuantityFromDepositPercent(ticker, pending.depositPercent, pending.entryPrice, balance);
-                if (quantity <= 0) {
-                    // Not enough cash for deposit-percent sizing: free parked cash and use
-                    // entryCashPercent of the available amount (cash + parking value)
-                    quantity = calculateQuantityFromAvailableCash(ticker, pending.entryPrice, balance);
-                    logThrottled(ticker + "_qty_fallback",
-                        "   Fallback quantity from available cash: " + quantity +
-                            " (cash%: " + tcConfig.getEntryCashPercent() + ", balance: " + balance + ")", 5);
-                }
                 logThrottled(ticker + "_qty_calc",
                     "   Calculated quantity: " + quantity + " (deposit%: " + pending.depositPercent + ", balance: " + balance + ")", 5);
 
@@ -646,30 +638,13 @@ public class TradeCouncilStrategy extends BaseStrategy {
             int ttlMinutes = ttlMinutesStr != null ? Integer.parseInt(ttlMinutesStr) : 30;
 
             String action = "HOLD";
-            double positionMultiplier = 0.3;
             if ("LONG".equals(decision) || "BUY".equals(decision)) {
                 action = "BUY";
             } else if ("SHORT".equals(decision) || "SELL".equals(decision)) {
                 action = "SELL";
             }
 
-            if (positionSizeStr != null) {
-                switch (positionSizeStr) {
-                    case "FullCapital":
-                        positionMultiplier = 1.0;
-                        break;
-                    case "HalfCapital":
-                        positionMultiplier = 0.5;
-                        break;
-                    case "SmallPosition":
-                        positionMultiplier = 0.3;
-                        break;
-                    default:
-                        positionMultiplier = 0.3;
-                }
-            }
-
-            double depositPercent = tcConfig.getRiskPerTradePercent() * positionMultiplier;
+            double depositPercent = positionSizeToDepositPercent(positionSizeStr);
 
             double finalTakeProfit = takeProfit != null ? takeProfit : entry * 1.03;
 
@@ -694,6 +669,34 @@ public class TradeCouncilStrategy extends BaseStrategy {
             log("Failed to parse decision: " + e.getMessage());
             return new TradingDecision("HOLD", "PARSE_ERROR: " + e.getMessage());
         }
+    }
+
+    /**
+     * Map LLM position size label to the fraction of deposit to deploy.
+     * FullCapital deploys the whole available balance, HalfCapital half of it,
+     * SmallPosition a third; unknown or missing labels default to SmallPosition.
+     *
+     * @param positionSize LLM position size label
+     * @return percent of deposit to deploy (100.0 / 50.0 / 30.0)
+     */
+    double positionSizeToDepositPercent(String positionSize) {
+        double positionMultiplier = 0.3;
+        if (positionSize != null) {
+            switch (positionSize) {
+                case "FullCapital":
+                    positionMultiplier = 1.0;
+                    break;
+                case "HalfCapital":
+                    positionMultiplier = 0.5;
+                    break;
+                case "SmallPosition":
+                    positionMultiplier = 0.3;
+                    break;
+                default:
+                    positionMultiplier = 0.3;
+            }
+        }
+        return positionMultiplier * 100.0;
     }
 
     private Double extractJsonArrayFirstValue(String json, String key) {
@@ -909,39 +912,6 @@ public class TradeCouncilStrategy extends BaseStrategy {
         int quantity = (int) (rawQuantity / minLot);
         log("💰 Quantity calculated: " + quantity + " lots (deposit%=" + depositPercent +
             ", balance=" + balance + ", amount=" + amountToUse + ", entry=" + entryPrice + ")");
-        return quantity;
-    }
-
-    /**
-     * Calculates position quantity in lots from a percentage of the available balance.
-     * Used as a fallback when deposit-percent sizing yields less than one lot.
-     *
-     * @param ticker ticker symbol
-     * @param entryPrice entry price
-     * @param balance available balance (cash + parking value)
-     * @return quantity in lots (0 if calculation fails)
-     */
-    int calculateQuantityFromAvailableCash(String ticker, double entryPrice, double balance) {
-        if (entryPrice <= 0 || balance <= 0) {
-            return 0;
-        }
-
-        TickerInfo info = findTickerInfo(ticker);
-        if (info == null) {
-            log("⚠️ TickerInfo not found for " + ticker);
-            return 0;
-        }
-
-        Integer lot = info.getLot();
-        int lotSize = (lot != null && lot > 0) ? lot : 1;
-        double amountToUse = balance * (tcConfig.getEntryCashPercent() / 100.0);
-        int quantity = (int) (amountToUse / (entryPrice * lotSize));
-        if (quantity <= 0) {
-            logThrottled(ticker + "_qty_cash_lot",
-                "⚠️ Available cash " + String.format("%.2f", amountToUse) +
-                    " below one lot " + String.format("%.2f", entryPrice * lotSize) + " for " + ticker, 5);
-            return 0;
-        }
         return quantity;
     }
 }
