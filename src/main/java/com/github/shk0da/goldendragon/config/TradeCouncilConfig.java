@@ -28,7 +28,6 @@ public class TradeCouncilConfig {
 
     // Trading Parameters
     private final double proximityPercent;
-    private final double riskPerTradePercent;
     private final int debateRounds;
 
     public TradeCouncilConfig() throws IOException {
@@ -72,9 +71,6 @@ public class TradeCouncilConfig {
         );
         this.proximityPercent = Double.parseDouble(
             properties.getProperty("tradecouncil.proximity.percent", "2.0")
-        );
-        this.riskPerTradePercent = Double.parseDouble(
-            properties.getProperty("tradecouncil.risk.percent", "1.0")
         );
         this.debateRounds = Integer.parseInt(
             properties.getProperty("tradecouncil.debate.rounds", "3")
@@ -121,16 +117,8 @@ public class TradeCouncilConfig {
         return proximityPercent;
     }
 
-    public double getRiskPerTradePercent() {
-        return riskPerTradePercent;
-    }
-
     public int getDebateRounds() {
         return debateRounds;
-    }
-
-    public Properties getProperties() {
-        return properties;
     }
 
     @Override
@@ -140,7 +128,6 @@ public class TradeCouncilConfig {
             ", debaterModel='" + debaterModel + '\'' +
             ", arbiterModel='" + arbiterModel + '\'' +
             ", proximityPercent=" + proximityPercent +
-            ", riskPerTradePercent=" + riskPerTradePercent +
             ", debateRounds=" + debateRounds +
             '}';
     }

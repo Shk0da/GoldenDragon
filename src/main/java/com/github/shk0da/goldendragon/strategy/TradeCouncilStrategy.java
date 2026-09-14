@@ -54,7 +54,6 @@ import static java.net.http.HttpResponse.BodyHandlers;
  *   <li>tradecouncil.debater.model - model for debate agents</li>
  *   <li>tradecouncil.arbiter.model - model for final decision</li>
  *   <li>tradecouncil.proximity.percent - price distance to trigger debate (e.g. 2.0 = 2%)</li>
- *   <li>tradecouncil.risk.percent - risk per trade as % of capital</li>
  *   <li>tradecouncil.debate.rounds - number of debate rounds</li>
  * </ul>
  */
@@ -121,7 +120,7 @@ public class TradeCouncilStrategy extends BaseStrategy {
 
         log("TradeCouncilStrategy initialized with unifiedTrader tickers");
         log("Config: " + tcConfig);
-        log("Proximity threshold: " + tcConfig.getProximityPercent() + "%, Risk per trade: " + tcConfig.getRiskPerTradePercent() + "%");
+        log("Proximity threshold: " + tcConfig.getProximityPercent() + "%");
     }
 
     @Override
