@@ -47,6 +47,14 @@ public class TmonCashParkingMonitor implements Runnable {
     public void run() {
         LoggingUtils.log("TMON_MONITOR: Started with interval " + (MONITORING_INTERVAL_MS / 1000) + "s");
 
+        // Initial delay to allow positions to be restored before first check
+        try {
+            Thread.sleep(10_000);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return;
+        }
+
         while (running) {
             try {
                 monitorAndBuyTmon();
