@@ -19,6 +19,7 @@ public class LossStreakMonitor implements Runnable {
     private final TradingService tradingService;
     private final int maxConsecutiveLosses;
     private final long checkIntervalMs;
+    private final String excludedTicker;
     private final Runnable onHalt;
 
     private volatile boolean running = true;
@@ -31,16 +32,20 @@ public class LossStreakMonitor implements Runnable {
      * @param tradingService trading service providing trade history
      * @param maxConsecutiveLosses consecutive losses before halt
      * @param checkIntervalMs interval between history checks
+     * @param excludedTicker ticker to ignore when counting losses (cash parking),
+     *                       null or empty disables exclusion
      * @param onHalt callback invoked when the streak threshold is reached
      */
     public LossStreakMonitor(
             TradingService tradingService,
             int maxConsecutiveLosses,
             long checkIntervalMs,
+            String excludedTicker,
             Runnable onHalt) {
         this.tradingService = tradingService;
         this.maxConsecutiveLosses = maxConsecutiveLosses;
         this.checkIntervalMs = checkIntervalMs;
+        this.excludedTicker = excludedTicker != null ? excludedTicker : "";
         this.onHalt = onHalt;
     }
 
@@ -80,7 +85,7 @@ public class LossStreakMonitor implements Runnable {
             Instant todayStart = Instant.now().atZone(ZoneId.systemDefault()).toLocalDate()
                     .atStartOfDay(ZoneId.systemDefault()).toInstant();
             List<Map<String, Object>> trades = tradingService.getTradeHistory(todayStart);
-            int streak = countConsecutiveLosses(trades);
+            int streak = countConsecutiveLosses(trades, excludedTicker);
             consecutiveLosses = streak;
             LoggingUtils.log("LOSS_STREAK: consecutive losses today = " + streak);
 
@@ -98,12 +103,14 @@ public class LossStreakMonitor implements Runnable {
 
     /**
      * Count consecutive losing trades from the end of the history. Operations with zero pnl
-     * (opening operations) are skipped; a winning trade breaks the streak.
+     * (opening operations) and operations of the excluded ticker (cash parking) are skipped;
+     * a winning trade breaks the streak.
      *
-     * @param trades trade history entries with a "time" and "pnl" key
+     * @param trades trade history entries with a "time", "ticker" and "pnl" key
+     * @param excludedTicker ticker to ignore when counting losses, null or empty disables exclusion
      * @return number of consecutive losses ending at the latest trade
      */
-    static int countConsecutiveLosses(List<Map<String, Object>> trades) {
+    static int countConsecutiveLosses(List<Map<String, Object>> trades, String excludedTicker) {
         if (trades == null || trades.isEmpty()) {
             return 0;
         }
@@ -112,6 +119,9 @@ public class LossStreakMonitor implements Runnable {
 
         int streak = 0;
         for (int i = sorted.size() - 1; i >= 0; i--) {
+            if (isExcludedTicker(sorted.get(i), excludedTicker)) {
+                continue;
+            }
             Object pnlObj = sorted.get(i).get("pnl");
             double pnl = pnlObj instanceof Number ? ((Number) pnlObj).doubleValue() : 0.0;
             if (pnl < 0) {
@@ -122,6 +132,14 @@ public class LossStreakMonitor implements Runnable {
             // pnl == 0: opening operation or breakeven close, skip
         }
         return streak;
+    }
+
+    private static boolean isExcludedTicker(Map<String, Object> trade, String excludedTicker) {
+        if (excludedTicker == null || excludedTicker.isEmpty()) {
+            return false;
+        }
+        Object ticker = trade.get("ticker");
+        return ticker != null && excludedTicker.equalsIgnoreCase(String.valueOf(ticker));
     }
 
     /**

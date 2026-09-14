@@ -19,9 +19,13 @@ import static org.assertj.core.api.BDDAssertions.then;
 class LossStreakMonitorTest {
 
     private static Map<String, Object> trade(String time, double pnl) {
+        return trade(time, "NLMK", pnl);
+    }
+
+    private static Map<String, Object> trade(String time, String ticker, double pnl) {
         Map<String, Object> trade = new LinkedHashMap<>();
         trade.put("time", time);
-        trade.put("ticker", "NLMK");
+        trade.put("ticker", ticker);
         trade.put("type", "SELL");
         trade.put("quantity", 10);
         trade.put("price", 100.0);
@@ -36,8 +40,8 @@ class LossStreakMonitorTest {
         @Test
         @DisplayName("Should return 0 for null or empty history")
         void shouldReturnZero_ForNullOrEmpty() {
-            then(LossStreakMonitor.countConsecutiveLosses(null)).isZero();
-            then(LossStreakMonitor.countConsecutiveLosses(List.of())).isZero();
+            then(LossStreakMonitor.countConsecutiveLosses(null, "")).isZero();
+            then(LossStreakMonitor.countConsecutiveLosses(List.of(), "")).isZero();
         }
 
         @Test
@@ -46,7 +50,7 @@ class LossStreakMonitorTest {
             List<Map<String, Object>> trades =
                     List.of(trade("2026-09-11 10:00:00", -100.0), trade("2026-09-11 11:00:00", -50.0));
 
-            then(LossStreakMonitor.countConsecutiveLosses(trades)).isEqualTo(2);
+            then(LossStreakMonitor.countConsecutiveLosses(trades, "")).isEqualTo(2);
         }
 
         @Test
@@ -58,7 +62,7 @@ class LossStreakMonitorTest {
                             trade("2026-09-11 11:00:00", 50.0),
                             trade("2026-09-11 12:00:00", -30.0));
 
-            then(LossStreakMonitor.countConsecutiveLosses(trades)).isEqualTo(1);
+            then(LossStreakMonitor.countConsecutiveLosses(trades, "")).isEqualTo(1);
         }
 
         @Test
@@ -71,7 +75,7 @@ class LossStreakMonitorTest {
                             trade("2026-09-11 12:00:00", 0.0), // opening BUY
                             trade("2026-09-11 13:00:00", -50.0)); // closing SELL (loss)
 
-            then(LossStreakMonitor.countConsecutiveLosses(trades)).isEqualTo(2);
+            then(LossStreakMonitor.countConsecutiveLosses(trades, "")).isEqualTo(2);
         }
 
         @Test
@@ -82,7 +86,56 @@ class LossStreakMonitorTest {
                             trade("2026-09-11 13:00:00", -50.0),
                             trade("2026-09-11 10:00:00", -100.0));
 
-            then(LossStreakMonitor.countConsecutiveLosses(trades)).isEqualTo(2);
+            then(LossStreakMonitor.countConsecutiveLosses(trades, "")).isEqualTo(2);
+        }
+    }
+
+    @Nested
+    @DisplayName("countConsecutiveLosses with excluded ticker")
+    class ParkingTickerExclusion {
+
+        @Test
+        @DisplayName("Should skip losses of the excluded parking ticker")
+        void shouldSkipParkingTickerLosses() {
+            List<Map<String, Object>> trades =
+                    List.of(
+                            trade("2026-09-11 10:00:00", "SNGSP", -100.0),
+                            trade("2026-09-11 11:00:00", "OZON", -50.0),
+                            trade("2026-09-11 12:00:00", "TMON@", -0.43));
+
+            then(LossStreakMonitor.countConsecutiveLosses(trades, "TMON@")).isEqualTo(2);
+        }
+
+        @Test
+        @DisplayName("Should not break streak at a profit of the excluded parking ticker")
+        void shouldNotBreakStreak_AtParkingTickerProfit() {
+            List<Map<String, Object>> trades =
+                    List.of(
+                            trade("2026-09-11 10:00:00", "SNGSP", -100.0),
+                            trade("2026-09-11 11:00:00", "TMON@", 50.0),
+                            trade("2026-09-11 12:00:00", "OZON", -50.0));
+
+            then(LossStreakMonitor.countConsecutiveLosses(trades, "TMON@")).isEqualTo(2);
+        }
+
+        @Test
+        @DisplayName("Should match the excluded ticker case-insensitively")
+        void shouldIgnoreCase_WhenMatchingTicker() {
+            List<Map<String, Object>> trades =
+                    List.of(trade("2026-09-11 10:00:00", "tmon@", -0.43));
+
+            then(LossStreakMonitor.countConsecutiveLosses(trades, "TMON@")).isZero();
+        }
+
+        @Test
+        @DisplayName("Should count all losses when excluded ticker is empty")
+        void shouldCountAll_WhenExcludedTickerEmpty() {
+            List<Map<String, Object>> trades =
+                    List.of(
+                            trade("2026-09-11 10:00:00", "SNGSP", -100.0),
+                            trade("2026-09-11 11:00:00", "TMON@", -0.43));
+
+            then(LossStreakMonitor.countConsecutiveLosses(trades, "")).isEqualTo(2);
         }
     }
 
@@ -98,7 +151,7 @@ class LossStreakMonitorTest {
             FakeTradingService service = new FakeTradingService(
                     List.of(trade("2026-09-11 10:00:00", -100.0), trade("2026-09-11 11:00:00", -50.0)));
             LossStreakMonitor monitor =
-                    new LossStreakMonitor(service, 2, 60_000L, () -> {
+                    new LossStreakMonitor(service, 2, 60_000L, null, () -> {
                         halted.set(true);
                         haltCalls.incrementAndGet();
                     });
@@ -118,13 +171,32 @@ class LossStreakMonitorTest {
             FakeTradingService service = new FakeTradingService(
                     List.of(trade("2026-09-11 10:00:00", -100.0)));
             LossStreakMonitor monitor =
-                    new LossStreakMonitor(service, 3, 60_000L, () -> halted.set(true));
+                    new LossStreakMonitor(service, 3, 60_000L, null, () -> halted.set(true));
 
             monitor.checkLossStreak();
 
             then(halted).isFalse();
             then(monitor.isHalted()).isFalse();
             then(monitor.getConsecutiveLosses()).isEqualTo(1);
+        }
+
+        @Test
+        @DisplayName("Should not count parking ticker losses toward the halt threshold")
+        void shouldNotCountParkingLosses_TowardThreshold() {
+            AtomicBoolean halted = new AtomicBoolean(false);
+            FakeTradingService service = new FakeTradingService(
+                    List.of(
+                            trade("2026-09-11 10:00:00", "SNGSP", -100.0),
+                            trade("2026-09-11 11:00:00", "OZON", -50.0),
+                            trade("2026-09-11 12:00:00", "TMON@", -0.43)));
+            LossStreakMonitor monitor =
+                    new LossStreakMonitor(service, 3, 60_000L, "TMON@", () -> halted.set(true));
+
+            monitor.checkLossStreak();
+
+            then(halted).isFalse();
+            then(monitor.isHalted()).isFalse();
+            then(monitor.getConsecutiveLosses()).isEqualTo(2);
         }
 
         @Test
@@ -138,7 +210,7 @@ class LossStreakMonitorTest {
                 }
             };
             LossStreakMonitor monitor =
-                    new LossStreakMonitor(failingService, 2, 60_000L, () -> halted.set(true));
+                    new LossStreakMonitor(failingService, 2, 60_000L, null, () -> halted.set(true));
 
             monitor.checkLossStreak();
 
@@ -153,7 +225,7 @@ class LossStreakMonitorTest {
             FakeTradingService service = new FakeTradingService(
                     List.of(trade("2026-09-11 10:00:00", -100.0), trade("2026-09-11 11:00:00", -50.0)));
             LossStreakMonitor monitor =
-                    new LossStreakMonitor(service, 2, 60_000L, haltCalls::incrementAndGet);
+                    new LossStreakMonitor(service, 2, 60_000L, null, haltCalls::incrementAndGet);
 
             monitor.checkLossStreak();
             monitor.checkLossStreak();

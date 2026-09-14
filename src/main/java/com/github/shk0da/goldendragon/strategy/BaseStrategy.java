@@ -370,6 +370,7 @@ import static java.util.concurrent.CompletableFuture.runAsync;
                             tradingService,
                             mainConfig.getLossStreakThreshold(),
                             mainConfig.getLossStreakCheckIntervalMinutes() * 60_000L,
+                            cashParkingManager.getParkingTicker(),
                             this::haltTrading);
             Thread lossStreakThread = new Thread(lossStreakMonitor, "LossStreakMonitor");
             lossStreakThread.setDaemon(true);
