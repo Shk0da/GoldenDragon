@@ -5,6 +5,11 @@ import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
 import java.net.ServerSocket;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.time.LocalTime;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -44,5 +49,26 @@ class DashboardServerTest {
         parkingBuy.put("type", "BUY");
         parkingBuy.put("ticker", "TMON@");
         assertThat(DashboardServer.isCountableTrade(parkingBuy)).isFalse();
+    }
+
+    @Test
+    @DisplayName("Should render end-of-day countdown in dashboard HTML")
+    void shouldRenderEodCountdown_InDashboardHtml() throws Exception {
+        int freePort;
+        try (ServerSocket socket = new ServerSocket(0)) {
+            freePort = socket.getLocalPort();
+        }
+
+        DashboardServer dashboard = new DashboardServer(null, freePort, 120, LocalTime.of(19, 0));
+        dashboard.start();
+        try {
+            HttpClient client = HttpClient.newHttpClient();
+            HttpRequest request = HttpRequest.newBuilder(
+                    URI.create("http://localhost:" + dashboard.getPort() + "/")).GET().build();
+            HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+            assertThat(response.body()).contains("eod-countdown").contains("eodTarget");
+        } finally {
+            dashboard.stop();
+        }
     }
 }

@@ -15,6 +15,9 @@ import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.LocalTime;
 import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -41,6 +44,8 @@ public class DashboardServer {
     private int port;
     private final long pollIntervalSeconds;
 
+    private static final LocalTime DEFAULT_END_OF_DAY = LocalTime.of(19, 0);
+
     private double totalPnl = 0.0;
     private int totalTrades = 0;
     private int winningTrades = 0;
@@ -48,20 +53,30 @@ public class DashboardServer {
     private final List<Map<String, Object>> tradeHistory = Collections.synchronizedList(new ArrayList<>());
     private volatile Instant appStartTime;
     private volatile java.util.concurrent.ScheduledExecutorService tradePoller;
+    private final LocalTime endOfDay;
 
     public DashboardServer(TradingService tradingService) throws IOException {
-        this(tradingService, PORT, POLL_INTERVAL_SECONDS);
+        this(tradingService, PORT, POLL_INTERVAL_SECONDS, DEFAULT_END_OF_DAY);
     }
 
     public DashboardServer(TradingService tradingService, int port) throws IOException {
-        this(tradingService, port, POLL_INTERVAL_SECONDS);
+        this(tradingService, port, POLL_INTERVAL_SECONDS, DEFAULT_END_OF_DAY);
     }
 
     public DashboardServer(TradingService tradingService, int port, long pollIntervalSeconds) throws IOException {
+        this(tradingService, port, pollIntervalSeconds, DEFAULT_END_OF_DAY);
+    }
+
+    public DashboardServer(TradingService tradingService, LocalTime endOfDay) throws IOException {
+        this(tradingService, PORT, POLL_INTERVAL_SECONDS, endOfDay);
+    }
+
+    public DashboardServer(TradingService tradingService, int port, long pollIntervalSeconds, LocalTime endOfDay) throws IOException {
         this.tradingService = tradingService;
         this.currency = "RUB";
         this.port = port;
         this.pollIntervalSeconds = pollIntervalSeconds;
+        this.endOfDay = endOfDay;
         this.server = createServer(port);
         this.server.createContext("/", this::handleRequest);
         this.server.setExecutor(Executors.newFixedThreadPool(4));
@@ -488,18 +503,16 @@ public class DashboardServer {
         sb.append("        .negative {\n");
         sb.append("            color: var(--tinkoff-red);\n");
         sb.append("        }\n");
-        sb.append("        .refresh-btn {\n");
-        sb.append("            background: var(--tinkoff-yellow);\n");
-        sb.append("            color: var(--tinkoff-black);\n");
-        sb.append("            border: none;\n");
-        sb.append("            padding: 10px 20px;\n");
-        sb.append("            border-radius: 4px;\n");
-        sb.append("            cursor: pointer;\n");
+        sb.append("        .eod-countdown {\n");
+        sb.append("            font-size: 20px;\n");
         sb.append("            font-weight: 600;\n");
-        sb.append("            transition: background 0.2s;\n");
+        sb.append("            color: var(--tinkoff-yellow);\n");
+        sb.append("            font-variant-numeric: tabular-nums;\n");
         sb.append("        }\n");
-        sb.append("        .refresh-btn:hover {\n");
-        sb.append("            background: #ffe047;\n");
+        sb.append("        .eod-label {\n");
+        sb.append("            font-size: 13px;\n");
+        sb.append("            color: #999;\n");
+        sb.append("            margin-right: 8px;\n");
         sb.append("        }\n");
         sb.append("        .loading {\n");
         sb.append("            text-align: center;\n");
@@ -515,7 +528,10 @@ public class DashboardServer {
         sb.append("    <div class=\"header\">\n");
         sb.append("        <h1>GoldenDragon</h1>\n");
         sb.append("        <div style=\"display: flex; align-items: center; gap: 16px;\">\n");
-        sb.append("            <button class=\"refresh-btn\" onclick=\"loadData()\">Refresh</button>\n");
+        sb.append("            <div class=\"eod-countdown\">\n");
+        sb.append("                <span class=\"eod-label\">Until close</span>\n");
+        sb.append("                <span id=\"eod-countdown\">--:--:--</span>\n");
+        sb.append("            </div>\n");
         sb.append("        </div>\n");
         sb.append("    </div>\n");
         sb.append("    <div class=\"container\">\n");
@@ -576,6 +592,20 @@ public class DashboardServer {
         sb.append("    </div>\n");
         sb.append("    <script>\n");
         sb.append("        let currency = 'RUB';\n");
+        // End-of-day countdown target: today's EOD in system timezone as epoch millis
+        LocalDateTime eodToday = LocalDateTime.of(LocalDate.now(), endOfDay);
+        long eodTargetMillis = eodToday.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli();
+        sb.append("        const eodTarget = " + eodTargetMillis + ";\n");
+        sb.append("        function updateEodCountdown() {\n");
+        sb.append("            const diff = eodTarget - Date.now();\n");
+        sb.append("            const totalSeconds = Math.max(0, Math.floor(diff / 1000));\n");
+        sb.append("            const hours = String(Math.floor(totalSeconds / 3600)).padStart(2, '0');\n");
+        sb.append("            const minutes = String(Math.floor((totalSeconds % 3600) / 60)).padStart(2, '0');\n");
+        sb.append("            const seconds = String(totalSeconds % 60).padStart(2, '0');\n");
+        sb.append("            document.getElementById('eod-countdown').textContent = hours + ':' + minutes + ':' + seconds;\n");
+        sb.append("        }\n");
+        sb.append("        setInterval(updateEodCountdown, 1000);\n");
+        sb.append("        updateEodCountdown();\n");
         sb.append("        function formatTimeMSK(isoTime) {\n");
         sb.append("            if (!isoTime) return '-';\n");
         sb.append("            try {\n");

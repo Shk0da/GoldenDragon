@@ -342,7 +342,7 @@ import static java.util.concurrent.CompletableFuture.runAsync;
 
         // Start dashboard server
         try {
-            dashboard = new DashboardServer(tradingService);
+            dashboard = new DashboardServer(tradingService, EOD_CLOSE_TIME);
             dashboard.start();
             log("Dashboard started at http://localhost:" + dashboard.getPort());
             dashboard.updateBalance(initPortfolioCost);
