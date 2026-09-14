@@ -3,6 +3,7 @@ package com.github.shk0da.goldendragon.money;
 import com.github.shk0da.goldendragon.market.MarketDataProvider;
 import com.github.shk0da.goldendragon.market.MarketPrices;
 import com.github.shk0da.goldendragon.model.Candle;
+import com.github.shk0da.goldendragon.model.Position;
 import com.github.shk0da.goldendragon.model.PositionInfo;
 import com.github.shk0da.goldendragon.model.TickerInfo;
 import com.github.shk0da.goldendragon.model.TickerType;
@@ -29,15 +30,17 @@ class TmonCashParkingMonitorTest {
     private FakeTradingService tradingService;
     private FakeMarketDataProvider marketDataProvider;
     private TmonCashParkingMonitor monitor;
+    private ConcurrentHashMap<String, Position> positionStore;
 
     @BeforeEach
     void setUp() {
         tradingService = new FakeTradingService();
         marketDataProvider = new FakeMarketDataProvider();
+        positionStore = new ConcurrentHashMap<>();
         CashParkingManager cashParkingManager = new CashParkingManager(
-                tradingService, marketDataProvider, new ConcurrentHashMap<>());
+                tradingService, marketDataProvider, positionStore);
         monitor = new TmonCashParkingMonitor(
-                tradingService, marketDataProvider, cashParkingManager, new ConcurrentHashMap<>());
+                tradingService, marketDataProvider, cashParkingManager, positionStore);
     }
 
     @Nested
@@ -85,6 +88,20 @@ class TmonCashParkingMonitorTest {
 
             then(tradingService.lastBuyValue).isCloseTo(94_000.0, within(0.01));
             then(tradingService.lastBuyTicker).isEqualTo(TMON);
+        }
+
+        @Test
+        @DisplayName("Should skip parking buy when active non-parking positions exist")
+        void shouldSkipWhenActiveNonParkingPositionsExist() {
+            // Given: cash available but an active non-parking position exists in store
+            tradingService.cash = 100_000.0;
+            tradingService.askPrice = TMON_PRICE;
+            positionStore.put("NLMK", new Position(
+                    "SELL", 73.7, null, null, null, 5310, 0, 0, 1, false));
+
+            monitor.monitorAndBuyTmon();
+
+            then(tradingService.lastBuyValue).isZero();
         }
     }
 

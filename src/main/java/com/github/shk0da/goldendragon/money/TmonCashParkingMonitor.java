@@ -88,6 +88,11 @@ public class TmonCashParkingMonitor implements Runnable {
         }
 
         try {
+            // Skip parking if there are active non-parking positions (cash needed for trading)
+            if (hasActiveNonParkingPositions()) {
+                return;
+            }
+
             // Get available cash from trading service
             double availableCash = getAvailableCash();
             if (availableCash <= 0) {
@@ -206,5 +211,21 @@ public class TmonCashParkingMonitor implements Runnable {
      */
     public boolean isRunning() {
         return running;
+    }
+
+    /**
+     * Check if there are active positions (excluding parking ticker).
+     * Used to prevent parking when cash is needed for trading.
+     */
+    private boolean hasActiveNonParkingPositions() {
+        for (Map.Entry<String, Position> entry : positionStore.entrySet()) {
+            if (cashParkingManager.isParkingTicker(entry.getKey())) {
+                continue;
+            }
+            if (entry.getValue().quantity > 0) {
+                return true;
+            }
+        }
+        return false;
     }
 }
