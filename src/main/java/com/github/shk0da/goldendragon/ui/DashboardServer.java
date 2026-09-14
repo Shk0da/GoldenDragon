@@ -8,6 +8,8 @@ import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.sun.net.httpserver.HttpServer;
 
+import static com.github.shk0da.goldendragon.money.CashParkingManager.TINKOFF_PARKING_TICKER;
+
 import java.io.IOException;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
@@ -104,9 +106,9 @@ public class DashboardServer {
         this.totalTrades = 0;
 
         for (Map<String, Object> trade : tradeHistory) {
-            String type = (String) trade.get("type");
-            // Count only SELL operations (closed positions) for PnL and Win Rate
-            if ("SELL".equals(type)) {
+            // Count only SELL operations (closed positions) for PnL and Win Rate,
+            // excluding the cash parking ticker
+            if (isCountableTrade(trade)) {
                 this.totalTrades++;
                 Object pnlObj = trade.get("pnl");
                 if (pnlObj instanceof Number) {
@@ -118,6 +120,12 @@ public class DashboardServer {
                 }
             }
         }
+    }
+
+    static boolean isCountableTrade(Map<String, Object> trade) {
+        String type = (String) trade.get("type");
+        String ticker = (String) trade.get("ticker");
+        return "SELL".equals(type) && !TINKOFF_PARKING_TICKER.equals(ticker);
     }
 
     public int getPort() {

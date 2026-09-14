@@ -2547,10 +2547,16 @@ public class TCSService implements TradingService {
             if ("OPERATION_TYPE_BUY".equals(type) || "OPERATION_TYPE_SELL".equals(type)) {
                 Map<String, Object> trade = new LinkedHashMap<>();
 
-                // Format time as "2026-09-08 14:31:05" instead of ISO 8601
+                // Convert broker time (UTC) to Moscow timezone (UTC+3) as ISO 8601 with offset
                 String timeStr = op.path("date").asText("");
                 if (!timeStr.isEmpty()) {
-                    timeStr = timeStr.replace("T", " ").substring(0, 19);
+                    try {
+                        timeStr = Instant.parse(timeStr)
+                                .atZone(ZoneId.of("Europe/Moscow"))
+                                .format(DateTimeFormatter.ISO_OFFSET_DATE_TIME);
+                    } catch (Exception ex) {
+                        timeStr = timeStr.replace("T", " ").substring(0, 19);
+                    }
                 }
                 trade.put("time", timeStr);
 
