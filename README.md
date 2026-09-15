@@ -15,7 +15,7 @@
 
 | Стратегия | Описание |
 |---|---|
-| `RegimeAwareStrategy` | Основная стратегия с тремя типами сигналов (trend, fx, mixed), свечными паттернами, голосованием и режимом фильтрации рынка (Regime-Aware Filter) |
+| `UnifiedStrategy` | Основная стратегия с настраиваемым режим-фильтром (бывшие RegimeAwareStrategy + UnifiedStrategy) |
 
 ### Live-only стратегии (не участвуют в бэктесте)
 
@@ -124,8 +124,8 @@ cd GoldenDragon
 ### Запуск стратегии
 
 ```bash
-# Запуск RegimeAwareStrategy (основная)
-./gradlew runStrategy -Pstrategy=RegimeAwareStrategy
+# Запуск UnifiedStrategy (основная)
+./gradlew runStrategy -Pstrategy=UnifiedStrategy
 
 # Запуск TradeCouncilStrategy (AI с LLM-дебатами)
 ./gradlew runStrategyAI

@@ -7,6 +7,7 @@ import com.github.shk0da.goldendragon.model.TickerInfo;
 import com.github.shk0da.goldendragon.model.TickerType;
 import com.github.shk0da.goldendragon.model.TradingDecision;
 import com.github.shk0da.goldendragon.repository.TickerRepository;
+import com.github.shk0da.goldendragon.service.TradingService;
 import com.github.shk0da.goldendragon.strategy.BaseStrategy;
 import com.github.shk0da.goldendragon.strategy.StrategyRegistry;
 import com.github.shk0da.goldendragon.utils.PropertiesUtils;
@@ -81,7 +82,7 @@ public class BacktestRunner {
     private static final DateTimeFormatter DATE_FMT = DateTimeFormatter.ofPattern("dd.MM.yyyy");
     private static final DateTimeFormatter DATE_TIME_FMT =
         DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm:ss");
-    private static final int MIN_HOURS_REQUIRED = 60;
+    private static final int MIN_HOURS_REQUIRED = 10;
     private static final int MAX_CONCURRENT_POSITIONS = 8;
     private static final LocalTime WORK_START_TIME = LocalTime.of(8, 30);
     private static final LocalTime EOD_CLOSE_TIME = LocalTime.of(21, 0);
@@ -233,11 +234,11 @@ public class BacktestRunner {
         }
     }
 
-    private static class BacktestExecutionResult {
-        final Map<String, TickerPeriodResult> tickerResults;
-        final PortfolioPeriodResult portfolioResult;
+    public static class BacktestExecutionResult {
+        public final Map<String, TickerPeriodResult> tickerResults;
+        public final PortfolioPeriodResult portfolioResult;
 
-        BacktestExecutionResult(
+        public BacktestExecutionResult(
             Map<String, TickerPeriodResult> tickerResults,
             PortfolioPeriodResult portfolioResult) {
             this.tickerResults = tickerResults;
@@ -275,12 +276,21 @@ public class BacktestRunner {
     private final double slippage;
     private final double monthlyRebalanceAmount;
 
+    /**
+     * Default slippage for backtest (0.1% = 0.001).
+     * This is more realistic for MOEX market orders than the previous 0.05%.
+     * Can be overridden via system property: -Dbacktest.slippage=0.002
+     */
+    private static final double DEFAULT_SLIPPAGE = Double.parseDouble(
+        System.getProperty("backtest.slippage", "0.001")
+    );
+
     public BacktestRunner(
         String dataDir,
         double initialBalance,
         double commission,
         double monthlyRebalanceAmount) {
-        this(dataDir, initialBalance, commission, 0.0005, monthlyRebalanceAmount);
+        this(dataDir, initialBalance, commission, DEFAULT_SLIPPAGE, monthlyRebalanceAmount);
     }
 
     public BacktestRunner(
@@ -328,7 +338,7 @@ public class BacktestRunner {
     }
 
     public void run() throws IOException {
-        run(ALL_STRATEGIES.isEmpty() ? "RegimeAwareStrategy" : ALL_STRATEGIES.get(0));
+        run(ALL_STRATEGIES.isEmpty() ? "UnifiedStrategy" : ALL_STRATEGIES.get(0));
     }
 
     public void run(String strategyName) throws IOException {
@@ -581,11 +591,40 @@ public class BacktestRunner {
             }
             return periods;
         }
-        return getFullYearlyPeriods();
+        return getFullYearlyPeriodsWithOOS();
     }
 
     /**
      * Full 5-year yearly periods used for equity curve chart regardless of backtest.mode.
+     * Includes Out-of-Sample (OOS) validation split: first 4 years = In-Sample (train),
+     * last 12 months = Out-of-Sample (test) for overfitting detection.
+     */
+    private List<PeriodDefinition> getFullYearlyPeriodsWithOOS() {
+        java.time.LocalDate today = java.time.LocalDate.now();
+        List<PeriodDefinition> periods = new ArrayList<>();
+        int currentYear = today.getYear();
+        
+        // In-Sample periods (first 4 years - used for training/optimization)
+        for (int i = 4; i >= 1; i--) {
+            int year = currentYear - i;
+            String start = year + "-01-01";
+            String end = year + "-12-31";
+            String label = String.valueOf(year);
+            periods.add(new PeriodDefinition(start, end, label + " (IS)"));
+        }
+        
+        // Out-of-Sample period (last 12 months - used for validation)
+        // OOS starts 12 months ago from today
+        java.time.LocalDate oosStart = today.minusYears(1);
+        String oosStartStr = oosStart.toString();
+        String oosEndStr = today.toString();
+        periods.add(new PeriodDefinition(oosStartStr, oosEndStr, "OOS"));
+        
+        return periods;
+    }
+
+    /**
+     * Full 5-year yearly periods (legacy method, kept for backward compatibility).
      */
     private List<PeriodDefinition> getFullYearlyPeriods() {
         java.time.LocalDate today = java.time.LocalDate.now();
@@ -720,7 +759,7 @@ public class BacktestRunner {
         System.out.println("=".repeat(130));
     }
 
-    private BacktestExecutionResult execute(
+    BacktestExecutionResult execute(
         String strategyName,
         String start,
         String endExclusive,
@@ -756,12 +795,25 @@ public class BacktestRunner {
         }
 
         // Create broker - the SINGLE source of truth for cash/positions
-        SimulatedBroker broker = new SimulatedBroker(initialBalance, commission, slippage);
+        // Pass backtest configuration from UnifiedTraderConfig for parity with live trading
+        // Disable killSwitch in backtest (threshold=1.0 = never triggers) to prevent forced closures
+        SimulatedBroker broker = new SimulatedBroker(
+            initialBalance,
+            commission,
+            slippage,
+            1.0, // maxDrawdownThreshold disabled for backtest
+            config.getBacktestDefaultSlPercent(),
+            config.getBacktestDefaultTpPercent(),
+            config.getBacktestShortMarginRatio(),
+            config.getBacktestMaxConcurrentPositions()
+        );
         for (MarketDataLoadResult loadResult : loadedMarketData) {
             broker.loadCandles(loadResult.ticker, "HOUR", loadResult.hourCandles);
             broker.loadCandles(loadResult.ticker, "5_MIN", loadResult.marketData.minuteCandles);
         }
-        BaseStrategy.setBacktestBroker(broker);
+        // Create TradingService wrapper for backtest parity with live trading
+        BacktestTradingService backtestTradingService = new BacktestTradingService(broker);
+        BaseStrategy.setBacktestTradingService(backtestTradingService);
         BaseStrategy strategy = StrategyRegistry.createBacktest(strategyName, config);
         List<EquityPoint> portfolioEquity = new ArrayList<>();
         Map<String, List<TradeResult>> tradesByTicker = new LinkedHashMap<>();
@@ -780,11 +832,18 @@ public class BacktestRunner {
         int cooldownCandles = config.getCooldownCandles() > 0
             ? config.getCooldownCandles()
             : DEFAULT_COOLDOWN_BARS;
+        int lastProcessedTradeCount = 0;
+        long lastDailyResetDay = -1;
         for (String time : globalTimeline) {
             LocalDateTime currentTime = LocalDateTime.parse(time, DATE_TIME_FMT);
             long currentDay = currentTime.toLocalDate().toEpochDay();
             broker.setCurrentTime(currentTime);
             broker.tickCooldown();
+            // Money Management: reset daily limits at the start of each new trading day (live parity).
+            if (currentDay != lastDailyResetDay) {
+                strategy.onDailyReset();
+                lastDailyResetDay = currentDay;
+            }
             int currentMonth = currentTime.getMonthValue();
             if (currentMonth != lastRebalanceMonth) {
                 broker.deposit(monthlyRebalanceAmount);
@@ -822,7 +881,10 @@ public class BacktestRunner {
                 SimulatedBroker.SimulatedPosition brokerPos = broker.getPositionState(ticker);
                 Candle current = marketData.minuteCandles.get(idx);
                 if (brokerPos.hasOpenPosition() && !"TMON@".equals(ticker)) {
+                    int beforeSltp = broker.getTradeHistory().size();
                     ExecutionResult sltpResult = broker.checkStopLossTakeProfit(ticker, current);
+                    lastProcessedTradeCount =
+                            processNewClosedTrades(strategy, broker, beforeSltp, lastProcessedTradeCount);
                     if (sltpResult != null) {
                         brokerPos = broker.getPositionState(ticker);
                         brokerPos.cooldownRemaining = cooldownCandles;
@@ -838,11 +900,14 @@ public class BacktestRunner {
                         && !currentTime.toLocalTime().isBefore(EOD_CLOSE_TIME)
                         && lastEodCloseDayByTicker.getOrDefault(ticker, -1L) != currentDay
                         && !"TMON@".equals(ticker)) {
+                        int beforeEod = broker.getTradeHistory().size();
                         if (brokerPos.isLong()) {
                             broker.closeLong(ticker);
                         } else if (brokerPos.isShort()) {
                             broker.closeShort(ticker);
                         }
+                        lastProcessedTradeCount =
+                                processNewClosedTrades(strategy, broker, beforeEod, lastProcessedTradeCount);
                         brokerPos = broker.getPositionState(ticker);
                         brokerPos.cooldownRemaining = cooldownCandles;
                         lastEodCloseDayByTicker.put(ticker, currentDay);
@@ -867,6 +932,10 @@ public class BacktestRunner {
                 boolean hourChanged = brokerPos.hasOpenPosition() && seen != prevSeen;
                 lastSeenHourIdx.put(ticker, seen);
                 if (hourHistory.size() >= MIN_HOURS_REQUIRED) {
+                    int minuteFromIdx = lowerBound(
+                        marketData.minuteTimes,
+                        currentTime.minusHours(config.getLiveMinuteLookbackHours()));
+                    minuteFromIdx = Math.min(Math.max(0, minuteFromIdx), idx + 1);
                     Map<String, List<Candle>> currentPeerCandles = buildCurrentPeerCandles(
                         ticker, currentTime, allHourlyCandles, groupTickers, peerTimesMap, hourHistory, config);
                     strategy.setPeerCandles(currentPeerCandles.isEmpty() ? Collections.emptyMap() : currentPeerCandles);
@@ -879,14 +948,13 @@ public class BacktestRunner {
                         }
                     }
                     strategy.getPositionStore().put(ticker, brokerPos.position);
-                    int minuteFrom = lowerBound(
-                        marketData.minuteTimes,
-                        currentTime.minusHours(config.getLiveMinuteLookbackHours()));
-                    minuteFrom = Math.min(Math.max(0, minuteFrom), idx + 1);
                     TradingDecision decision = strategy.decide(
-                        ticker, hourHistory, marketData.minuteCandles.subList(minuteFrom, idx + 1),
+                        ticker, hourHistory, marketData.minuteCandles.subList(minuteFromIdx, idx + 1),
                         brokerPos.position, effectiveBalance, hourChanged);
+                    int beforeDecision = broker.getTradeHistory().size();
                     executeDecisionViaBroker(ticker, strategy, decision, current, broker, cooldownCandles);
+                    lastProcessedTradeCount =
+                            processNewClosedTrades(strategy, broker, beforeDecision, lastProcessedTradeCount);
                     brokerPos = broker.getPositionState(ticker);
                     strategy.getPositionStore().put(ticker, brokerPos.position);
                 }
@@ -898,11 +966,17 @@ public class BacktestRunner {
             }
             portfolioEquity.add(new EquityPoint(time, broker.getTotalPortfolioValue()));
         }
+        int beforePeriodEnd = broker.getTradeHistory().size();
         broker.closeAll("period_end");
+        lastProcessedTradeCount =
+                processNewClosedTrades(strategy, broker, beforePeriodEnd, lastProcessedTradeCount);
         // Close parking position: TMON@ uses closeTmonParking (parking-PnL accounting),
         // SPYUSDT is closed via closeAll above (normal position).
         if ("TMON@".equals(parkingTickerForBacktest)) {
+            int beforeParking = broker.getTradeHistory().size();
             broker.closeTmonParking(parkingTickerForBacktest, "period_end");
+            lastProcessedTradeCount =
+                    processNewClosedTrades(strategy, broker, beforeParking, lastProcessedTradeCount);
         }
         if (!globalTimeline.isEmpty()) {
             portfolioEquity.add(new EquityPoint(
@@ -922,6 +996,32 @@ public class BacktestRunner {
         }
         double finalPortfolioValue = broker.getTotalPortfolioValue();
         double finalSharedCash = broker.getSharedCash();
+        broker.printReconciliationDrift();
+        System.out.println("DBG finalPortfolioValue=" + finalPortfolioValue
+                + " finalSharedCash=" + finalSharedCash
+                + " openPositions=" + broker.getOpenPositionCount()
+                + " tradeRecords=" + broker.getTradeHistory().size());
+        
+        // Print trade exit reason statistics
+        Map<String, Long> exitReasons = new java.util.HashMap<>();
+        Map<String, Double> pnlByReason = new java.util.HashMap<>();
+        for (SimulatedBroker.BacktestTrade t : broker.getTradeHistory()) {
+            String reason = t.reason != null ? t.reason : "unknown";
+            exitReasons.merge(reason, 1L, Long::sum);
+            pnlByReason.merge(reason, t.pnl, Double::sum);
+        }
+        System.out.println("\nTRADE EXIT STATISTICS:");
+        exitReasons.entrySet().stream()
+            .sorted((a, b) -> Long.compare(b.getValue(), a.getValue()))
+            .forEach(e -> {
+                String reason = e.getKey();
+                long count = e.getValue();
+                double pnl = pnlByReason.get(reason);
+                double avgPnl = pnl / count;
+                System.out.printf("  %-20s: %5d trades (%5.1f%%), total PnL=%+8.2f, avg=%+6.2f%n",
+                    reason, count, 100.0 * count / broker.getTradeHistory().size(), pnl, avgPnl);
+            });
+        
         // Правка 7 (fix): прокидываем накопленный parking-PnL TMON@ в reconciliation.
         double tmonParkingPnl = broker.getTmonRealizedPnl();
         verifyBacktestTruth(
@@ -1062,6 +1162,39 @@ public class BacktestRunner {
             default:
                 return;
         }
+    }
+
+    /**
+     * Process new closed trades from the broker's trade history and notify the strategy
+     * (Money Management: RiskManager, AdaptiveCapital, KillSwitch, PerformanceTracker).
+     * Called after every broker close (SL/TP, EOD, strategy, period_end).
+     *
+     * @return the new trade history size (to be used as the next {@code lastProcessedTradeCount})
+     */
+    private int processNewClosedTrades(
+            BaseStrategy strategy,
+            SimulatedBroker broker,
+            int beforeCount,
+            int lastProcessedTradeCount) {
+        List<SimulatedBroker.BacktestTrade> history = broker.getTradeHistory();
+        int newCount = history.size();
+        if (newCount <= beforeCount) {
+            return newCount;
+        }
+        // Iterate only the newly added trades
+        for (int i = lastProcessedTradeCount; i < newCount; i++) {
+            SimulatedBroker.BacktestTrade trade = history.get(i);
+            if ("CLOSE".equals(trade.action) || "PARTIAL_CLOSE".equals(trade.action)) {
+                strategy.onTradeClosed(
+                        trade.ticker,
+                        trade.pnl,
+                        trade.entryPrice,
+                        trade.exitPrice,
+                        trade.quantity,
+                        trade.direction);
+            }
+        }
+        return newCount;
     }
 
     private List<Candle> loadDailyCandles(String ticker) {

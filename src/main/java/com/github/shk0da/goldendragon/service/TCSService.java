@@ -1235,17 +1235,13 @@ public class TCSService implements TradingService {
             return;
         }
 
-        if (mainConfig.isSandbox()) {
-            return;
-        }
-
         if (bracketPosition.stopLoss != null) {
             sleep(1_000);
             StopOrderDirection stopOrderDirection =
                 ORDER_DIRECTION_BUY == direction
                     ? STOP_ORDER_DIRECTION_SELL
                     : STOP_ORDER_DIRECTION_BUY;
-            double slPrice = (bracketPosition.entryPrice + bracketPosition.stopLoss) / 2.0;
+            double slPrice = bracketPosition.stopLoss;
             String stopOrderId = postMarketStopOrder(
                 figi,
                 orderId,
@@ -1269,7 +1265,7 @@ public class TCSService implements TradingService {
                     ? STOP_ORDER_DIRECTION_SELL
                     : STOP_ORDER_DIRECTION_BUY;
             if (quantity > 0 && bracketPosition.entryPrice != null) {
-                double tp2Price = (bracketPosition.entryPrice + bracketPosition.takeProfit) / 2.0;
+                double tp2Price = bracketPosition.takeProfit;
                 String tp2OrderId = postMarketStopOrder(
                     figi,
                     orderId,
@@ -1705,6 +1701,13 @@ public class TCSService implements TradingService {
                 .findFirst()
                 .orElse(BigDecimal.ZERO)
                 .doubleValue();
+    }
+
+    @Override
+    public double getInitialBalance() {
+        // Live trading: use current balance as there's no fixed initial balance
+        Double cash = getAvailableCash();
+        return cash != null ? cash : 0.0;
     }
 
     /** Applies ticker lot override from config if present. */

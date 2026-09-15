@@ -30,11 +30,11 @@ public class RiskManager {
     /**
      * Check if trading is allowed based on current limits.
      *
-     * @param equity current equity/balance
+     * @param initialBalance initial balance at start of day (for loss percentage calculation)
      * @return true if trading is allowed, false if limits reached
      */
-    public boolean canTrade(double equity) {
-        if (equity <= 0) {
+    public boolean canTrade(double initialBalance) {
+        if (initialBalance <= 0) {
             return false;
         }
 
@@ -43,9 +43,9 @@ public class RiskManager {
             return false;
         }
 
-        // Check daily loss
+        // Check daily loss relative to initial balance (not current equity)
         DailyStats stats = dailyStats.get();
-        double dailyLossPercent = Math.abs(stats.dailyPnL) / equity;
+        double dailyLossPercent = Math.abs(stats.dailyPnL) / initialBalance;
         if (stats.dailyPnL < 0 && dailyLossPercent >= maxDailyLossPercent) {
             return false;
         }

@@ -73,7 +73,7 @@ public class Config {
         this.cooldownCandles = 3;
 
         // Bad Weather Filter defaults
-        this.marketRegimeFilterEnabled = true;
+        this.marketRegimeFilterEnabled = false;
 
         this.badWeatherFilterEnabled = false; // Disabled by default
         this.badWeatherLowVolumeThreshold = 0.5;
@@ -136,7 +136,7 @@ public class Config {
         this.atrSpikeWindow = 10;
         this.cooldownCandles = 3;
 
-        this.marketRegimeFilterEnabled = true;
+        this.marketRegimeFilterEnabled = false;
 
         this.badWeatherFilterEnabled = badWeatherFilterEnabled;
         this.badWeatherLowVolumeThreshold = badWeatherLowVolumeThreshold;
@@ -210,7 +210,7 @@ public class Config {
         this.atrSpikeThreshold = 3.0;
         this.atrSpikeWindow = 10;
         this.cooldownCandles = 3;
-        this.marketRegimeFilterEnabled = true;
+        this.marketRegimeFilterEnabled = false;
         this.badWeatherFilterEnabled = false;
         this.badWeatherLowVolumeThreshold = 0.5;
         this.badWeatherLowAtrThreshold = 0.7;

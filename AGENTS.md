@@ -152,7 +152,7 @@ fix it before finishing. A Risk Engineer failure is a blocker regardless of othe
 ## Commands
 - Verify code changes: `./gradlew check`
 - Full build: `./gradlew clean uberJar`
-- Run Strategy (Tinkoff): `./gradlew runStrategy -Pstrategy=RegimeAwareStrategy`
+- Run Strategy (Tinkoff): `./gradlew runStrategy -Pstrategy=UnifiedStrategy`
 - Run Backtest (Tinkoff): `./gradlew runBacktest`
 - Data collection: `./gradlew dataCollect`
 

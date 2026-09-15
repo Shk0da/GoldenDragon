@@ -254,6 +254,14 @@ public interface TradingService {
     }
 
     /**
+     * Returns the initial balance (for backtest position sizing based on starting capital).
+     * Default returns 0.0 (live trading uses current balance).
+     */
+    default double getInitialBalance() {
+        return 0.0;
+    }
+
+    /**
      * Returns the total portfolio value.
      */
     default double getTotalPortfolioCost() {
@@ -449,5 +457,51 @@ public interface TradingService {
      */
     default List<Map<String, Object>> getTradeHistory(Instant since) {
         return java.util.Collections.emptyList();
+    }
+
+    // ========================================================================
+    // OrderExecutor compatibility methods (for backtest parity)
+    // ========================================================================
+
+    /**
+     * Execute a market buy order with SL/TP percentages.
+     */
+    default OrderExecutionResult buy(String ticker, int quantity, Double stopLossPercent, Double takeProfitPercent) {
+        return null;
+    }
+
+    /**
+     * Execute a market sell order (for short positions) with SL/TP percentages.
+     */
+    default OrderExecutionResult sell(String ticker, int quantity, Double stopLossPercent, Double takeProfitPercent) {
+        return null;
+    }
+
+    /**
+     * Close a long position.
+     */
+    default OrderExecutionResult closeLong(String ticker) {
+        return null;
+    }
+
+    /**
+     * Close a short position.
+     */
+    default OrderExecutionResult closeShort(String ticker) {
+        return null;
+    }
+
+    /**
+     * Partially close a long position.
+     */
+    default OrderExecutionResult partialCloseLong(String ticker, int quantity) {
+        return null;
+    }
+
+    /**
+     * Partially close a short position.
+     */
+    default OrderExecutionResult partialCloseShort(String ticker, int quantity) {
+        return null;
     }
 }

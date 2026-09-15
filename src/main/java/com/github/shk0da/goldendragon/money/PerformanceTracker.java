@@ -52,9 +52,23 @@ public class PerformanceTracker {
         return (double) (peak - current) / peak;
     }
 
+    /**
+     * Update current equity and track peak.
+     * This must be called whenever portfolio equity changes to enable proper drawdown tracking.
+     *
+     * @param equity current portfolio equity
+     */
+    public void updateEquity(double equity) {
+        long equityLong = (long) equity;
+        currentEquity.set(equityLong);
+        peakEquity.updateAndGet(peak -> Math.max(peak, equityLong));
+    }
+
     /** Reset session statistics. */
     public void resetSession() {
         sessionStats.set(new SessionStats());
+        peakEquity.set(0);
+        currentEquity.set(0);
     }
 
     /** Immutable session statistics holder. */

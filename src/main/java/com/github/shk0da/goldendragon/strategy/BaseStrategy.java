@@ -22,6 +22,7 @@ import com.github.shk0da.goldendragon.money.TmonCashParkingMonitor;
 import com.github.shk0da.goldendragon.repository.CandleRepository;
 import com.github.shk0da.goldendragon.repository.TickerRepository;
 import com.github.shk0da.goldendragon.service.TradingService;
+import com.github.shk0da.goldendragon.service.TradingServiceCache;
 import com.github.shk0da.goldendragon.time.LiveTimeProvider;
 import com.github.shk0da.goldendragon.time.TimeProvider;
 import com.github.shk0da.goldendragon.ui.DashboardServer;
@@ -218,6 +219,8 @@ import static java.util.concurrent.CompletableFuture.runAsync;
 
     /** Backtest broker for parity with live trading (injected via setBacktestBroker). */
     protected static OrderExecutor backtestBroker;
+    /** Backtest TradingService wrapper (injected via setBacktestTradingService). */
+    protected static TradingService backtestTradingService;
     protected final BadWeatherFilter badWeatherFilter;
     protected final MarketRegimeFilter marketRegimeFilter;
 
@@ -254,17 +257,27 @@ import static java.util.concurrent.CompletableFuture.runAsync;
     /**
      * Set backtest broker for all strategies.
      * Called by BacktestRunner before starting simulation.
+     * @deprecated Use setBacktestTradingService instead for full TradingService parity
      */
+    @Deprecated
     public static void setBacktestBroker(OrderExecutor broker) {
         BaseStrategy.backtestBroker = broker;
     }
 
     /**
+     * Set backtest TradingService for all strategies.
+     * Called by BacktestRunner before starting simulation.
+     */
+    public static void setBacktestTradingService(TradingService service) {
+        BaseStrategy.backtestTradingService = service;
+    }
+
+    /**
      * Check if currently running in backtest mode.
-     * @return true if backtest broker is set (backtest is running)
+     * @return true if backtest broker or trading service is set
      */
     protected static boolean isBacktestMode() {
-        return backtestBroker != null;
+        return backtestBroker != null || backtestTradingService != null;
     }
 
     protected BaseStrategy(
@@ -290,13 +303,16 @@ import static java.util.concurrent.CompletableFuture.runAsync;
             MainConfig mainConfig) {
         this.config = config;
         this.mainConfig = mainConfig;
-        this.tradingService = tradingService;
+        // Use backtestTradingService if set (backtest mode), otherwise wrap live service with cache
+        this.tradingService = backtestTradingService != null
+                ? backtestTradingService
+                : new TradingServiceCache(tradingService);
         this.unifiedTraderConfig = unifiedTraderConfig;
         this.timeProvider = timeProvider != null ? timeProvider : new LiveTimeProvider();
 
-        this.marketDataProvider = new LiveMarketDataProvider(tradingService);
-        this.orderExecutor = new LiveOrderExecutor(tradingService);
-        this.cashParkingManager = new CashParkingManager(tradingService, marketDataProvider, positionStore);
+        this.marketDataProvider = new LiveMarketDataProvider(this.tradingService);
+        this.orderExecutor = new LiveOrderExecutor(this.tradingService);
+        this.cashParkingManager = new CashParkingManager(this.tradingService, marketDataProvider, positionStore);
 
         boolean bwFilterEnabled =
                 unifiedTraderConfig != null
@@ -1303,7 +1319,7 @@ import static java.util.concurrent.CompletableFuture.runAsync;
      * Callback for trade closure (for Money Management integration). Override in subclasses to
      * register trade results.
      */
-    protected void onTradeClosed(
+    public void onTradeClosed(
             String ticker,
             double pnl,
             double entryPrice,
@@ -1327,7 +1343,7 @@ import static java.util.concurrent.CompletableFuture.runAsync;
      * Callback for daily reset (for Money Management integration). Override in subclasses to reset
      * daily limits.
      */
-    protected void onDailyReset() {
+    public void onDailyReset() {
         // Default: no-op. Override in UnifiedStrategy for MM integration.
     }
 

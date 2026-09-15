@@ -129,7 +129,7 @@ public class TradeCouncilStrategy extends BaseStrategy {
     }
 
     @Override
-    protected void onDailyReset() {
+    public void onDailyReset() {
         log("TradeCouncilStrategy: Daily reset - clearing price history");
         lastPrices.clear();
     }

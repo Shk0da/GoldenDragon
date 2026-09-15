@@ -70,6 +70,16 @@ public interface OrderExecutor {
     double getAvailableCash();
 
     /**
+     * Get initial balance (for backtest position sizing based on starting capital).
+     * Live trading returns 0.0 (use current balance).
+     *
+     * @return initial balance or 0.0 for live
+     */
+    default double getInitialBalance() {
+        return 0.0;
+    }
+
+    /**
      * Container for order execution results.
      */
     public static class ExecutionResult {

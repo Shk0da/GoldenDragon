@@ -20,9 +20,11 @@ dependencies {
     implementation 'org.jsoup:jsoup:1.15.3'
     implementation 'org.jfree:jfreechart:1.0.19'
     implementation 'com.fasterxml.jackson.datatype:jackson-datatype-jsr310:2.13.4'
+    implementation 'com.github.ben-manes.caffeine:caffeine:3.1.8'
 
     testImplementation 'org.junit.jupiter:junit-jupiter:5.9.3'
     testImplementation 'org.assertj:assertj-core:3.24.2'
+    testImplementation 'org.mockito:mockito-core:5.3.1'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 }
 
@@ -67,7 +69,7 @@ task runStrategy(type: JavaExec) {
     // utf-8 console output so cyrillic survives redirection to a file
     jvmArgs '--add-opens', 'java.base/java.time=ALL-UNNAMED',
             '-Dstdout.encoding=UTF-8', '-Dstderr.encoding=UTF-8'
-    def strategyName = project.findProperty('strategy') ?: 'RegimeAwareStrategy'
+    def strategyName = project.findProperty('strategy') ?: 'UnifiedStrategy'
     args strategyName
 }
 

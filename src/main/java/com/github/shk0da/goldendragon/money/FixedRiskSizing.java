@@ -37,6 +37,9 @@ public class FixedRiskSizing implements SizingStrategy {
 
         // Calculate position size based on risk
         double riskAmount = balance * riskPercent;
+        if (riskAmount <= 0) {
+            return 0;
+        }
         double qty = riskAmount / stopDistance;
 
         // Cap by max position size (% of capital)

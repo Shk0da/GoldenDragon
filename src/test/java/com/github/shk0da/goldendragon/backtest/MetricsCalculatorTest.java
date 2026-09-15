@@ -253,6 +253,98 @@ class MetricsCalculatorTest {
     }
 
     // =====================================================
+    // Value at Risk (VaR)
+    // =====================================================
+
+    @Test
+    void calculateHistoricalVaR_withKnownReturns_returnsExpected() {
+        // Returns: [0.02, -0.01, 0.03, 0.01, -0.02]
+        // Sorted: [-0.02, -0.01, 0.01, 0.02, 0.03]
+        // For 95% confidence: index = ceil(0.05 * 5) - 1 = ceil(0.25) - 1 = 1 - 1 = 0
+        // VaR = -(-0.02) = 0.02 (2% loss at 95% confidence)
+        List<Double> returns = Arrays.asList(0.02, -0.01, 0.03, 0.01, -0.02);
+        double var = MetricsCalculator.calculateHistoricalVaR(returns, 0.95);
+        assertThat(var).isCloseTo(0.02, within(EPSILON));
+    }
+
+    @Test
+    void calculateHistoricalVaR_withLargerDataset_returnsExpected() {
+        // 100 returns with known distribution
+        List<Double> returns = new ArrayList<>();
+        for (int i = 0; i < 100; i++) {
+            returns.add((i - 50) * 0.001); // Returns from -0.05 to 0.049
+        }
+        // For 95% confidence: index = ceil(0.05 * 100) - 1 = 5 - 1 = 4
+        // returns[4] = (4 - 50) * 0.001 = -0.046
+        // VaR = -(-0.046) = 0.046
+        double var = MetricsCalculator.calculateHistoricalVaR(returns, 0.95);
+        assertThat(var).isCloseTo(0.046, within(0.001));
+    }
+
+    @Test
+    void calculateHistoricalVaR_insufficientData_returnsZero() {
+        assertThat(MetricsCalculator.calculateHistoricalVaR(Collections.singletonList(0.01), 0.95))
+            .isEqualTo(0.0);
+        assertThat(MetricsCalculator.calculateHistoricalVaR(null, 0.95))
+            .isEqualTo(0.0);
+        assertThat(MetricsCalculator.calculateHistoricalVaR(Collections.emptyList(), 0.95))
+            .isEqualTo(0.0);
+    }
+
+    @Test
+    void calculateHistoricalVaR_invalidConfidence_throwsException() {
+        assertThatThrownBy(() -> MetricsCalculator.calculateHistoricalVaR(Arrays.asList(0.01, 0.02), 1.5))
+            .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> MetricsCalculator.calculateHistoricalVaR(Arrays.asList(0.01, 0.02), -0.1))
+            .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void calculateParametricVaR_withKnownReturns_returnsExpected() {
+        // Returns: [0.02, -0.01, 0.03, 0.01, -0.02]
+        // mean = 0.006
+        // variance (sample) = sum((r - mean)^2) / (n-1) = 0.00172 / 4 = 0.00043
+        // stdDev = sqrt(0.00043) ≈ 0.020736
+        // For 95% confidence: zScore = 1.645
+        // VaR = 1.645 * 0.020736 - 0.006 ≈ 0.03411 - 0.006 = 0.02811
+        List<Double> returns = Arrays.asList(0.02, -0.01, 0.03, 0.01, -0.02);
+        double var = MetricsCalculator.calculateParametricVaR(returns, 0.95);
+        assertThat(var).isCloseTo(0.028, within(0.005));
+    }
+
+    @Test
+    void calculateParametricVaR_insufficientData_returnsZero() {
+        assertThat(MetricsCalculator.calculateParametricVaR(Collections.singletonList(0.01), 0.95))
+            .isEqualTo(0.0);
+        assertThat(MetricsCalculator.calculateParametricVaR(null, 0.95))
+            .isEqualTo(0.0);
+        assertThat(MetricsCalculator.calculateParametricVaR(Collections.emptyList(), 0.95))
+            .isEqualTo(0.0);
+    }
+
+    @Test
+    void calculateParametricVaR_invalidConfidence_throwsException() {
+        assertThatThrownBy(() -> MetricsCalculator.calculateParametricVaR(Arrays.asList(0.01, 0.02), 1.5))
+            .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> MetricsCalculator.calculateParametricVaR(Arrays.asList(0.01, 0.02), -0.1))
+            .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void calculateParametricVaR_differentConfidenceLevels_returnsExpected() {
+        List<Double> returns = Arrays.asList(0.02, -0.01, 0.03, 0.01, -0.02, 0.015, -0.005, 0.025);
+        
+        // Higher confidence should give higher VaR (more conservative)
+        double var90 = MetricsCalculator.calculateParametricVaR(returns, 0.90);
+        double var95 = MetricsCalculator.calculateParametricVaR(returns, 0.95);
+        double var99 = MetricsCalculator.calculateParametricVaR(returns, 0.99);
+        
+        assertThat(var99).isGreaterThan(var95);
+        assertThat(var95).isGreaterThan(var90);
+        assertThat(var90).isPositive();
+    }
+
+    // =====================================================
     // Helpers
     // =====================================================
 

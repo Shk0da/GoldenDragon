@@ -43,16 +43,16 @@ public class SimulatedBroker implements MarketDataProvider, OrderExecutor {
     private static final DateTimeFormatter DATE_TIME_FMT =
             DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm:ss");
 
-    /** Default SL % below/above entry for long/short when strategy provides none. */
-    private static final double DEFAULT_SL_PERCENT = 2.0;
+    /** Default SL % below/above entry for long/short when strategy provides none. Configurable via UnifiedTraderConfig. */
+    private final double defaultSlPercent;
 
-    /** Default TP % above/below entry for long/short when strategy provides none. */
-    private static final double DEFAULT_TP_PERCENT = 4.0;
+    /** Default TP % above/below entry for long/short when strategy provides none. Configurable via UnifiedTraderConfig. */
+    private final double defaultTpPercent;
 
-    /** Margin ratio posted for short positions (mirrors live 30%). */
-    private static final double SHORT_MARGIN_RATIO = 0.30;
+    /** Margin ratio posted for short positions (mirrors live 30%). Configurable via UnifiedTraderConfig. */
+    private final double shortMarginRatio;
 
-    private static final int MAX_CONCURRENT_POSITIONS = 8;
+    private final int maxConcurrentPositions;
 
     /**
      * Get the cash parking ticker based on the instrument type.
@@ -76,6 +76,24 @@ public class SimulatedBroker implements MarketDataProvider, OrderExecutor {
 
     private final double initialBalance;
     private volatile double sharedCash;
+    /** Diagnostic: totals of recorded trade pnl vs raw cash movements (to find reconciliation drift). */
+    private double recordedTradePnl = 0.0;
+    private double unrecordedCashDelta = 0.0;
+    private double allCashMutations = 0.0;
+    private double lastSharedCash = 0.0;
+    private double tmonCashFlow = 0.0;
+    private double totalCloseCashDelta = 0.0;
+    private double totalCloseCashMinusPnl = 0.0;
+    private int closeCount = 0;
+    private int partialCloseCount = 0;
+    private double totalOpenDeduction = 0.0;
+    private int openCount = 0;
+    private final Map<String, Double> closeCashMinusPnlByReason = new ConcurrentHashMap<>();
+    private final Map<String, Integer> closeCountByReason = new ConcurrentHashMap<>();
+    /** Per-ticker tracking for debugging reconciliation drift. */
+    private final Map<String, Double> openDeductionByTicker = new ConcurrentHashMap<>();
+    private final Map<String, Double> closeCashByTicker = new ConcurrentHashMap<>();
+    private final Map<String, Double> recordedPnlByTicker = new ConcurrentHashMap<>();
     private final Map<String, SimulatedPosition> positions = new ConcurrentHashMap<>();
     private final Map<String, Map<String, List<Candle>>> candlesByTickerAndInterval =
             new ConcurrentHashMap<>();
@@ -148,13 +166,26 @@ public class SimulatedBroker implements MarketDataProvider, OrderExecutor {
     }
 
     public SimulatedBroker(double initialBalance, double commissionRate, double slippage, double maxDrawdownThreshold) {
+        this(initialBalance, commissionRate, slippage, maxDrawdownThreshold,
+             2.0, 4.0, 0.30, 8);
+    }
+
+    public SimulatedBroker(double initialBalance, double commissionRate, double slippage,
+                           double maxDrawdownThreshold,
+                           double defaultSlPercent, double defaultTpPercent,
+                           double shortMarginRatio, int maxConcurrentPositions) {
         this.initialBalance = initialBalance;
         this.sharedCash = initialBalance;
+        this.lastSharedCash = initialBalance;
         this.commissionRate = commissionRate;
         this.slippage = slippage;
         this.maxDrawdownThreshold = maxDrawdownThreshold;
         this.portfolioPeak = initialBalance;
         this.killSwitchTriggered = false;
+        this.defaultSlPercent = defaultSlPercent;
+        this.defaultTpPercent = defaultTpPercent;
+        this.shortMarginRatio = shortMarginRatio;
+        this.maxConcurrentPositions = maxConcurrentPositions;
     }
 
     /**
@@ -291,6 +322,8 @@ public class SimulatedBroker implements MarketDataProvider, OrderExecutor {
     public void deposit(double amount) {
         if (amount != 0.0) {
             sharedCash += amount;
+            recordUnrecordedCash(amount);  // deposit (external funds)
+            noteMutation();
         }
     }
 
@@ -468,8 +501,8 @@ public class SimulatedBroker implements MarketDataProvider, OrderExecutor {
             return ExecutionResult.failed("Position already exists for " + ticker);
         }
         // E1: MAX_CONCURRENT checked here (single point) — TMON@ excluded from limit
-        if (!isTmonParking(ticker) && getOpenPositionCount() >= MAX_CONCURRENT_POSITIONS) {
-            return ExecutionResult.failed("Max concurrent positions (" + MAX_CONCURRENT_POSITIONS + ") reached");
+        if (!isTmonParking(ticker) && getOpenPositionCount() >= maxConcurrentPositions) {
+            return ExecutionResult.failed("Max concurrent positions (" + maxConcurrentPositions + ") reached");
         }
 
         Candle bar = getCurrentCandle(ticker, "5_MIN");
@@ -491,13 +524,20 @@ public class SimulatedBroker implements MarketDataProvider, OrderExecutor {
 
         // Adjust back to actual execution (without safety margin) for accurate PnL
         entryNotional = entryNotional / ORDER_QUANTITY_SAFETY_MARGIN;
-        sharedCash -= (entryNotional + commission);
+        double openDeduction = entryNotional + commission;
+        sharedCash -= openDeduction;
+        if (!isTmonParking(ticker)) {
+            totalOpenDeduction += openDeduction;
+            openCount++;
+            openDeductionByTicker.merge(ticker, openDeduction, Double::sum);
+        }
+        noteMutation();
         pos.lotSize = lotSize;
 
         // Use SL/TP prices directly (parity with live TCS stop-orders)
         // If not provided, use defaults (2% SL / 4% TP)
-        double sl = stopLossPrice != null ? stopLossPrice : rawPrice * (1.0 - DEFAULT_SL_PERCENT / 100.0);
-        double tp = takeProfitPrice != null ? takeProfitPrice : rawPrice * (1.0 + DEFAULT_TP_PERCENT / 100.0);
+        double sl = stopLossPrice != null ? stopLossPrice : rawPrice * (1.0 - defaultSlPercent / 100.0);
+        double tp = takeProfitPrice != null ? takeProfitPrice : rawPrice * (1.0 + defaultTpPercent / 100.0);
 
         pos.position = new Position(
                 "BUY", slippedEntry, sl, tp, null, quantity, 0, 0, 1, false);
@@ -526,8 +566,8 @@ public class SimulatedBroker implements MarketDataProvider, OrderExecutor {
             return ExecutionResult.failed("Position already exists for " + ticker);
         }
         // E1: MAX_CONCURRENT checked here (single point) — TMON@ excluded from limit
-        if (!isTmonParking(ticker) && getOpenPositionCount() >= MAX_CONCURRENT_POSITIONS) {
-            return ExecutionResult.failed("Max concurrent positions (" + MAX_CONCURRENT_POSITIONS + ") reached");
+        if (!isTmonParking(ticker) && getOpenPositionCount() >= maxConcurrentPositions) {
+            return ExecutionResult.failed("Max concurrent positions (" + maxConcurrentPositions + ") reached");
         }
 
         Candle bar = getCurrentCandle(ticker, "5_MIN");
@@ -540,7 +580,7 @@ public class SimulatedBroker implements MarketDataProvider, OrderExecutor {
 
         double slippedEntry = rawPrice * (1.0 - slippage);
         double entryNotional = notional(quantity, lotSize, slippedEntry) * ORDER_QUANTITY_SAFETY_MARGIN;
-        double marginRequired = entryNotional * SHORT_MARGIN_RATIO;
+        double marginRequired = entryNotional * shortMarginRatio;
         double commission = entryNotional * getEffectiveCommission(ticker);
         if (marginRequired + commission > sharedCash) {
             return ExecutionResult.failed(
@@ -550,17 +590,21 @@ public class SimulatedBroker implements MarketDataProvider, OrderExecutor {
 
         // Adjust back to actual execution (without safety margin) for accurate PnL
         entryNotional = entryNotional / ORDER_QUANTITY_SAFETY_MARGIN;
-        marginRequired = entryNotional * SHORT_MARGIN_RATIO;
-        
+        marginRequired = entryNotional * shortMarginRatio;
+
         // Post margin at open, return it at close
-        sharedCash -= (marginRequired + commission);
+        double openDeduction = marginRequired + commission;
+        sharedCash -= openDeduction;
+        totalOpenDeduction += openDeduction;
+        openCount++;
+        noteMutation();
         pos.lotSize = lotSize;
 
         // Use SL/TP prices directly (parity with live TCS stop-orders)
         // For short: SL above entry, TP below entry
         // If not provided, use defaults (2% SL / 4% TP)
-        double sl = stopLossPrice != null ? stopLossPrice : rawPrice * (1.0 + DEFAULT_SL_PERCENT / 100.0);
-        double tp = takeProfitPrice != null ? takeProfitPrice : rawPrice * (1.0 - DEFAULT_TP_PERCENT / 100.0);
+        double sl = stopLossPrice != null ? stopLossPrice : rawPrice * (1.0 + defaultSlPercent / 100.0);
+        double tp = takeProfitPrice != null ? takeProfitPrice : rawPrice * (1.0 - defaultTpPercent / 100.0);
 
         pos.position = new Position(
                 "SELL", slippedEntry, sl, tp, null, quantity, 0, 0, 1, false);
@@ -638,9 +682,15 @@ public class SimulatedBroker implements MarketDataProvider, OrderExecutor {
         double commission = exitPrice * quantity * pos.lotSize * getEffectiveCommission(ticker);
         double proceeds = exitPrice * quantity * pos.lotSize - commission;
         double entryValue = pos.entryPrice * quantity * pos.lotSize;
-        double pnl = proceeds - entryValue;
+        // Allocate entry commission proportionally (parity with partialCloseAtFirstTp)
+        double entryCommissionTotal = notional(pos.position.quantity, pos.lotSize, pos.entryPrice) * getEffectiveCommission(ticker);
+        double allocatedEntryCommission = entryCommissionTotal * ((double) quantity / pos.position.quantity);
+        double pnl = proceeds - entryValue - allocatedEntryCommission;
         
         sharedCash += proceeds;
+        totalCloseCashDelta += proceeds;
+        partialCloseCount++;
+        noteMutation();
         pos.position = new Position(
                 pos.position.direction,
                 pos.entryPrice,
@@ -656,6 +706,7 @@ public class SimulatedBroker implements MarketDataProvider, OrderExecutor {
         tradeHistory.add(new BacktestTrade(
                 ticker, "SELL", "PARTIAL_CLOSE", pos.entryPrice, exitPrice, quantity,
                 pnl, commission, "partial_close", bar.time, barIndex(ticker, bar)));
+        recordTradePnl(pnl);
         
         return ExecutionResult.success(quantity, exitPrice);
     }
@@ -677,11 +728,23 @@ public class SimulatedBroker implements MarketDataProvider, OrderExecutor {
         int remainingQty = Math.abs(pos.position.quantity) - quantity;
         double exitPrice = bar.close;
         double commission = exitPrice * quantity * pos.lotSize * getEffectiveCommission(ticker);
-        double proceeds = exitPrice * quantity * pos.lotSize - commission;
         double entryValue = pos.entryPrice * quantity * pos.lotSize;
-        double pnl = entryValue - proceeds;
+        // Allocate entry commission proportionally (parity with partialCloseAtFirstTp)
+        double entryCommissionTotal = notional(Math.abs(pos.position.quantity), pos.lotSize, pos.entryPrice) * getEffectiveCommission(ticker);
+        double allocatedEntryCommission = entryCommissionTotal * ((double) quantity / Math.abs(pos.position.quantity));
+        double grossPnlPartial = entryValue - notional(quantity, pos.lotSize, exitPrice);
+        double pnl = grossPnlPartial - allocatedEntryCommission - commission;
         
-        sharedCash += proceeds;
+        // Short partial close: return freed margin + realized gross PnL for the closed
+        // portion, and scale the remaining margin down (parity with partialCloseAtFirstTp).
+        // Exit commission is paid on the buy-to-cover; entry commission was paid at open.
+        double freedMargin = pos.postedMargin * ((double) quantity / Math.abs(pos.position.quantity));
+        double cashAdded = freedMargin + grossPnlPartial - commission;
+        sharedCash += cashAdded;
+        pos.postedMargin -= freedMargin;
+        totalCloseCashDelta += cashAdded;
+        partialCloseCount++;
+        noteMutation();
         pos.position = new Position(
                 pos.position.direction,
                 pos.entryPrice,
@@ -697,6 +760,7 @@ public class SimulatedBroker implements MarketDataProvider, OrderExecutor {
         tradeHistory.add(new BacktestTrade(
                 ticker, "BUY", "PARTIAL_CLOSE", pos.entryPrice, exitPrice, quantity,
                 pnl, commission, "partial_close", bar.time, barIndex(ticker, bar)));
+        recordTradePnl(pnl);
         
         return ExecutionResult.success(quantity, exitPrice);
     }
@@ -728,7 +792,13 @@ public class SimulatedBroker implements MarketDataProvider, OrderExecutor {
     }
 
     /**
-     * Check SL/TP on the given bar and close position if triggered.
+     * Fraction of the position closed at the first take-profit level (TP1). The remaining
+     * fraction is left open and managed by the second take-profit level (TP2) / trailing stop.
+     */
+    private static final double TP1_CLOSE_FRACTION = 0.6;
+
+    /**
+     * Check SL/TP on the given bar and close (or partially close) the position if triggered.
      *
      * <p><b>Parity with live TCS:</b> In live trading, protective orders are posted as
      * {@code EXCHANGE_ORDER_TYPE_MARKET} stop-orders. When the trigger price is touched,
@@ -736,13 +806,22 @@ public class SimulatedBroker implements MarketDataProvider, OrderExecutor {
      * NOT exactly at the stop level. This method replicates that behavior by using
      * {@code currentBar.close} as the fill price (market price at trigger moment).</p>
      *
+     * <p><b>Two-level take-profit lifecycle:</b> A fresh position carries {@code takeProfit}
+     * (TP1) and {@code takeProfit2} (TP2). When TP1 is touched the first time, {@link
+     * #TP1_CLOSE_FRACTION} (60%) of the position is closed and the remainder is rebuilt with a
+     * breakeven stop and {@code takeProfit2} as its new take-profit ({@code partialClosed=true}).
+     * On subsequent bars the remainder closes fully when TP2 (now {@code takeProfit}) or the stop
+     * is touched.</p>
+     *
      * <p><b>Invariant (Block 9.1):</b> Does NOT check cooldownRemaining — SL/TP triggers even
      * immediately after entry. This ensures positions are properly protected from the first bar.</p>
      *
-     * <p><b>Risk Engineer priority:</b> When both SL and TP are hit on the same bar
-     * (unknowable intrabar sequence), execution occurs at SL (pessimistic choice).</p>
+     * <p><b>Risk Engineer priority:</b> When both stop-loss and take-profit on the same bar
+     * (unknowable intrabar sequence), execution occurs at the stop-loss (pessimistic choice).
+     * TP1 is only partially closed; the second level (TP2) is checked on later bars to avoid an
+     * optimistic intrabar double fill.</p>
      *
-     * @return execution result if the position was closed, or null if none triggered
+     * @return execution result if the position was closed/partially closed, or null if none triggered
      */
     public ExecutionResult checkStopLossTakeProfit(String ticker, Candle currentBar) {
         SimulatedPosition pos = positions.get(ticker);
@@ -755,17 +834,90 @@ public class SimulatedBroker implements MarketDataProvider, OrderExecutor {
         boolean isLong = pos.isLong();
         Double sl = pos.position.stopLoss;
         Double tp = pos.position.takeProfit;
+        Double tp2 = pos.position.takeProfit2;
+
         boolean slHit = sl != null && (isLong ? currentBar.low <= sl : currentBar.high >= sl);
         boolean tpHit = tp != null && (isLong ? currentBar.high >= tp : currentBar.low <= tp);
-        if (!slHit && !tpHit) {
+
+        // Pessimistic: stop-loss takes precedence over take-profit on the same bar.
+        if (slHit) {
+            return closePosition(ticker, pos, currentBar.close, currentBar.time, "sl_hit");
+        }
+        if (!tpHit) {
             return null;
         }
-        // Pessimistic: if both hit, close at SL first (matches Risk Engineer priority)
-        // Parity with live TCS: execute at market price (bar close), not at SL/TP level
-        double exitPrice = currentBar.close;
-        String reason = slHit ? "sl_hit" : "tp_hit";
-        // closePosition applies slippage internally to the market price
-        return closePosition(ticker, pos, exitPrice, currentBar.time, reason);
+
+        // Position already partially closed: takeProfit now holds the original TP2.
+        if (pos.position.partialClosed) {
+            return closePosition(ticker, pos, currentBar.close, currentBar.time, "tp2_hit");
+        }
+
+        // Fresh position: TP2 hit before TP1 partial-close occurred — close the whole remainder
+        // at TP2 in one shot (single-level TP behavior, no TP2 separation configured).
+        boolean tpHit2 = tp2 != null && (isLong ? currentBar.high >= tp2 : currentBar.low <= tp2);
+        if (tp2 != null && tpHit2) {
+            return closePosition(ticker, pos, currentBar.close, currentBar.time, "tp2_hit_full");
+        }
+
+        // TP1 hit: partial close, rebuild the remainder with breakeven stop and TP2.
+        return partialCloseAtFirstTp(ticker, pos, currentBar, isLong);
+    }
+
+    /**
+     * Partial close of {@link #TP1_CLOSE_FRACTION} of the position when the first take-profit
+     * level (TP1) is touched. The remainder keeps the same entry price but transitions to a
+     * breakeven stop and the original second take-profit ({@code takeProfit2}) as its new
+     * take-profit target ({@code partialClosed=true}).
+     */
+    private ExecutionResult partialCloseAtFirstTp(
+            String ticker, SimulatedPosition pos, Candle bar, boolean isLong) {
+        int totalQty = pos.position.quantity;
+        int closeQty = Math.max(1, (int) Math.round(totalQty * TP1_CLOSE_FRACTION));
+        int remainingQty = totalQty - closeQty;
+        if (remainingQty <= 0) {
+            return closePosition(ticker, pos, bar.close, bar.time, "tp1_full");
+        }
+
+        double exitPrice = bar.close;
+        double exitCommission =
+                exitPrice * closeQty * pos.lotSize * getEffectiveCommission(ticker);
+        // Allocate entry commission proportionally to partial close (parity with closePosition pnl accounting)
+        double entryPrice = pos.entryPrice;
+        double entryCommissionTotal = notional(totalQty, pos.lotSize, entryPrice) * getEffectiveCommission(ticker);
+        double allocatedEntryCommission = entryCommissionTotal * ((double) closeQty / totalQty);
+        
+        double proceeds = notional(closeQty, pos.lotSize, exitPrice) - exitCommission;
+        double entryValue = notional(closeQty, pos.lotSize, entryPrice);
+        // For longs: proceeds includes exit commission deduction. For shorts: entryValue - proceeds
+        // would add exit commission (wrong), so we compute grossPnl directly and subtract commissions.
+        double grossPnlPartial = isLong ? (notional(closeQty, pos.lotSize, exitPrice) - entryValue)
+                                        : (entryValue - notional(closeQty, pos.lotSize, exitPrice));
+        double pnl = grossPnlPartial - allocatedEntryCommission - exitCommission;
+        String direction = pos.position.direction;
+
+        if (isLong) {
+            sharedCash += proceeds;
+        } else {
+            // Short: open posts only margin (30% of notional). A short partial close must
+            // return freed margin + realized gross PnL for the closed portion, and scale the
+            // remaining position's margin down to its remaining quantity. Exit commission
+            // is paid on the buy-to-cover; entry commission was already paid at open.
+            double freedMargin = pos.postedMargin * ((double) closeQty / totalQty);
+            sharedCash += freedMargin + grossPnlPartial - exitCommission;
+            pos.postedMargin -= freedMargin;
+        }
+        totalCloseCashDelta += proceeds;
+        partialCloseCount++;
+        noteMutation();
+        // Rebuild the remainder: breakeven stop, TP2 as new take-profit, partialClosed=true.
+        pos.position = new Position(pos.position, remainingQty, pos.entryPrice);
+
+        tradeHistory.add(new BacktestTrade(
+                ticker, direction, "PARTIAL_CLOSE",
+                entryPrice, exitPrice, closeQty,
+                pnl, exitCommission + allocatedEntryCommission, "tp1_partial", bar.time, barIndex(ticker, bar)));
+        recordTradePnl(pnl);
+        return ExecutionResult.success(closeQty, exitPrice);
     }
 
     /**
@@ -831,6 +983,7 @@ public class SimulatedBroker implements MarketDataProvider, OrderExecutor {
         // SPYUSDT: комиссия уже вычтена из netProceeds, PnL не отслеживается отдельно
         
         sharedCash += netProceeds;
+        noteMutation();
         pos.position = new Position(
             pos.position.direction,
             pos.entryPrice,
@@ -911,9 +1064,35 @@ public class SimulatedBroker implements MarketDataProvider, OrderExecutor {
         double pnl = grossPnl - entryCommission - exitCommission;
 
         if (isShort) {
-            sharedCash += (pos.postedMargin + grossPnl - exitCommission);
+            double cashDelta = pos.postedMargin + grossPnl - exitCommission;
+            sharedCash += cashDelta;
+            if (isTmonParking(ticker)) tmonCashFlow += cashDelta;
+            totalCloseCashDelta += cashDelta;
+            if (!isTmonParking(ticker)) {
+                totalCloseCashMinusPnl += (cashDelta - pnl);
+                String k = reason == null ? "NULL" : reason;
+                closeCashMinusPnlByReason.merge(k, cashDelta - pnl, Double::sum);
+                closeCountByReason.merge(k, 1, Integer::sum);
+                closeCashByTicker.merge(ticker, cashDelta, Double::sum);
+                recordedPnlByTicker.merge(ticker, pnl, Double::sum);
+            }
+            closeCount++;
+            noteMutation();
         } else {
-            sharedCash += (entryNotional + grossPnl - exitCommission);
+            double cashDelta = entryNotional + grossPnl - exitCommission;
+            sharedCash += cashDelta;
+            if (isTmonParking(ticker)) tmonCashFlow += cashDelta;
+            totalCloseCashDelta += cashDelta;
+            if (!isTmonParking(ticker)) {
+                totalCloseCashMinusPnl += (cashDelta - pnl);
+                String k = reason == null ? "NULL" : reason;
+                closeCashMinusPnlByReason.merge(k, cashDelta - pnl, Double::sum);
+                closeCountByReason.merge(k, 1, Integer::sum);
+                closeCashByTicker.merge(ticker, cashDelta, Double::sum);
+                recordedPnlByTicker.merge(ticker, pnl, Double::sum);
+            }
+            closeCount++;
+            noteMutation();
         }
 
         if (isTmonParking(ticker)) {
@@ -925,6 +1104,7 @@ public class SimulatedBroker implements MarketDataProvider, OrderExecutor {
                 ticker, pos.position.direction, "CLOSE",
                 entryPrice, exitPrice, quantity,
                 pnl, exitCommission + entryCommission, reason, time, pos.entryBarIndex));
+            recordTradePnl(pnl);
         }
 
         pos.position = new Position();
@@ -940,6 +1120,58 @@ public class SimulatedBroker implements MarketDataProvider, OrderExecutor {
     @Override
     public double getAvailableCash() {
         return sharedCash;
+    }
+
+    @Override
+    public double getInitialBalance() {
+        return initialBalance;
+    }
+
+    /** Diagnostic: totals of recorded trade pnl vs raw cash movements (to find reconciliation drift). */
+    public void recordTradePnl(double pnl) {
+        recordedTradePnl += pnl;
+    }
+
+    public void recordUnrecordedCash(double delta) {
+        unrecordedCashDelta += delta;
+    }
+
+    private void noteMutation() {
+        allCashMutations += (sharedCash - lastSharedCash);
+        lastSharedCash = sharedCash;
+    }
+
+    public void printReconciliationDrift() {
+        double cashDelta = sharedCash - initialBalance;
+        System.out.println("DBG-drift: sharedCashDelta=" + cashDelta
+                + " allCashMutations=" + allCashMutations
+                + " tmonCashFlow=" + tmonCashFlow
+                + " totalOpenDeduction=" + totalOpenDeduction
+                + " totalCloseCashDelta=" + totalCloseCashDelta
+                + " totalCloseCashMinusPnl=" + totalCloseCashMinusPnl
+                + " openCount=" + openCount
+                + " closeCount=" + closeCount
+                + " partialCloseCount=" + partialCloseCount
+                + " recordedTradePnl=" + recordedTradePnl
+                + " tmonRealizedPnl=" + tmonRealizedPnl
+                + " unrecordedCashDelta=" + unrecordedCashDelta
+                + " explained=" + (recordedTradePnl + tmonRealizedPnl + unrecordedCashDelta)
+                + " unexplained=" + (cashDelta - recordedTradePnl - tmonRealizedPnl - unrecordedCashDelta));
+        System.out.println("DBG-check: sharedCash=" + sharedCash + " initialBalance=" + initialBalance
+                + " + recordedTradePnl=" + recordedTradePnl + " diff=" + (sharedCash - initialBalance - recordedTradePnl));
+        System.out.println("DBG-reason size=" + closeCashMinusPnlByReason.size() + " closeCashByTicker=" + closeCashByTicker.size() + " recordedPnlByTicker=" + recordedPnlByTicker.size());
+        closeCashMinusPnlByReason.forEach((reason, val) ->
+            System.out.println("  " + reason + ": cashMinusPnl=" + val + " count=" + closeCountByReason.get(reason) + " avg=" + (val/closeCountByReason.get(reason))));
+        // Top ticker discrepancies
+        var tickerDisc = recordedPnlByTicker.keySet().stream()
+            .map(t -> Map.entry(t,
+                closeCashByTicker.getOrDefault(t, 0.0) - openDeductionByTicker.getOrDefault(t, 0.0)
+                    - recordedPnlByTicker.getOrDefault(t, 0.0)))
+            .sorted(Map.Entry.<String, Double>comparingByValue().reversed())
+            .limit(10)
+            .toList();
+        System.out.println("DBG-ticker top discrepancies (cash - open - pnl):");
+        tickerDisc.forEach(e -> System.out.println("  " + e.getKey() + ": " + e.getValue()));
     }
 
     public List<BacktestTrade> getTradeHistory() {

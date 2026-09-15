@@ -433,8 +433,117 @@ public class UnifiedTraderConfig {
             properties.getProperty("unifiedTrader.live.minuteLookbackHours", "72"));
     }
 
+    // =====================================================
+    // Backtest Configuration
+    // =====================================================
+
+    /**
+     * Default Stop Loss percentage for backtest (e.g., 2.0 = 2%).
+     * Mirrors SimulatedBroker.DEFAULT_SL_PERCENT
+     */
+    public double getBacktestDefaultSlPercent() {
+        return Double.parseDouble(
+            properties.getProperty("unifiedTrader.backtest.defaultSlPercent", "2.0"));
+    }
+
+    /**
+     * Default Take Profit percentage for backtest (e.g., 4.0 = 4%).
+     * Mirrors SimulatedBroker.DEFAULT_TP_PERCENT
+     */
+    public double getBacktestDefaultTpPercent() {
+        return Double.parseDouble(
+            properties.getProperty("unifiedTrader.backtest.defaultTpPercent", "4.0"));
+    }
+
+    /**
+     * Short position margin ratio for backtest (e.g., 0.30 = 30%).
+     * Mirrors SimulatedBroker.SHORT_MARGIN_RATIO
+     */
+    public double getBacktestShortMarginRatio() {
+        return Double.parseDouble(
+            properties.getProperty("unifiedTrader.backtest.shortMarginRatio", "0.30"));
+    }
+
+    /**
+     * Maximum concurrent positions for backtest.
+     * Mirrors SimulatedBroker.MAX_CONCURRENT_POSITIONS
+     */
+    public int getBacktestMaxConcurrentPositions() {
+        return Integer.parseInt(
+            properties.getProperty("unifiedTrader.backtest.maxConcurrentPositions", "8"));
+    }
+
+    /**
+     * Regime filter configuration for UnifiedStrategy.
+     */
+    public RegimeFilterParams getRegimeFilterConfig() {
+        return RegimeFilterParams.load(properties, "unifiedTrader.");
+    }
+
+    /**
+     * Per-ticker regime filter configuration.
+     */
+    public RegimeFilterParams getTickerRegimeFilterConfig(String ticker) {
+        String prefix = "unifiedTrader.ticker." + ticker + ".";
+        return RegimeFilterParams.load(properties, prefix);
+    }
+
     @Override
     public String toString() {
         return "UnifiedTraderConfig{stocks=" + stocks + '}';
+    }
+
+    // =====================================================
+    // Regime Filter Configuration
+    // =====================================================
+
+    /**
+     * Parameters for market regime filtering.
+     *
+     * <p>Controls whether trades are filtered based on ADX-derived market regime:
+     *
+     * <ul>
+     *   <li>RANGE (ADX < rangeAdxMax) → skip trades
+     *   <li>NORMAL (ADX rangeAdxMax to trendAdxMin) → filter weak signals
+     *   <li>TREND (ADX > trendAdxMin) → allow all signals
+     * </ul>
+     */
+    public static class RegimeFilterParams {
+        public final boolean enabled;
+        public final String mode;  // "RANGE_SKIP" or "FULL"
+        public final double rangeAdxMax;
+        public final double trendAdxMin;
+        public final double normalMinAdx;
+
+        public RegimeFilterParams(
+                boolean enabled, String mode,
+                double rangeAdxMax, double trendAdxMin, double normalMinAdx) {
+            this.enabled = enabled;
+            this.mode = mode;
+            this.rangeAdxMax = rangeAdxMax;
+            this.trendAdxMin = trendAdxMin;
+            this.normalMinAdx = normalMinAdx;
+        }
+
+        /**
+         * Load regime filter configuration from properties.
+         *
+         * @param properties the properties object
+         * @param prefix property prefix (e.g., "unifiedTrader." or "unifiedTrader.ticker.X.")
+         * @return loaded RegimeFilterParams instance
+         */
+        public static RegimeFilterParams load(Properties properties, String prefix) {
+            boolean enabled = Boolean.parseBoolean(
+                properties.getProperty(prefix + "regimeFilter.enabled", "false"));
+            String mode = properties.getProperty(prefix + "regimeFilter.mode", "FULL");
+            double rangeAdxMax = Double.parseDouble(
+                properties.getProperty(prefix + "regimeFilter.rangeAdxMax", "16.0"));
+            double trendAdxMin = Double.parseDouble(
+                properties.getProperty(prefix + "regimeFilter.trendAdxMin", "26.0"));
+            double normalMinAdx = Double.parseDouble(
+                properties.getProperty(prefix + "regimeFilter.normalMinAdx", "18.0"));
+
+            return new RegimeFilterParams(enabled, mode, rangeAdxMax, trendAdxMin, normalMinAdx);
+        }
     }
 }

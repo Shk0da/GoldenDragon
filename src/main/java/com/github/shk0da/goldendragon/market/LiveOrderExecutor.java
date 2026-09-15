@@ -199,4 +199,10 @@ public class LiveOrderExecutor implements OrderExecutor {
             return 0.0;
         }
     }
+
+    @Override
+    public double getInitialBalance() {
+        // Live trading: no fixed initial balance, use current balance via getAvailableCash()
+        return 0.0;
+    }
 }

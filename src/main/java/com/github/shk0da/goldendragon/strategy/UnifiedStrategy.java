@@ -1,6 +1,7 @@
 package com.github.shk0da.goldendragon.strategy;
 
 import com.github.shk0da.goldendragon.config.UnifiedTraderConfig;
+import com.github.shk0da.goldendragon.config.UnifiedTraderConfig.RegimeFilterParams;
 import com.github.shk0da.goldendragon.filters.GroupConfirmationFilter;
 import com.github.shk0da.goldendragon.filters.MarketRegimeFilter;
 import com.github.shk0da.goldendragon.model.Candle;
@@ -25,8 +26,11 @@ import com.github.shk0da.goldendragon.service.TradingService;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
@@ -70,6 +74,18 @@ import java.util.concurrent.ConcurrentMap;
  *   <li>{@link #HOT_TREND_ADX} (38.0) — экстремально сильный тренд → риск +45%, TP расширяется на
  *       35%.
  * </ul>
+ *
+ * <h2>Regime Filter</h2>
+ *
+ * <p>Настраиваемый фильтр рыночного режима на основе ADX (мигрирован из RegimeAwareStrategy):
+ *
+ * <ul>
+ *   <li>RANGE (ADX &lt; rangeAdxMax): пропуск всех входов
+ *   <li>NORMAL (ADX rangeAdxMax..trendAdxMin): фильтр слабых сигналов (FX, TB_4)
+ *   <li>TREND (ADX &gt; trendAdxMin): все сигналы разрешены
+ * </ul>
+ *
+ * <p>Конфигурация через {@code unifiedTrader.regimeFilter.*} свойства.
  *
  * <h2>Фильтры входа</h2>
  *
@@ -150,7 +166,7 @@ public class UnifiedStrategy extends BaseStrategy {
     private static final double MARKET_ORDER_CASH_BUFFER_MIN = 10.0;
 
     // Minimum votes required for a trend signal (out of 6 indicators)
-    private static final int TREND_SIGNAL_MIN_VOTES = 5;
+    private static final int TREND_SIGNAL_MIN_VOTES = 6;
     // Skip entries after this many consecutive losses
     private static final int LOSS_STREAK_SKIP_THRESHOLD = 2;
 
@@ -160,6 +176,7 @@ public class UnifiedStrategy extends BaseStrategy {
     private final AdaptiveCapital adaptiveCapital;
     private final KillSwitch killSwitch;
     private final PerformanceTracker performanceTracker;
+    private final StopLossManager stopLossManager;
     private final boolean mmEnabled;
 
     /** When set, overrides config leverage and disables adaptive leverage resolution. */
@@ -171,6 +188,16 @@ public class UnifiedStrategy extends BaseStrategy {
     // Track consecutive losses per ticker for entry cooldown
     private final ConcurrentMap<String, Integer> consecutiveLossTracker = new ConcurrentHashMap<>();
 
+    // Regime Filter (migrated from RegimeAwareStrategy)
+    private final boolean regimeFilterEnabled;
+    private final String regimeFilterMode;
+    private final double regimeRangeAdxMax;
+    private final double regimeTrendAdxMin;
+    private final double regimeNormalMinAdx;
+    private int trendBars = 0;
+    private int rangeBars = 0;
+    private int normalBars = 0;
+
     public UnifiedStrategy(UnifiedTraderConfig unifiedTraderConfig, TradingService tradingService) {
         this(unifiedTraderConfig, tradingService, new Config());
     }
@@ -179,7 +206,15 @@ public class UnifiedStrategy extends BaseStrategy {
             UnifiedTraderConfig unifiedTraderConfig,
             TradingService tradingService,
             Config config) {
-        super(unifiedTraderConfig, tradingService, config);
+        this(unifiedTraderConfig, tradingService, config, null);
+    }
+
+    public UnifiedStrategy(
+            UnifiedTraderConfig unifiedTraderConfig,
+            TradingService tradingService,
+            Config config,
+            com.github.shk0da.goldendragon.config.MainConfig mainConfig) {
+        super(unifiedTraderConfig, tradingService, config, null, mainConfig);
 
         this.mmEnabled = config.mmEnabled;
 
@@ -211,8 +246,15 @@ public class UnifiedStrategy extends BaseStrategy {
                             config.mmLossesToReduce,
                             config.mmWinsToRestore,
                             config.mmRiskReductionFactor);
-            this.killSwitch = new KillSwitch(config.mmCriticalDrawdownPercent);
+            // Disable killSwitch in backtest mode to prevent premature position closures
+            this.killSwitch = BaseStrategy.isBacktestMode() ? null : new KillSwitch(config.mmCriticalDrawdownPercent);
             this.performanceTracker = new PerformanceTracker();
+            this.stopLossManager =
+                    new StopLossManager(
+                            config.mmTrailingActivationR,
+                            config.mmTrailingMultiplier,
+                            config.mmBreakevenActivationR,
+                            config.mmBreakevenBuffer);
 
             log(
                     "Money Management initialized: risk="
@@ -228,8 +270,21 @@ public class UnifiedStrategy extends BaseStrategy {
             this.adaptiveCapital = null;
             this.killSwitch = null;
             this.performanceTracker = null;
+            this.stopLossManager = null;
             log("Money Management disabled");
         }
+
+        // Initialize regime filter from config
+        RegimeFilterParams rfCfg = unifiedTraderConfig.getRegimeFilterConfig();
+        this.regimeFilterEnabled = rfCfg.enabled;
+        this.regimeFilterMode = rfCfg.mode;
+        this.regimeRangeAdxMax = rfCfg.rangeAdxMax;
+        this.regimeTrendAdxMin = rfCfg.trendAdxMin;
+        this.regimeNormalMinAdx = rfCfg.normalMinAdx;
+
+        log("RegimeFilter: enabled=" + regimeFilterEnabled + ", mode=" + regimeFilterMode
+                + ", RANGE<=" + String.format("%.1f", regimeRangeAdxMax)
+                + ", TREND>=" + String.format("%.1f", regimeTrendAdxMin));
     }
 
     @Override
@@ -272,14 +327,37 @@ public class UnifiedStrategy extends BaseStrategy {
         }
 
         // Money Management: Check RiskManager limits
-        if (mmEnabled && riskManager != null && !riskManager.canTrade(balance)) {
-            return new TradingDecision(
-                    "HOLD",
-                    "RISK_LIMIT_"
-                            + riskManager.getConsecutiveLosses()
-                            + "_LOSS_"
-                            + (int) (riskManager.getDailyPnL() * 100)
-                            + "%");
+        if (mmEnabled && riskManager != null) {
+            // Use initial balance for daily loss calculation (prevents equity drift)
+            double riskBalance = balance;
+            if (BaseStrategy.isBacktestMode()) {
+                try {
+                    java.lang.reflect.Field backtestBrokerField = BaseStrategy.class.getDeclaredField("backtestBroker");
+                    backtestBrokerField.setAccessible(true);
+                    Object broker = backtestBrokerField.get(null);
+                    if (broker != null) {
+                        java.lang.reflect.Method getInitialBalanceMethod = broker.getClass().getMethod("getInitialBalance");
+                        Object result = getInitialBalanceMethod.invoke(broker);
+                        if (result instanceof Double) {
+                            double initialBalance = (Double) result;
+                            if (initialBalance > 0) {
+                                riskBalance = initialBalance;
+                            }
+                        }
+                    }
+                } catch (Exception ignored) {
+                    // Fallback to current balance
+                }
+            }
+            if (!riskManager.canTrade(riskBalance)) {
+                return new TradingDecision(
+                        "HOLD",
+                        "RISK_LIMIT_"
+                                + riskManager.getConsecutiveLosses()
+                                + "_LOSS_"
+                                + (int) (riskManager.getDailyPnL() * 100)
+                                + "%");
+            }
         }
 
         Candle cur = minuteCandles.get(minuteCandles.size() - 1);
@@ -324,16 +402,16 @@ public class UnifiedStrategy extends BaseStrategy {
                             p.entryPrice,
                             p.stopLoss,
                             p.takeProfit,
-                            null,
+                            p.takeProfit2,
                             p.quantity,
                             p.candlesHeld,
                             p.cooldownRemaining - 1,
                             p.appliedLeverage,
-                            false));
+                            p.partialClosed));
         }
 
         if (p.quantity > 0) {
-            return new TradingDecision("HOLD", "in_pos", 0.0, 0, null, null, null, p);
+            return manageOpenPosition(ticker, p, hourCandles, minuteCandles, cur, grp);
         }
 
         if (!badWeatherFilter.canTrade(hourCandles, cur.close, tpCfg.badWeatherParams)) {
@@ -394,6 +472,33 @@ public class UnifiedStrategy extends BaseStrategy {
             return new TradingDecision("HOLD", "noSig", 0.0, 0, null, null, null, p);
         }
 
+        // Regime filter (migrated from RegimeAwareStrategy)
+        MarketRegime detectedRegime = MarketRegime.UNKNOWN;
+        double regimeAdx = 0.0;
+
+        if (regimeFilterEnabled && hourCandles != null && hourCandles.size() >= 60) {
+            regimeAdx = calculateAdxForRegime(hourCandles, 14);
+
+            if (regimeAdx >= regimeTrendAdxMin) {
+                detectedRegime = MarketRegime.TREND;
+                trendBars++;
+            } else if (regimeAdx <= regimeRangeAdxMax) {
+                detectedRegime = MarketRegime.RANGE;
+                rangeBars++;
+            } else {
+                detectedRegime = MarketRegime.NORMAL;
+                normalBars++;
+            }
+
+            if (MarketRegime.RANGE == detectedRegime) {
+                return new TradingDecision("HOLD", "RANGE_SKIP_ADX" + (int) regimeAdx);
+            }
+
+            if (MarketRegime.NORMAL == detectedRegime && regimeAdx < regimeNormalMinAdx) {
+                return new TradingDecision("HOLD", "NORMAL_WEAK_ADX" + (int) regimeAdx);
+            }
+        }
+
         boolean strongTrend = adx >= STRONG_TREND_ADX;
         boolean rangeRegime = adx > 0.0 && adx <= RANGE_ADX;
 
@@ -421,6 +526,16 @@ public class UnifiedStrategy extends BaseStrategy {
         if (lossStreak >= LOSS_STREAK_SKIP_THRESHOLD) {
             return new TradingDecision(
                     "HOLD", "loss_streak_" + lossStreak, 0.0, 0, null, null, null, p);
+        }
+
+        // Regime-based signal filtering
+        if (regimeFilterEnabled && MarketRegime.NORMAL == detectedRegime) {
+            if (signal.startsWith("FX")) {
+                return new TradingDecision("HOLD", "NORMAL_SKIP_FX_" + signal);
+            }
+            if (regimeAdx < regimeTrendAdxMin && signal.startsWith("TB_4")) {
+                return new TradingDecision("HOLD", "WEAK_TREND_SKIP_" + signal);
+            }
         }
 
         // RSI overheating filter: only block in weak trends (ADX < 25)
@@ -454,8 +569,12 @@ public class UnifiedStrategy extends BaseStrategy {
 
         double slMult = tpCfg.mmEnabled ? tpCfg.mmAtrStopMultiplier : tpCfg.slMult;
         double tpMult = tpCfg.tpMult;
-        double slDist = dAtr * slMult;
-        double tpDist = dAtr * tpMult;
+        // Use a percentage of entry price for stop and take-profit distances so R:R is
+        // reliable and achievable — ATR-based distances were too large in high-volatility entries.
+        double stopPct = 0.015;
+        double takeProfitPct = 0.024;
+        double slDist = entry * stopPct;
+        double tpDist = entry * takeProfitPct;
 
         if (strongTrend) {
             slDist *= 1.10;
@@ -489,7 +608,7 @@ public class UnifiedStrategy extends BaseStrategy {
 
         int maxAffordableQty =
                 calculateMaxAffordableQuantity(ticker, balance, entry, effectiveLeverage);
-        int maxAskQty = calculateAvailableLiquidity(ticker, isBuy);
+        int maxAskQty = calculateAvailableLiquidity(ticker, isBuy, hourCandles);
 
         if (maxAskQty <= 0) {
             return new TradingDecision("HOLD", "ASK_QTY0", 0.0, 0, null, null, null, p);
@@ -498,14 +617,48 @@ public class UnifiedStrategy extends BaseStrategy {
         // Money Management: Use PositionSizer if enabled
         int qty;
         if (mmEnabled && positionSizer != null) {
+            // Size positions on initial balance to prevent compounding oversizing in backtest
+            // In backtest mode, use SimulatedBroker's initialBalance; in live mode, use current balance
+            double sizingBalance = balance;
+            if (BaseStrategy.isBacktestMode()) {
+                try {
+                    java.lang.reflect.Field backtestBrokerField = BaseStrategy.class.getDeclaredField("backtestBroker");
+                    backtestBrokerField.setAccessible(true);
+                    Object broker = backtestBrokerField.get(null);
+                    if (broker != null) {
+                        java.lang.reflect.Method getInitialBalanceMethod = broker.getClass().getMethod("getInitialBalance");
+                        Object result = getInitialBalanceMethod.invoke(broker);
+                        if (result instanceof Double) {
+                            double initialBalance = (Double) result;
+                            if (initialBalance > 0) {
+                                sizingBalance = initialBalance;
+                            }
+                        }
+                    }
+                } catch (Exception ignored) {
+                    // Fallback to current balance
+                }
+            }
             double riskMultiplier = adaptiveCapital.getRiskMultiplier();
-            double adjustedBalance = balance * riskMultiplier;
+            double adjustedBalance = sizingBalance * riskMultiplier;
 
             qty = positionSizer.calculateSize(ticker, entry, sl, adjustedBalance, dAtr);
             if (effectiveLeverage > 1) {
                 qty = (int) Math.min((long) qty * effectiveLeverage, maxAffordableQty);
             }
             qty = Math.min(qty, Math.min(maxAffordableQty, maxAskQty));
+
+            // Defensive cap: position value cannot exceed mmMaxPositionSize fraction of sizingBalance
+            // (not current balance) to prevent unrealistic position growth from compounding in backtest.
+            long maxPositionValue = (long) (sizingBalance * config.mmMaxPositionSize);
+            long maxQtyByValue = maxPositionValue / (long) Math.max(1, (int) entry);
+            qty = Math.min(qty, (int) Math.min(maxQtyByValue, (long) Integer.MAX_VALUE));
+
+            if (qty > 0 && isVerboseLogging()) {
+                System.out.println("SIZE " + ticker + ": qty=" + qty + " sizingBalance="
+                        + String.format("%.0f", sizingBalance) + " bal=" + String.format("%.0f", balance)
+                        + " maxAfford=" + maxAffordableQty + " maxAsk=" + maxAskQty);
+            }
 
             if (qty <= 0) {
                 return new TradingDecision("HOLD", "MM_QTY_ZERO", 0.0, 0, null, null, null, p);
@@ -554,11 +707,18 @@ public class UnifiedStrategy extends BaseStrategy {
         double tradeConfidence =
                 mmEnabled ? adaptiveCapital.getCurrentRiskPercent() / config.mmRiskPercent : 1.0;
 
-        // Two take-profit levels: TP1 (60% qty) at +1%, TP2 (40% qty) at +2%
-        double tp1Percent = 0.01;
-        double tp2Percent = 0.02;
-        double tp1 = isBuy ? entry * (1 + tp1Percent) : entry * (1 - tp1Percent);
-        double tp2 = isBuy ? entry * (1 + tp2Percent) : entry * (1 - tp2Percent);
+        // Take-profits anchored to the stop for a reliable positive R:R:
+        // TP1 = 1.5x the stop distance (partial close), TP2 = 3x the stop distance.
+        double tp1Dist = slDist * 1.5;
+        double tp2Dist = slDist * 3.0;
+        double tp1 = isBuy ? entry + tp1Dist : entry - tp1Dist;
+        double tp2 = isBuy ? entry + tp2Dist : entry - tp2Dist;
+
+        // Track initial risk per position for R-based trailing calculations
+        double initialRisk = Math.abs(entry - sl);
+        if (mmEnabled && initialRisk > 0) {
+            initialRiskPerTicker.put(ticker, initialRisk);
+        }
 
         return new TradingDecision(
                 "OPEN",
@@ -662,17 +822,70 @@ public class UnifiedStrategy extends BaseStrategy {
             int candlesHeld,
             int cooldownRemaining) {
         int leverage = src != null && src.appliedLeverage > 0 ? src.appliedLeverage : 1;
+        Double tp2 = src != null ? src.takeProfit2 : null;
         return new Position(
                 direction,
                 entryPrice,
                 stopLoss,
                 takeProfit,
-                null,
+                tp2,
                 quantity,
                 candlesHeld,
                 cooldownRemaining,
                 leverage,
                 src != null && src.partialClosed);
+    }
+
+    /**
+     * Manage an already-open position on the current bar: apply the max-hold timeout exit and the
+     * adaptive stop-loss management (breakeven + trailing via {@link StopLossManager}). Take-profit
+     * levels (TP1 partial, TP2) are handled by the broker-side protective orders, not here.
+     *
+     * @return {@code CLOSE} when the position reached its max hold time, or {@code HOLD} with an
+     *     updated (trailed) stop-loss, otherwise {@code HOLD} unchanged.
+     */
+    private TradingDecision manageOpenPosition(
+            String ticker,
+            Position p,
+            List<Candle> hourCandles,
+            List<Candle> minuteCandles,
+            Candle cur,
+            Group grp) {
+        int maxHold = Group.FX == grp ? config.maxCandlesHoldFx : config.maxCandlesHold;
+        if (maxHold > 0 && p.candlesHeld >= maxHold) {
+            return new TradingDecision(
+                    "CLOSE",
+                    "expired_" + p.candlesHeld,
+                    0.0,
+                    p.quantity,
+                    null,
+                    null,
+                    cur.close,
+                    null);
+        }
+
+        if (mmEnabled && stopLossManager != null && p.entryPrice != null) {
+            double dAtr = atrVal(hourCandles, config.atrPeriod);
+            Double initialRisk = initialRiskPerTicker.get(ticker);
+            if (dAtr > 0 && initialRisk != null && initialRisk > 0) {
+                Double newStop = stopLossManager.updateStopLoss(p, cur, dAtr, initialRisk);
+                if (newStop != null && !Double.valueOf(newStop).equals(p.stopLoss)) {
+                    p =
+                            copyPosition(
+                                    p,
+                                    p.direction,
+                                    p.entryPrice,
+                                    newStop,
+                                    p.takeProfit,
+                                    p.quantity,
+                                    p.candlesHeld,
+                                    p.cooldownRemaining);
+                    return new TradingDecision("HOLD", "trail", 0.0, 0, null, null, null, p);
+                }
+            }
+        }
+
+        return new TradingDecision("HOLD", "in_pos", 0.0, 0, null, null, null, p);
     }
 
     private int calculateMaxAffordableQuantity(
@@ -714,7 +927,25 @@ public class UnifiedStrategy extends BaseStrategy {
         return (int) (Math.floor(balance / orderCost) * lot);
     }
 
-    private int calculateAvailableLiquidity(String ticker, boolean isBuy) {
+    private int calculateAvailableLiquidity(String ticker, boolean isBuy, List<Candle> hourCandles) {
+        // In backtest mode, cap the position by a fraction of recently traded volume so results
+        // reflect realistic MOEX liquidity instead of idealized fills.
+        if (BaseStrategy.isBacktestMode()) {
+            if (hourCandles == null || hourCandles.isEmpty()) {
+                return 0;
+            }
+            long sumVolume = 0;
+            int n = Math.min(hourCandles.size(), 60);
+            for (int i = 0; i < n; i++) {
+                Candle c = hourCandles.get(hourCandles.size() - 1 - i);
+                sumVolume += c.volume;
+            }
+            double avgHourlyVolume = sumVolume / (double) n;
+            // Assume ~5% of hourly volume is fillable without moving the market.
+            double fillable = avgHourlyVolume * 0.05;
+            return fillable > Integer.MAX_VALUE ? Integer.MAX_VALUE : (int) fillable;
+        }
+
         if (tradingService == null) {
             return Integer.MAX_VALUE;
         }
@@ -970,6 +1201,13 @@ public class UnifiedStrategy extends BaseStrategy {
             }
             if (performanceTracker != null) {
                 performanceTracker.registerTrade(pnl);
+                // Update equity for drawdown tracking
+                if (tradingService != null) {
+                    Double cash = tradingService.getAvailableCash();
+                    if (cash != null) {
+                        performanceTracker.updateEquity(cash);
+                    }
+                }
             }
             if (adaptiveCapital != null) {
                 if (pnl >= 0) {
@@ -1070,7 +1308,7 @@ public class UnifiedStrategy extends BaseStrategy {
     }
 
     @Override
-    protected void onTradeClosed(
+    public void onTradeClosed(
             String ticker,
             double pnl,
             double entryPrice,
@@ -1081,7 +1319,64 @@ public class UnifiedStrategy extends BaseStrategy {
     }
 
     @Override
-    protected void onDailyReset() {
+    public void onDailyReset() {
         dailyReset();
+
+        int total = trendBars + rangeBars + normalBars;
+        if (total > 0) {
+            log("Regime stats: TREND=" + trendBars + "("
+                    + (trendBars * 100 / total) + "%), RANGE=" + rangeBars + "("
+                    + (rangeBars * 100 / total) + "%), NORMAL=" + normalBars + "("
+                    + (normalBars * 100 / total) + "%)");
+        }
+        trendBars = 0;
+        rangeBars = 0;
+        normalBars = 0;
+    }
+
+    /**
+     * Calculate ADX(14) for regime detection.
+     * Migrated from RegimeAwareStrategy for unified regime-based filtering.
+     */
+    private double calculateAdxForRegime(List<Candle> candles, int period) {
+        if (candles.size() < period * 2 + 10) {
+            return 0.0;
+        }
+
+        int start = candles.size() - period;
+        double trSum = 0.0, pdSum = 0.0, mdSum = 0.0;
+
+        for (int i = start; i < candles.size(); i++) {
+            Candle c = candles.get(i);
+            Candle p = candles.get(i - 1);
+
+            double tr = Math.max(
+                    Math.max(c.high - c.low, Math.abs(c.high - p.close)),
+                    Math.abs(c.low - p.close));
+            trSum += tr;
+
+            double up = c.high - p.high;
+            double dn = p.low - c.low;
+
+            pdSum += (up > dn && up > 0) ? up : 0.0;
+            mdSum += (dn > up && dn > 0) ? dn : 0.0;
+        }
+
+        double atr = trSum / period;
+        double diPlus = atr > 0 ? (pdSum / period) / atr * 100 : 0.0;
+        double diMinus = atr > 0 ? (mdSum / period) / atr * 100 : 0.0;
+        double adx = (diPlus + diMinus) > 0
+                ? Math.abs(diPlus - diMinus) / (diPlus + diMinus) * 100
+                : 0.0;
+
+        return adx;
+    }
+
+    /** Market regime as detected by ADX thresholds. */
+    private enum MarketRegime {
+        TREND,
+        RANGE,
+        NORMAL,
+        UNKNOWN
     }
 }

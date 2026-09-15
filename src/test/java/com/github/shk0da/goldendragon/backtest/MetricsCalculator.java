@@ -292,4 +292,102 @@ public class MetricsCalculator {
 
         return (winRate * avgWin) - ((1.0 - winRate) * avgLoss);
     }
+
+    /**
+     * Calculate Historical VaR (Value at Risk) using percentile method.
+     *
+     * <p>Historical VaR uses the actual distribution of returns without assuming normality.
+     * For 95% confidence, returns the 5th percentile (worst 5% of returns).
+     *
+     * @param returns list of periodic returns (e.g., daily returns as decimals)
+     * @param confidenceLevel confidence level (e.g., 0.95 for 95% confidence)
+     * @return Historical VaR as a positive number representing potential loss, or 0.0 if insufficient data
+     */
+    public static double calculateHistoricalVaR(
+        List<Double> returns,
+        double confidenceLevel) {
+
+        if (returns == null || returns.size() < 2) {
+            return 0.0;
+        }
+
+        if (confidenceLevel <= 0.0 || confidenceLevel >= 1.0) {
+            throw new IllegalArgumentException("Confidence level must be between 0 and 1 (e.g., 0.95 for 95%)");
+        }
+
+        // Sort returns in ascending order
+        List<Double> sortedReturns = new ArrayList<>(returns);
+        sortedReturns.sort(Double::compareTo);
+
+        // Find the percentile index
+        // For 95% confidence, we want the 5th percentile (worst 5% of cases)
+        int index = (int) Math.ceil((1.0 - confidenceLevel) * sortedReturns.size()) - 1;
+        index = Math.max(0, Math.min(index, sortedReturns.size() - 1));
+
+        // VaR is the negative of the return at this percentile (expressed as positive loss)
+        double var = -sortedReturns.get(index);
+
+        return var > 0 ? var : 0.0;
+    }
+
+    /**
+     * Calculate Parametric VaR assuming normal distribution.
+     *
+     * <p>Parametric VaR uses mean and standard deviation of returns,
+     * assuming returns follow a normal distribution.
+     * For 95% confidence, uses Z-score of 1.645 (one-tailed).
+     *
+     * @param returns list of periodic returns (e.g., daily returns as decimals)
+     * @param confidenceLevel confidence level (e.g., 0.95 for 95% confidence)
+     * @return Parametric VaR as a positive number representing potential loss, or 0.0 if insufficient data
+     */
+    public static double calculateParametricVaR(
+        List<Double> returns,
+        double confidenceLevel) {
+
+        if (returns == null || returns.size() < 2) {
+            return 0.0;
+        }
+
+        if (confidenceLevel <= 0.0 || confidenceLevel >= 1.0) {
+            throw new IllegalArgumentException("Confidence level must be between 0 and 1 (e.g., 0.95 for 95%)");
+        }
+
+        // Calculate mean return
+        double meanReturn = returns.stream()
+            .mapToDouble(Double::doubleValue)
+            .average()
+            .orElse(0.0);
+
+        // Calculate standard deviation (sample variance with Bessel's correction)
+        double variance = returns.stream()
+            .mapToDouble(r -> Math.pow(r - meanReturn, 2))
+            .sum() / (returns.size() - 1);
+        double stdDev = Math.sqrt(variance);
+
+        if (stdDev == 0.0) {
+            return 0.0;
+        }
+
+        // Z-score for common confidence levels (one-tailed)
+        double zScore;
+        if (confidenceLevel >= 0.99) {
+            zScore = 2.326;  // 99% confidence
+        } else if (confidenceLevel >= 0.975) {
+            zScore = 1.960;  // 97.5% confidence
+        } else if (confidenceLevel >= 0.95) {
+            zScore = 1.645;  // 95% confidence
+        } else if (confidenceLevel >= 0.90) {
+            zScore = 1.282;  // 90% confidence
+        } else {
+            // Approximate using inverse normal (simplified)
+            zScore = 1.645;  // Default to 95%
+        }
+
+        // Parametric VaR = -(mean - zScore * stdDev)
+        // For loss perspective: VaR = zScore * stdDev - mean
+        double var = zScore * stdDev - meanReturn;
+
+        return var > 0 ? var : 0.0;
+    }
 }

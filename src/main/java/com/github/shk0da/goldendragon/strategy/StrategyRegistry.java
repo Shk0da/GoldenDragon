@@ -88,12 +88,12 @@ public final class StrategyRegistry {
 
     static {
         register(
-                "RegimeAwareStrategy",
+                "UnifiedStrategy",
                 runAndNotify(
-                        "RegimeAwareStrategy",
-                        "Stop RegimeAwareStrategy",
+                        "UnifiedStrategy",
+                        "Stop UnifiedStrategy",
                         (mc, ts, args) ->
-                                new RegimeAwareStrategy(new UnifiedTraderConfig(), ts, new Config(), mc).run()));
+                                new UnifiedStrategy(new UnifiedTraderConfig(), ts, new Config(), mc).run()));
 
         register(
                 "TradeCouncilStrategy",
@@ -142,8 +142,8 @@ public final class StrategyRegistry {
      * @return a BaseStrategy instance ready for backtest processing
      */
     public static BaseStrategy createBacktest(String strategyName, UnifiedTraderConfig config, TradingService tradingService) {
-        if ("RegimeAwareStrategy".equals(strategyName)) {
-            return new RegimeAwareStrategy(config, tradingService, new Config(), null);
+        if ("UnifiedStrategy".equals(strategyName)) {
+            return new UnifiedStrategy(config, tradingService, new Config());
         } else {
             throw new IllegalArgumentException("Unknown strategy: " + strategyName);
         }
@@ -154,6 +154,6 @@ public final class StrategyRegistry {
      * @return list of strategy names
      */
     public static List<String> backtestableNames() {
-        return of("RegimeAwareStrategy");
+        return of("UnifiedStrategy");
     }
 }
