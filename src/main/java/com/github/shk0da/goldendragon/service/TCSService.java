@@ -1245,18 +1245,19 @@ public class TCSService implements TradingService {
                 ORDER_DIRECTION_BUY == direction
                     ? STOP_ORDER_DIRECTION_SELL
                     : STOP_ORDER_DIRECTION_BUY;
+            double slPrice = (bracketPosition.entryPrice + bracketPosition.stopLoss) / 2.0;
             String stopOrderId = postMarketStopOrder(
                 figi,
                 orderId,
                 quantity,
-                bracketPosition.stopLoss,
+                slPrice,
                 stopOrderDirection,
                 STOP_ORDER_TYPE_STOP_LOSS);
             if (stopOrderId != null) {
                 var protectiveOrders = protectiveOrdersByTicker.computeIfAbsent(key, ignored -> new ProtectiveOrders());
                 protectiveOrders.stopLossOrderId = stopOrderId;
-                protectiveOrders.stopLossPrice = bracketPosition.stopLoss;
-                log(key.getTicker() + " | SL order placed: lots=" + quantity + ", price=" + bracketPosition.stopLoss);
+                protectiveOrders.stopLossPrice =slPrice;
+                log(key.getTicker() + " | SL order placed: lots=" + quantity + ", price=" + slPrice);
             } else {
                 log("WARN: " + key.getTicker() + " | SL order FAILED, lots=" + quantity + " left unprotected");
             }
