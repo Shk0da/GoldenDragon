@@ -2,6 +2,7 @@ package com.github.shk0da.goldendragon.backtest;
 
 import com.github.shk0da.goldendragon.market.OrderExecutor;
 import com.github.shk0da.goldendragon.model.Candle;
+import com.github.shk0da.goldendragon.model.OrderExecutionResult;
 import com.github.shk0da.goldendragon.model.Position;
 import com.github.shk0da.goldendragon.model.PositionInfo;
 import com.github.shk0da.goldendragon.model.TickerInfo;

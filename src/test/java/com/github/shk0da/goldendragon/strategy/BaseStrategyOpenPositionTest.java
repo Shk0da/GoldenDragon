@@ -3,6 +3,7 @@ package com.github.shk0da.goldendragon.strategy;
 import com.github.shk0da.goldendragon.config.UnifiedTraderConfig;
 import com.github.shk0da.goldendragon.model.Candle;
 import com.github.shk0da.goldendragon.model.Config;
+import com.github.shk0da.goldendragon.model.OrderExecutionResult;
 import com.github.shk0da.goldendragon.model.Position;
 import com.github.shk0da.goldendragon.model.PositionInfo;
 import com.github.shk0da.goldendragon.model.TickerInfo;

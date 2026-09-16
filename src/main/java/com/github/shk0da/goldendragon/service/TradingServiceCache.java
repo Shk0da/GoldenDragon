@@ -3,6 +3,7 @@ package com.github.shk0da.goldendragon.service;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import com.github.shk0da.goldendragon.model.Candle;
+import com.github.shk0da.goldendragon.model.OrderExecutionResult;
 import com.github.shk0da.goldendragon.model.Position;
 import com.github.shk0da.goldendragon.model.PositionInfo;
 import com.github.shk0da.goldendragon.model.TickerInfo;
@@ -38,7 +39,7 @@ public class TradingServiceCache implements TradingService {
     private final Cache<String, Object> cache;
     
     // TTL для разных типов данных
-    private static final Duration CASH_TTL = Duration.ofSeconds(5);
+    private static final Duration CASH_TTL = Duration.ofSeconds(1);
     private static final Duration PRICE_TTL = Duration.ofSeconds(1);
     private static final Duration POSITIONS_TTL = Duration.ofSeconds(10);
     
@@ -99,7 +100,7 @@ public class TradingServiceCache implements TradingService {
     @Override
     public OrderExecutionResult buyByMarketWithDetails(String name, TickerType type, 
             double cashToBuy, double takeProfit, double stopLose) {
-        // Invalidate cash cache after order
+        // Invalidate cash cache BEFORE order to get fresh balance
         invalidateCash();
         return delegate.buyByMarketWithDetails(name, type, cashToBuy, takeProfit, stopLose);
     }
@@ -107,21 +108,21 @@ public class TradingServiceCache implements TradingService {
     @Override
     public OrderExecutionResult sellByMarketWithDetails(String name, TickerType type, 
             double cashToSell, double takeProfit, double stopLose) {
-        // Invalidate cash cache after order
+        // Invalidate cash cache BEFORE order to get fresh balance
         invalidateCash();
         return delegate.sellByMarketWithDetails(name, type, cashToSell, takeProfit, stopLose);
     }
     
     @Override
     public OrderExecutionResult closeLongByMarketWithDetails(String name, TickerType type) {
-        // Invalidate cash cache after order
+        // Invalidate cash cache BEFORE order to get fresh balance
         invalidateCash();
         return delegate.closeLongByMarketWithDetails(name, type);
     }
     
     @Override
     public OrderExecutionResult closeShortByMarketWithDetails(String name, TickerType type) {
-        // Invalidate cash cache after order
+        // Invalidate cash cache BEFORE order to get fresh balance
         invalidateCash();
         return delegate.closeShortByMarketWithDetails(name, type);
     }

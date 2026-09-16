@@ -1,5 +1,6 @@
 package com.github.shk0da.goldendragon.money;
 
+import com.github.shk0da.goldendragon.model.OrderExecutionResult;
 import com.github.shk0da.goldendragon.model.PositionInfo;
 import com.github.shk0da.goldendragon.model.TickerInfo;
 import com.github.shk0da.goldendragon.model.TickerType;
@@ -87,10 +88,20 @@ class CashParkingManagerTest {
         PositionInfo parkingInfo;
         double lastSellValue;
         String lastSellTicker;
+        TickerInfo tickerInfo;
+
+        FakeTradingService() {
+            this.tickerInfo = new TickerInfo("FIGI", "TICKER", "ISIN", 0.01, 1, "RUB", "TICKER", "ETF");
+        }
 
         @Override
         public PositionInfo getCurrentPositions(TickerType tickerType, String tickerName) {
             return parkingInfo;
+        }
+
+        @Override
+        public TickerInfo searchTicker(TickerInfo.Key key) {
+            return tickerInfo;
         }
 
         @Override

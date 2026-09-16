@@ -1,6 +1,7 @@
 package com.github.shk0da.goldendragon.strategy;
 
 import com.github.shk0da.goldendragon.config.UnifiedTraderConfig;
+import com.github.shk0da.goldendragon.model.Candle;
 import com.github.shk0da.goldendragon.model.Config;
 import com.github.shk0da.goldendragon.model.TickerInfo;
 import com.github.shk0da.goldendragon.model.TickerType;
@@ -11,6 +12,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
+import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.BDDAssertions.then;
@@ -33,7 +35,22 @@ class TradeCouncilQuantityTest {
                         new TickerInfo("FIGI_NLMK", NLMK, "ISIN_NLMK", 0.01, NLMK_LOT, "RUB", NLMK, "STOCK"),
                         new TickerInfo.Key(T, TickerType.STOCK),
                         new TickerInfo("FIGI_T", T, "ISIN_T", 0.01, T_LOT, "RUB", T, "STOCK")));
-        strategy = new TradeCouncilStrategy(new UnifiedTraderConfig(), new TradingService() {}, new Config());
+        strategy = new TradeCouncilStrategy(new UnifiedTraderConfig(), new TradingService() {
+            @Override
+            public TickerInfo searchTicker(TickerInfo.Key key) {
+                return TickerRepository.INSTANCE.getByName(key.getTicker());
+            }
+
+            @Override
+            public Double getSingleContractGo(String figi) {
+                return 0.0;
+            }
+
+            @Override
+            public List<Candle> getCandles(String figi, String interval, int count) {
+                return List.of();
+            }
+        }, new Config());
     }
 
     @Nested

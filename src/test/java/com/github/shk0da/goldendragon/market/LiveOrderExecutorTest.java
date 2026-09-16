@@ -1,5 +1,6 @@
 package com.github.shk0da.goldendragon.market;
 
+import com.github.shk0da.goldendragon.model.OrderExecutionResult;
 import com.github.shk0da.goldendragon.model.TickerInfo;
 import com.github.shk0da.goldendragon.model.TickerType;
 import com.github.shk0da.goldendragon.repository.TickerRepository;

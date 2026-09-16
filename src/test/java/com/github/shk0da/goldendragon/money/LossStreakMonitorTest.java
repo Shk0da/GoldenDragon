@@ -1,5 +1,7 @@
 package com.github.shk0da.goldendragon.money;
 
+import com.github.shk0da.goldendragon.model.OrderExecutionResult;
+import com.github.shk0da.goldendragon.model.TickerInfo;
 import com.github.shk0da.goldendragon.service.TradingService;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -246,6 +248,12 @@ class LossStreakMonitorTest {
         @Override
         public List<Map<String, Object>> getTradeHistory(Instant since) {
             return trades;
+        }
+
+        @Override
+        public TickerInfo searchTicker(TickerInfo.Key key) {
+            String ticker = key.getTicker();
+            return new TickerInfo("FIGI", ticker, "ISIN", 0.01, 1, "RUB", ticker, "STOCK");
         }
     }
 }

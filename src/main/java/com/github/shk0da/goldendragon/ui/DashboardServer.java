@@ -8,8 +8,6 @@ import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.sun.net.httpserver.HttpServer;
 
-import static com.github.shk0da.goldendragon.money.CashParkingManager.TINKOFF_PARKING_TICKER;
-
 import java.io.IOException;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
@@ -27,6 +25,8 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Executors;
+
+import static com.github.shk0da.goldendragon.money.CashParkingManager.TINKOFF_PARKING_TICKER;
 
 /**
  * Simple HTTP dashboard server for trading statistics.
@@ -50,6 +50,7 @@ public class DashboardServer {
     private int totalTrades = 0;
     private int winningTrades = 0;
     private double balance = 0.0;
+    private double availableCash = 0.0;
     private final List<Map<String, Object>> tradeHistory = Collections.synchronizedList(new ArrayList<>());
     private volatile Instant appStartTime;
     private volatile java.util.concurrent.ScheduledExecutorService tradePoller;
@@ -201,6 +202,7 @@ public class DashboardServer {
         stats.put("winningTrades", winningTrades);
         stats.put("winRate", totalTrades > 0 ? (double) winningTrades / totalTrades : 0.0);
         stats.put("currency", currency);
+        stats.put("availableCash", availableCash);
         // PnL as percentage of portfolio (balance + pnl)
         double portfolioValue = balance + totalPnl;
         stats.put("pnlPercent", portfolioValue > 0 ? (totalPnl / portfolioValue) * 100 : 0.0);
@@ -383,6 +385,10 @@ public class DashboardServer {
         this.balance = balance;
     }
 
+    public void updateAvailableCash(double availableCash) {
+        this.availableCash = availableCash;
+    }
+
     private String getDashboardHtml() {
         StringBuilder sb = new StringBuilder();
         sb.append("<!DOCTYPE html>\n");
@@ -451,7 +457,7 @@ public class DashboardServer {
         sb.append("            text-transform: uppercase;\n");
         sb.append("        }\n");
         sb.append("        .stat-card .value {\n");
-        sb.append("            font-size: 32px;\n");
+        sb.append("            font-size: 18px;\n");
         sb.append("            font-weight: bold;\n");
         sb.append("        }\n");
         sb.append("        .stat-card .value.positive {\n");
@@ -622,7 +628,7 @@ public class DashboardServer {
         sb.append("                const statsRes = await fetch('/api/stats');\n");
         sb.append("                const stats = await statsRes.json();\n");
         sb.append("                currency = stats.currency || 'RUB';\n");
-        sb.append("                document.getElementById('balance').textContent = formatMoney(stats.balance);\n");
+        sb.append("                document.getElementById('balance').innerHTML = formatMoney(stats.balance) + ' <span class=\"pnl-percent\">(' + formatMoney(stats.availableCash) + ')</span>';\n");
         sb.append("                const pnlEl = document.getElementById('pnl');\n");
         sb.append("                const pnlPercent = stats.pnlPercent || 0;\n");
         sb.append("                pnlEl.innerHTML = formatMoney(stats.totalPnl) + ' <span class=\"pnl-percent\">(' + (pnlPercent >= 0 ? '+' : '') + pnlPercent.toFixed(2) + '%)</span>';\n");

@@ -6,6 +6,7 @@ import com.github.shk0da.goldendragon.model.MarketDepthLevel;
 import com.github.shk0da.goldendragon.model.MarketDepthSnapshot;
 import com.github.shk0da.goldendragon.model.MarketTickListener;
 import com.github.shk0da.goldendragon.model.MarketTradeTick;
+import com.github.shk0da.goldendragon.model.OrderExecutionResult;
 import com.github.shk0da.goldendragon.model.Position;
 import com.github.shk0da.goldendragon.model.PositionInfo;
 import com.github.shk0da.goldendragon.model.TickerInfo;
@@ -388,6 +389,7 @@ public class TCSService implements TradingService {
      * @return {@link OrderExecutionResult} with execution details, or a failed result if no short
      *     position exists
      */
+    @Override
     public OrderExecutionResult closeShortByMarketWithDetails(String name, TickerType type) {
         int count = getCountOfCurrentPositions(type, name);
         if (count < 0) {
@@ -446,6 +448,7 @@ public class TCSService implements TradingService {
      * @return {@link OrderExecutionResult} with execution details, or a failed result if no long
      *     position exists
      */
+    @Override
     public OrderExecutionResult closeLongByMarketWithDetails(String name, TickerType type) {
         int count = getCountOfCurrentPositions(type, name);
         if (count > 0) {

@@ -3,6 +3,7 @@ package com.github.shk0da.goldendragon.money;
 import com.github.shk0da.goldendragon.market.MarketDataProvider;
 import com.github.shk0da.goldendragon.market.MarketPrices;
 import com.github.shk0da.goldendragon.model.Candle;
+import com.github.shk0da.goldendragon.model.OrderExecutionResult;
 import com.github.shk0da.goldendragon.model.Position;
 import com.github.shk0da.goldendragon.model.PositionInfo;
 import com.github.shk0da.goldendragon.model.TickerInfo;
@@ -138,8 +139,8 @@ class TmonCashParkingMonitorTest {
             return 0.0;
         }
 
-        @Override
-        public OrderExecutionResult buyByMarketWithDetails(
+    @Override
+    public OrderExecutionResult buyByMarketWithDetails(
                 String name,
                 TickerType type,
                 double cashToBuy,

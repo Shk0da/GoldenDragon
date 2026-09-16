@@ -11,6 +11,7 @@ import com.github.shk0da.goldendragon.market.MarketPrices;
 import com.github.shk0da.goldendragon.market.OrderExecutor;
 import com.github.shk0da.goldendragon.model.Candle;
 import com.github.shk0da.goldendragon.model.Config;
+import com.github.shk0da.goldendragon.model.OrderExecutionResult;
 import com.github.shk0da.goldendragon.model.Position;
 import com.github.shk0da.goldendragon.model.PositionInfo;
 import com.github.shk0da.goldendragon.model.TickerInfo;
@@ -431,6 +432,12 @@ import static java.util.concurrent.CompletableFuture.runAsync;
 
         if (dashboard != null) {
             dashboard.updateBalance(initPortfolioCost);
+            if (tradingService != null) {
+                Double cash = tradingService.getAvailableCash();
+                if (cash != null) {
+                    dashboard.updateAvailableCash(cash);
+                }
+            }
         }
 
         onDailyReset();
@@ -1013,7 +1020,7 @@ import static java.util.concurrent.CompletableFuture.runAsync;
                             + ", need=" + String.format("%.2f", minCost) + "), skipping");
                     return;
                 }
-                TradingService.OrderExecutionResult r =
+                OrderExecutionResult r =
                         tradingService.buyByMarketWithDetails(
                                 name, ticker.getType(), cash, tpPercent, slPercent);
                 if (r.isSuccess()) {
@@ -1296,7 +1303,7 @@ import static java.util.concurrent.CompletableFuture.runAsync;
                     ", SL=" + position.stopLoss + ", TP=" + position.takeProfit +
                     ", current=" + currentPrice + ")");
 
-                TradingService.OrderExecutionResult closeResult;
+                OrderExecutionResult closeResult;
                 if ("BUY".equals(position.direction)) {
                     closeResult = tradingService.closeLongByMarketWithDetails(name, ticker.getType());
                 } else {
@@ -1341,6 +1348,12 @@ import static java.util.concurrent.CompletableFuture.runAsync;
             dashboard.updateStats(pnl, isWin);
             dashboard.addTrade(ticker, direction, quantity, exitPrice, pnl);
             dashboard.updateBalance(safeGetTotalPortfolioCost());
+            if (tradingService != null) {
+                Double cash = tradingService.getAvailableCash();
+                if (cash != null) {
+                    dashboard.updateAvailableCash(cash);
+                }
+            }
             log("Dashboard updated: " + ticker);
         } else {
             log("Dashboard is null, skipping update");

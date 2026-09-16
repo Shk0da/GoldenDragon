@@ -1,5 +1,6 @@
 package com.github.shk0da.goldendragon.market;
 
+import com.github.shk0da.goldendragon.model.OrderExecutionResult;
 import com.github.shk0da.goldendragon.model.TickerInfo;
 import com.github.shk0da.goldendragon.repository.TickerRepository;
 import com.github.shk0da.goldendragon.service.TradingService;
@@ -49,7 +50,7 @@ public class LiveOrderExecutor implements OrderExecutor {
                 value = quantity * askPrice * info.getLot() * ORDER_QUANTITY_SAFETY_MARGIN;
             }
 
-            TradingService.OrderExecutionResult result = tcsService.buyByMarketWithDetails(
+            OrderExecutionResult result = tcsService.buyByMarketWithDetails(
                     ticker, info.getType(), value, takeProfitPercent, stopLossPercent);
 
             if (!result.isSuccess()) {
@@ -93,7 +94,7 @@ public class LiveOrderExecutor implements OrderExecutor {
                 positionValue = quantity * askPrice * info.getLot();
             }
 
-            TradingService.OrderExecutionResult result = tcsService.sellByMarketWithDetails(
+            OrderExecutionResult result = tcsService.sellByMarketWithDetails(
                     ticker, info.getType(), positionValue, takeProfitPercent, stopLossPercent);
 
             if (!result.isSuccess()) {
@@ -115,7 +116,7 @@ public class LiveOrderExecutor implements OrderExecutor {
                 return ExecutionResult.failed("Ticker not found: " + ticker);
             }
 
-            TradingService.OrderExecutionResult result = tcsService.closeLongByMarketWithDetails(ticker, info.getType());
+            OrderExecutionResult result = tcsService.closeLongByMarketWithDetails(ticker, info.getType());
 
             if (!result.isSuccess()) {
                 return ExecutionResult.failed("Close long failed"
@@ -136,7 +137,7 @@ public class LiveOrderExecutor implements OrderExecutor {
                 return ExecutionResult.failed("Ticker not found: " + ticker);
             }
 
-            TradingService.OrderExecutionResult result = tcsService.closeShortByMarketWithDetails(ticker, info.getType());
+            OrderExecutionResult result = tcsService.closeShortByMarketWithDetails(ticker, info.getType());
 
             if (!result.isSuccess()) {
                 return ExecutionResult.failed("Close short failed"
@@ -157,7 +158,7 @@ public class LiveOrderExecutor implements OrderExecutor {
                 return ExecutionResult.failed("Ticker not found: " + ticker);
             }
 
-            TradingService.OrderExecutionResult result = tcsService.closeLongByMarketWithDetails(ticker, info.getType(), quantity);
+            OrderExecutionResult result = tcsService.closeLongByMarketWithDetails(ticker, info.getType(), quantity);
 
             if (!result.isSuccess()) {
                 return ExecutionResult.failed("Partial close long failed"
@@ -178,7 +179,7 @@ public class LiveOrderExecutor implements OrderExecutor {
                 return ExecutionResult.failed("Ticker not found: " + ticker);
             }
 
-            TradingService.OrderExecutionResult result = tcsService.closeShortByMarketWithDetails(ticker, info.getType(), quantity);
+            OrderExecutionResult result = tcsService.closeShortByMarketWithDetails(ticker, info.getType(), quantity);
 
             if (!result.isSuccess()) {
                 return ExecutionResult.failed("Partial close short failed"
