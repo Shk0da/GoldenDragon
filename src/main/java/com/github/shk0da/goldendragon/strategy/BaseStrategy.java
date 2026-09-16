@@ -230,7 +230,8 @@ import static java.util.concurrent.CompletableFuture.runAsync;
     protected static final int MIN_CANDLES_THRESHOLD = 5;
 
     protected static final LocalTime WORK_START_TIME = LocalTime.of(10, 0);
-    protected static final LocalTime EOD_CLOSE_TIME = LocalTime.of(19, 0);
+    // MOEX evening session close / Tinkoff market close - park cash immediately after
+    protected static final LocalTime EOD_CLOSE_TIME = LocalTime.of(18, 55);
 
     protected static long lastApiCallTime = 0;
 
@@ -1419,6 +1420,8 @@ import static java.util.concurrent.CompletableFuture.runAsync;
         Map<TickerInfo.Key, PositionInfo> currentPositions =
                 tradingService.getCurrentPositions(tickerType);
         currentPositions.values().stream()
+                .filter(positionInfo -> positionInfo.getTicker() != null
+                        && !positionInfo.getTicker().equals("none"))
                 .filter(positionInfo -> activeTickers.contains(positionInfo.getTicker()))
                 .filter(positionInfo -> positionInfo.getBalance() != 0)
                 .forEach(
@@ -1436,6 +1439,11 @@ import static java.util.concurrent.CompletableFuture.runAsync;
                             restoredPosition =
                                     tradingService.restoreProtectivePosition(
                                             positionInfo.getTicker(), tickerType, restoredPosition);
+                            if (restoredPosition == null) {
+                                log("Skipped restoring position for " + positionInfo.getTicker()
+                                    + ": restoreProtectivePosition returned null");
+                                return;
+                            }
                             positionStore.put(positionInfo.getTicker(), restoredPosition);
                             initializeLastSeenHourBar(positionInfo.getTicker(), tickerInfo);
 

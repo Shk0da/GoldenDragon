@@ -22,6 +22,9 @@ public class PendingOrder {
     // Max allowed price deviation beyond the entry target for a market entry (0.5%)
     private static final double MAX_ENTRY_DRIFT = 0.005;
 
+    // Slippage protection: expire order if market price deviates >0.2% from entry target
+    private static final double MAX_SLIPPAGE_PERCENT = 0.002;
+
     public final String ticker;
     public final String direction;
     public final Double entryPrice;
@@ -72,6 +75,10 @@ public class PendingOrder {
         if (entryPrice == null || entryPrice <= 0 || currentPrice <= 0) {
             return false;
         }
+        // Slippage protection: expire order if market price deviates >0.2% from entry target
+        if (isSlippageExceeded(currentPrice)) {
+            return false;
+        }
         if (isImmediateEntry()) {
             return Math.abs(currentPrice - entryPrice) <= entryPrice * MAX_ENTRY_DRIFT;
         }
@@ -83,6 +90,21 @@ public class PendingOrder {
         // wait for price to rise to target: breakout long or retest short
         return currentPrice >= entryPrice * (1 - ENTRY_TOUCH_TOLERANCE)
             && currentPrice <= entryPrice * (1 + MAX_ENTRY_DRIFT);
+    }
+
+    /**
+     * Check if current price has deviated more than 0.2% from entry target.
+     * If exceeded, the order should be expired (ORDER_EXPIRED) rather than executed.
+     *
+     * @param currentPrice current market price
+     * @return true if slippage exceeds the threshold
+     */
+    public boolean isSlippageExceeded(double currentPrice) {
+        if (entryPrice == null || entryPrice <= 0 || currentPrice <= 0) {
+            return false;
+        }
+        double deviation = Math.abs(currentPrice - entryPrice) / entryPrice;
+        return deviation > MAX_SLIPPAGE_PERCENT;
     }
 
     /**

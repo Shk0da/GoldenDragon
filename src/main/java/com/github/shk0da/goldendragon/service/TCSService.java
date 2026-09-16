@@ -14,6 +14,7 @@ import com.github.shk0da.goldendragon.repository.FigiRepository;
 import com.github.shk0da.goldendragon.repository.PricesRepository;
 import com.github.shk0da.goldendragon.repository.Repository;
 import com.github.shk0da.goldendragon.repository.TickerRepository;
+import com.github.shk0da.goldendragon.utils.TinkoffApiUrlResolver;
 import ru.tinkoff.piapi.contract.v1.Bond;
 import ru.tinkoff.piapi.contract.v1.CandleInterval;
 import ru.tinkoff.piapi.contract.v1.Currency;
@@ -40,6 +41,7 @@ import ru.tinkoff.piapi.core.stream.MarketDataSubscriptionService;
 import java.io.IOException;
 import java.math.BigDecimal;
 import java.net.URI;
+import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
@@ -1093,6 +1095,78 @@ public class TCSService implements TradingService {
         return perUnitFromTotal > 0.0 ? perUnitFromTotal : perUnitFromRaw;
     }
 
+    @Override
+    public Double getSingleContractGo(String figi) {
+        try {
+            String url = TinkoffApiUrlResolver.buildRestUrl(mainConfig, "InstrumentsService/GetFuturesMargin");
+            String json = post(url, "{\"figi\": \"" + figi + "\"}", 2, true);
+            return json == null ? null : extractMoney(json, "initialMarginOnSell");
+        } catch (Exception ex) {
+            log("Failed to get margin for futures " + figi + ": " + ex.getMessage());
+            return null;
+        }
+    }
+
+    private String post(String url, String body, int retries, boolean silent) {
+        try {
+            HttpClient client = HttpClient.newBuilder()
+                .connectTimeout(java.time.Duration.ofSeconds(30))
+                .build();
+            HttpRequest request = HttpRequest.newBuilder()
+                .uri(java.net.URI.create(url))
+                .timeout(java.time.Duration.ofSeconds(300))
+                .header("Content-Type", "application/json")
+                .header("Authorization", "Bearer " + mainConfig.getTcsApiKey())
+                .POST(HttpRequest.BodyPublishers.ofString(body))
+                .build();
+
+            for (int attempt = 0; attempt < retries; attempt++) {
+                try {
+                    java.net.http.HttpResponse<String> response = client.send(request, java.net.http.HttpResponse.BodyHandlers.ofString());
+                    if (response.statusCode() == 200) {
+                        return response.body();
+                    }
+                    if (!silent) {
+                        log("HTTP " + response.statusCode() + " attempt " + (attempt + 1));
+                    }
+                } catch (Exception e) {
+                    if (!silent) {
+                        log("HTTP request failed (attempt " + (attempt + 1) + "): " + e.getMessage());
+                    }
+                }
+                Thread.sleep(1000);
+            }
+            return null;
+        } catch (Exception ex) {
+            if (!silent) {
+                log("POST failed to " + url + ": " + ex.getMessage());
+            }
+            return null;
+        }
+    }
+
+    private Double extractMoney(String json, String key) {
+        if (json == null || json.isEmpty()) {
+            return null;
+        }
+        try {
+            com.google.gson.JsonObject obj = com.google.gson.JsonParser.parseString(json).getAsJsonObject();
+            if (obj.has(key)) {
+                com.google.gson.JsonElement val = obj.get(key);
+                if (val.isJsonObject()) {
+                    com.google.gson.JsonObject moneyObj = val.getAsJsonObject();
+                    long units = moneyObj.has("units") ? moneyObj.get("units").getAsLong() : 0;
+                    int nano = moneyObj.has("nano") ? moneyObj.get("nano").getAsInt() : 0;
+                    return units + (nano / 1_000_000_000.0);
+                }
+            }
+            return null;
+        } catch (Exception ex) {
+            log("Failed to extract " + key + " from JSON: " + ex.getMessage());
+            return null;
+        }
+    }
+
     public Position restoreProtectivePosition(String name, TickerType type, Position position) {
         if (mainConfig.isSandbox() || position == null || position.quantity <= 0) {
             return position;
@@ -1297,9 +1371,7 @@ public class TCSService implements TradingService {
             StopOrderDirection direction,
             StopOrderType stopOrderType) {
         try {
-            String url =
-                    "https://invest-public-api.tbank.ru/rest/"
-                            + "tinkoff.public.invest.api.contract.v1.StopOrdersService/PostStopOrder";
+            String url = TinkoffApiUrlResolver.buildRestUrl(mainConfig, "StopOrdersService/PostStopOrder");
 
             String body =
                     "{\"figi\":\"" + figi
@@ -2496,13 +2568,7 @@ public class TCSService implements TradingService {
         String fromParam = java.time.format.DateTimeFormatter.ISO_INSTANT.format(since);
         String toParam = java.time.format.DateTimeFormatter.ISO_INSTANT.format(now);
 
-        // Use sandbox URL for sandbox mode, production URL otherwise
-        String baseUrl = mainConfig.isSandbox()
-            ? "https://sandbox-invest-public-api.tbank.ru"
-            : "https://invest-public-api.tbank.ru";
-
-        String url = baseUrl + "/rest/"
-                        + "tinkoff.public.invest.api.contract.v1.OperationsService/GetOperationsByCursor";
+        String url = TinkoffApiUrlResolver.buildRestUrl(mainConfig, "OperationsService/GetOperationsByCursor");
 
         // All Tinkoff gRPC-to-REST bridge endpoints use POST with a JSON body.
         String body =

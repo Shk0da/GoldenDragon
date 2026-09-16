@@ -55,6 +55,13 @@ public class Config {
     public final double mmMaxPositionSize;
     public final boolean shortsEnabled;
 
+    // Trailing Stop parameters
+    public boolean mmTrailingEnabled;
+    public double mmTrailingStepPercent;
+    public double mmTrailingDeltaPercent;
+    public int mmTrailingCheckInterval;
+    public double mmTrailingVolumePercent;
+
     public Config() {
         this.emaTrend = 24;
         this.emaFast = 3;
@@ -107,6 +114,13 @@ public class Config {
         this.mmCriticalDrawdownPercent = 0.15;
         this.mmMaxPositionSize = 0.20;
         this.shortsEnabled = true;
+
+        // Trailing Stop defaults
+        this.mmTrailingEnabled = true;
+        this.mmTrailingStepPercent = 0.005;
+        this.mmTrailingDeltaPercent = 0.003;
+        this.mmTrailingCheckInterval = 1;
+        this.mmTrailingVolumePercent = 0.5;
     }
 
     public Config(
@@ -170,6 +184,13 @@ public class Config {
         this.mmCriticalDrawdownPercent = 0.10;
         this.mmMaxPositionSize = 0.25;
         this.shortsEnabled = false;
+
+        // Trailing Stop defaults
+        this.mmTrailingEnabled = true;
+        this.mmTrailingStepPercent = 0.005;
+        this.mmTrailingDeltaPercent = 0.003;
+        this.mmTrailingCheckInterval = 1;
+        this.mmTrailingVolumePercent = 0.5;
     }
 
     /** Create Config with Money Management parameters. */
@@ -243,5 +264,43 @@ public class Config {
         this.mmCriticalDrawdownPercent = mmCriticalDrawdownPercent;
         this.mmMaxPositionSize = mmMaxPositionSize;
         this.shortsEnabled = shortsEnabled;
+
+        // Trailing Stop defaults (not configurable via constructor for now)
+        this.mmTrailingEnabled = true;
+        this.mmTrailingStepPercent = 0.005;
+        this.mmTrailingDeltaPercent = 0.003;
+        this.mmTrailingCheckInterval = 1;
+        this.mmTrailingVolumePercent = 0.5;
+    }
+
+    /** Trailing stop configuration DTO. */
+    public static class TrailingParams {
+        public final boolean enabled;
+        public final double stepPercent;
+        public final double deltaPercent;
+        public final int checkInterval;
+        public final double volumePercent;
+
+        public TrailingParams(boolean enabled, double stepPercent, double deltaPercent,
+                              int checkInterval, double volumePercent) {
+            this.enabled = enabled;
+            this.stepPercent = stepPercent;
+            this.deltaPercent = deltaPercent;
+            this.checkInterval = checkInterval;
+            this.volumePercent = volumePercent;
+        }
+    }
+
+    /**
+     * Create Config with custom trailing stop parameters.
+     * All other settings use the default Config() values.
+     */
+    public Config(TrailingParams trailing) {
+        this();
+        this.mmTrailingEnabled = trailing != null ? trailing.enabled : true;
+        this.mmTrailingStepPercent = trailing != null ? trailing.stepPercent : 0.005;
+        this.mmTrailingDeltaPercent = trailing != null ? trailing.deltaPercent : 0.003;
+        this.mmTrailingCheckInterval = trailing != null ? trailing.checkInterval : 1;
+        this.mmTrailingVolumePercent = trailing != null ? trailing.volumePercent : 0.5;
     }
 }

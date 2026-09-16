@@ -214,55 +214,63 @@ public class UnifiedStrategy extends BaseStrategy {
             TradingService tradingService,
             Config config,
             com.github.shk0da.goldendragon.config.MainConfig mainConfig) {
-        super(unifiedTraderConfig, tradingService, config, null, mainConfig);
+        super(unifiedTraderConfig, tradingService,
+                config != null ? config : new Config(), null, mainConfig);
 
-        this.mmEnabled = config.mmEnabled;
+        Config effectiveConfig = config != null ? config : new Config();
+        this.mmEnabled = effectiveConfig.mmEnabled;
 
         if (mmEnabled) {
             // Initialize SizingStrategy
             SizingStrategy sizingStrategy;
-            if ("VOLATILITY".equalsIgnoreCase(config.mmSizingStrategy)) {
+            if ("VOLATILITY".equalsIgnoreCase(effectiveConfig.mmSizingStrategy)) {
                 sizingStrategy =
                         new VolatilityAdjustedSizing(
-                                config.mmRiskPercent,
-                                config.mmVolatilityBaseAtr,
-                                config.mmVolatilityMinAdjustment,
-                                config.mmVolatilityMaxAdjustment,
-                                config.mmMaxPositionSize);
+                                effectiveConfig.mmRiskPercent,
+                                effectiveConfig.mmVolatilityBaseAtr,
+                                effectiveConfig.mmVolatilityMinAdjustment,
+                                effectiveConfig.mmVolatilityMaxAdjustment,
+                                effectiveConfig.mmMaxPositionSize);
             } else {
                 sizingStrategy =
-                        new FixedRiskSizing(config.mmRiskPercent, config.mmMaxPositionSize);
+                        new FixedRiskSizing(effectiveConfig.mmRiskPercent, effectiveConfig.mmMaxPositionSize);
             }
 
             // Initialize MM components
             this.positionSizer = new PositionSizer(sizingStrategy);
             this.riskManager =
                     new RiskManager(
-                            config.mmMaxDailyLossPercent,
-                            config.mmMaxConsecutiveLosses);
+                            effectiveConfig.mmMaxDailyLossPercent,
+                            effectiveConfig.mmMaxConsecutiveLosses);
             this.adaptiveCapital =
                     new AdaptiveCapital(
-                            config.mmRiskPercent,
-                            config.mmLossesToReduce,
-                            config.mmWinsToRestore,
-                            config.mmRiskReductionFactor);
+                            effectiveConfig.mmRiskPercent,
+                            effectiveConfig.mmLossesToReduce,
+                            effectiveConfig.mmWinsToRestore,
+                            effectiveConfig.mmRiskReductionFactor);
             // Disable killSwitch in backtest mode to prevent premature position closures
-            this.killSwitch = BaseStrategy.isBacktestMode() ? null : new KillSwitch(config.mmCriticalDrawdownPercent);
+            this.killSwitch = BaseStrategy.isBacktestMode() ? null : new KillSwitch(effectiveConfig.mmCriticalDrawdownPercent);
             this.performanceTracker = new PerformanceTracker();
             this.stopLossManager =
                     new StopLossManager(
-                            config.mmTrailingActivationR,
-                            config.mmTrailingMultiplier,
-                            config.mmBreakevenActivationR,
-                            config.mmBreakevenBuffer);
+                            effectiveConfig.mmTrailingActivationR,
+                            effectiveConfig.mmTrailingMultiplier,
+                            effectiveConfig.mmBreakevenActivationR,
+                            effectiveConfig.mmBreakevenBuffer,
+                            effectiveConfig.mmTrailingEnabled,
+                            effectiveConfig.mmTrailingStepPercent,
+                            effectiveConfig.mmTrailingDeltaPercent,
+                            effectiveConfig.mmTrailingCheckInterval,
+                            effectiveConfig.mmTrailingVolumePercent,
+                            effectiveConfig.commission);
 
             log(
                     "Money Management initialized: risk="
-                            + (config.mmRiskPercent * 100)
+                            + (effectiveConfig.mmRiskPercent * 100)
                             + "%, dailyLoss="
-                            + (config.mmMaxDailyLossPercent * 100)
+                            + (effectiveConfig.mmMaxDailyLossPercent * 100)
                             + "%, criticalDD="
-                            + (config.mmCriticalDrawdownPercent * 100)
+                            + (effectiveConfig.mmCriticalDrawdownPercent * 100)
                             + "%");
         } else {
             this.positionSizer = null;
@@ -868,19 +876,25 @@ public class UnifiedStrategy extends BaseStrategy {
             double dAtr = atrVal(hourCandles, config.atrPeriod);
             Double initialRisk = initialRiskPerTicker.get(ticker);
             if (dAtr > 0 && initialRisk != null && initialRisk > 0) {
-                Double newStop = stopLossManager.updateStopLoss(p, cur, dAtr, initialRisk);
-                if (newStop != null && !Double.valueOf(newStop).equals(p.stopLoss)) {
-                    p =
-                            copyPosition(
-                                    p,
-                                    p.direction,
-                                    p.entryPrice,
-                                    newStop,
-                                    p.takeProfit,
-                                    p.quantity,
-                                    p.candlesHeld,
-                                    p.cooldownRemaining);
-                    return new TradingDecision("HOLD", "trail", 0.0, 0, null, null, null, p);
+                StopLossManager.TrailingResult result = stopLossManager.updateStopLoss(
+                        p, cur, dAtr, initialRisk, p.candlesHeld);
+                if (result != null && result.newStopLoss != null) {
+                    Double newStop = result.newStopLoss;
+                    Double newTP = result.newTakeProfit != null ? result.newTakeProfit : p.takeProfit;
+                    if (!Double.valueOf(newStop).equals(p.stopLoss) || !java.util.Objects.equals(newTP, p.takeProfit)) {
+                        p =
+                                copyPosition(
+                                        p,
+                                        p.direction,
+                                        p.entryPrice,
+                                        newStop,
+                                        newTP,
+                                        p.quantity,
+                                        p.candlesHeld,
+                                        p.cooldownRemaining);
+                        String trailReason = result.trailingActivated ? "trail" : "breakeven";
+                        return new TradingDecision("HOLD", trailReason, 0.0, 0, null, null, null, p);
+                    }
                 }
             }
         }

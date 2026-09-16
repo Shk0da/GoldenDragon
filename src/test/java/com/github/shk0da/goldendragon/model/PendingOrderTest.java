@@ -51,8 +51,17 @@ class PendingOrderTest {
         @DisplayName("Should enter on overshoot within drift guard")
         void shouldEnter_OnOvershootWithinDrift() {
             // Given: drift lower bound is 2590.5 * 0.995 = 2577.55
+            // Slippage protection allows up to 0.2% deviation (2590.5 - 5.18 = 2585.32)
+            // Use 2586.0 which is within both drift guard (2577.55) and slippage (2585.32)
+            then(pending.shouldEnter(2586.0)).isTrue();
+        }
+
+        @Test
+        @DisplayName("Should not enter when slippage exceeds 0.2% threshold")
+        void shouldNotEnter_SlippageExceedsThreshold() {
+            // Given: slippage at 2580.0 is 0.4% > 0.2% threshold
             // When / Then
-            then(pending.shouldEnter(2580.0)).isTrue();
+            then(pending.shouldEnter(2580.0)).isFalse();
         }
 
         @Test

@@ -52,11 +52,25 @@ task dataCollect(type: JavaExec) {
 }
 
 task runBacktest(type: JavaExec) {
+     group = 'backtest'
+     mainClass = 'com.github.shk0da.goldendragon.backtest.BacktestRunner'
+     classpath = sourceSets.test.runtimeClasspath
+     workingDir = rootDir
+     // utf-8 console output so cyrillic survives redirection to a file
+     jvmArgs '--add-opens', 'java.base/java.time=ALL-UNNAMED',
+             '-Dstdout.encoding=UTF-8', '-Dstderr.encoding=UTF-8'
+     // Enable verbose logging for backtest via -Pverbose=true
+     if (project.hasProperty('verbose')) {
+         jvmArgs "-DunifiedTrader.verboseLogging.enabled=${project.getProperty('verbose')}"
+     }
+ }
+
+task runTrailingOptimizer(type: JavaExec) {
     group = 'backtest'
-    mainClass = 'com.github.shk0da.goldendragon.backtest.BacktestRunner'
+    description = 'Run trailing stop parameter optimization'
+    mainClass = 'com.github.shk0da.goldendragon.backtest.BacktestTrailingOptimizer'
     classpath = sourceSets.test.runtimeClasspath
     workingDir = rootDir
-    // utf-8 console output so cyrillic survives redirection to a file
     jvmArgs '--add-opens', 'java.base/java.time=ALL-UNNAMED',
             '-Dstdout.encoding=UTF-8', '-Dstderr.encoding=UTF-8'
 }

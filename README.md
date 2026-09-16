@@ -148,6 +148,44 @@ cd GoldenDragon
 
 BacktestRunner использует инструменты из `datacollector.instruments` (акции, ETF, фьючерсы MOEX).
 
+### Логирование бэктеста
+
+По умолчанию verbose-логи отключены для снижения объёма вывода.
+
+```bash
+# Запуск без verbose-логов (дефолт)
+./gradlew runBacktest
+
+# Запуск с verbose-логами (для отладки HOLD/DECISION деталей)
+./gradlew runBacktest -Pverbose=true
+```
+
+**Что логируется всегда:**
+- Исполнение сделок (открытие/закрытие)
+- Ошибки и исключения
+
+**Verbose-логи (только с `-Pverbose=true`):**
+- Причины HOLD-решений (почему сделка не открыта)
+- Детали расчёта размера позиции
+- Детали cash parking
+- Состояние фильтров (режим рынка, BAD_WEATHER)
+
+### Futures Margin (ГО)
+
+Для фьючерсов используется margin (ГО) из брокерского API вместо номинальной цены.
+
+Расчёт количества контрактов:
+1. Берётся `initialMarginOnSell` из `GetFuturesMargin` API
+2. Если margin не удалось получить — используется 25% от цены фьючерса как fallback
+3. Формула: `quantity = (deposit * riskPercent) / margin`
+
+```java
+// Пример использования margin-based расчёта
+Double margin = tradingService.getSingleContractGo("GYENF");
+// margin = null → fallback 25% от цены
+// margin = 1000.0 → используем реальное ГО
+```
+
 Cash parking в бэктесте:
 - **TMON@**: комиссия 0%, не учитывается в tradeHistory
 
@@ -469,6 +507,7 @@ AI-стратегия, использующая дебаты между LLM-аг
 - **Агенты**: Analyst (тренд, RSI, объём), Trader (вход, стоп, цель), Risk Manager (R:R, размер)
 - **Консенсус**: проверка согласия после 2-го раунда (температура 0.0)
 - **Арбитр**: финальное решение с температурой 0.2
+- **Параллельные агенты**: Analyst/Trader/RiskManager выполняются параллельно в каждом раунде (CompletableFuture)
 - **Rate limiter**: 262000 токенов/минуту (token bucket)
 - **Семафор**: последовательные вызовы к LLM (1 запрос за раз)
 - **Таймаут**: 5 минут на один LLM-вызов
@@ -489,6 +528,24 @@ TATN | R2 Consensus check: CONTINUE
 ### Конфигурация
 
 См. секцию `# TradeCouncilStrategy Config (AI/LLM)` в `application.properties`.
+
+## Tinkoff API
+
+### URL Resolver
+
+Все REST-вызовы к Tinkoff API используют утилиту `TinkoffApiUrlResolver` для автоматического выбора sandbox/production URL:
+
+```java
+// Автоматический выбор URL на основе mainConfig.isSandbox()
+String url = TinkoffApiUrlResolver.buildRestUrl(mainConfig, "InstrumentsService/GetFuturesMargin");
+// Sandbox: https://sandbox-invest-public-api.tbank.ru/rest/...
+// Production: https://invest-public-api.tbank.ru/rest/...
+```
+
+**Используется в:**
+- `TCSService.getSingleContractGo()` — получение ГО для фьючерсов
+- `TCSService.postMarketStopOrder()` — выставление стоп-ордеров
+- `TCSService.getTradeHistory()` — история операций
 
 ## Структура проекта
 

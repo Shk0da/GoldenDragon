@@ -440,6 +440,17 @@ public interface TradingService {
     }
 
     /**
+     * Returns the initial margin (ГО) required for one futures contract.
+     * Uses the maximum of marginOnBuy and marginOnSell for conservative risk management.
+     *
+     * @param figi instrument identifier
+     * @return initial margin in RUB, or null if not available
+     */
+    default Double getSingleContractGo(String figi) {
+        return null;
+    }
+
+    /**
      * Synchronizes protective orders.
      */
     default void syncProtectiveOrders(String name, TickerType type, Position position) {

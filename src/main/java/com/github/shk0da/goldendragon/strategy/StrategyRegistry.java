@@ -150,6 +150,26 @@ public final class StrategyRegistry {
     }
 
     /**
+     * Create a backtest strategy instance for a given name with custom Config.
+     *
+     * <p>Used by BacktestRunner to instantiate strategies with custom Config (e.g., for trailing optimization).
+     * The backtest broker is already set via {@link BaseStrategy#setBacktestBroker}.</p>
+     *
+     * @param strategyName name of the strategy to create
+     * @param config trader configuration
+     * @param tradingService backtest trading service (can be null)
+     * @param modelConfig custom model configuration (e.g., trailing parameters)
+     * @return a BaseStrategy instance ready for backtest processing
+     */
+    public static BaseStrategy createBacktest(String strategyName, UnifiedTraderConfig config, TradingService tradingService, com.github.shk0da.goldendragon.model.Config modelConfig) {
+        if ("UnifiedStrategy".equals(strategyName)) {
+            return new UnifiedStrategy(config, tradingService, modelConfig);
+        } else {
+            throw new IllegalArgumentException("Unknown strategy: " + strategyName);
+        }
+    }
+
+    /**
      * Get list of strategy names that support backtesting.
      * @return list of strategy names
      */

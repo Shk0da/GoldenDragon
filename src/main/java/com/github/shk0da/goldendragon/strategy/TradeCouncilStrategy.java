@@ -8,6 +8,7 @@ import com.github.shk0da.goldendragon.model.Config;
 import com.github.shk0da.goldendragon.model.PendingOrder;
 import com.github.shk0da.goldendragon.model.Position;
 import com.github.shk0da.goldendragon.model.TickerInfo;
+import com.github.shk0da.goldendragon.model.TickerType;
 import com.github.shk0da.goldendragon.model.TradingDecision;
 import com.github.shk0da.goldendragon.service.TradingService;
 import com.google.gson.Gson;
@@ -19,6 +20,12 @@ import com.google.gson.JsonParser;
 import java.io.IOException;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
+import java.net.http.HttpRequest.BodyPublishers;
+import java.net.http.HttpResponse;
+import java.net.http.HttpResponse.BodyHandlers;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executor;
+import java.util.concurrent.Executors;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -31,9 +38,6 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.stream.Collectors;
 
 import static com.github.shk0da.goldendragon.money.CashParkingManager.TINKOFF_PARKING_TICKER;
-import static java.net.http.HttpRequest.BodyPublishers;
-import static java.net.http.HttpRequest.newBuilder;
-import static java.net.http.HttpResponse.BodyHandlers;
 
 /**
  * TradeCouncil Strategy - AI-powered trading strategy using LLM debate system.
@@ -83,6 +87,7 @@ public class TradeCouncilStrategy extends BaseStrategy {
 
     // Semaphore for sequential LLM access
     private final Semaphore llmSemaphore = new Semaphore(1);
+    private final Executor debaterExecutor = Executors.newFixedThreadPool(3);
 
     // Rate limiter: 262000 tokens per minute
     private static final long MAX_TOKENS_PER_MIN = 262000;
@@ -194,7 +199,9 @@ public class TradeCouncilStrategy extends BaseStrategy {
                     "✅ ENTRY CONDITION MET for " + ticker + ": " + pending.direction +
                         " @ " + currentPrice + " (target: " + pending.entryPrice + ")", 5);
 
-                int quantity = calculateQuantityFromDepositPercent(ticker, pending.depositPercent, pending.entryPrice, balance);
+                TickerInfo info = findTickerInfo(ticker);
+                String figi = info != null ? info.getFigi() : null;
+                int quantity = calculateQuantityFromDepositPercent(ticker, pending.depositPercent, pending.entryPrice, balance, figi);
                 logThrottled(ticker + "_qty_calc",
                     "   Calculated quantity: " + quantity + " (deposit%: " + pending.depositPercent + ", balance: " + balance + ")", 5);
 
@@ -518,21 +525,47 @@ public class TradeCouncilStrategy extends BaseStrategy {
         agents.put("Risk Manager", tcConfig.getRiskManagerPrompt());
 
         for (int round = 0; round < tcConfig.getDebateRounds(); round++) {
+            final int currentRound = round; // final variable for lambda
             log(ticker + " | Round " + (round + 1) + "/" + tcConfig.getDebateRounds());
+            
+            // Launch all agents in parallel within this round
+            List<CompletableFuture<Void>> agentFutures = new ArrayList<>();
+            Map<String, String> roundResults = new ConcurrentHashMap<>();
+            
             for (Map.Entry<String, String> agent : agents.entrySet()) {
-                StringBuilder prompt = new StringBuilder();
-                prompt.append("Market data:\n").append(marketData).append("\n");
-                if (!history.isEmpty()) {
-                    prompt.append("Previous opinions:\n");
-                    history.forEach((n, a) -> prompt.append("[").append(n).append("]: ").append(a).append("\n"));
-                    prompt.append("Take previous opinions into account.\n");
-                }
-
-                String answer = callLLM(tcConfig.getDebaterModel(), agent.getValue(), prompt.toString(), 0.7);
-                history.put(agent.getKey(), answer);
-                log(ticker + " | R" + (round + 1) + " " + agent.getKey() + ": done");
-                Thread.sleep(200);
+                String agentName = agent.getKey();
+                String agentPrompt = agent.getValue();
+                
+                CompletableFuture<Void> future = CompletableFuture.runAsync(() -> {
+                    try {
+                        StringBuilder prompt = new StringBuilder();
+                        prompt.append("Market data:\n").append(marketData).append("\n");
+                        if (!history.isEmpty()) {
+                            prompt.append("Previous opinions:\n");
+                            history.forEach((n, a) -> prompt.append("[").append(n).append("]: ").append(a).append("\n"));
+                            prompt.append("Take previous opinions into account.\n");
+                        }
+                        
+                        String answer = callLLM(tcConfig.getDebaterModel(), agentPrompt, prompt.toString(), 0.7);
+                        roundResults.put(agentName, answer);
+                        log(ticker + " | R" + (currentRound + 1) + " " + agentName + ": done");
+                    } catch (Exception e) {
+                        log(ticker + " | R" + (currentRound + 1) + " " + agentName + " failed: " + e.getMessage());
+                        throw new RuntimeException(e);
+                    }
+                }, debaterExecutor);
+                
+                agentFutures.add(future);
             }
+            
+            // Wait for all agents in this round to complete
+            CompletableFuture.allOf(agentFutures.toArray(new CompletableFuture[0])).join();
+            
+            // Copy results to history in original agent order
+            for (String agentName : agents.keySet()) {
+                history.put(agentName, roundResults.get(agentName));
+            }
+            
             Thread.sleep(500);
 
             if (round >= 1) {
@@ -810,15 +843,15 @@ public class TradeCouncilStrategy extends BaseStrategy {
 
             HttpClient client = HttpClient.newBuilder()
                 .connectTimeout(java.time.Duration.ofSeconds(30)).build();
-            HttpRequest req = newBuilder()
+            HttpRequest req = HttpRequest.newBuilder()
                 .uri(java.net.URI.create(url))
                 .timeout(java.time.Duration.ofSeconds(300))
                 .header("Content-Type", "application/json")
                 .header("Authorization", "Bearer " + tcConfig.getOpenAiApiKey())
-                .POST(BodyPublishers.ofString(jsonBody)).build();
+                .POST(HttpRequest.BodyPublishers.ofString(jsonBody)).build();
 
             try {
-                String response = client.send(req, BodyHandlers.ofString()).body();
+                String response = client.send(req, HttpResponse.BodyHandlers.ofString()).body();
 
                 try {
                     JsonObject respObj = JsonParser.parseString(response).getAsJsonObject();
@@ -884,6 +917,22 @@ public class TradeCouncilStrategy extends BaseStrategy {
      * @return quantity in units (0 if calculation fails)
      */
     int calculateQuantityFromDepositPercent(String ticker, Double depositPercent, double entryPrice, double balance) {
+        return calculateQuantityFromDepositPercent(ticker, depositPercent, entryPrice, balance, null);
+    }
+
+    /**
+     * Calculate position quantity from deposit percent.
+     * For futures: uses margin (ГО) from broker API instead of nominal price.
+     *
+     * @param ticker ticker symbol
+     * @param depositPercent percent of deposit to use (e.g., 1.0 for 1%)
+     * @param entryPrice entry price
+     * @param balance available balance
+     * @param figi instrument FIGI (used to fetch margin for futures)
+     * @return quantity in units (0 if calculation fails)
+     */
+    int calculateQuantityFromDepositPercent(
+            String ticker, Double depositPercent, double entryPrice, double balance, String figi) {
         if (depositPercent == null || depositPercent <= 0 || entryPrice <= 0 || balance <= 0) {
             log("⚠️ Invalid parameters for quantity calculation: depositPercent=" + depositPercent +
                 ", entryPrice=" + entryPrice + ", balance=" + balance);
@@ -894,6 +943,11 @@ public class TradeCouncilStrategy extends BaseStrategy {
         if (info == null) {
             log("⚠️ TickerInfo not found for " + ticker);
             return 0;
+        }
+
+        // Use margin-based calculation for futures
+        if (info.getType() == TickerType.FEATURE && figi != null && tradingService != null) {
+            return calculateFuturesQuantity(ticker, depositPercent, entryPrice, balance, figi);
         }
 
         double amountToUse = balance * (depositPercent / 100.0);
@@ -911,6 +965,52 @@ public class TradeCouncilStrategy extends BaseStrategy {
         int quantity = (int) (rawQuantity / minLot);
         log("💰 Quantity calculated: " + quantity + " lots (deposit%=" + depositPercent +
             ", balance=" + balance + ", amount=" + amountToUse + ", entry=" + entryPrice + ")");
+        return quantity;
+    }
+
+    /**
+     * Calculate futures quantity using margin (ГО) from broker API.
+     * Uses max(marginOnBuy, marginOnSell) with 10% buffer for conservative risk management.
+     */
+    int calculateFuturesQuantity(
+            String ticker, Double depositPercent, double entryPrice, double balance, String figi) {
+        if (depositPercent == null || depositPercent <= 0 || balance <= 0) {
+            log("⚠ Invalid parameters for futures quantity: depositPercent=" + depositPercent +
+                ", balance=" + balance);
+            return 0;
+        }
+
+        // 1. Get exact margin from broker API
+        Double singleContractGo = null;
+        if (tradingService != null) {
+            singleContractGo = tradingService.getSingleContractGo(figi);
+        }
+
+        // Fallback: approx 25% of entry price if API unavailable
+        if (singleContractGo == null || singleContractGo <= 0) {
+            log("⚠ Could not fetch margin from broker for " + ticker + ". Using fallback (25% of price).");
+            singleContractGo = entryPrice * 0.25;
+        }
+
+        // 2. Calculate allocated capital
+        double allocatedCapital = balance * (depositPercent / 100.0);
+
+        // 3. Apply 10% buffer for volatility/extension risk
+        double effectiveGoWithBuffer = singleContractGo * 1.10;
+
+        // 4. Final quantity calculation
+        double rawQuantity = allocatedCapital / effectiveGoWithBuffer;
+        int quantity = (int) Math.floor(rawQuantity);
+
+        log(String.format(
+            "💰 [FUTURES MARGIN] %s | Capital: %.2f | Margin: %.2f | w/ buffer: %.2f | Lots: %d",
+            ticker, allocatedCapital, singleContractGo, effectiveGoWithBuffer, quantity));
+
+        if (quantity < 1) {
+            log("⚠ Futures quantity (" + rawQuantity + ") < 1 lot for " + ticker + ". Trade rejected.");
+            return 0;
+        }
+
         return quantity;
     }
 }

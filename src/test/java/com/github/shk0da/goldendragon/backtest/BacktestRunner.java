@@ -85,7 +85,7 @@ public class BacktestRunner {
     private static final int MIN_HOURS_REQUIRED = 10;
     private static final int MAX_CONCURRENT_POSITIONS = 8;
     private static final LocalTime WORK_START_TIME = LocalTime.of(8, 30);
-    private static final LocalTime EOD_CLOSE_TIME = LocalTime.of(21, 0);
+    private static final LocalTime EOD_CLOSE_TIME = LocalTime.of(18, 55);
     private static final String BACKTEST_MODE = System.getProperty("backtest.mode", "full");
     private static final int BACKTEST_THREADS =
         Math.max(
@@ -766,6 +766,20 @@ public class BacktestRunner {
         List<String> tickers,
         UnifiedTraderConfig config)
         throws IOException {
+        return execute(strategyName, start, endExclusive, tickers, config, null);
+    }
+
+    /**
+     * Execute backtest with a custom model Config (e.g., custom trailing parameters).
+     */
+    BacktestExecutionResult execute(
+        String strategyName,
+        String start,
+        String endExclusive,
+        List<String> tickers,
+        UnifiedTraderConfig config,
+        com.github.shk0da.goldendragon.model.Config modelConfig)
+        throws IOException {
         if (tickers.isEmpty()) {
             return new BacktestExecutionResult(
                 Collections.emptyMap(),
@@ -814,7 +828,7 @@ public class BacktestRunner {
         // Create TradingService wrapper for backtest parity with live trading
         BacktestTradingService backtestTradingService = new BacktestTradingService(broker);
         BaseStrategy.setBacktestTradingService(backtestTradingService);
-        BaseStrategy strategy = StrategyRegistry.createBacktest(strategyName, config);
+        BaseStrategy strategy = StrategyRegistry.createBacktest(strategyName, config, backtestTradingService, modelConfig);
         List<EquityPoint> portfolioEquity = new ArrayList<>();
         Map<String, List<TradeResult>> tradesByTicker = new LinkedHashMap<>();
         Map<String, Integer> minuteIndexByTicker = new LinkedHashMap<>();
@@ -911,6 +925,25 @@ public class BacktestRunner {
                         brokerPos = broker.getPositionState(ticker);
                         brokerPos.cooldownRemaining = cooldownCandles;
                         lastEodCloseDayByTicker.put(ticker, currentDay);
+                        
+                        // Park cash in TMON@ immediately after closing positions at EOD
+                        if (config.isTmonCashParkingEnabled()) {
+                            double cash = broker.getSharedCash();
+                            if (cash > 0) {
+                                double tmonValue = broker.getTmonPositionValue(parkingTickerForBacktest);
+                                double availableForPark = cash + tmonValue;
+                                if (availableForPark > 0) {
+                                    SimulatedBroker.SimulatedPosition tmonPos = broker.getPositionState(parkingTickerForBacktest);
+                                    if (!tmonPos.hasOpenPosition()) {
+                                        int tmonLotSize = 1;
+                                        int tmonShares = (int) Math.floor(availableForPark / tmonLotSize);
+                                        if (tmonShares > 0) {
+                                            broker.buy(parkingTickerForBacktest, tmonShares, null, null);
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
                     strategy.getPositionStore().put(ticker, brokerPos.position);
                     portfolioEquity.add(new EquityPoint(time, broker.getTotalPortfolioValue()));

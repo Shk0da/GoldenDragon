@@ -124,6 +124,12 @@ public class TradingServiceCache implements TradingService {
         return delegate.closeShortByMarketWithDetails(name, type);
     }
     
+    @Override
+    public Double getSingleContractGo(String figi) {
+        // Delegate to underlying service - no caching for margin data
+        return delegate.getSingleContractGo(figi);
+    }
+    
     /**
      * Get value with TTL-based caching.
      */
