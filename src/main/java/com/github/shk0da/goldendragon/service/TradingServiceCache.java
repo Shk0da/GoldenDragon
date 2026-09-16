@@ -184,6 +184,76 @@ public class TradingServiceCache implements TradingService {
     }
 
     @Override
+    public double getTotalPortfolioCost() {
+        return delegate.getTotalPortfolioCost();
+    }
+
+    @Override
+    public double getTotalPortfolioValue() {
+        return delegate.getTotalPortfolioValue();
+    }
+
+    @Override
+    public double getAvailablePrice(TickerInfo.Key key) {
+        return delegate.getAvailablePrice(key);
+    }
+
+    @Override
+    public double getAvailablePrice(TickerInfo.Key key, int count, String type, boolean isPrintGlass) {
+        return delegate.getAvailablePrice(key, count, type, isPrintGlass);
+    }
+
+    @Override
+    public int calculateTradeCount(TickerInfo.Key key, double availableCash, double price) {
+        return delegate.calculateTradeCount(key, availableCash, price);
+    }
+
+    @Override
+    public TickerInfo searchTicker(TickerInfo.Key key) {
+        return delegate.searchTicker(key);
+    }
+
+    @Override
+    public void closeAllByMarket(TickerType tickerType) {
+        delegate.closeAllByMarket(tickerType);
+    }
+
+    @Override
+    public boolean closeLongByMarket(String name, TickerType type) {
+        return delegate.closeLongByMarket(name, type);
+    }
+
+    @Override
+    public OrderExecutionResult closeLongByMarketWithDetails(String name, TickerType type, int quantity) {
+        return delegate.closeLongByMarketWithDetails(name, type, quantity);
+    }
+
+    @Override
+    public boolean closeShortByMarket(String name, TickerType type) {
+        return delegate.closeShortByMarket(name, type);
+    }
+
+    @Override
+    public OrderExecutionResult closeShortByMarketWithDetails(String name, TickerType type, int quantity) {
+        return delegate.closeShortByMarketWithDetails(name, type, quantity);
+    }
+
+    @Override
+    public OrderExecutionResult closeLong(String ticker) {
+        return delegate.closeLong(ticker);
+    }
+
+    @Override
+    public OrderExecutionResult closeShort(String ticker) {
+        return delegate.closeShort(ticker);
+    }
+
+    @Override
+    public double getGlobalPeakEquity() {
+        return delegate.getGlobalPeakEquity();
+    }
+
+    @Override
     public Position restoreProtectivePosition(String name, TickerType type, Position position) {
         // No caching for protective positions - delegate directly
         return delegate.restoreProtectivePosition(name, type, position);

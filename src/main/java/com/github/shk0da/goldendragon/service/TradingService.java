@@ -126,49 +126,49 @@ public interface TradingService {
      * Returns the list of all tradable futures.
      */
     default Map<TickerInfo.Key, TickerInfo> getFuturesList() {
-        return java.util.Collections.emptyMap();
+        throw new UnsupportedOperationException("getFuturesList not implemented");
     }
 
     /**
      * Returns the list of all tradable stocks.
      */
     default Map<TickerInfo.Key, TickerInfo> getStockList() {
-        return java.util.Collections.emptyMap();
+        throw new UnsupportedOperationException("getStockList not implemented");
     }
 
     /**
      * Returns the list of all tradable ETFs.
      */
     default Map<TickerInfo.Key, TickerInfo> getEtfList() {
-        return java.util.Collections.emptyMap();
+        throw new UnsupportedOperationException("getEtfList not implemented");
     }
 
     /**
      * Returns the list of all tradable bonds.
      */
     default Map<TickerInfo.Key, TickerInfo> getBondList() {
-        return java.util.Collections.emptyMap();
+        throw new UnsupportedOperationException("getBondList not implemented");
     }
 
     /**
      * Returns the list of all tradable currencies.
      */
     default Map<TickerInfo.Key, TickerInfo> getCurrenciesList() {
-        return java.util.Collections.emptyMap();
+        throw new UnsupportedOperationException("getCurrenciesList not implemented");
     }
 
     /**
      * Searches for a ticker by its key.
      */
     default TickerInfo searchTicker(TickerInfo.Key key) {
-        return null;
+        throw new UnsupportedOperationException("searchTicker not implemented");
     }
 
     /**
      * Returns the FIGI/symbol identifier for the given ticker key.
      */
     default String figiByName(TickerInfo.Key key) {
-        return null;
+        throw new UnsupportedOperationException("figiByName not implemented");
     }
 
     // ==================== MARKET DATA METHODS ====================
