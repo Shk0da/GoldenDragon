@@ -1,6 +1,8 @@
 plugins {
     id 'java'
     id 'application'
+    id 'jacoco'
+    id 'org.owasp.dependencycheck' version '8.4.2'
 }
 
 group 'com.github.shk0da'
@@ -101,4 +103,61 @@ task runStrategyAI(type: JavaExec) {
 
 test {
     useJUnitPlatform()
+    finalizedBy jacocoTestReport
+}
+
+jacocoTestReport {
+    dependsOn test
+    reports {
+        xml.required = true
+        html.required = true
+        csv.required = false
+    }
+}
+
+jacocoTestCoverageVerification {
+    dependsOn jacocoTestReport
+    violationRules {
+        rule {
+            // Overall project coverage - low bar for now, will increase over time
+            limit {
+                minimum = 0.2
+            }
+        }
+        rule {
+            // Ensure critical packages have reasonable coverage
+            element = 'CLASS'
+            includes = [
+                'com.github.shk0da.goldendragon.money.*',
+                'com.github.shk0da.goldendragon.strategy.*',
+                'com.github.shk0da.goldendragon.service.*',
+                'com.github.shk0da.goldendragon.utils.*'
+            ]
+            excludes = [
+                // Large complex classes with many edge cases
+                'com.github.shk0da.goldendragon.service.TCSService',
+                'com.github.shk0da.goldendragon.service.TCSService.*',
+                'com.github.shk0da.goldendragon.service.TradingService',
+                'com.github.shk0da.goldendragon.service.TradingService.*',
+                'com.github.shk0da.goldendragon.strategy.BaseStrategy',
+                'com.github.shk0da.goldendragon.strategy.UnifiedStrategy',
+                'com.github.shk0da.goldendragon.strategy.UnifiedStrategy.*',
+                'com.github.shk0da.goldendragon.strategy.TradeCouncilStrategy',
+                'com.github.shk0da.goldendragon.strategy.StrategyRegistry',
+                'com.github.shk0da.goldendragon.strategy.StrategyRegistry.*',
+                'com.github.shk0da.goldendragon.money.TmonCashParkingMonitor',
+                'com.github.shk0da.goldendragon.money.CashParkingManager',
+                'com.github.shk0da.goldendragon.money.PerformanceTracker',
+                'com.github.shk0da.goldendragon.money.PerformanceTracker.*',
+                'com.github.shk0da.goldendragon.utils.PrintUtils',
+                'com.github.shk0da.goldendragon.utils.TickerTypeResolver',
+                'com.github.shk0da.goldendragon.utils.CandleFileReader',
+                'com.github.shk0da.goldendragon.utils.IndicatorsUtil'
+            ]
+            limit {
+                counter = 'LINE'
+                minimum = 0.4
+            }
+        }
+    }
 }
