@@ -1219,8 +1219,8 @@ public class TCSService implements TradingService {
                     } else {
                         if (takeProfit == null || stopPrice < takeProfit) {
                             takeProfit = stopPrice;
-                            protectiveOrders.takeProfit1OrderId = stopOrder.getStopOrderId();
-                            protectiveOrders.takeProfit1Price = stopPrice;
+                            protectiveOrders.takeProfitOrderId = stopOrder.getStopOrderId();
+                            protectiveOrders.takeProfitPrice = stopPrice;
                         }
                     }
                 } else if ("SELL".equals(position.direction)) {
@@ -1233,15 +1233,15 @@ public class TCSService implements TradingService {
                     } else {
                         if (takeProfit == null || stopPrice > takeProfit) {
                             takeProfit = stopPrice;
-                            protectiveOrders.takeProfit1OrderId = stopOrder.getStopOrderId();
-                            protectiveOrders.takeProfit1Price = stopPrice;
+                            protectiveOrders.takeProfitOrderId = stopOrder.getStopOrderId();
+                            protectiveOrders.takeProfitPrice = stopPrice;
                         }
                     }
                 }
             }
 
             if (protectiveOrders.stopLossOrderId != null
-                    || protectiveOrders.takeProfit1OrderId != null) {
+                    || protectiveOrders.takeProfitOrderId != null) {
                 protectiveOrdersByTicker.put(key, protectiveOrders);
             }
 
@@ -1358,21 +1358,21 @@ public class TCSService implements TradingService {
                     ? STOP_ORDER_DIRECTION_SELL
                     : STOP_ORDER_DIRECTION_BUY;
             if (quantity > 0 && bracketPosition.entryPrice != null) {
-                double tp2Price = bracketPosition.takeProfit;
-                String tp2OrderId = postMarketStopOrder(
+                double tpPrice = bracketPosition.takeProfit;
+                String tpOrderId = postMarketStopOrder(
                     figi,
                     orderId,
                     quantity,
-                    tp2Price,
+                    tpPrice,
                     stopOrderDirection,
                     STOP_ORDER_TYPE_TAKE_PROFIT);
-                if (tp2OrderId != null) {
+                if (tpOrderId != null) {
                     ProtectiveOrders orders = protectiveOrdersByTicker.computeIfAbsent(key, ignored -> new ProtectiveOrders());
-                    orders.takeProfit2OrderId = tp2OrderId;
-                    orders.takeProfit2Price = tp2Price;
-                    log(key.getTicker() + " | TP order placed: lots=" + quantity + ", price=" + tp2Price);
+                    orders.takeProfitOrderId = tpOrderId;
+                    orders.takeProfitPrice = tpPrice;
+                    log(key.getTicker() + " | TP order placed: lots=" + quantity + ", price=" + tpPrice);
                 } else {
-                    log("WARN: " + key.getTicker() + " |  TP order FAILED, lots=" + quantity + " left unprotected");
+                    log("WARN: " + key.getTicker() + " | TP order FAILED, lots=" + quantity + " left unprotected");
                 }
             }
         }
@@ -1470,11 +1470,8 @@ public class TCSService implements TradingService {
 
         private String stopLossOrderId;
         private Double stopLossPrice;
-        private String takeProfit1OrderId;  // TP1: 60% @ +1%
-        private Double takeProfit1Price;
-        private String takeProfit2OrderId;  // TP2: 40% @ +2%
-        private Double takeProfit2Price;
-        private boolean tp1Executed = false;
+        private String takeProfitOrderId;
+        private Double takeProfitPrice;
     }
 
     /**

@@ -556,7 +556,7 @@ public class SimulatedBroker implements MarketDataProvider, OrderExecutor {
         double tp = takeProfitPrice != null ? takeProfitPrice : rawPrice * (1.0 + defaultTpPercent / 100.0);
 
         pos.position = new Position(
-                "BUY", slippedEntry, sl, tp, null, quantity, 0, 0, 1, false);
+                "BUY", slippedEntry, sl, tp, quantity, 0, 0, 1);
         pos.entryPrice = slippedEntry;
         pos.postedMargin = 0.0;  // longs don't post margin
         pos.entryBarIndex = barIndex(ticker, bar);
@@ -623,7 +623,7 @@ public class SimulatedBroker implements MarketDataProvider, OrderExecutor {
         double tp = takeProfitPrice != null ? takeProfitPrice : rawPrice * (1.0 - defaultTpPercent / 100.0);
 
         pos.position = new Position(
-                "SELL", slippedEntry, sl, tp, null, quantity, 0, 0, 1, false);
+                "SELL", slippedEntry, sl, tp, quantity, 0, 0, 1);
         pos.entryPrice = slippedEntry;
         pos.postedMargin = marginRequired;
         pos.entryBarIndex = barIndex(ticker, bar);
@@ -712,12 +712,10 @@ public class SimulatedBroker implements MarketDataProvider, OrderExecutor {
                 pos.entryPrice,
                 pos.position.stopLoss,
                 pos.position.takeProfit,
-                null,
                 remainingQty,
                 pos.position.candlesHeld,
                 0,
-                pos.position.appliedLeverage,
-                true);
+                pos.position.appliedLeverage);
         
         tradeHistory.add(new BacktestTrade(
                 ticker, "SELL", "PARTIAL_CLOSE", pos.entryPrice, exitPrice, quantity,
@@ -766,12 +764,10 @@ public class SimulatedBroker implements MarketDataProvider, OrderExecutor {
                 pos.entryPrice,
                 pos.position.stopLoss,
                 pos.position.takeProfit,
-                null,
                 remainingQty,
                 pos.position.candlesHeld,
                 0,
-                pos.position.appliedLeverage,
-                true);
+                pos.position.appliedLeverage);
         
         tradeHistory.add(new BacktestTrade(
                 ticker, "BUY", "PARTIAL_CLOSE", pos.entryPrice, exitPrice, quantity,
@@ -799,45 +795,17 @@ public class SimulatedBroker implements MarketDataProvider, OrderExecutor {
                 p.position.entryPrice,
                 stopLoss,
                 takeProfit,
-                null,
                 p.position.quantity,
                 p.position.candlesHeld,
                 0,
-                p.position.appliedLeverage,
-                p.position.partialClosed);
+                p.position.appliedLeverage);
     }
 
     /**
-     * Fraction of the position closed at the first take-profit level (TP1). The remaining
-     * fraction is left open and managed by the second take-profit level (TP2) / trailing stop.
-     */
-    private static final double TP1_CLOSE_FRACTION = 0.6;
-
-    /**
-     * Check SL/TP on the given bar and close (or partially close) the position if triggered.
+     * Check SL/TP on the given bar and close the position if triggered.
+     * Uses a single take-profit level (no TP1/TP2 partial close logic).
      *
-     * <p><b>Parity with live TCS:</b> In live trading, protective orders are posted as
-     * {@code EXCHANGE_ORDER_TYPE_MARKET} stop-orders. When the trigger price is touched,
-     * the order converts to a market order and executes at the CURRENT MARKET PRICE,
-     * NOT exactly at the stop level. This method replicates that behavior by using
-     * {@code currentBar.close} as the fill price (market price at trigger moment).</p>
-     *
-     * <p><b>Two-level take-profit lifecycle:</b> A fresh position carries {@code takeProfit}
-     * (TP1) and {@code takeProfit2} (TP2). When TP1 is touched the first time, {@link
-     * #TP1_CLOSE_FRACTION} (60%) of the position is closed and the remainder is rebuilt with a
-     * breakeven stop and {@code takeProfit2} as its new take-profit ({@code partialClosed=true}).
-     * On subsequent bars the remainder closes fully when TP2 (now {@code takeProfit}) or the stop
-     * is touched.</p>
-     *
-     * <p><b>Invariant (Block 9.1):</b> Does NOT check cooldownRemaining — SL/TP triggers even
-     * immediately after entry. This ensures positions are properly protected from the first bar.</p>
-     *
-     * <p><b>Risk Engineer priority:</b> When both stop-loss and take-profit on the same bar
-     * (unknowable intrabar sequence), execution occurs at the stop-loss (pessimistic choice).
-     * TP1 is only partially closed; the second level (TP2) is checked on later bars to avoid an
-     * optimistic intrabar double fill.</p>
-     *
-     * @return execution result if the position was closed/partially closed, or null if none triggered
+     * @return execution result if the position was closed, or null if none triggered
      */
     public ExecutionResult checkStopLossTakeProfit(String ticker, Candle currentBar) {
         SimulatedPosition pos = positions.get(ticker);
@@ -850,90 +818,18 @@ public class SimulatedBroker implements MarketDataProvider, OrderExecutor {
         boolean isLong = pos.isLong();
         Double sl = pos.position.stopLoss;
         Double tp = pos.position.takeProfit;
-        Double tp2 = pos.position.takeProfit2;
 
         boolean slHit = sl != null && (isLong ? currentBar.low <= sl : currentBar.high >= sl);
         boolean tpHit = tp != null && (isLong ? currentBar.high >= tp : currentBar.low <= tp);
 
-        // Pessimistic: stop-loss takes precedence over take-profit on the same bar.
+        // Stop-loss takes precedence over take-profit on the same bar.
         if (slHit) {
             return closePosition(ticker, pos, currentBar.close, currentBar.time, "sl_hit");
         }
-        if (!tpHit) {
-            return null;
+        if (tpHit) {
+            return closePosition(ticker, pos, currentBar.close, currentBar.time, "tp_hit");
         }
-
-        // Position already partially closed: takeProfit now holds the original TP2.
-        if (pos.position.partialClosed) {
-            return closePosition(ticker, pos, currentBar.close, currentBar.time, "tp2_hit");
-        }
-
-        // Fresh position: TP2 hit before TP1 partial-close occurred — close the whole remainder
-        // at TP2 in one shot (single-level TP behavior, no TP2 separation configured).
-        boolean tpHit2 = tp2 != null && (isLong ? currentBar.high >= tp2 : currentBar.low <= tp2);
-        if (tp2 != null && tpHit2) {
-            return closePosition(ticker, pos, currentBar.close, currentBar.time, "tp2_hit_full");
-        }
-
-        // TP1 hit: partial close, rebuild the remainder with breakeven stop and TP2.
-        return partialCloseAtFirstTp(ticker, pos, currentBar, isLong);
-    }
-
-    /**
-     * Partial close of {@link #TP1_CLOSE_FRACTION} of the position when the first take-profit
-     * level (TP1) is touched. The remainder keeps the same entry price but transitions to a
-     * breakeven stop and the original second take-profit ({@code takeProfit2}) as its new
-     * take-profit target ({@code partialClosed=true}).
-     */
-    private ExecutionResult partialCloseAtFirstTp(
-            String ticker, SimulatedPosition pos, Candle bar, boolean isLong) {
-        int totalQty = pos.position.quantity;
-        int closeQty = Math.max(1, (int) Math.round(totalQty * TP1_CLOSE_FRACTION));
-        int remainingQty = totalQty - closeQty;
-        if (remainingQty <= 0) {
-            return closePosition(ticker, pos, bar.close, bar.time, "tp1_full");
-        }
-
-        double exitPrice = bar.close;
-        double exitCommission =
-                exitPrice * closeQty * pos.lotSize * getEffectiveCommission(ticker);
-        // Allocate entry commission proportionally to partial close (parity with closePosition pnl accounting)
-        double entryPrice = pos.entryPrice;
-        double entryCommissionTotal = notional(totalQty, pos.lotSize, entryPrice) * getEffectiveCommission(ticker);
-        double allocatedEntryCommission = entryCommissionTotal * ((double) closeQty / totalQty);
-        
-        double proceeds = notional(closeQty, pos.lotSize, exitPrice) - exitCommission;
-        double entryValue = notional(closeQty, pos.lotSize, entryPrice);
-        // For longs: proceeds includes exit commission deduction. For shorts: entryValue - proceeds
-        // would add exit commission (wrong), so we compute grossPnl directly and subtract commissions.
-        double grossPnlPartial = isLong ? (notional(closeQty, pos.lotSize, exitPrice) - entryValue)
-                                        : (entryValue - notional(closeQty, pos.lotSize, exitPrice));
-        double pnl = grossPnlPartial - allocatedEntryCommission - exitCommission;
-        String direction = pos.position.direction;
-
-        if (isLong) {
-            sharedCash += proceeds;
-        } else {
-            // Short: open posts only margin (30% of notional). A short partial close must
-            // return freed margin + realized gross PnL for the closed portion, and scale the
-            // remaining position's margin down to its remaining quantity. Exit commission
-            // is paid on the buy-to-cover; entry commission was already paid at open.
-            double freedMargin = pos.postedMargin * ((double) closeQty / totalQty);
-            sharedCash += freedMargin + grossPnlPartial - exitCommission;
-            pos.postedMargin -= freedMargin;
-        }
-        totalCloseCashDelta += proceeds;
-        partialCloseCount++;
-        noteMutation();
-        // Rebuild the remainder: breakeven stop, TP2 as new take-profit, partialClosed=true.
-        pos.position = new Position(pos.position, remainingQty, pos.entryPrice);
-
-        tradeHistory.add(new BacktestTrade(
-                ticker, direction, "PARTIAL_CLOSE",
-                entryPrice, exitPrice, closeQty,
-                pnl, exitCommission + allocatedEntryCommission, "tp1_partial", bar.time, barIndex(ticker, bar)));
-        recordTradePnl(pnl);
-        return ExecutionResult.success(closeQty, exitPrice);
+        return null;
     }
 
     /**
@@ -1005,12 +901,10 @@ public class SimulatedBroker implements MarketDataProvider, OrderExecutor {
             pos.entryPrice,
             pos.position.stopLoss,
             pos.position.takeProfit,
-            null,
             pos.position.quantity - sharesToSell,
             pos.position.candlesHeld,
             0,
-            pos.position.appliedLeverage,
-            pos.position.partialClosed);
+            pos.position.appliedLeverage);
         return true;
     }
 

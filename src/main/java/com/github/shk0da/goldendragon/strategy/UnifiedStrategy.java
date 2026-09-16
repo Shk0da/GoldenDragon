@@ -430,12 +430,10 @@ public class UnifiedStrategy extends BaseStrategy {
                             p.entryPrice,
                             p.stopLoss,
                             p.takeProfit,
-                            p.takeProfit2,
                             p.quantity,
                             p.candlesHeld,
                             p.cooldownRemaining - 1,
-                            p.appliedLeverage,
-                            p.partialClosed));
+                            p.appliedLeverage));
         }
 
         if (p.quantity > 0) {
@@ -618,6 +616,7 @@ public class UnifiedStrategy extends BaseStrategy {
         }
 
         double sl = isBuy ? entry - slDist : entry + slDist;
+        double tp = isBuy ? entry + tpDist : entry - tpDist;
 
         int maxLeverage =
                 fixedEntryLeverage != null ? fixedEntryLeverage : Math.max(1, tpCfg.leverage);
@@ -768,13 +767,6 @@ public class UnifiedStrategy extends BaseStrategy {
         double tradeConfidence =
                 mmEnabled ? adaptiveCapital.getCurrentRiskPercent() / config.mmRiskPercent : 1.0;
 
-        // Take-profits anchored to the stop for a reliable positive R:R:
-        // TP1 = 1.5x the stop distance (partial close), TP2 = 3x the stop distance.
-        double tp1Dist = slDist * 1.5;
-        double tp2Dist = slDist * 3.0;
-        double tp1 = isBuy ? entry + tp1Dist : entry - tp1Dist;
-        double tp2 = isBuy ? entry + tp2Dist : entry - tp2Dist;
-
         // Track initial risk per position for R-based trailing calculations
         double initialRisk = Math.abs(entry - sl);
         if (mmEnabled && initialRisk > 0) {
@@ -787,9 +779,9 @@ public class UnifiedStrategy extends BaseStrategy {
                 tradeConfidence,
                 qty,
                 sl,
-                tp2,
+                tp,
                 entry,
-                new Position(direction, entry, sl, tp1, tp2, qty, 0, 0, effectiveLeverage, false));
+                new Position(direction, entry, sl, tp, qty, 0, 0, effectiveLeverage));
     }
 
     public String trendSignal(List<Candle> candles) {
@@ -883,18 +875,15 @@ public class UnifiedStrategy extends BaseStrategy {
             int candlesHeld,
             int cooldownRemaining) {
         int leverage = src != null && src.appliedLeverage > 0 ? src.appliedLeverage : 1;
-        Double tp2 = src != null ? src.takeProfit2 : null;
         return new Position(
                 direction,
                 entryPrice,
                 stopLoss,
                 takeProfit,
-                tp2,
                 quantity,
                 candlesHeld,
                 cooldownRemaining,
-                leverage,
-                src != null && src.partialClosed);
+                leverage);
     }
 
     /**
@@ -1364,7 +1353,7 @@ public class UnifiedStrategy extends BaseStrategy {
                         null,
                         null,
                         null,
-                        new Position("BUY", null, null, null, null, buyQty, 0, 0, 1, false));
+                        new Position("BUY", null, null, null, buyQty, 0, 0, 1));
             }
         }
 

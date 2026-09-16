@@ -1050,12 +1050,10 @@ import static java.util.concurrent.CompletableFuture.runAsync;
                     orderResult.getExecutedPrice(),
                     decision.stopLoss,
                     decision.takeProfit,
-                    null,
                     orderResult.getExecutedQuantity(),
                     0,
                     0,
-                    decision.updatedPosition.appliedLeverage,
-                    false);
+                    decision.updatedPosition.appliedLeverage);
 
             positionStore.put(name, executedPosition);
             lastSeenHourBarByTicker.put(name, candles.get(candles.size() - 1).time);

@@ -98,7 +98,7 @@ class TmonCashParkingMonitorTest {
             tradingService.cash = 100_000.0;
             tradingService.askPrice = TMON_PRICE;
             positionStore.put("NLMK", new Position(
-                    "SELL", 73.7, null, null, null, 5310, 0, 0, 1, false));
+                    "SELL", 73.7, null, null, 5310, 0, 0, 1));
 
             monitor.monitorAndBuyTmon();
 
