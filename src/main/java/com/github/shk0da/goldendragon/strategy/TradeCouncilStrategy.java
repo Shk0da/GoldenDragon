@@ -26,15 +26,15 @@ import java.net.http.HttpResponse.BodyHandlers;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.Semaphore;
 import java.util.concurrent.atomic.AtomicLong;
-import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.stream.Collectors;
 
 import static com.github.shk0da.goldendragon.money.CashParkingManager.TINKOFF_PARKING_TICKER;
@@ -79,21 +79,17 @@ public class TradeCouncilStrategy extends BaseStrategy {
 
     private final Map<String, PendingOrder> pendingOrders = new ConcurrentHashMap<>();
 
-    // Currently analyzing ticker - only one analysis at a time
-    private volatile String currentlyAnalyzingTicker = null;
-    private final ReentrantReadWriteLock analysisLock = new ReentrantReadWriteLock();
-    private final ReentrantReadWriteLock.ReadLock analysisReadLock = analysisLock.readLock();
-    private final ReentrantReadWriteLock.WriteLock analysisWriteLock = analysisLock.writeLock();
+    // Currently analyzing tickers - multiple tickers can be analyzed in parallel
+    private final Set<String> analyzingTickers = ConcurrentHashMap.newKeySet();
 
-    // Semaphore for sequential LLM access
-    private final Semaphore llmSemaphore = new Semaphore(1);
-    private final Executor debaterExecutor = Executors.newFixedThreadPool(3);
-
-    // Rate limiter: 262000 tokens per minute
+    // Rate limiter: 262000 tokens per minute (shared across all agents)
     private static final long MAX_TOKENS_PER_MIN = 262000;
     private static final long TOKENS_REFILL_PER_SEC = MAX_TOKENS_PER_MIN / 60;
     private final AtomicLong availableTokens = new AtomicLong(MAX_TOKENS_PER_MIN);
     private final AtomicLong lastRefillTime = new AtomicLong(System.currentTimeMillis());
+
+    // Executor for parallel agent execution (3 agents per ticker)
+    private final Executor debaterExecutor = Executors.newFixedThreadPool(6);
 
     private static final long DEBATE_COOLDOWN_MS = 5 * 60 * 1000L; // 5 min after pending order created
     private static final long NO_TRADE_COOLDOWN_MS = 10 * 60 * 1000L; // 10 min after debate without trade
@@ -165,16 +161,9 @@ public class TradeCouncilStrategy extends BaseStrategy {
 
         PendingOrder pending = pendingOrders.get(ticker);
         if (null == pending) {
-            // Check if another ticker is currently being analyzed (with write lock)
-            analysisWriteLock.lock();
-            try {
-                if (currentlyAnalyzingTicker != null && !currentlyAnalyzingTicker.equals(ticker)) {
-                    return new TradingDecision("HOLD", "ANALYSIS_IN_PROGRESS");
-                }
-                // Reserve this ticker for analysis
-                currentlyAnalyzingTicker = ticker;
-            } finally {
-                analysisWriteLock.unlock();
+            // Check if this ticker is already being analyzed (per-ticker tracking)
+            if (!analyzingTickers.add(ticker)) {
+                return new TradingDecision("HOLD", "ANALYSIS_IN_PROGRESS");
             }
         }
 
@@ -256,12 +245,7 @@ public class TradeCouncilStrategy extends BaseStrategy {
             long cooldownMs = (isNoTrade != null && isNoTrade) ? NO_TRADE_COOLDOWN_MS : DEBATE_COOLDOWN_MS;
 
             if (elapsed < cooldownMs) {
-                analysisWriteLock.lock();
-                try {
-                    currentlyAnalyzingTicker = null;
-                } finally {
-                    analysisWriteLock.unlock();
-                }
+                analyzingTickers.remove(ticker);
                 return new TradingDecision("HOLD", "DEBATE_COOLDOWN");
             }
         }
@@ -304,26 +288,15 @@ public class TradeCouncilStrategy extends BaseStrategy {
                 "Action=" + debateResult.action + ", Reason=" + debateResult.reason : "NULL"));
         } catch (Exception e) {
             log("Debate failed for " + ticker + ": " + e.getMessage());
+            analyzingTickers.remove(ticker);
             return new TradingDecision("HOLD", "DEBATE_ERROR");
-        } finally {
-            analysisWriteLock.lock();
-            try {
-                currentlyAnalyzingTicker = null;
-            } finally {
-                analysisWriteLock.unlock();
-            }
         }
 
-        // Clear currently analyzing ticker and set 10 min cooldown for no-trade result
+        // Clear analyzing ticker and set 10 min cooldown for no-trade result
         log("=== CONSENSIUM RESULT === " + ticker + ": No trade decision - entering 10 min cooldown");
         debateCooldowns.put(ticker, System.currentTimeMillis());
         noTradeCooldown.put(ticker, true); // 10 min cooldown for no-trade
-        analysisWriteLock.lock();
-        try {
-            currentlyAnalyzingTicker = null;
-        } finally {
-            analysisWriteLock.unlock();
-        }
+        analyzingTickers.remove(ticker);
         return new TradingDecision("HOLD", "DEBATE_NO_TRADE");
     }
 
@@ -540,7 +513,7 @@ public class TradeCouncilStrategy extends BaseStrategy {
             
             // Launch all agents in parallel within this round
             List<CompletableFuture<Void>> agentFutures = new ArrayList<>();
-            Map<String, String> roundResults = new ConcurrentHashMap<>();
+            Map<String, String> roundResults = new HashMap<>();
             
             for (Map.Entry<String, String> agent : agents.entrySet()) {
                 String agentName = agent.getKey();
@@ -568,15 +541,21 @@ public class TradeCouncilStrategy extends BaseStrategy {
                 agentFutures.add(future);
             }
             
-            // Wait for all agents in this round to complete
-            CompletableFuture.allOf(agentFutures.toArray(new CompletableFuture[0])).join();
+            // Wait for all agents in this round to complete (60s timeout per round)
+            try {
+                CompletableFuture.allOf(agentFutures.toArray(new CompletableFuture[0]))
+                    .orTimeout(60, TimeUnit.SECONDS)
+                    .join();
+            } catch (Exception e) {
+                log(ticker + " | Round " + (round + 1) + " timeout/error: " + e.getMessage());
+                analyzingTickers.remove(ticker);
+                return new TradingDecision("HOLD", "DEBATE_TIMEOUT");
+            }
             
             // Copy results to history in original agent order
             for (String agentName : agents.keySet()) {
                 history.put(agentName, roundResults.get(agentName));
             }
-            
-            Thread.sleep(500);
 
             if (round >= 1) {
                 StringBuilder allOpinions = new StringBuilder();
@@ -820,13 +799,11 @@ public class TradeCouncilStrategy extends BaseStrategy {
         // Estimate tokens for this request
         long requestTokens = estimateTokens(systemPrompt) + estimateTokens(userPrompt);
 
-        // Wait until we have enough tokens
+        // Wait until we have enough tokens (rate limiter)
         waitForTokens(requestTokens);
 
-        llmSemaphore.acquire();
-        try {
-            // Deduct tokens
-            availableTokens.getAndAdd(-requestTokens);
+        // Deduct tokens
+        availableTokens.getAndAdd(-requestTokens);
 
             String url = tcConfig.getOpenAiBaseUrl() + "/chat/completions";
 
@@ -884,9 +861,6 @@ public class TradeCouncilStrategy extends BaseStrategy {
             }
 
             return "NO_RESPONSE";
-        } finally {
-            llmSemaphore.release();
-        }
     }
 
     private List<Candle> loadCandles(String figi, String interval, int limit) {

@@ -858,6 +858,17 @@ import static java.util.concurrent.CompletableFuture.runAsync;
                 tmonCashParkingMonitor.setTradingInProgress(false);
             }
             lock.unlock();
+            
+            // Update dashboard with current balance and available cash after each ticker processing
+            if (dashboard != null) {
+                dashboard.updateBalance(safeGetTotalPortfolioCost());
+                if (tradingService != null) {
+                    Double cash = tradingService.getAvailableCash();
+                    if (cash != null) {
+                        dashboard.updateAvailableCash(cash);
+                    }
+                }
+            }
         }
     }
 
