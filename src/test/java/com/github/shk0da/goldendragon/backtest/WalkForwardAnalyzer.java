@@ -289,11 +289,21 @@ public class WalkForwardAnalyzer {
     }
     
     private Calendar parseDate(String dateStr) {
-        String[] parts = dateStr.split("\\.");
+        // Support both ISO (YYYY-MM-DD) and European (DD.MM.YYYY) formats
         Calendar cal = Calendar.getInstance();
-        cal.set(Calendar.DAY_OF_MONTH, Integer.parseInt(parts[0]));
-        cal.set(Calendar.MONTH, Integer.parseInt(parts[1]) - 1);
-        cal.set(Calendar.YEAR, Integer.parseInt(parts[2]));
+        if (dateStr.contains("-")) {
+            // ISO format: YYYY-MM-DD
+            String[] parts = dateStr.split("-");
+            cal.set(Calendar.YEAR, Integer.parseInt(parts[0]));
+            cal.set(Calendar.MONTH, Integer.parseInt(parts[1]) - 1);
+            cal.set(Calendar.DAY_OF_MONTH, Integer.parseInt(parts[2]));
+        } else {
+            // European format: DD.MM.YYYY
+            String[] parts = dateStr.split("\\.");
+            cal.set(Calendar.DAY_OF_MONTH, Integer.parseInt(parts[0]));
+            cal.set(Calendar.MONTH, Integer.parseInt(parts[1]) - 1);
+            cal.set(Calendar.YEAR, Integer.parseInt(parts[2]));
+        }
         cal.set(Calendar.HOUR_OF_DAY, 0);
         cal.set(Calendar.MINUTE, 0);
         cal.set(Calendar.SECOND, 0);
@@ -302,9 +312,9 @@ public class WalkForwardAnalyzer {
     }
     
     private String formatDate(Calendar cal) {
-        return String.format("%02d.%02d.%04d",
-                cal.get(Calendar.DAY_OF_MONTH),
+        return String.format("%04d-%02d-%02d",
+                cal.get(Calendar.YEAR),
                 cal.get(Calendar.MONTH) + 1,
-                cal.get(Calendar.YEAR));
+                cal.get(Calendar.DAY_OF_MONTH));
     }
 }
