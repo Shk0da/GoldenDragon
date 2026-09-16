@@ -395,7 +395,7 @@ public class UnifiedTraderConfig {
      */
     public boolean isVerboseLoggingEnabled() {
         return Boolean.parseBoolean(
-            properties.getProperty("unifiedTrader.verboseLogging.enabled", "true"));
+            properties.getProperty("unifiedTrader.verboseLogging.enabled", "false"));
     }
 
     /**
