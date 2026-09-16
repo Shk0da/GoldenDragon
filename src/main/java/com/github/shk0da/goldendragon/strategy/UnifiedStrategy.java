@@ -26,11 +26,8 @@ import com.github.shk0da.goldendragon.service.TradingService;
 
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
@@ -602,8 +599,8 @@ public class UnifiedStrategy extends BaseStrategy {
         double tpMult = tpCfg.tpMult;
         // Use a percentage of entry price for stop and take-profit distances so R:R is
         // reliable and achievable — ATR-based distances were too large in high-volatility entries.
-        double stopPct = 0.015;
-        double takeProfitPct = 0.024;
+        double stopPct = slMult / 100.0;
+        double takeProfitPct = tpMult / 100.0;
         double slDist = entry * stopPct;
         double tpDist = entry * takeProfitPct;
 
