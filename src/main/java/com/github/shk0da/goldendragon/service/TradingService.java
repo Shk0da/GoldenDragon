@@ -180,7 +180,7 @@ public interface TradingService {
     default List<Candle> getCandles(
             String figi, Instant start, Instant end,
             String interval) {
-        return java.util.Collections.emptyList();
+        throw new UnsupportedOperationException("getCandles not implemented");
     }
 
     /**
@@ -190,7 +190,7 @@ public interface TradingService {
     default List<Candle> getCandles(
             String figi, OffsetDateTime start, OffsetDateTime end,
             String interval) {
-        return java.util.Collections.emptyList();
+        throw new UnsupportedOperationException("getCandles not implemented");
     }
 
     /**
@@ -198,7 +198,7 @@ public interface TradingService {
      */
     default List<Candle> getLastCandles(
             String ticker, TickerType type, int size) {
-        return java.util.Collections.emptyList();
+        throw new UnsupportedOperationException("getLastCandles not implemented");
     }
 
     /**
@@ -206,42 +206,42 @@ public interface TradingService {
      * Useful for live candle-based strategies that poll recent candles.
      */
     default List<Candle> getCandles(String figi, String interval, int count) {
-        return java.util.Collections.emptyList();
+        throw new UnsupportedOperationException("getCandles not implemented");
     }
 
     /**
      * Returns the current prices (bids and asks) for the given ticker.
      */
     default Map<String, Map<Double, Long>> getCurrentPrices(TickerInfo.Key key, boolean isPrintGlass) {
-        return java.util.Collections.emptyMap();
+        throw new UnsupportedOperationException("getCurrentPrices not implemented");
     }
 
     /**
      * Returns the best available price for a single instrument.
      */
     default double getAvailablePrice(TickerInfo.Key key) {
-        return 0;
+        throw new UnsupportedOperationException("getAvailablePrice not implemented");
     }
 
     /**
      * Returns the best (lowest) live ask price from the orderbook.
      */
     default double getLiveAskPrice(TickerInfo.Key key) {
-        return 0;
+        throw new UnsupportedOperationException("getLiveAskPrice not implemented");
     }
 
     /**
      * Returns the best bid price from the current order book.
      */
     default double getLiveBidPrice(TickerInfo.Key key) {
-        return 0;
+        throw new UnsupportedOperationException("getLiveBidPrice not implemented");
     }
 
     /**
      * Returns the best available price for a given quantity from the specified side.
      */
     default double getAvailablePrice(TickerInfo.Key key, int count, String type, boolean isPrintGlass) {
-        return 0;
+        throw new UnsupportedOperationException("getAvailablePrice not implemented");
     }
 
     // ==================== ACCOUNT METHODS ====================
@@ -250,7 +250,7 @@ public interface TradingService {
      * Returns the available cash balance.
      */
     default Double getAvailableCash() {
-        return 0.0;
+        throw new UnsupportedOperationException("getAvailableCash not implemented");
     }
 
     /**
@@ -258,35 +258,49 @@ public interface TradingService {
      * Default returns 0.0 (live trading uses current balance).
      */
     default double getInitialBalance() {
-        return 0.0;
+        throw new UnsupportedOperationException("getInitialBalance not implemented");
     }
 
     /**
-     * Returns the total portfolio value.
+     * Returns the total portfolio value (cash + unrealized PnL of all positions).
+     */
+    default double getTotalPortfolioValue() {
+        throw new UnsupportedOperationException("getTotalPortfolioValue not implemented");
+    }
+
+    /**
+     * Returns the global peak portfolio value across the entire session (never reset).
+     */
+    default double getGlobalPeakEquity() {
+        throw new UnsupportedOperationException("getGlobalPeakEquity not implemented");
+    }
+
+    /**
+     * Returns the total portfolio cost (legacy alias for getTotalPortfolioValue).
      */
     default double getTotalPortfolioCost() {
-        return 0;
+        throw new UnsupportedOperationException("getTotalPortfolioCost not implemented");
     }
 
     /**
      * Returns the current balance of the position for the given ticker.
      */
     default int getCountOfCurrentPositions(TickerType tickerType, String tickerName) {
-        return 0;
+        throw new UnsupportedOperationException("getCountOfCurrentPositions not implemented");
     }
 
     /**
      * Returns the position info for the given ticker name.
      */
     default PositionInfo getCurrentPositions(TickerType tickerType, String tickerName) {
-        return null;
+        throw new UnsupportedOperationException("getCurrentPositions not implemented");
     }
 
     /**
      * Returns all current positions.
      */
     default Map<TickerInfo.Key, PositionInfo> getCurrentPositions(TickerType tickerType) {
-        return java.util.Collections.emptyMap();
+        throw new UnsupportedOperationException("getCurrentPositions not implemented");
     }
 
     // ==================== TRADING METHODS ====================
@@ -295,21 +309,21 @@ public interface TradingService {
      * Calculates the maximum number of instruments that can be traded.
      */
     default int calculateTradeCount(TickerInfo.Key key, double availableCash, double price) {
-        return 0;
+        throw new UnsupportedOperationException("calculateTradeCount not implemented");
     }
 
     /**
      * Calculates the total cash required to trade.
      */
     default double getRequiredCashForOrder(TickerInfo.Key key, int count, double price) {
-        return 0;
+        throw new UnsupportedOperationException("getRequiredCashForOrder not implemented");
     }
 
     /**
      * Creates an order and returns 1 on success or 0 on failure.
      */
     default int createOrder(TickerInfo.Key key, double price, int count, String operation) {
-        return 0;
+        throw new UnsupportedOperationException("createOrder not implemented");
     }
 
     /**
@@ -323,7 +337,7 @@ public interface TradingService {
             double takeProfit,
             double stopLose,
             boolean isFullPrice) {
-        return null;
+        throw new UnsupportedOperationException("createOrder not implemented");
     }
 
     /**
@@ -338,7 +352,7 @@ public interface TradingService {
             double stopLose,
             boolean isFullPrice,
             double cashToUse) {
-        return null;
+        throw new UnsupportedOperationException("createOrder not implemented");
     }
 
     /**
@@ -346,7 +360,7 @@ public interface TradingService {
      */
     default OrderExecutionResult buyByMarketWithDetails(
             String name, TickerType type, double cashToBuy, double takeProfit, double stopLose) {
-        return null;
+        throw new UnsupportedOperationException("buyByMarketWithDetails not implemented");
     }
 
     /**
@@ -354,7 +368,7 @@ public interface TradingService {
      */
     default OrderExecutionResult sellByMarketWithDetails(
             String name, TickerType type, double cashToSell, double takeProfit, double stopLose) {
-        return null;
+        throw new UnsupportedOperationException("sellByMarketWithDetails not implemented");
     }
 
     /**
@@ -368,7 +382,7 @@ public interface TradingService {
             double takeProfit,
             double stopLose,
             boolean isFullPrice) {
-        return null;
+        throw new UnsupportedOperationException("buy not implemented");
     }
 
     /**
@@ -382,61 +396,63 @@ public interface TradingService {
             double takeProfit,
             double stopLose,
             boolean isFullPrice) {
-        return null;
+        throw new UnsupportedOperationException("sell not implemented");
     }
 
     /**
      * Closes the entire long position.
      */
     default boolean closeLongByMarket(String name, TickerType type) {
-        return false;
+        throw new UnsupportedOperationException("closeLongByMarket not implemented");
     }
 
     /**
      * Closes the entire long position and returns execution details.
      */
     default OrderExecutionResult closeLongByMarketWithDetails(String name, TickerType type) {
-        return null;
+        throw new UnsupportedOperationException("closeLongByMarketWithDetails not implemented");
     }
 
     /**
      * Partially closes a long position by specified quantity.
      */
     default OrderExecutionResult closeLongByMarketWithDetails(String name, TickerType type, int quantity) {
-        return null;
+        throw new UnsupportedOperationException("closeLongByMarketWithDetails not implemented");
     }
 
     /**
      * Closes the entire short position.
      */
     default boolean closeShortByMarket(String name, TickerType type) {
-        return false;
+        throw new UnsupportedOperationException("closeShortByMarket not implemented");
     }
 
     /**
      * Closes the entire short position and returns execution details.
      */
     default OrderExecutionResult closeShortByMarketWithDetails(String name, TickerType type) {
-        return null;
+        throw new UnsupportedOperationException("closeShortByMarketWithDetails not implemented");
     }
 
     /**
      * Partially closes a short position by specified quantity.
      */
     default OrderExecutionResult closeShortByMarketWithDetails(String name, TickerType type, int quantity) {
-        return null;
+        throw new UnsupportedOperationException("closeShortByMarketWithDetails not implemented");
     }
 
     /**
      * Closes all positions by market orders.
      */
     default void closeAllByMarket(TickerType type) {
+        throw new UnsupportedOperationException("closeAllByMarket not implemented");
     }
 
     /**
      * Cancels a stop order.
      */
     default void cancelStopOrder(TickerInfo.Key key, String stopOrderId, String orderTypeName) {
+        throw new UnsupportedOperationException("cancelStopOrder not implemented");
     }
 
     /**
@@ -447,27 +463,28 @@ public interface TradingService {
      * @return initial margin in RUB, or null if not available
      */
     default Double getSingleContractGo(String figi) {
-        return null;
+        throw new UnsupportedOperationException("getSingleContractGo not implemented");
     }
 
     /**
      * Synchronizes protective orders.
      */
     default void syncProtectiveOrders(String name, TickerType type, Position position) {
+        throw new UnsupportedOperationException("syncProtectiveOrders not implemented");
     }
 
     /**
      * Restores protective position from broker orders.
      */
     default Position restoreProtectivePosition(String name, TickerType type, Position position) {
-        return null;
+        throw new UnsupportedOperationException("restoreProtectivePosition not implemented");
     }
 
     /**
      * Returns trade history from broker operations since the given timestamp.
      */
     default List<Map<String, Object>> getTradeHistory(Instant since) {
-        return java.util.Collections.emptyList();
+        throw new UnsupportedOperationException("getTradeHistory not implemented");
     }
 
     // ========================================================================
@@ -478,41 +495,41 @@ public interface TradingService {
      * Execute a market buy order with SL/TP percentages.
      */
     default OrderExecutionResult buy(String ticker, int quantity, Double stopLossPercent, Double takeProfitPercent) {
-        return null;
+        throw new UnsupportedOperationException("buy not implemented");
     }
 
     /**
      * Execute a market sell order (for short positions) with SL/TP percentages.
      */
     default OrderExecutionResult sell(String ticker, int quantity, Double stopLossPercent, Double takeProfitPercent) {
-        return null;
+        throw new UnsupportedOperationException("sell not implemented");
     }
 
     /**
      * Close a long position.
      */
     default OrderExecutionResult closeLong(String ticker) {
-        return null;
+        throw new UnsupportedOperationException("closeLong not implemented");
     }
 
     /**
      * Close a short position.
      */
     default OrderExecutionResult closeShort(String ticker) {
-        return null;
+        throw new UnsupportedOperationException("closeShort not implemented");
     }
 
     /**
      * Partially close a long position.
      */
     default OrderExecutionResult partialCloseLong(String ticker, int quantity) {
-        return null;
+        throw new UnsupportedOperationException("partialCloseLong not implemented");
     }
 
     /**
      * Partially close a short position.
      */
     default OrderExecutionResult partialCloseShort(String ticker, int quantity) {
-        return null;
+        throw new UnsupportedOperationException("partialCloseShort not implemented");
     }
 }

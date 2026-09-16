@@ -2,6 +2,8 @@ package com.github.shk0da.goldendragon.service;
 
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
+import com.github.shk0da.goldendragon.model.Candle;
+import com.github.shk0da.goldendragon.model.Position;
 import com.github.shk0da.goldendragon.model.PositionInfo;
 import com.github.shk0da.goldendragon.model.TickerInfo;
 import com.github.shk0da.goldendragon.model.TickerType;
@@ -152,6 +154,47 @@ public class TradingServiceCache implements TradingService {
         }
     }
     
+    @Override
+    public List<Candle> getCandles(String figi, String interval, int count) {
+        // No caching for candles - delegate directly to avoid stale data
+        return delegate.getCandles(figi, interval, count);
+    }
+
+    @Override
+    public List<Candle> getCandles(String figi, java.time.Instant start, java.time.Instant end, String interval) {
+        // No caching for candles - delegate directly
+        return delegate.getCandles(figi, start, end, interval);
+    }
+
+    @Override
+    public List<Candle> getCandles(String figi, java.time.OffsetDateTime start, java.time.OffsetDateTime end, String interval) {
+        // No caching for candles - delegate directly
+        return delegate.getCandles(figi, start, end, interval);
+    }
+
+    @Override
+    public List<Candle> getLastCandles(String ticker, TickerType type, int size) {
+        // No caching for last candles - delegate directly
+        return delegate.getLastCandles(ticker, type, size);
+    }
+
+    @Override
+    public Map<String, Map<Double, Long>> getCurrentPrices(TickerInfo.Key key, boolean isPrintGlass) {
+        return delegate.getCurrentPrices(key, isPrintGlass);
+    }
+
+    @Override
+    public Position restoreProtectivePosition(String name, TickerType type, Position position) {
+        // No caching for protective positions - delegate directly
+        return delegate.restoreProtectivePosition(name, type, position);
+    }
+
+    @Override
+    public void syncProtectiveOrders(String name, TickerType type, Position position) {
+        // No caching for protective orders - delegate directly
+        delegate.syncProtectiveOrders(name, type, position);
+    }
+
     /**
      * Invalidate specific cache key.
      */

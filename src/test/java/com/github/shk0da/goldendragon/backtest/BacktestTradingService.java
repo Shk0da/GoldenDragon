@@ -40,6 +40,16 @@ public class BacktestTradingService implements TradingService {
     }
 
     @Override
+    public double getTotalPortfolioValue() {
+        return broker.getTotalPortfolioValue();
+    }
+
+    @Override
+    public double getGlobalPeakEquity() {
+        return broker.getGlobalPeakEquity();
+    }
+
+    @Override
     public int calculateTradeCount(TickerInfo.Key key, double availableCash, double price) {
         if (price <= 0.0 || availableCash <= 0.0) {
             return 0;
@@ -217,6 +227,23 @@ public class BacktestTradingService implements TradingService {
     @Override
     public OrderExecutionResult partialCloseShort(String ticker, int quantity) {
         return convertResult(broker.partialCloseShort(ticker, quantity));
+    }
+
+    @Override
+    public Position restoreProtectivePosition(String name, TickerType type, Position position) {
+        // Backtest has no real protective orders; return position as-is
+        return position;
+    }
+
+    @Override
+    public void syncProtectiveOrders(String name, TickerType type, Position position) {
+        // Backtest has no real protective orders; no-op
+    }
+
+    @Override
+    public List<Candle> getLastCandles(String ticker, TickerType type, int size) {
+        // Backtest has no real candles; return empty list
+        return java.util.Collections.emptyList();
     }
 
     /**

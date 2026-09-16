@@ -44,13 +44,20 @@ public class KillSwitch {
     }
 
     /**
-     * Trigger kill switch on critical drawdown.
+     * Trigger kill switch on critical drawdown, auto-resume when drawdown recovers to safe level.
      *
      * @param currentDrawdown current drawdown as decimal
      */
     public void checkDrawdown(double currentDrawdown) {
-        if (currentDrawdown >= criticalDrawdownPercent && tradingAllowed) {
-            trigger("CRITICAL_DD_" + (int) (currentDrawdown * 100) + "%");
+        if (tradingAllowed) {
+            if (currentDrawdown >= criticalDrawdownPercent) {
+                trigger("CRITICAL_DD_" + (int) (currentDrawdown * 100) + "%");
+            }
+        } else {
+            double resumeThreshold = criticalDrawdownPercent * 0.5;
+            if (currentDrawdown <= resumeThreshold) {
+                reset();
+            }
         }
     }
 

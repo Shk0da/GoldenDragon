@@ -126,6 +126,9 @@ public class TradeCouncilStrategy extends BaseStrategy {
         log("TradeCouncilStrategy initialized with unifiedTrader tickers");
         log("Config: " + tcConfig);
         log("Proximity threshold: " + tcConfig.getProximityPercent() + "%");
+        
+        // Build key levels at startup
+        buildKeyLevels();
     }
 
     @Override
@@ -363,7 +366,14 @@ public class TradeCouncilStrategy extends BaseStrategy {
 
         List<Candle> h1Candles = loadCandles(info.getFigi(), "HOUR", Math.max(200, H1_CANDLES));
         if (h1Candles == null || h1Candles.isEmpty()) {
-            log("No H1 candles for " + ticker);
+            log("No H1 candles for " + ticker + " (sandbox mode or API unavailable - skipping key levels)");
+            // Use simple fallback levels (will be refined when real candles are available)
+            Map<String, Double> fallback = new HashMap<>();
+            fallback.put("S1", 0.0);
+            fallback.put("S2", 0.0);
+            fallback.put("R1", 0.0);
+            fallback.put("R2", 0.0);
+            keyLevels.put(ticker, fallback);
             return;
         }
 

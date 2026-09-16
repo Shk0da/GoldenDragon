@@ -248,8 +248,7 @@ public class UnifiedStrategy extends BaseStrategy {
                             effectiveConfig.mmLossesToReduce,
                             effectiveConfig.mmWinsToRestore,
                             effectiveConfig.mmRiskReductionFactor);
-            // Disable killSwitch in backtest mode to prevent premature position closures
-            this.killSwitch = BaseStrategy.isBacktestMode() ? null : new KillSwitch(effectiveConfig.mmCriticalDrawdownPercent);
+            this.killSwitch = new KillSwitch(effectiveConfig.mmCriticalDrawdownPercent);
             this.performanceTracker = new PerformanceTracker();
             this.stopLossManager =
                     new StopLossManager(
@@ -319,8 +318,32 @@ public class UnifiedStrategy extends BaseStrategy {
             return new TradingDecision("HOLD", "init");
         }
 
+        // Update equity and check KillSwitch on every decision (not just on trade close)
+        if (mmEnabled && performanceTracker != null && tradingService != null) {
+            Double equity = tradingService.getTotalPortfolioValue();
+            if (equity > 0) {
+                performanceTracker.updateEquity(equity);
+                // Check KillSwitch immediately after equity update
+                if (killSwitch != null) {
+                    killSwitch.checkDrawdown(performanceTracker.getCurrentDrawdown());
+                }
+            }
+        }
+
         // Money Management: Check KillSwitch
         if (mmEnabled && killSwitch != null && !killSwitch.isTradingAllowed()) {
+            // Emergency close all positions on critical drawdown
+            if (tradingService != null) {
+                try {
+                    tradingService.closeLong(ticker);
+                } catch (Exception ignore) {
+                    try {
+                        tradingService.closeShort(ticker);
+                    } catch (Exception ignored2) {
+                        // No position to close
+                    }
+                }
+            }
             return new TradingDecision("HOLD", "KILL_SWITCH_" + killSwitch.getTriggerReason());
         }
 
@@ -658,8 +681,41 @@ public class UnifiedStrategy extends BaseStrategy {
 
             // Defensive cap: position value cannot exceed mmMaxPositionSize fraction of sizingBalance
             // (not current balance) to prevent unrealistic position growth from compounding in backtest.
-            long maxPositionValue = (long) (sizingBalance * config.mmMaxPositionSize);
-            long maxQtyByValue = maxPositionValue / (long) Math.max(1, (int) entry);
+            double positionSizeCap = config.mmMaxPositionSize;
+            // Reduce position size on drawdown for capital preservation
+            if (performanceTracker != null && tradingService != null) {
+                Double equity = tradingService.getTotalPortfolioValue();
+                if (equity != null && equity > 0) {
+                    // For backtest, get peak from broker directly (not from reset daily PerformanceTracker)
+                    if (BaseStrategy.isBacktestMode()) {
+                        try {
+                            java.lang.reflect.Field brokerField = BaseStrategy.class.getDeclaredField("backtestBroker");
+                            brokerField.setAccessible(true);
+                            Object broker = brokerField.get(null);
+                            if (broker != null) {
+                                java.lang.reflect.Method getGlobalPeakMethod =
+                                        broker.getClass().getMethod("getGlobalPeakEquity");
+                                Double peak = (Double) getGlobalPeakMethod.invoke(broker);
+                                if (peak != null && peak > 0) {
+                                    positionSizeCap *= performanceTracker.getPositionSizeMultiplier(peak, equity);
+                                }
+                            }
+                        } catch (Exception ignore) {
+                            // No-op
+                        }
+                    } else {
+                        positionSizeCap *= performanceTracker.getPositionSizeMultiplier(
+                                performanceTracker.getGlobalPeakEquity(), equity);
+                    }
+                }
+            }
+            // Get lot size to cap position value correctly
+            TickerInfo tickerInfo = resolveTickerInfo(ticker);
+            int lotSize = tickerInfo != null && tickerInfo.getLot() != null
+                ? Math.max(1, tickerInfo.getLot())
+                : 1;
+            long maxPositionValue = (long) (sizingBalance * positionSizeCap);
+            long maxQtyByValue = maxPositionValue / (long) Math.max(1, (int) (entry * lotSize));
             qty = Math.min(qty, (int) Math.min(maxQtyByValue, (long) Integer.MAX_VALUE));
 
             if (qty > 0 && isVerboseLogging()) {
@@ -1215,12 +1271,9 @@ public class UnifiedStrategy extends BaseStrategy {
             }
             if (performanceTracker != null) {
                 performanceTracker.registerTrade(pnl);
-                // Update equity for drawdown tracking
-                if (tradingService != null) {
-                    Double cash = tradingService.getAvailableCash();
-                    if (cash != null) {
-                        performanceTracker.updateEquity(cash);
-                    }
+                Double equity = tradingService != null ? tradingService.getTotalPortfolioValue() : null;
+                if (equity > 0) {
+                    performanceTracker.updateEquity(equity);
                 }
             }
             if (adaptiveCapital != null) {

@@ -6,6 +6,7 @@ import com.github.shk0da.goldendragon.repository.Repository;
 import com.github.shk0da.goldendragon.repository.TickerRepository;
 import com.github.shk0da.goldendragon.service.TCSService;
 import com.github.shk0da.goldendragon.service.TradingService;
+import com.github.shk0da.goldendragon.strategy.BaseStrategy;
 import com.github.shk0da.goldendragon.strategy.StrategyRegistry;
 import com.google.gson.reflect.TypeToken;
 
@@ -62,6 +63,9 @@ public final class GoldenDragon {
             // Create Tinkoff trading service
             final TCSService tcsService = new TCSService(mainConfig.withAccountId(accountId));
             final TradingService tradingService = tcsService;
+
+            // Reset backtest trading service for live mode
+            BaseStrategy.setBacktestTradingService(null);
 
             out.println("Run: " + strategy + " [" + accountId + "] on Tinkoff");
 

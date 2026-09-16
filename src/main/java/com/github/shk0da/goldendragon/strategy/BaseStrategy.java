@@ -352,17 +352,12 @@ import static java.util.concurrent.CompletableFuture.runAsync;
         }
 
         throttleApiCall();
-        var initPortfolioCost = safeGetTotalPortfolioCost();
-        var infoMessage =
-                getStrategyName() + " started. Total Portfolio Cost: " + initPortfolioCost;
-        log(infoMessage);
 
         // Start dashboard server
         try {
             dashboard = new DashboardServer(tradingService, EOD_CLOSE_TIME);
             dashboard.start();
             log("Dashboard started at http://localhost:" + dashboard.getPort());
-            dashboard.updateBalance(initPortfolioCost);
         } catch (IOException ex) {
             log("Failed to start dashboard: " + ex.getMessage());
         }
@@ -425,6 +420,18 @@ import static java.util.concurrent.CompletableFuture.runAsync;
         }
 
         restoreTrackedPositions(activeTickers);
+
+        var initPortfolioCost = calculatePortfolioCostFromPositions();
+        if (initPortfolioCost <= 0.0) {
+            initPortfolioCost = safeGetTotalPortfolioCost();
+        }
+        var infoMessage =
+                getStrategyName() + " started. Total Portfolio Cost: " + initPortfolioCost;
+        log(infoMessage);
+
+        if (dashboard != null) {
+            dashboard.updateBalance(initPortfolioCost);
+        }
 
         onDailyReset();
 
@@ -1381,6 +1388,81 @@ import static java.util.concurrent.CompletableFuture.runAsync;
         }
     }
 
+    protected Double calculatePortfolioCostFromPositions() {
+        if (tradingService == null) {
+            log("calculatePortfolioCostFromPositions: tradingService is null");
+            return 0.0;
+        }
+        if (positionStore.isEmpty()) {
+            log("calculatePortfolioCostFromPositions: positionStore is empty");
+            return 0.0;
+        }
+        log("calculatePortfolioCostFromPositions: positionStore has " + positionStore.size() + " positions");
+        try {
+            double totalCost = 0.0;
+            for (Map.Entry<String, Position> entry : positionStore.entrySet()) {
+                String ticker = entry.getKey();
+                Position position = entry.getValue();
+                log("Calculating for " + ticker + ": quantity=" + position.quantity + ", entryPrice=" + position.entryPrice);
+                if (position.quantity <= 0) {
+                    log("Skipping " + ticker + ": quantity <= 0");
+                    continue;
+                }
+                try {
+                    TickerInfo tickerInfo = findTickerInfo(ticker);
+                    if (tickerInfo == null) {
+                        log("TickerInfo not found for " + ticker);
+                        continue;
+                    }
+                    Map<String, Map<Double, Long>> prices = tradingService.getCurrentPrices(
+                            new TickerInfo.Key(ticker, tickerInfo.getType()), false);
+                    double currentPrice = 0.0;
+                    if (prices != null) {
+                        Map<Double, Long> bids = prices.get("bids");
+                        if (bids != null && !bids.isEmpty()) {
+                            currentPrice = bids.keySet().iterator().next();
+                            log("Got price for " + ticker + " from bids: " + currentPrice);
+                        }
+                    }
+                    if (currentPrice <= 0 && position.entryPrice != null && position.entryPrice > 0) {
+                        currentPrice = position.entryPrice;
+                        log("Using entryPrice for " + ticker + ": " + currentPrice);
+                    }
+                    if (currentPrice > 0) {
+                        double positionCost = currentPrice * position.quantity;
+                        log(ticker + " position cost: " + positionCost);
+                        totalCost += positionCost;
+                    } else {
+                        log("No price available for " + ticker);
+                    }
+                } catch (Exception ex) {
+                    log("Failed to get price for " + ticker + ": " + ex.getMessage());
+                }
+            }
+
+            // Add available cash to portfolio cost
+            double availableCash = 0.0;
+            try {
+                availableCash = tradingService.getAvailableCash() != null ? tradingService.getAvailableCash() : 0.0;
+                log("Available cash: " + availableCash);
+            } catch (Exception ex) {
+                log("Failed to get available cash: " + ex.getMessage());
+            }
+            totalCost += availableCash;
+
+            double parkingValue = cashParkingManager.getParkingValue();
+            if (parkingValue > 0) {
+                log("Parking position (TMON@) value: " + parkingValue);
+            }
+            totalCost += parkingValue;
+            log("Total portfolio cost from positions + cash + parking: " + totalCost);
+            return totalCost;
+        } catch (Exception ex) {
+            log("Failed to calculate portfolio cost from positions: " + ex.getMessage());
+            return 0.0;
+        }
+    }
+
     protected TickerInfo findTickerInfo(String name) {
         // First try TickerRepository (disk cache for Tinkoff instruments)
         TickerInfo found =
@@ -1401,7 +1483,19 @@ import static java.util.concurrent.CompletableFuture.runAsync;
             return found;
         }
 
-        return null;
+        // Fallback: try trading service API (for instruments not in disk cache)
+        if (tradingService != null) {
+            // Try STOCK first, then ETF for special tickers like TMON@
+            found = tradingService.searchTicker(new TickerInfo.Key(name, TickerType.STOCK));
+            if (found == null) {
+                found = tradingService.searchTicker(new TickerInfo.Key(name, TickerType.ETF));
+            }
+            if (found == null) {
+                found = tradingService.searchTicker(new TickerInfo.Key(name, TickerType.FEATURE));
+            }
+        }
+
+        return found;
     }
 
     private void restoreTrackedPositions(List<String> activeTickers) {
@@ -1709,7 +1803,7 @@ import static java.util.concurrent.CompletableFuture.runAsync;
 
     /** Verbose diagnostic logging flag; trades and errors are always logged. */
     protected boolean isVerboseLogging() {
-        return unifiedTraderConfig == null || unifiedTraderConfig.isVerboseLoggingEnabled();
+        return unifiedTraderConfig != null && unifiedTraderConfig.isVerboseLoggingEnabled();
     }
 
     private static String resolveRootMessage(Throwable ex) {

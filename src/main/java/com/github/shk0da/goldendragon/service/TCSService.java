@@ -280,8 +280,9 @@ public class TCSService implements TradingService {
         Instant end = Instant.now();
         Instant start = end.minus(durationMinutes, java.time.temporal.ChronoUnit.MINUTES);
 
-        return getCandlesWithRetry(figi, start, end, candleInterval)
-                .stream()
+        List<HistoricCandle> candles = getCandlesWithRetry(figi, start, end, candleInterval);
+
+        return candles.stream()
                 .map(TCSService::mapHistoricCandle)
                 .collect(Collectors.toList());
     }
@@ -1167,8 +1168,18 @@ public class TCSService implements TradingService {
         }
     }
 
+    @Override
     public Position restoreProtectivePosition(String name, TickerType type, Position position) {
-        if (mainConfig.isSandbox() || position == null || position.quantity <= 0) {
+        boolean sandbox = mainConfig != null && mainConfig.isSandbox();
+
+        if (position == null || position.quantity <= 0) {
+            log("restoreProtectivePosition " + name + ": returning position (null/zero qty)");
+            return position;
+        }
+
+        // In sandbox mode, just return the position without searching for stop orders
+        if (sandbox) {
+            log("restoreProtectivePosition " + name + ": sandbox=true, returning position qty=" + position.quantity);
             return position;
         }
 
@@ -1247,6 +1258,11 @@ public class TCSService implements TradingService {
             log("Failed to restore protective orders for " + name + ": " + ex.getMessage());
             return position;
         }
+    }
+
+    @Override
+    public void syncProtectiveOrders(String name, TickerType type, Position position) {
+        // No-op in TCSService — protective orders are tracked internally via protectiveOrdersByTicker
     }
 
     private Position createProtectivePosition(
@@ -1846,6 +1862,21 @@ public class TCSService implements TradingService {
             log(key.getTicker() + ": " + tickerInfo);
         }
         return tickerInfo;
+    }
+
+    /**
+     * Returns the total portfolio value in the base currency.
+     *
+     * @return total portfolio cost
+     */
+    @Override
+    public double getTotalPortfolioValue() {
+        return getTotalPortfolioCost();
+    }
+
+    @Override
+    public double getGlobalPeakEquity() {
+        return getTotalPortfolioCost();
     }
 
     /**
@@ -2510,7 +2541,7 @@ public class TCSService implements TradingService {
                     / 1000.0;
         }
 
-        var key = new TickerInfo.Key(currencyTicker, TickerType.CURRENCY);
+        var key = new TickerInfo.Key(currencyTicker, com.github.shk0da.goldendragon.model.TickerType.CURRENCY);
         TickerInfo currencyTickerInfo = searchTicker(key);
         if (basicCurrency.equals(currencyTickerInfo.getCurrency())) {
             return round((price / getAvailablePrice(key)) * 100000) / 100000.0;

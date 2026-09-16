@@ -399,6 +399,19 @@ public class BacktestRunner {
             filterEquityByPeriod(full.portfolioResult.equityCurve, period);
         double portfolioPnl = computePeriodPnlFromEquity(full.portfolioResult.equityCurve, period);
         double portfolioDd = calcMaxDrawdownByEquity(portfolioEquity);
+        if (System.getProperty("backtest.debugEquity", "false").equals("true") && !portfolioEquity.isEmpty()) {
+            double minEq = Double.MAX_VALUE;
+            double maxEq = Double.MIN_VALUE;
+            for (EquityPoint pt : portfolioEquity) {
+                minEq = Math.min(minEq, pt.equity);
+                maxEq = Math.max(maxEq, pt.equity);
+            }
+            System.out.println("[EQUITY] period=" + period.label
+                + " start=" + portfolioEquity.get(0).equity
+                + " min=" + minEq + " max=" + maxEq
+                + " end=" + portfolioEquity.get(portfolioEquity.size()-1).equity
+                + " pts=" + portfolioEquity.size());
+        }
         double portfolioWinRate = totalTrades > 0 ? (double) winningTrades / totalTrades : 0.0;
         PortfolioPeriodResult portfolioResult =
             new PortfolioPeriodResult(
@@ -839,6 +852,8 @@ public class BacktestRunner {
             lastSeenHourIdx.put(ticker, -1);
         }
         List<String> globalTimeline = buildGlobalTimeline(marketDataByTicker);
+        int totalIterations = globalTimeline.size();
+        long lastProgressPrint = 0;
         int lastRebalanceMonth = -1;
         Map<String, Long> lastEodCloseDayByTicker = new HashMap<>();
         double totalDeposits = 0.0;
@@ -848,9 +863,21 @@ public class BacktestRunner {
             : DEFAULT_COOLDOWN_BARS;
         int lastProcessedTradeCount = 0;
         long lastDailyResetDay = -1;
-        for (String time : globalTimeline) {
+        for (int i = 0; i < globalTimeline.size(); i++) {
+            String time = globalTimeline.get(i);
             LocalDateTime currentTime = LocalDateTime.parse(time, DATE_TIME_FMT);
             long currentDay = currentTime.toLocalDate().toEpochDay();
+            if (totalIterations > 0 && System.currentTimeMillis() - lastProgressPrint > 500) {
+                int progress = (int) ((i * 100.0) / totalIterations);
+                int filled = (int) (progress * 40 / 100);
+                StringBuilder bar = new StringBuilder("[");
+                for (int b = 0; b < 40; b++) {
+                    bar.append(b < filled ? "=" : " ");
+                }
+                bar.append("] ").append(progress).append("%");
+                System.out.print("\r" + bar);
+                lastProgressPrint = System.currentTimeMillis();
+            }
             broker.setCurrentTime(currentTime);
             broker.tickCooldown();
             // Money Management: reset daily limits at the start of each new trading day (live parity).
@@ -999,6 +1026,8 @@ public class BacktestRunner {
             }
             portfolioEquity.add(new EquityPoint(time, broker.getTotalPortfolioValue()));
         }
+        System.out.println(); // Clear progress bar line
+        System.out.println("Backtest completed: " + totalIterations + " iterations");
         int beforePeriodEnd = broker.getTradeHistory().size();
         broker.closeAll("period_end");
         lastProcessedTradeCount =

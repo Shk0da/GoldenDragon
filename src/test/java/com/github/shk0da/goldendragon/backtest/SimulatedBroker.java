@@ -129,6 +129,11 @@ public class SimulatedBroker implements MarketDataProvider, OrderExecutor {
     private double portfolioPeak;
 
     /**
+     * Global peak portfolio value across the entire backtest (never reset).
+     */
+    private double globalPeakEquity;
+
+    /**
      * Kill Switch threshold: maximum allowed drawdown as decimal (e.g., 0.20 for 20%).
      */
     private final double maxDrawdownThreshold;
@@ -181,6 +186,7 @@ public class SimulatedBroker implements MarketDataProvider, OrderExecutor {
         this.slippage = slippage;
         this.maxDrawdownThreshold = maxDrawdownThreshold;
         this.portfolioPeak = initialBalance;
+        this.globalPeakEquity = initialBalance;
         this.killSwitchTriggered = false;
         this.defaultSlPercent = defaultSlPercent;
         this.defaultTpPercent = defaultTpPercent;
@@ -347,8 +353,18 @@ public class SimulatedBroker implements MarketDataProvider, OrderExecutor {
         if (total > portfolioPeak) {
             portfolioPeak = total;
         }
+        if (total > globalPeakEquity) {
+            globalPeakEquity = total;
+        }
         checkKillSwitch(total);
         return total;
+    }
+
+    /**
+     * Get global peak equity across the entire backtest (never reset).
+     */
+    public double getGlobalPeakEquity() {
+        return globalPeakEquity;
     }
 
     /**

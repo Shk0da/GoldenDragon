@@ -12,6 +12,7 @@ public class PerformanceTracker {
     private final AtomicReference<SessionStats> sessionStats = new AtomicReference<>(new SessionStats());
     private final AtomicLong peakEquity = new AtomicLong(0);
     private final AtomicLong currentEquity = new AtomicLong(0);
+    private final AtomicLong globalPeakEquity = new AtomicLong(0);
 
     /** Create performance tracker. */
     public PerformanceTracker() {}
@@ -53,6 +54,21 @@ public class PerformanceTracker {
     }
 
     /**
+     * Get peak equity for position sizing multiplier calculation.
+     */
+    public long getPeakEquity() {
+        return peakEquity.get();
+    }
+
+    /**
+     * Get global peak equity across entire history (never reset by daily resets).
+     * Used for drawdown-based position sizing multiplier.
+     */
+    public long getGlobalPeakEquity() {
+        return globalPeakEquity.get();
+    }
+
+    /**
      * Update current equity and track peak.
      * This must be called whenever portfolio equity changes to enable proper drawdown tracking.
      *
@@ -62,13 +78,45 @@ public class PerformanceTracker {
         long equityLong = (long) equity;
         currentEquity.set(equityLong);
         peakEquity.updateAndGet(peak -> Math.max(peak, equityLong));
+        globalPeakEquity.updateAndGet(peak -> Math.max(peak, equityLong));
     }
 
-    /** Reset session statistics. */
+    /** Reset session statistics and equity peak for day-scoped drawdown tracking. */
     public void resetSession() {
         sessionStats.set(new SessionStats());
         peakEquity.set(0);
         currentEquity.set(0);
+    }
+
+    /**
+     * Reset session statistics only (preserve peak for cumulative drawdown tracking).
+     * Use when KillSwitch must guard cumulative drawdown across sessions.
+     */
+    public void resetStatsOnly() {
+        sessionStats.set(new SessionStats());
+    }
+
+    /**
+     * Calculate position size multiplier based on drawdown.
+     * At 0% drawdown: multiplier = 1.0 (full size).
+     * At 10% drawdown: multiplier = 0.5 (50% size).
+     * At 20%+ drawdown: multiplier = 0.1 (10% size, emergency mode).
+     */
+    public double getPositionSizeMultiplier(double peakEquity, double currentEquity) {
+        if (peakEquity <= 0 || currentEquity <= 0) {
+            return 1.0;
+        }
+        double drawdown = (peakEquity - currentEquity) / peakEquity;
+        if (drawdown <= 0.10) {
+            return 1.0;
+        }
+        if (drawdown <= 0.20) {
+            return 0.5;
+        }
+        if (drawdown <= 0.30) {
+            return 0.25;
+        }
+        return 0.1;
     }
 
     /** Immutable session statistics holder. */
