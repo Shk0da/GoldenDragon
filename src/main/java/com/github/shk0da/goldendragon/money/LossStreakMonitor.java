@@ -1,7 +1,6 @@
 package com.github.shk0da.goldendragon.money;
 
 import com.github.shk0da.goldendragon.service.TradingService;
-import com.github.shk0da.goldendragon.utils.LoggingUtils;
 
 import java.time.Instant;
 import java.time.ZoneId;
@@ -9,6 +8,8 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+
+import static com.github.shk0da.goldendragon.utils.LoggingUtils.log;
 
 /**
  * Monitors today's broker trade history and halts trading after a configurable number of
@@ -51,7 +52,7 @@ public class LossStreakMonitor implements Runnable {
 
     @Override
     public void run() {
-        LoggingUtils.log(
+        log(
                 "LOSS_STREAK: Started with interval " + (checkIntervalMs / 1000)
                         + "s, threshold " + maxConsecutiveLosses);
 
@@ -63,7 +64,7 @@ public class LossStreakMonitor implements Runnable {
                 Thread.currentThread().interrupt();
                 break;
             } catch (Exception e) {
-                LoggingUtils.log("LOSS_STREAK: Error - " + e.getMessage());
+                log("LOSS_STREAK: Error - " + e.getMessage());
                 try {
                     Thread.sleep(checkIntervalMs);
                 } catch (InterruptedException ie) {
@@ -73,7 +74,7 @@ public class LossStreakMonitor implements Runnable {
             }
         }
 
-        LoggingUtils.log("LOSS_STREAK: Stopped");
+        log("LOSS_STREAK: Stopped");
     }
 
     /** Check today's trade history and halt when the losing streak reaches the threshold. */
@@ -87,17 +88,19 @@ public class LossStreakMonitor implements Runnable {
             List<Map<String, Object>> trades = tradingService.getTradeHistory(todayStart);
             int streak = countConsecutiveLosses(trades, excludedTicker);
             consecutiveLosses = streak;
-            LoggingUtils.log("LOSS_STREAK: consecutive losses today = " + streak);
+            if (streak >= 2) {
+                log("LOSS_STREAK: consecutive losses today = " + streak);
+            }
 
             if (streak >= maxConsecutiveLosses) {
                 halted = true;
-                LoggingUtils.log(
+                log(
                         "LOSS_STREAK: HALTING trading after " + streak
                                 + " consecutive losses (threshold " + maxConsecutiveLosses + ")");
                 onHalt.run();
             }
         } catch (Exception e) {
-            LoggingUtils.log("LOSS_STREAK: Failed to check trade history - " + e.getMessage());
+            log("LOSS_STREAK: Failed to check trade history - " + e.getMessage());
         }
     }
 
