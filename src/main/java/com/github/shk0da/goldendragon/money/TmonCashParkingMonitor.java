@@ -148,11 +148,7 @@ public class TmonCashParkingMonitor implements Runnable {
                 // Use cached cash value (TTL 5s) with 1% buffer for race condition protection.
                 // TradingServiceCache.getAvailableCash() returns the same cached value if
                 // called within the TTL window, avoiding redundant API calls.
-                if (availableCash < totalCost * 0.99) {
-                    LoggingUtils.log(
-                            "TMON_MONITOR: Insufficient capital for " + parkingTicker
-                                    + " buy (need=" + String.format("%.2f", totalCost)
-                                    + ", have=" + String.format("%.2f", availableCash) + "), skipping");
+                if (availableCash < totalCost * 0.90) {
                     return;
                 }
 

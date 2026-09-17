@@ -718,8 +718,14 @@ import static java.util.concurrent.CompletableFuture.runAsync;
                 }
             }
 
-            TradingDecision decision =
-                    decide(name, hourCandles, minuteCandles, storedPosition, effectiveBalance, hourChanged);
+            TradingDecision decision;
+            // Skip decision computation when max concurrent positions reached
+            long currentPositionCount = positionStore.values().stream().filter(pos -> pos.quantity > 0).count();
+            if (currentPositionCount < MAX_CONCURRENT_POSITIONS) {
+                decision = decide(name, hourCandles, minuteCandles, storedPosition, effectiveBalance, hourChanged);
+            } else {
+                decision = new TradingDecision("HOLD", "MAX_CONCURRENT_POSITIONS");
+            }
 
             if ("HOLD".equals(decision.action)) {
                 if (unifiedTraderConfig.isLogHoldReasons()) {
@@ -858,7 +864,7 @@ import static java.util.concurrent.CompletableFuture.runAsync;
                 tmonCashParkingMonitor.setTradingInProgress(false);
             }
             lock.unlock();
-            
+
             // Update dashboard with current balance and available cash after each ticker processing
             if (dashboard != null) {
                 dashboard.updateBalance(safeGetTotalPortfolioCost());
@@ -935,11 +941,11 @@ import static java.util.concurrent.CompletableFuture.runAsync;
 
         if (currentPositionCount >= MAX_CONCURRENT_POSITIONS) {
             logOpenCandidateSkipped(name, "max_concurrent_positions_reached", decision);
-            log(
+            logThrottled(name + "MAX_CONCURRENT_POSITIONS",
                     "Maximum concurrent positions reached ("
                             + MAX_CONCURRENT_POSITIONS
                             + "), skipping "
-                            + name);
+                            + name, 10);
             return;
         }
 
@@ -1150,8 +1156,6 @@ import static java.util.concurrent.CompletableFuture.runAsync;
                             ? closeResult.getExecutedPrice()
                             : decision.entryPrice != null ? decision.entryPrice : 0.0;
             double pnl = calculatePnlForQuantity(storedPosition, exitPrice, closedQuantity);
-            double stopLoss =
-                    storedPosition.stopLoss != null ? storedPosition.stopLoss : entryPrice;
 
             if (closedQuantity >= storedPosition.quantity) {
                 positionStore.put(name, getCooldownPosition());
