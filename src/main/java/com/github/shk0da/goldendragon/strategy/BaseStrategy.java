@@ -43,6 +43,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.ReentrantLock;
 
@@ -227,6 +228,8 @@ import static java.util.concurrent.CompletableFuture.runAsync;
 
     protected static final long COOLDOWN_DURATION_MS = 5 * 60 * 1000L;
     protected static final long API_CALL_DELAY_MS = 100;
+    protected static final long TICKER_STAGGER_STEP_MS = 500;
+    protected static final long TICKER_STAGGER_JITTER_MS = 2_000;
     protected static final Object API_LOCK = new Object();
     protected static final int MIN_CANDLES_THRESHOLD = 5;
 
@@ -476,6 +479,8 @@ import static java.util.concurrent.CompletableFuture.runAsync;
             tasks.add(
                     runAsync(
                             () -> {
+                                ThreadLocalRandom random = ThreadLocalRandom.current();
+                                sleep(random.nextLong(TICKER_STAGGER_JITTER_MS));
                                 while (isWorkingHours() && !tradingHalted) {
                                     try {
                                         refreshPeerCandles(activeTickers);
@@ -487,11 +492,17 @@ import static java.util.concurrent.CompletableFuture.runAsync;
                             },
                             executor));
 
+            int tickerIndex = 0;
             for (String name : activeTickers) {
                 double allocatedBalance = capitalAllocation.getOrDefault(name, 0.0);
+                long initialDelay =
+                        (tickerIndex * TICKER_STAGGER_STEP_MS)
+                                + ThreadLocalRandom.current().nextLong(TICKER_STAGGER_JITTER_MS);
+                tickerIndex++;
                 tasks.add(
                         runAsync(
                                 () -> {
+                                    sleep(initialDelay);
                                     while (isWorkingHours() && !tradingHalted) {
                                         processTicker(
                                                 name,

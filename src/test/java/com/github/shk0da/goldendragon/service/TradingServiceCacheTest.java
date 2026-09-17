@@ -103,4 +103,66 @@ class TradingServiceCacheTest {
         assertEquals(50000.0, balance);
         verify(mockDelegate).getInitialBalance();
     }
+
+    @Test
+    @DisplayName("Should cache getTotalPortfolioValue for TTL duration")
+    void shouldCacheGetTotalPortfolioValue() {
+        TradingService mockDelegate = mock(TradingService.class);
+        when(mockDelegate.getTotalPortfolioValue()).thenReturn(100000.0, 200000.0);
+
+        TradingServiceCache cache = new TradingServiceCache(mockDelegate);
+
+        // First call - should call delegate
+        double value1 = cache.getTotalPortfolioValue();
+        verify(mockDelegate).getTotalPortfolioValue();
+        assertEquals(100000.0, value1);
+
+        // Second call within TTL - should use cache
+        double value2 = cache.getTotalPortfolioValue();
+        verifyNoMoreInteractions(mockDelegate);
+        assertEquals(100000.0, value2);
+    }
+
+    @Test
+    @DisplayName("Should cache getTotalPortfolioCost and share cache with getTotalPortfolioValue")
+    void shouldShareCacheBetweenPortfolioMethods() {
+        TradingService mockDelegate = mock(TradingService.class);
+        when(mockDelegate.getTotalPortfolioCost()).thenReturn(150000.0);
+        when(mockDelegate.getTotalPortfolioValue()).thenReturn(150000.0);
+
+        TradingServiceCache cache = new TradingServiceCache(mockDelegate);
+
+        // First call to getTotalPortfolioCost - should call delegate
+        double cost1 = cache.getTotalPortfolioCost();
+        verify(mockDelegate).getTotalPortfolioCost();
+        assertEquals(150000.0, cost1);
+
+        // Call getTotalPortfolioValue - should use same cache (delegate not called again)
+        double value1 = cache.getTotalPortfolioValue();
+        verifyNoMoreInteractions(mockDelegate);
+        assertEquals(150000.0, value1);
+
+        // Next call to getTotalPortfolioCost - should use cache
+        double cost2 = cache.getTotalPortfolioCost();
+        verifyNoMoreInteractions(mockDelegate);
+        assertEquals(150000.0, cost2);
+    }
+
+    @Test
+    @DisplayName("Should cache portfolio value across multiple ticker calls")
+    void shouldCachePortfolioValueAcrossMultipleTickerCalls() {
+        TradingService mockDelegate = mock(TradingService.class);
+        when(mockDelegate.getTotalPortfolioValue()).thenReturn(500000.0);
+
+        TradingServiceCache cache = new TradingServiceCache(mockDelegate);
+
+        // Simulate N ticker calls to getTotalPortfolioValue (like UnifiedStrategy.decide)
+        for (int i = 0; i < 10; i++) {
+            double value = cache.getTotalPortfolioValue();
+            assertEquals(500000.0, value);
+        }
+
+        // Delegate should be called only ONCE, not 10 times
+        verify(mockDelegate, times(1)).getTotalPortfolioValue();
+    }
 }
