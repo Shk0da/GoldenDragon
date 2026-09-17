@@ -53,7 +53,7 @@ public class Config {
     public final double mmRiskReductionFactor;
     public final double mmCriticalDrawdownPercent;
     public final double mmMaxPositionSize;
-    public final boolean shortsEnabled;
+    public boolean shortsEnabled;
 
     // Trailing Stop parameters
     public boolean mmTrailingEnabled;
@@ -63,6 +63,15 @@ public class Config {
     public double mmTrailingVolumePercent;
 
     public Config() {
+        this(true);
+    }
+
+    /**
+     * Create Config with custom shortsEnabled setting.
+     * All other settings use default values.
+     * @param shortsEnabled whether short selling is enabled
+     */
+    public Config(boolean shortsEnabled) {
         this.emaTrend = 24;
         this.emaFast = 3;
         this.emaSlow = 7;
@@ -113,7 +122,7 @@ public class Config {
         this.mmRiskReductionFactor = 0.5;
         this.mmCriticalDrawdownPercent = 0.15;
         this.mmMaxPositionSize = 0.20;
-        this.shortsEnabled = true;
+        this.shortsEnabled = shortsEnabled;
 
         // Trailing Stop defaults
         this.mmTrailingEnabled = true;

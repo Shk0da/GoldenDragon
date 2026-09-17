@@ -93,7 +93,7 @@ public final class StrategyRegistry {
                         "UnifiedStrategy",
                         "Stop UnifiedStrategy",
                         (mc, ts, args) ->
-                                new UnifiedStrategy(new UnifiedTraderConfig(), ts, new Config(), mc).run()));
+                                new UnifiedStrategy(new UnifiedTraderConfig(), ts, new Config(new UnifiedTraderConfig().getShortsEnabled()), mc).run()));
 
         register(
                 "TradeCouncilStrategy",
@@ -102,7 +102,7 @@ public final class StrategyRegistry {
                         "Stop TradeCouncilStrategy",
                         (mc, ts, args) -> {
                             try {
-                                TradeCouncilStrategy strategy = new TradeCouncilStrategy(new UnifiedTraderConfig(), ts, new Config(), mc);
+                                TradeCouncilStrategy strategy = new TradeCouncilStrategy(new UnifiedTraderConfig(), ts, new Config(new UnifiedTraderConfig().getShortsEnabled()), mc);
                                 strategy.buildKeyLevels();
                                 strategy.run();
                             } catch (Exception e) {
@@ -143,7 +143,7 @@ public final class StrategyRegistry {
      */
     public static BaseStrategy createBacktest(String strategyName, UnifiedTraderConfig config, TradingService tradingService) {
         if ("UnifiedStrategy".equals(strategyName)) {
-            return new UnifiedStrategy(config, tradingService, new Config());
+            return new UnifiedStrategy(config, tradingService, new Config(config.getShortsEnabled()));
         } else {
             throw new IllegalArgumentException("Unknown strategy: " + strategyName);
         }

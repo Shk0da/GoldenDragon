@@ -153,6 +153,8 @@ public class UnifiedTraderConfig {
     private final Map<String, TickerParams> tickerParams;
     private final Properties properties;
 
+    private boolean shortsEnabled;
+
     public UnifiedTraderConfig() throws IOException {
         final Properties properties = PropertiesUtils.loadProperties();
         this.properties = properties;
@@ -174,7 +176,18 @@ public class UnifiedTraderConfig {
         tmonCashParkingEnabled =
             Boolean.parseBoolean(
                 properties.getProperty("unifiedTrader.tmonCashParking.enabled", "false"));
+        shortsEnabled =
+            Boolean.parseBoolean(
+                properties.getProperty("unifiedTrader.shortsEnabled", "true"));
         this.tickerParams = loadTickerParams(properties);
+    }
+
+    /**
+     * Returns whether short selling is enabled from application.properties.
+     * @return true if shorts are enabled, false otherwise
+     */
+    public boolean getShortsEnabled() {
+        return shortsEnabled;
     }
 
     private Map<String, TickerParams> loadTickerParams(Properties properties) {

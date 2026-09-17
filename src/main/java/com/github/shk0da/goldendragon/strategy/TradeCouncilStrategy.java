@@ -96,7 +96,7 @@ public class TradeCouncilStrategy extends BaseStrategy {
     private static final int H1_CANDLES = 72;
 
     public TradeCouncilStrategy(UnifiedTraderConfig unifiedTraderConfig, TradingService tradingService) {
-        this(unifiedTraderConfig, tradingService, new Config(), null);
+        this(unifiedTraderConfig, tradingService, new Config(unifiedTraderConfig.getShortsEnabled()), null);
     }
 
     public TradeCouncilStrategy(
