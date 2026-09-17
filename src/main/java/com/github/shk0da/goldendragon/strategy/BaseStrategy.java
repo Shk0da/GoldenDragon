@@ -235,7 +235,7 @@ import static java.util.concurrent.CompletableFuture.runAsync;
 
     protected static final LocalTime WORK_START_TIME = LocalTime.of(10, 0);
     // MOEX evening session close / Tinkoff market close - park cash immediately after
-    protected static final LocalTime EOD_CLOSE_TIME = LocalTime.of(18, 55);
+    protected static final LocalTime EOD_CLOSE_TIME = LocalTime.of(18, 50);
 
     protected static long lastApiCallTime = 0;
 
@@ -517,6 +517,25 @@ import static java.util.concurrent.CompletableFuture.runAsync;
 
             allOf(tasks.toArray(new CompletableFuture[0])).join();
         } finally {
+            // 1. Synchronize positionStore with broker (removes positions already closed by stop-loss)
+            syncPositionStoreWithBroker();
+
+            // 2. Close all non-parking positions
+            closeAllPositions(tradingService, unifiedTraderConfig);
+
+            // 3. Wait for cash to settle after closing positions
+            try {
+                Thread.sleep(3_000);
+                log("EOD: Waiting for cash settlement before buying TMON@...");
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                log("EOD: Wait interrupted");
+            }
+
+            // 4. Buy TMON@ with all available cash
+            buyTmonWithAllCash();
+
+            // 5. Stop monitors after all positions and cash parking are settled
             if (tmonCashParkingMonitor != null) {
                 tmonCashParkingMonitor.stop();
                 log("TMON cash parking monitor stopped");
@@ -528,7 +547,6 @@ import static java.util.concurrent.CompletableFuture.runAsync;
             if (dashboard != null) {
                 dashboard.stop();
             }
-            closeAllPositions(tradingService, unifiedTraderConfig);
             shutdownExecutor(executor);
 
             var endPortfolioCost = safeGetTotalPortfolioCost();
@@ -542,12 +560,13 @@ import static java.util.concurrent.CompletableFuture.runAsync;
     /** Halt trading: block new entries and close all positions. Called by LossStreakMonitor. */
     private void haltTrading() {
         tradingHalted = true;
+        log("LOSS_STREAK: Halting trading, closing all positions...");
+        syncPositionStoreWithBroker();
+        closeAllPositions(tradingService, unifiedTraderConfig);
         if (tmonCashParkingMonitor != null) {
             tmonCashParkingMonitor.stop();
             log("TMON cash parking monitor stopped (loss streak halt)");
         }
-        log("LOSS_STREAK: Halting trading, closing all positions...");
-        closeAllPositions(tradingService, unifiedTraderConfig);
         log("LOSS_STREAK: Strategy will stop");
     }
 
@@ -598,6 +617,13 @@ import static java.util.concurrent.CompletableFuture.runAsync;
             UnifiedTraderConfig unifiedTraderConfig,
             double allocatedBalance) {
         if (tradingHalted) {
+            return;
+        }
+
+        // Double-check working hours: prevents race condition with closeAllPositions()
+        // A ticker thread may enter this method before EOD, but EOD may be reached
+        // during execution. This check ensures we exit early if EOD has arrived.
+        if (!isWorkingHours()) {
             return;
         }
 
@@ -1742,6 +1768,12 @@ import static java.util.concurrent.CompletableFuture.runAsync;
                 continue;
             }
 
+            // Skip cash parking ticker (TMON@) - it should be kept/bought at EOD, not sold
+            if (cashParkingManager != null && cashParkingManager.isParkingTicker(tickerName)) {
+                log("Skipping cash parking ticker " + tickerName + " at EOD (will buy/add more)");
+                continue;
+            }
+
             try {
                 UnifiedTraderConfig.TickerParams tickerParams =
                         unifiedTraderConfig.getTickerParams(tickerName);
@@ -1803,6 +1835,143 @@ import static java.util.concurrent.CompletableFuture.runAsync;
 
         if (anyClosed) {
             log("End-of-day position closing completed.");
+        }
+    }
+
+    /**
+     * Synchronize positionStore with actual broker positions before EOD close.
+     * Removes stale positions that were already closed by stop-loss or other means.
+     */
+    protected void syncPositionStoreWithBroker() {
+        if (tradingService == null) {
+            return;
+        }
+
+        log("EOD: Synchronizing positionStore with broker positions...");
+        
+        for (Map.Entry<String, Position> entry : positionStore.entrySet()) {
+            String tickerName = entry.getKey();
+            Position localPosition = entry.getValue();
+
+            if (localPosition.quantity <= 0) {
+                continue;
+            }
+
+            // Skip parking ticker
+            if (cashParkingManager != null && cashParkingManager.isParkingTicker(tickerName)) {
+                continue;
+            }
+
+            try {
+                TickerInfo ticker = findTickerInfo(tickerName);
+                if (ticker == null) {
+                    log("EOD SYNC: Ticker " + tickerName + " not found, skipping sync.");
+                    continue;
+                }
+
+                // Get actual position from broker
+                PositionInfo brokerPosition = tradingService.getCurrentPositions(ticker.getType(), tickerName);
+                
+                if (brokerPosition == null || brokerPosition.getBalance() == 0) {
+                    // Position doesn't exist on broker - already closed (e.g., by stop-loss)
+                    log("EOD SYNC: " + tickerName + " already closed on broker (local qty=" + localPosition.quantity 
+                        + "), removing from positionStore.");
+                    positionStore.remove(tickerName);
+                    lastSeenHourBarByTicker.remove(tickerName);
+                } else {
+                    // Position exists but quantity might differ
+                    int brokerQty = Math.abs(brokerPosition.getBalance());
+                    if (brokerQty != localPosition.quantity) {
+                        log("EOD SYNC: " + tickerName + " quantity mismatch - local=" + localPosition.quantity 
+                            + ", broker=" + brokerQty + ". Updating local store.");
+                        // Update local position with actual broker quantity
+                        Position updatedPosition = new Position(
+                                localPosition.direction,
+                                localPosition.entryPrice,
+                                localPosition.stopLoss,
+                                localPosition.takeProfit,
+                                brokerQty,
+                                localPosition.candlesHeld,
+                                0);
+                        positionStore.put(tickerName, updatedPosition);
+                    }
+                }
+            } catch (Exception ex) {
+                log("EOD SYNC: Failed to sync " + tickerName + ": " + ex.getMessage());
+            }
+        }
+
+        log("EOD: Position store synchronization completed.");
+    }
+
+    /**
+     * Buy TMON@ ETF with all available cash at end-of-day.
+     * Uses 95% of available cash to avoid insufficient funds errors.
+     */
+    protected void buyTmonWithAllCash() {
+        if (cashParkingManager == null || !cashParkingManager.isParkingEnabled()) {
+            return;
+        }
+
+        String parkingTicker = cashParkingManager.getParkingTicker();
+        if (parkingTicker == null) {
+            return;
+        }
+
+        try {
+            // Get available cash
+            double availableCash = tradingService.getAvailableCash();
+            if (availableCash <= 0) {
+                log("EOD TMON: No available cash to park (cash=" + String.format("%.2f", availableCash) + ")");
+                return;
+            }
+
+            // Get TMON ticker info
+            TickerInfo.Key parkingKey = new TickerInfo.Key(parkingTicker, cashParkingManager.getParkingTickerType());
+            TickerInfo parkingTickerInfo = tradingService.searchTicker(parkingKey);
+            if (parkingTickerInfo == null) {
+                log("EOD TMON: Ticker info not found for " + parkingTicker);
+                return;
+            }
+
+            int lot = parkingTickerInfo.getLot() != null ? parkingTickerInfo.getLot() : 1;
+            Double currentPrice = tradingService.getAvailablePrice(parkingKey, 1, "asks", false);
+            if (currentPrice == null || currentPrice <= 0) {
+                log("EOD TMON: Cannot get current price for " + parkingTicker);
+                return;
+            }
+
+            // Use 95% of cash with 1% price buffer
+            double usableCash = availableCash * 0.95;
+            double effectivePrice = currentPrice * 1.01;
+            double effectiveCostPerLot = effectivePrice * lot;
+
+            if (usableCash < effectiveCostPerLot) {
+                log("EOD TMON: Not enough cash to buy even 1 lot (need " + String.format("%.2f", effectiveCostPerLot) + ")");
+                return;
+            }
+
+            int buyLots = (int) Math.floor(usableCash / effectiveCostPerLot);
+            if (buyLots <= 0) {
+                return;
+            }
+
+            double totalCost = buyLots * currentPrice * lot;
+
+            // Execute purchase
+            tradingService.buyByMarketWithDetails(
+                    parkingTicker,
+                    cashParkingManager.getParkingTickerType(),
+                    totalCost,
+                    0.0,
+                    0.0);
+
+            log("EOD TMON: Bought " + parkingTicker + " qty=" + (buyLots * lot)
+                    + " (lots=" + buyLots + ") value=" + String.format("%.2f", totalCost)
+                    + " (available cash was " + String.format("%.2f", availableCash) + ")");
+
+        } catch (Exception e) {
+            log("EOD TMON: Failed to buy - " + e.getMessage());
         }
     }
 

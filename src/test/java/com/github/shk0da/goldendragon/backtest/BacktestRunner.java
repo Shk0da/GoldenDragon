@@ -85,7 +85,7 @@ public class BacktestRunner {
     private static final int MIN_HOURS_REQUIRED = 10;
     private static final int MAX_CONCURRENT_POSITIONS = 8;
     private static final LocalTime WORK_START_TIME = LocalTime.of(8, 30);
-    private static final LocalTime EOD_CLOSE_TIME = LocalTime.of(18, 55);
+    private static final LocalTime EOD_CLOSE_TIME = LocalTime.of(18, 50);
     private static final String BACKTEST_MODE = System.getProperty("backtest.mode", "full");
     private static final int BACKTEST_THREADS =
         Math.max(
