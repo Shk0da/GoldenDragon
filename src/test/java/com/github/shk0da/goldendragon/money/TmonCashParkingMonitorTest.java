@@ -36,6 +36,8 @@ class TmonCashParkingMonitorTest {
     @BeforeEach
     void setUp() {
         tradingService = new FakeTradingService();
+        tradingService.tickerInfo = new TickerInfo(
+                "FIGI_TMON", TMON, "ISIN_TMON", 0.01, TMON_LOT, "RUB", TMON, "ETF");
         marketDataProvider = new FakeMarketDataProvider();
         positionStore = new ConcurrentHashMap<>();
         CashParkingManager cashParkingManager = new CashParkingManager(
@@ -77,6 +79,83 @@ class TmonCashParkingMonitorTest {
         }
 
         @Test
+        @DisplayName("Should skip when trading is in progress")
+        void shouldSkipWhenTradingInProgress() {
+            tradingService.cash = 100_000.0;
+            tradingService.askPrice = TMON_PRICE;
+            monitor.setTradingInProgress(true);
+
+            monitor.monitorAndBuyTmon();
+
+            then(tradingService.lastBuyValue).isZero();
+        }
+
+        @Test
+        @DisplayName("Should skip when parking is disabled")
+        void shouldSkipWhenParkingDisabled() {
+            CashParkingManager disabledManager = new CashParkingManager(
+                    tradingService, marketDataProvider, positionStore) {
+                @Override
+                public boolean isParkingEnabled() {
+                    return false;
+                }
+            };
+            TmonCashParkingMonitor disabledMonitor = new TmonCashParkingMonitor(
+                    tradingService, marketDataProvider, disabledManager, positionStore);
+            tradingService.cash = 100_000.0;
+            tradingService.askPrice = TMON_PRICE;
+
+            disabledMonitor.monitorAndBuyTmon();
+
+            then(tradingService.lastBuyValue).isZero();
+        }
+
+        @Test
+        @DisplayName("Should skip when ticker info is not found")
+        void shouldSkipWhenTickerInfoNotFound() {
+            tradingService.cash = 100_000.0;
+            tradingService.askPrice = TMON_PRICE;
+            tradingService.tickerInfo = null;
+
+            monitor.monitorAndBuyTmon();
+
+            then(tradingService.lastBuyValue).isZero();
+        }
+
+        @Test
+        @DisplayName("Should skip when price is not available")
+        void shouldSkipWhenPriceNotAvailable() {
+            tradingService.cash = 100_000.0;
+            tradingService.askPrice = null;
+
+            monitor.monitorAndBuyTmon();
+
+            then(tradingService.lastBuyValue).isZero();
+        }
+
+        @Test
+        @DisplayName("Should respect running state")
+        void shouldRespectRunningState() {
+            then(monitor.isRunning()).isTrue();
+            monitor.stop();
+            then(monitor.isRunning()).isFalse();
+        }
+
+        @Test
+        @DisplayName("Should skip parking when active non-parking positions exist")
+        void shouldSkipWhenActiveNonParkingPositionsExist() {
+            // Given: cash available but an active non-parking position exists in store
+            tradingService.cash = 100_000.0;
+            tradingService.askPrice = TMON_PRICE;
+            positionStore.put("NLMK", new Position(
+                    "SELL", 73.7, null, null, 5310, 0, 0, 1));
+
+            monitor.monitorAndBuyTmon();
+
+            then(tradingService.lastBuyValue).isZero();
+        }
+
+        @Test
         @DisplayName("Should buy more TMON when parking position exists and free cash available")
         void shouldBuyMoreWhenPositionExists() {
             // Given: parking position exists but there is free cash to top up
@@ -90,20 +169,6 @@ class TmonCashParkingMonitorTest {
             then(tradingService.lastBuyValue).isCloseTo(94_000.0, within(0.01));
             then(tradingService.lastBuyTicker).isEqualTo(TMON);
         }
-
-        @Test
-        @DisplayName("Should skip parking buy when active non-parking positions exist")
-        void shouldSkipWhenActiveNonParkingPositionsExist() {
-            // Given: cash available but an active non-parking position exists in store
-            tradingService.cash = 100_000.0;
-            tradingService.askPrice = TMON_PRICE;
-            positionStore.put("NLMK", new Position(
-                    "SELL", 73.7, null, null, 5310, 0, 0, 1));
-
-            monitor.monitorAndBuyTmon();
-
-            then(tradingService.lastBuyValue).isZero();
-        }
     }
 
     private static class FakeTradingService implements TradingService {
@@ -113,6 +178,7 @@ class TmonCashParkingMonitorTest {
         double lastBuyValue;
         String lastBuyTicker;
         PositionInfo parkingInfo;
+        TickerInfo tickerInfo;
 
         @Override
         public Double getAvailableCash() {
@@ -126,8 +192,7 @@ class TmonCashParkingMonitorTest {
 
         @Override
         public TickerInfo searchTicker(TickerInfo.Key key) {
-            return new TickerInfo(
-                    "FIGI_TMON", TMON, "ISIN_TMON", 0.01, TMON_LOT, "RUB", TMON, "ETF");
+            return tickerInfo;
         }
 
         @Override

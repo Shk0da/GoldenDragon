@@ -1,6 +1,7 @@
 package com.github.shk0da.goldendragon.money;
 
 import com.github.shk0da.goldendragon.model.OrderExecutionResult;
+import com.github.shk0da.goldendragon.model.Position;
 import com.github.shk0da.goldendragon.model.PositionInfo;
 import com.github.shk0da.goldendragon.model.TickerInfo;
 import com.github.shk0da.goldendragon.model.TickerType;
@@ -17,7 +18,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import static org.assertj.core.api.BDDAssertions.then;
 import static org.assertj.core.api.Assertions.within;
 
-@DisplayName("CashParkingManager.sellParkingToFreeCash with lot size")
+@DisplayName("CashParkingManager")
 class CashParkingManagerTest {
 
     private static final String TMON = "TMON@";
@@ -44,7 +45,7 @@ class CashParkingManagerTest {
         @Test
         @DisplayName("Should sell exact lots to cover requested cash amount")
         void shouldSellExactLots() {
-            // Given: 100 lots at 100 each, request 5000 → 50 lots * 100 = 5000
+            
             tradingService.parkingInfo = new PositionInfo(
                     "FIGI", TMON, "ISIN", "ETF", 100, 0.0, 100, TMON_PRICE, TMON);
 
@@ -57,7 +58,7 @@ class CashParkingManagerTest {
         @Test
         @DisplayName("Should cap to available parking when requested exceeds available")
         void shouldCapToAvailable() {
-            // Given: 100 lots at 100, request 20000 → max 100 lots * 100 = 10000
+            
             tradingService.parkingInfo = new PositionInfo(
                     "FIGI", TMON, "ISIN", "ETF", 100, 0.0, 100, TMON_PRICE, TMON);
 
@@ -74,12 +75,191 @@ class CashParkingManagerTest {
         @Test
         @DisplayName("Should not call sell when parking balance is zero")
         void shouldNotSell() {
-            // Given: no parking position
+            
             tradingService.parkingInfo = null;
 
             manager.sellParkingToFreeCash(5000, "NLMK");
 
             then(tradingService.lastSellValue).isZero();
+        }
+    }
+
+    @Nested
+    @DisplayName("getParkingPosition")
+    class GetParkingPosition {
+
+        @Test
+        @DisplayName("Should return parking position when exists")
+        void shouldReturnParkingPosition() {
+            
+            tradingService.parkingInfo = new PositionInfo(
+                    "FIGI", TMON, "ISIN", "ETF", 100, 0.0, 100, TMON_PRICE, TMON);
+
+            
+            PositionInfo result = manager.getParkingPosition();
+
+            
+            then(result).isNotNull();
+            then(result.getTicker()).isEqualTo(TMON);
+            then(result.getBalance()).isEqualTo(100);
+        }
+
+        @Test
+        @DisplayName("Should return null when parking disabled")
+        void shouldReturnNull_WhenParkingDisabled() {
+            
+            CashParkingManager disabledManager = new CashParkingManager(tradingService, null, new ConcurrentHashMap<>()) {
+                @Override
+                public boolean isParkingEnabled() {
+                    return false;
+                }
+            };
+
+            
+            PositionInfo result = disabledManager.getParkingPosition();
+
+            
+            then(result).isNull();
+        }
+
+        @Test
+        @DisplayName("Should return null when exception occurs")
+        void shouldReturnNull_WhenException() {
+            
+            tradingService.throwException = true;
+
+            
+            PositionInfo result = manager.getParkingPosition();
+
+            
+            then(result).isNull();
+        }
+    }
+
+    @Nested
+    @DisplayName("getParkingValue")
+    class GetParkingValue {
+
+        @Test
+        @DisplayName("Should calculate parking value correctly")
+        void shouldCalculateParkingValue() {
+            
+            tradingService.parkingInfo = new PositionInfo(
+                    "FIGI", TMON, "ISIN", "ETF", 100, 0.0, 100, TMON_PRICE, TMON);
+
+            
+            double result = manager.getParkingValue();
+
+            
+            then(result).isEqualTo(10000.0);
+        }
+
+        @Test
+        @DisplayName("Should return 0 when no parking position")
+        void shouldReturnZero_WhenNoParking() {
+            
+            tradingService.parkingInfo = null;
+
+            
+            double result = manager.getParkingValue();
+
+            
+            then(result).isZero();
+        }
+
+        @Test
+        @DisplayName("Should return 0 when price is null")
+        void shouldReturnZero_WhenPriceNull() {
+            
+            tradingService.parkingInfo = new PositionInfo(
+                    "FIGI", TMON, "ISIN", "ETF", 100, 0.0, 100, null, TMON);
+
+            
+            double result = manager.getParkingValue();
+
+            
+            then(result).isZero();
+        }
+    }
+
+    @Nested
+    @DisplayName("closeParkingPosition")
+    class CloseParkingPosition {
+
+        @Test
+        @DisplayName("Should close long position")
+        void shouldCloseLong() {
+            
+            tradingService.parkingInfo = new PositionInfo(
+                    "FIGI", TMON, "ISIN", "ETF", 100, 0.0, 100, TMON_PRICE, TMON);
+
+            
+            manager.closeParkingPosition();
+
+            
+            then(tradingService.closedLong).isTrue();
+        }
+
+        @Test
+        @DisplayName("Should close parking position when enabled")
+        void shouldCloseParkingPosition() {
+            
+            tradingService.parkingInfo = new PositionInfo(
+                    "FIGI", TMON, "ISIN", "ETF", 100, 0.0, 100, TMON_PRICE, TMON);
+
+            
+            manager.closeParkingPosition();
+
+            
+            then(tradingService.closedLong).isTrue();
+        }
+
+        @Test
+        @DisplayName("Should handle exception gracefully")
+        void shouldHandleException() {
+            
+            tradingService.throwExceptionOnClose = true;
+            tradingService.parkingInfo = new PositionInfo(
+                    "FIGI", TMON, "ISIN", "ETF", 100, 0.0, 100, TMON_PRICE, TMON);
+
+            
+            manager.closeParkingPosition();
+
+            
+            then(tradingService.closedLong).isFalse();
+        }
+    }
+
+    @Nested
+    @DisplayName("storeParkingPosition / removeStoredParkingPosition")
+    class ParkingPositionStore {
+
+        @Test
+        @DisplayName("Should store parking position")
+        void shouldStoreParkingPosition() {
+            
+            then(manager.hasStoredParkingPosition()).isFalse();
+
+            
+            Position position = new Position("LONG", TMON_PRICE, 49.0, 51.0, 100, 0);
+            manager.storeParkingPosition(position);
+
+            
+            then(manager.hasStoredParkingPosition()).isTrue();
+        }
+
+        @Test
+        @DisplayName("Should remove stored parking position")
+        void shouldRemoveStoredParkingPosition() {
+            
+            Position position = new Position("LONG", TMON_PRICE, 49.0, 51.0, 100, 0);
+            manager.storeParkingPosition(position);
+
+            
+            manager.removeStoredParkingPosition();
+
+            
+            then(manager.hasStoredParkingPosition()).isFalse();
         }
     }
 
@@ -89,6 +269,9 @@ class CashParkingManagerTest {
         double lastSellValue;
         String lastSellTicker;
         TickerInfo tickerInfo;
+        boolean throwException = false;
+        boolean throwExceptionOnClose = false;
+        boolean closedLong = false;
 
         FakeTradingService() {
             this.tickerInfo = new TickerInfo("FIGI", "TICKER", "ISIN", 0.01, 1, "RUB", "TICKER", "ETF");
@@ -96,6 +279,9 @@ class CashParkingManagerTest {
 
         @Override
         public PositionInfo getCurrentPositions(TickerType tickerType, String tickerName) {
+            if (throwException) {
+                throw new RuntimeException("Test exception");
+            }
             return parkingInfo;
         }
 
@@ -111,9 +297,21 @@ class CashParkingManagerTest {
                 double cashToSell,
                 double takeProfit,
                 double stopLose) {
+            if (throwException) {
+                throw new RuntimeException("Test exception");
+            }
             lastSellValue = cashToSell;
             lastSellTicker = name;
             return OrderExecutionResult.testSuccess(0.0, 0);
+        }
+
+        @Override
+        public boolean closeLongByMarket(String ticker, TickerType type) {
+            if (throwExceptionOnClose) {
+                throw new RuntimeException("Test exception");
+            }
+            closedLong = true;
+            return true;
         }
     }
 }

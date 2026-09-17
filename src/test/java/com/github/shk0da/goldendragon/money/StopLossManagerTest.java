@@ -147,13 +147,164 @@ class StopLossManagerTest {
             then(result1.newStopLoss).isEqualTo(100.001);
             then(result1.trailingActivated).isFalse();
 
-            // Step 2: Now trailing should activate (candlesHeld=10, interval=1)
+            
             Position positionWithBreakeven = new Position("BUY", 100.0, 100.001, null, 100, 10, 0);
             StopLossManager.TrailingResult result2 = manager.updateStopLoss(
                     positionWithBreakeven, candle(115.0), ATR, INITIAL_RISK, 10);
             then(result2.newStopLoss).isNotNull();
             then(result2.newStopLoss).isGreaterThan(100.0);
             then(result2.trailingActivated).isTrue();
+        }
+    }
+
+    @Nested
+    @DisplayName("When SHORT position")
+    class ShortPosition {
+
+        @Test
+        @DisplayName("Should move to breakeven for SHORT when PnL >= breakeven trigger")
+        void shouldMoveToBreakeven_Short() {
+            StopLossManager manager = createManager();
+            Position position = shortPosition(100.0, 110.0);
+            StopLossManager.TrailingResult result = manager.updateStopLoss(
+                    position, candle(95.0), ATR, INITIAL_RISK, 0);
+            then(result).isNotNull();
+            then(result.newStopLoss).isNotNull();
+            then(result.newStopLoss).isEqualTo(99.999);
+            then(result.trailingActivated).isFalse();
+        }
+
+        @Test
+        @DisplayName("Should calculate breakeven price correctly for SHORT")
+        void shouldCalculateBreakevenPrice_Short() {
+            StopLossManager manager = createManager();
+            Position position = shortPosition(100.0, 110.0);
+            
+            StopLossManager.TrailingResult result = manager.updateStopLoss(
+                    position, candle(95.0), ATR, INITIAL_RISK, 0);
+            then(result.newStopLoss).isEqualTo(99.999);
+        }
+
+        @Test
+        @DisplayName("Should set trailing stop for SHORT when trailing threshold is lower")
+        void shouldSetTrailingStop_Short() {
+            StopLossManager manager = new StopLossManager(
+                    0.3, 1.0, 0.5, BREAKEVEN_BUFFER,
+                    true, TRAILING_STEP_PERCENT, TRAILING_DELTA_PERCENT,
+                    TRAILING_CHECK_INTERVAL, TRAILING_VOLUME_PERCENT, COMMISSION);
+            Position position = shortPosition(100.0, 110.0);
+            StopLossManager.TrailingResult result = manager.updateStopLoss(
+                    position, candle(96.5), ATR, INITIAL_RISK, 0);
+            then(result.newStopLoss).isEqualTo(101.5);
+        }
+
+        @Test
+        @DisplayName("Should activate trailing after breakeven for SHORT")
+        void shouldActivateTrailing_Short() {
+            StopLossManager manager = createManager();
+            Position position = shortPosition(100.0, 110.0);
+
+            // Step 1: Move to breakeven
+            StopLossManager.TrailingResult result1 = manager.updateStopLoss(
+                    position, candle(95.0), ATR, INITIAL_RISK, 0);
+            then(result1.newStopLoss).isEqualTo(99.999);
+            then(result1.trailingActivated).isFalse();
+
+            
+            Position positionWithBreakeven = new Position("SELL", 100.0, 99.999, null, 100, 10, 0);
+            StopLossManager.TrailingResult result2 = manager.updateStopLoss(
+                    positionWithBreakeven, candle(85.0), ATR, INITIAL_RISK, 10);
+            then(result2.newStopLoss).isEqualTo(90.0);
+            then(result2.trailingActivated).isTrue();
+        }
+    }
+
+    @Nested
+    @DisplayName("When trailing TP activation")
+    class TrailingTP {
+
+        @Test
+        @DisplayName("Should move TP for LONG when price moves favorably")
+        void shouldMoveTP_Long() {
+            StopLossManager manager = createManager();
+            Position position = new Position("BUY", 100.0, 100.001, 120.0, 100, 10, 0);
+
+            
+            StopLossManager.TrailingResult result = manager.updateStopLoss(
+                    position, candle(115.0), ATR, INITIAL_RISK, 9);
+            then(result).isNotNull();
+            then(result.trailingActivated).isTrue();
+            then(result.newTakeProfit).isNotNull();
+            then(result.newTakeProfit).isEqualTo(127.5);
+        }
+
+        @Test
+        @DisplayName("Should move TP for SHORT when price moves favorably")
+        void shouldMoveTP_Short() {
+            StopLossManager manager = createManager();
+            Position position = new Position("SELL", 100.0, 99.999, 80.0, 100, 10, 0);
+
+            
+            StopLossManager.TrailingResult result = manager.updateStopLoss(
+                    position, candle(85.0), ATR, INITIAL_RISK, 9);
+            then(result).isNotNull();
+            then(result.trailingActivated).isTrue();
+            then(result.newTakeProfit).isNotNull();
+            then(result.newTakeProfit).isEqualTo(72.5);
+        }
+
+        @Test
+        @DisplayName("Should not move TP when current TP is null")
+        void shouldNotMoveTP_WhenNull() {
+            StopLossManager manager = createManager();
+            Position position = new Position("BUY", 100.0, 90.0, null, 100, 10, 0);
+
+            // When
+            StopLossManager.TrailingResult result = manager.updateStopLoss(
+                    position, candle(115.0), ATR, INITIAL_RISK, 10);
+            then(result).isNotNull();
+            then(result.newTakeProfit).isNull();
+        }
+    }
+
+    @Nested
+    @DisplayName("When edge cases")
+    class EdgeCases {
+
+        @Test
+        @DisplayName("Should handle null entryPrice gracefully")
+        void shouldHandleNullEntryPrice() {
+            StopLossManager manager = createManager();
+            Position position = new Position("BUY", null, 90.0, null, 100, 0, 0);
+
+            // When
+            StopLossManager.TrailingResult result = manager.updateStopLoss(
+                    position, candle(110.0), ATR, INITIAL_RISK, 0);
+            then(result).isNotNull();
+            then(result.newStopLoss).isNull();
+        }
+
+        @Test
+        @DisplayName("Should handle zero initialRisk gracefully")
+        void shouldHandleZeroInitialRisk() {
+            StopLossManager manager = createManager();
+            Position position = longPosition(100.0, 90.0);
+
+            // When
+            StopLossManager.TrailingResult result = manager.updateStopLoss(
+                    position, candle(110.0), ATR, 0.0, 0);
+            then(result).isNotNull();
+        }
+
+        @Test
+        @DisplayName("Should return true for isBetterStop when currentStop is null")
+        void shouldReturnTrue_WhenCurrentStopNull() {
+            
+            StopLossManager manager = createManager();
+            Position position = longPosition(100.0, null);
+            StopLossManager.TrailingResult result = manager.updateStopLoss(
+                    position, candle(105.0), ATR, INITIAL_RISK, 0);
+            then(result.newStopLoss).isNotNull();
         }
     }
 }
