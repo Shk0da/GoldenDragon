@@ -100,46 +100,6 @@ public class CandleRepository {
     }
 
     /**
-     * Check if candles exist for a ticker and interval.
-     *
-     * @param ticker ticker symbol
-     * @param interval candle interval
-     * @return true if data available
-     */
-    public boolean hasCandles(String ticker, String interval) {
-        Map<String, List<Candle>> tickerCandles = candleCache.get(ticker);
-        return tickerCandles != null && tickerCandles.containsKey(interval);
-    }
-
-    /**
-     * Get the latest candle for a ticker and interval.
-     *
-     * @param ticker ticker symbol
-     * @param interval candle interval
-     * @return latest candle, or null if not found
-     */
-    public Candle getLatestCandle(String ticker, String interval) {
-        List<Candle> candles = getCandles(ticker, interval);
-        return candles != null && !candles.isEmpty() ? candles.get(candles.size() - 1) : null;
-    }
-
-    /**
-     * Remove candles for a specific ticker.
-     *
-     * @param ticker ticker symbol
-     */
-    public void removeTicker(String ticker) {
-        candleCache.remove(ticker);
-    }
-
-    /**
-     * Clear all cached data.
-     */
-    public void clear() {
-        candleCache.clear();
-    }
-
-    /**
      * Get cache statistics.
      *
      * @return map with ticker counts

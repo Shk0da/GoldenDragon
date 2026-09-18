@@ -161,8 +161,6 @@ class LossStreakMonitorTest {
 
             then(halted).isTrue();
             then(haltCalls).hasValue(1);
-            then(monitor.isHalted()).isTrue();
-            then(monitor.getConsecutiveLosses()).isEqualTo(2);
         }
 
         @Test
@@ -177,8 +175,6 @@ class LossStreakMonitorTest {
             monitor.checkLossStreak();
 
             then(halted).isFalse();
-            then(monitor.isHalted()).isFalse();
-            then(monitor.getConsecutiveLosses()).isEqualTo(1);
         }
 
         @Test
@@ -196,8 +192,6 @@ class LossStreakMonitorTest {
             monitor.checkLossStreak();
 
             then(halted).isFalse();
-            then(monitor.isHalted()).isFalse();
-            then(monitor.getConsecutiveLosses()).isEqualTo(2);
         }
 
         @Test
@@ -216,7 +210,6 @@ class LossStreakMonitorTest {
             monitor.checkLossStreak();
 
             then(halted).isFalse();
-            then(monitor.isHalted()).isFalse();
         }
 
         @Test

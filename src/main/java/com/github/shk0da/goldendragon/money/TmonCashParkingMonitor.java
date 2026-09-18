@@ -212,13 +212,6 @@ public class TmonCashParkingMonitor implements Runnable {
     }
 
     /**
-     * Check if monitor is running.
-     */
-    public boolean isRunning() {
-        return running;
-    }
-
-    /**
      * Check if there are active positions (excluding parking ticker).
      * Used to prevent parking when cash is needed for trading.
      */

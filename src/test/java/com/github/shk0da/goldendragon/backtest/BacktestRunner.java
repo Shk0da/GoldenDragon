@@ -831,9 +831,9 @@ public class BacktestRunner {
             commission,
             slippage,
             1.0, // maxDrawdownThreshold disabled for backtest
-            config.getBacktestDefaultSlPercent(),
-            config.getBacktestDefaultTpPercent(),
-            config.getBacktestShortMarginRatio(),
+            2.0, // defaultSlPercent
+            4.0, // defaultTpPercent
+            0.30, // shortMarginRatio
             config.getMaxConcurrentPositions()
         );
         for (MarketDataLoadResult loadResult : loadedMarketData) {
@@ -985,7 +985,7 @@ public class BacktestRunner {
                 }
                 // trim history to the same lookback window the live provider fetches
                 int hourFrom = lowerBound(
-                    marketData.hourTimes, currentTime.minusDays(config.getLiveHourLookbackDays()));
+                    marketData.hourTimes, currentTime.minusDays(60)); // liveHourLookbackDays default
                 hourFrom = Math.min(Math.max(0, hourFrom), hourUpTo + 1);
                 List<Candle> hourHistory = marketData.hourCandles.subList(hourFrom, hourUpTo + 1);
                 int prevSeen = lastSeenHourIdx.getOrDefault(ticker, -1);
@@ -995,7 +995,7 @@ public class BacktestRunner {
                 if (hourHistory.size() >= MIN_HOURS_REQUIRED) {
                     int minuteFromIdx = lowerBound(
                         marketData.minuteTimes,
-                        currentTime.minusHours(config.getLiveMinuteLookbackHours()));
+                        currentTime.minusHours(72)); // liveMinuteLookbackHours default
                     minuteFromIdx = Math.min(Math.max(0, minuteFromIdx), idx + 1);
                     Map<String, List<Candle>> currentPeerCandles = buildCurrentPeerCandles(
                         ticker, currentTime, allHourlyCandles, groupTickers, peerTimesMap, hourHistory, config);

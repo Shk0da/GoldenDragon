@@ -230,39 +230,6 @@ class CashParkingManagerTest {
         }
     }
 
-    @Nested
-    @DisplayName("storeParkingPosition / removeStoredParkingPosition")
-    class ParkingPositionStore {
-
-        @Test
-        @DisplayName("Should store parking position")
-        void shouldStoreParkingPosition() {
-
-            then(manager.hasStoredParkingPosition()).isFalse();
-
-
-            Position position = new Position("LONG", TMON_PRICE, 49.0, 51.0, 100, 0);
-            manager.storeParkingPosition(position);
-
-
-            then(manager.hasStoredParkingPosition()).isTrue();
-        }
-
-        @Test
-        @DisplayName("Should remove stored parking position")
-        void shouldRemoveStoredParkingPosition() {
-
-            Position position = new Position("LONG", TMON_PRICE, 49.0, 51.0, 100, 0);
-            manager.storeParkingPosition(position);
-
-
-            manager.removeStoredParkingPosition();
-
-
-            then(manager.hasStoredParkingPosition()).isFalse();
-        }
-    }
-
     private static class FakeTradingService implements TradingService {
 
         PositionInfo parkingInfo;

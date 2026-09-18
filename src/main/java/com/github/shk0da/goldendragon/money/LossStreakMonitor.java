@@ -25,7 +25,6 @@ public class LossStreakMonitor implements Runnable {
 
     private volatile boolean running = true;
     private volatile boolean halted = false;
-    private volatile int consecutiveLosses = 0;
 
     /**
      * Create loss streak monitor.
@@ -87,7 +86,6 @@ public class LossStreakMonitor implements Runnable {
                     .atStartOfDay(ZoneId.systemDefault()).toInstant();
             List<Map<String, Object>> trades = tradingService.getTradeHistory(todayStart);
             int streak = countConsecutiveLosses(trades, excludedTicker);
-            consecutiveLosses = streak;
             if (streak >= 2) {
                 log("LOSS_STREAK: consecutive losses today = " + streak);
             }
@@ -146,24 +144,8 @@ public class LossStreakMonitor implements Runnable {
     }
 
     /**
-     * Check if trading has been halted.
-     *
-     * @return true if the streak threshold was reached
+     * Stop the monitoring thread.
      */
-    public boolean isHalted() {
-        return halted;
-    }
-
-    /**
-     * Get the last computed consecutive loss count.
-     *
-     * @return number of consecutive losses
-     */
-    public int getConsecutiveLosses() {
-        return consecutiveLosses;
-    }
-
-    /** Stop the monitoring thread. */
     public void stop() {
         running = false;
     }

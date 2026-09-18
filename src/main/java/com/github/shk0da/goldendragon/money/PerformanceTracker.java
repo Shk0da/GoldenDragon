@@ -89,18 +89,6 @@ public class PerformanceTracker {
     }
 
     /**
-     * Reset session statistics only (preserve peak for cumulative drawdown tracking).
-     * Use when KillSwitch must guard cumulative drawdown across sessions.
-     */
-    public void resetStatsOnly() {
-        sessionStats.set(new SessionStats());
-    }
-
-    public SessionStats getSessionStats() {
-        return sessionStats.get();
-    }
-
-    /**
      * Calculate position size multiplier based on drawdown.
      * At 0% drawdown: multiplier = 1.0 (full size).
      * At 10% drawdown: multiplier = 0.5 (50% size).

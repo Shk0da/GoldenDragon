@@ -197,48 +197,4 @@ public class CashParkingManager {
         String parkingTicker = getParkingTicker();
         return parkingTicker != null ? positionStore.get(parkingTicker) : null;
     }
-
-    /**
-     * Store the parking position locally.
-     */
-    public void storeParkingPosition(Position position) {
-        String parkingTicker = getParkingTicker();
-        if (parkingTicker != null) {
-            positionStore.put(parkingTicker, position);
-        }
-    }
-
-    /**
-     * Remove the parking position from the local store.
-     */
-    public void removeStoredParkingPosition() {
-        String parkingTicker = getParkingTicker();
-        if (parkingTicker != null) {
-            positionStore.remove(parkingTicker);
-        }
-    }
-
-    /**
-     * Check if parking position exists in the store.
-     */
-    public boolean hasStoredParkingPosition() {
-        Position pos = getStoredParkingPosition();
-        return pos != null && pos.quantity > 0;
-    }
-
-    /**
-     * Find ticker info for the parking ticker.
-     */
-    public TickerInfo findParkingTickerInfo(Map<TickerInfo.Key, TickerInfo> allTickers) {
-        String parkingTicker = getParkingTicker();
-        if (parkingTicker == null) {
-            return null;
-        }
-        for (TickerInfo info : allTickers.values()) {
-            if (info.getName().equalsIgnoreCase(parkingTicker) || info.getTicker().equalsIgnoreCase(parkingTicker)) {
-                return info;
-            }
-        }
-        return null;
-    }
 }

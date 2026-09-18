@@ -133,14 +133,6 @@ class TmonCashParkingMonitorTest {
         }
 
         @Test
-        @DisplayName("Should respect running state")
-        void shouldRespectRunningState() {
-            then(monitor.isRunning()).isTrue();
-            monitor.stop();
-            then(monitor.isRunning()).isFalse();
-        }
-
-        @Test
         @DisplayName("Should skip parking when active non-parking positions exist")
         void shouldSkipWhenActiveNonParkingPositionsExist() {
             // Given: cash available but an active non-parking position exists in store

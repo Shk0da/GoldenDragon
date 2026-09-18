@@ -491,61 +491,18 @@ public class UnifiedTraderConfig {
     }
 
     /**
-     * Controls logging of effective balance calculations. By default disabled to reduce log verbosity.
+     * Log effective balance (for debugging).
      */
     public boolean isLogEffectiveBalance() {
         return Boolean.parseBoolean(
             properties.getProperty("unifiedTrader.logEffectiveBalance", "false"));
     }
 
-    /**
-     * Hour candle history window in days fetched in live. Backtest trims history
-     * to the same window so simulation sees the same data depth as live.
-     */
-    public int getLiveHourLookbackDays() {
-        return Integer.parseInt(
-            properties.getProperty("unifiedTrader.live.hourLookbackDays", "60"));
-    }
-
-    /**
-     * Minute candle history window in hours fetched in live. Backtest trims history
-     * to the same window so simulation sees the same data depth as live.
-     */
-    public int getLiveMinuteLookbackHours() {
-        return Integer.parseInt(
-            properties.getProperty("unifiedTrader.live.minuteLookbackHours", "72"));
-    }
-
     // =====================================================
     // Backtest Configuration
     // =====================================================
-
-    /**
-     * Default Stop Loss percentage for backtest (e.g., 2.0 = 2%).
-     * Mirrors SimulatedBroker.DEFAULT_SL_PERCENT
-     */
-    public double getBacktestDefaultSlPercent() {
-        return Double.parseDouble(
-            properties.getProperty("unifiedTrader.backtest.defaultSlPercent", "2.0"));
-    }
-
-    /**
-     * Default Take Profit percentage for backtest (e.g., 4.0 = 4%).
-     * Mirrors SimulatedBroker.DEFAULT_TP_PERCENT
-     */
-    public double getBacktestDefaultTpPercent() {
-        return Double.parseDouble(
-            properties.getProperty("unifiedTrader.backtest.defaultTpPercent", "4.0"));
-    }
-
-    /**
-     * Short position margin ratio for backtest (e.g., 0.30 = 30%).
-     * Mirrors SimulatedBroker.SHORT_MARGIN_RATIO
-     */
-    public double getBacktestShortMarginRatio() {
-        return Double.parseDouble(
-            properties.getProperty("unifiedTrader.backtest.shortMarginRatio", "0.30"));
-    }
+    // Backtest Configuration
+    // =====================================================
 
     /**
      * Maximum concurrent positions (live + backtest).
