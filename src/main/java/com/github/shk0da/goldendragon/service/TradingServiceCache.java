@@ -260,6 +260,9 @@ public class TradingServiceCache implements TradingService {
 
     @Override
     public OrderExecutionResult closeLongByMarketWithDetails(String name, TickerType type, int quantity) {
+        // Invalidate cash and positions caches BEFORE order to get fresh balance/positions
+        invalidateCash();
+        invalidatePositions();
         return delegate.closeLongByMarketWithDetails(name, type, quantity);
     }
 
@@ -270,6 +273,9 @@ public class TradingServiceCache implements TradingService {
 
     @Override
     public OrderExecutionResult closeShortByMarketWithDetails(String name, TickerType type, int quantity) {
+        // Invalidate cash and positions caches BEFORE order to get fresh balance/positions
+        invalidateCash();
+        invalidatePositions();
         return delegate.closeShortByMarketWithDetails(name, type, quantity);
     }
 
@@ -319,6 +325,14 @@ public class TradingServiceCache implements TradingService {
      */
     public void invalidatePrices() {
         cache.asMap().keySet().removeIf(k -> k.startsWith("price:"));
+    }
+
+    /**
+     * Invalidate all position-related keys.
+     */
+    public void invalidatePositions() {
+        cache.asMap().keySet().removeIf(
+                k -> k.startsWith("position:") || k.startsWith("positions:"));
     }
 
     /**

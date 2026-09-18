@@ -14,6 +14,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
+import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -78,6 +79,29 @@ class TradingServiceCacheTest {
         when(mockDelegate.getAvailableCash()).thenReturn(2000.0);
         cache.getAvailableCash();
         verify(mockDelegate, times(2)).getAvailableCash();
+    }
+
+    @Test
+    @DisplayName("Should invalidate positions cache after closing position with quantity")
+    void shouldInvalidatePositionsAfterCloseWithQuantity() {
+        TradingService mockDelegate = mock(TradingService.class);
+        when(mockDelegate.getCurrentPositions(TickerType.STOCK)).thenReturn(Map.of());
+        when(mockDelegate.closeLongByMarketWithDetails("TEST", TickerType.STOCK, 10))
+                .thenReturn(null);
+
+        TradingServiceCache cache = new TradingServiceCache(mockDelegate);
+
+        // Populate positions cache
+        cache.getCurrentPositions(TickerType.STOCK);
+        verify(mockDelegate, times(1)).getCurrentPositions(TickerType.STOCK);
+
+        // Close position - should invalidate positions cache
+        cache.closeLongByMarketWithDetails("TEST", TickerType.STOCK, 10);
+        verify(mockDelegate).closeLongByMarketWithDetails("TEST", TickerType.STOCK, 10);
+
+        // Next getCurrentPositions after close should be a cache miss (delegate called again)
+        cache.getCurrentPositions(TickerType.STOCK);
+        verify(mockDelegate, times(2)).getCurrentPositions(TickerType.STOCK);
     }
 
     @Test
