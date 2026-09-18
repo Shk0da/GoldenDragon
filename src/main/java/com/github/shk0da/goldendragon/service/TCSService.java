@@ -1419,10 +1419,14 @@ public class TCSService implements TradingService {
 
             if (response.statusCode() != 200) {
                 log(
-                    "Failed to post market stop order for " + orderId + ": status="
-                        + response.statusCode()
-                        + " body="
-                        + response.body());
+                    "Failed to post market stop order for " + orderId
+                        + ": status=" + response.statusCode()
+                        + " figi=" + figi
+                        + " quantity=" + quantity
+                        + " stopPrice=" + String.format("%.4f", triggerPrice)
+                        + " direction=" + direction.name()
+                        + " type=" + stopOrderType.name()
+                        + " body=" + response.body());
                 return null;
             }
 
@@ -1430,12 +1434,26 @@ public class TCSService implements TradingService {
             JsonNode json = objectMapper.readTree(response.body());
             String stopOrderId = json.path("stopOrderId").asText(null);
             if (stopOrderId == null || stopOrderId.isEmpty()) {
-                log("Missing stopOrderId in response: " + response.body());
+                log(
+                    "Missing stopOrderId in response for "
+                        + orderId + " figi=" + figi
+                        + " quantity=" + quantity
+                        + " stopPrice=" + String.format("%.4f", triggerPrice)
+                        + " direction=" + direction.name()
+                        + " type=" + stopOrderType.name()
+                        + ": " + response.body());
                 return null;
             }
             return stopOrderId;
         } catch (Exception ex) {
-            log("Failed to post market stop order: " + ex.getMessage());
+            log(
+                "Failed to post market stop order for " + orderId
+                    + " figi=" + figi
+                    + " quantity=" + quantity
+                    + " stopPrice=" + String.format("%.4f", triggerPrice)
+                    + " direction=" + direction.name()
+                    + " type=" + stopOrderType.name()
+                    + ": " + ex.getMessage());
             return null;
         }
     }
