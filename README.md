@@ -6,16 +6,16 @@
 
 - Многопоточный движок стратегий с пулом на каждый тикер
 - Money management с адаптивным сайзингом, risk manager и kill switch
+- Управляемые SL/TP алгоритмы (проценты, ATR, уровни поддержки/сопротивления)
 - Cash parking: TMON@ (Tinkoff ETF)
 - Сбор исторических данных с Tinkoff
-- Данные на диске (`data/`) только для бэктестов
-- Бэктестинг с поддержкой Tinkoff
+- Бэктестинг с реалистичным моделированием исполнения ордеров
 
 ## Стратегии
 
 | Стратегия | Описание |
 |---|---|
-| `UnifiedStrategy` | Основная стратегия с настраиваемым режим-фильтром (бывшие RegimeAwareStrategy + UnifiedStrategy) |
+| `UnifiedStrategy` | Основная стратегия с настраиваемым режим-фильтром и управляемыми SL/TP алгоритмами |
 
 ### Live-only стратегии (не участвуют в бэктесте)
 
@@ -30,7 +30,7 @@ src/main/java/com/github/shk0da/goldendragon/
 ├── GoldenDragon.java          # точка входа, диспетчер стратегий
 ├── config/                   # конфигурация (MainConfig, UnifiedTraderConfig, ...)
 ├── model/                    # DTO (Candle, Position, TickerInfo, Config, ...)
-├── money/                    # управление капиталом
+├── money/                    # управление капиталом и SL/TP
 │   ├── CashParkingManager    # парковка кеша в TMON@ (Tinkoff ETF)
 │   ├── SizingStrategy        # интерфейс: FixedRiskSizing, VolatilityAdjustedSizing
 │   ├── PositionSizer         # расчёт размера позиции с учётом лота и шага
@@ -38,72 +38,68 @@ src/main/java/com/github/shk0da/goldendragon/
 │   ├── StopLossManager       # breakeven и трейлинг стопов
 │   ├── KillSwitch            # аварийная остановка при критической просадке
 │   ├── AdaptiveCapital       # anti-martingale адаптация риска
-│   └── PerformanceTracker    # win rate, PnL, drawdown
+│   ├── PerformanceTracker    # win rate, PnL, drawdown
+│   ├── AdaptiveLeverage      # адаптивная кредитная планка
+│   ├── LossStreakMonitor     # мониторинг серий проигрышей
+│   ├── TmonCashParkingMonitor# мониторинг cash parking в TMON@
+│   └── SL/TP стратегии       # StopLossTakeProfitStrategy (интерфейс)
+│                             #   - LevelStrategy, AtrStrategy, HybridStrategy,
+│                             #   - PercentageStrategy, WaveAtrStrategy,
+│                             #   - VolatilityAdaptiveStrategy, TightRangeStrategy
 ├── filters/                  # фильтры входа
 │   ├── BadWeatherFilter      # низкая активность, хаос, турбулентность
 │   ├── GroupConfirmationFilter  # подтверждение по peer-инструментам группы
-│   └── MarketRegimeFilter    # фильтрация по режиму рынка (ADX, volume, confidence)
+│   ├── MarketRegimeFilter    # фильтрация по режиму рынка (ADX, volume, confidence)
+│   └── VolatilitySpikeFilter # фильтр волатильных скачков
 ├── market/                   # рыночные данные и исполнение ордеров
 │   ├── MarketDataProvider    # интерфейс: получение свечей и цен
 │   ├── LiveMarketDataProvider # live-данные от брокера
 │   ├── OrderExecutor         # интерфейс: исполнение ордеров
-│   └── LiveOrderExecutor     # live-исполнение через брокера
+│   ├── LiveOrderExecutor     # live-исполнение через брокера
+│   └── MarketPrices          # текущие рыночные цены
 ├── repository/               # кеширование FIGI и цен
 ├── service/                  # внешние сервисы
-│   ├── TradingService        # общий интерфейс торговли (getAvailableCash, createOrder, ...)
-│   └── TCSService            # Tinkoff Invest API (ордера, стакан, свечи, портфель)
+│   ├── TradingService        # общий интерфейс торговли
+│   ├── TCSService            # Tinkoff Invest API (ордера, стакан, свечи, портфель)
+│   └── TradingServiceCache   # кэширование данных TradingService
 └── strategy/                 # торговые стратегии
     ├── BaseStrategy          # базовый класс (жизненный цикл, индикаторы)
     ├── UnifiedStrategy       # основная стратегия с режимом фильтрации рынка
     ├── TradeCouncilStrategy  # AI-стратегия с LLM-дебатами (live-only, не бэктестируется)
-    └── DataCollector         # сбор исторических данных (5_MIN, HOUR) с Tinkoff
+    └── StrategyRegistry      # реестр стратегий
 ```
 
 ## Конфигурация
 
 Основные параметры в `src/main/resources/application.properties`:
 
-```properties
-# ============================================
-# TCS Client Config
-# ============================================
-tcs.testMode=false
-tcs.isSandbox=true
-tcs.accountId=
-tcs.apiKey=
+- `tcs.testMode` — песочница Tinkoff (true/false)
+- `tcs.isSandbox` — режим sandbox (true/false)
+- `tcs.accountId` / `tcs.apiKey` — учётные данные Тинькофф
+- `datacollector.dataDir` — директория для исторических данных
+- `datacollector.instruments` — список инструментов для сбора
+- `unifiedTrader.leverage` — базовая кредитная планка
+- `unifiedTrader.leverage.min` — минимальная кредитная планка
+- `unifiedTrader.adaptiveLeverage.enabled` — адаптивная кредитная планка
+- `unifiedTrader.tmonCashParking.enabled` — cash parking в TMON@
+- `unifiedTrader.shortsEnabled` — разрешение коротких позиций
+- `unifiedTrader.cooldownCandles` — период охлаждения после закрытия позиции (свечи)
+- `unifiedTrader.maxConcurrentPositions` — максимальное количество одновременных позиций
+- `unifiedTrader.badWeatherFilter.*` — параметры фильтра плохой погоды
+- `unifiedTrader.ticker.<TICKER>.*` — параметры для каждого тикера:
+  - `enabled` — включение тикера
+  - `allocationGroup` — группа аллокации
+  - `group` — группа сигналов (TREND, MIXED, FX)
+  - `riskP` — риск на сделку (доля депозита)
+  - `slMult` / `tpMult` — множители SL/TP
+  - `slTpAlgorithm` — алгоритм SL/TP (PERCENTAGE, LEVELS, ATR, HYBRID, WAVE_ATR, VOLATILITY_ADAPTIVE, TIGHT_RANGE)
+  - `allocationWeight` — вес в портфеле
+  - `marketRegimeAdxRangeThreshold` / `marketRegimeConfidenceMin` — пороги режимного фильтра
+  - `badWeather*` — параметры фильтра плохой погоды для тикера
 
-# ============================================
-# DataCollector Config
-# ============================================
-datacollector.dataDir=data
-datacollector.instruments=GMKN,T,VTBR,SNGS,GLDRUBF,IMOEXF,MGNT,PLZL,YDEX,MTSS,GAZPF,SNGSP,SIBN,TATN,OZON,X5,AKRN,NLMK,RUAL,ALRS,LENT,RTKM,HYDR,VKCO,FESH,UPRO,UWGN,TMON@
-datacollector.historyDays=1900
-
-# ============================================
-# UnifiedTrader Config
-# ============================================
-unifiedTrader.leverage=3
-unifiedTrader.adaptiveLeverage.enabled=true
-unifiedTrader.tmonCashParking.enabled=true
-
-# ============================================
-# UnifiedStrategy Config
-# ============================================
-unifiedTrader.ticker.T.marketRegimeAdxRangeThreshold=25.0
-unifiedTrader.ticker.T.marketRegimeConfidenceMin=60.0
-
-# ============================================
-# TradeCouncilStrategy Config (AI/LLM)
-# ============================================
-tradecouncil.openai.baseUrl=http://localhost:4000/v1
-tradecouncil.openai.apiKey=your-api-key
-tradecouncil.debater.model=shcoder
-tradecouncil.arbiter.model=shcoder
-tradecouncil.prompt.consensus=You are a consensus judge. Compare all {N} debater outputs...
-tradecouncil.debate.rounds=3
-tradecouncil.proximity.percent=2.0
-tradecouncil.risk.percent=1.0
-```
+Примеры других конфигураций:
+- `tradecouncil.*` — параметры LLM-агентов для TradeCouncilStrategy
+- `killswitch.*` — параметры аварийного отключения
 
 ## Быстрый старт
 
@@ -179,13 +175,6 @@ BacktestRunner использует инструменты из `datacollector.i
 2. Если margin не удалось получить — используется 25% от цены фьючерса как fallback
 3. Формула: `quantity = (deposit * riskPercent) / margin`
 
-```java
-// Пример использования margin-based расчёта
-Double margin = tradingService.getSingleContractGo("GYENF");
-// margin = null → fallback 25% от цены
-// margin = 1000.0 → используем реальное ГО
-```
-
 Cash parking в бэктесте:
 - **TMON@**: комиссия 0%, не учитывается в tradeHistory
 
@@ -203,21 +192,6 @@ Cash parking в бэктесте:
 - Cash parking в TMON@ (комиссия 0%)
 - Расчёт портфельной доходности и метрик по каждому тикеру
 - Генерация equity curve для визуализации
-
-**Пример использования:**
-```java
-BacktestRunner runner = new BacktestRunner("data", 100_000, 0.0005, 0.0);
-BacktestExecutionResult result = runner.execute(
-    "UnifiedStrategy",
-    "2022-01-01",
-    "2026-12-31",
-    tickers,
-    config
-);
-PortfolioPeriodResult portfolio = result.portfolioResult;
-System.out.println("PnL: " + portfolio.pnl);
-System.out.println("Trades: " + portfolio.totalTrades);
-```
 
 **Возвращаемые метрики:**
 - `pnl` — общая доходность за период (в валюте)
@@ -247,21 +221,6 @@ System.out.println("Trades: " + portfolio.totalTrades);
 - Win Rate Ratio: близкий к 1.0 — стабильность качества сигналов
 - DD Ratio: тестовая просадка не превышает обучающую значительно
 
-**Пример использования:**
-```java
-WalkForwardAnalyzer analyzer = new WalkForwardAnalyzer(
-    "UnifiedStrategy",
-    "GMKN",
-    config,
-    6,  // train months
-    2,  // test months
-    1   // step months
-);
-WalkForwardResult result = analyzer.analyze("2022-01-01", "2026-12-31");
-SummaryMetrics summary = result.summary;
-System.out.println("Robust: " + summary.isRobust); // true если PnL ratio в норме
-```
-
 **Интерпретация результатов:**
 - `isRobust = true` — стратегия показывает сопоставимые результаты на IS/OOS
 - `pnlRatio < 0.7` — переобучение (резко хуже на unseen данных)
@@ -283,20 +242,6 @@ System.out.println("Robust: " + summary.isRobust); // true если PnL ratio в
 - **Низкая чувствительность** — широкий «плато» устойчивости (хорошо)
 - **Высокая чувствительность** — узкий «пик» (риск переобучения)
 
-**Пример использования:**
-```java
-SensitivityAnalyzer analyzer = new SensitivityAnalyzer(
-    "UnifiedStrategy",
-    "GMKN",
-    config,
-    "2022-01-01",
-    "2026-12-31"
-);
-SensitivityResult adxResult = analyzer.analyzeAdxSensitivity();
-ParameterSet optimal = adxResult.optimalSet;
-System.out.println("Optimal ADX: " + optimal.parameters);
-```
-
 **Рекомендации по интерпретации:**
 - Ищите широкие плато (параметры работают в диапазоне ±20–30%)
 - Избегайте узких пиков (работает только при точных значениях)
@@ -310,21 +255,13 @@ System.out.println("Optimal ADX: " + optimal.parameters);
 
 **Поддерживаемые метрики:**
 
-| Метрика | Формула | Интерпретация |
-|---|---|---|
-| **Sharpe Ratio** | `(avgReturn - riskFree) / stdDev` | Доходность на единицу общей волатильности |
-| **Sortino Ratio** | `(avgReturn - riskFree) / downsideDev` | Доходность на единицу downside-риска |
-| **Calmar Ratio** | `CAGR / MaxDrawdown` | Доходность на единицу максимальной просадки |
-| **Recovery Factor** | `GrossProfit / MaxDrawdown` | Способность восстанавливаться после просадок |
-| **R-Multiple** | `PnL / InitialRisk` | Нормализованная доходность на единицу риска |
-
-**Пример использования:**
-```java
-List<Double> monthlyReturns = Arrays.asList(0.05, -0.02, 0.08, ...);
-double sharpe = MetricsCalculator.calculateSharpeRatio(monthlyReturns, 0.05, 12);
-double sortino = MetricsCalculator.calculateSortinoRatio(monthlyReturns, 0.05, 12);
-double calmar = MetricsCalculator.calculateCalmarRatio(equityCurve, 0.05);
-```
+| Метрика | Интерпретация |
+|---|---|
+| **Sharpe Ratio** | Доходность на единицу общей волатильности |
+| **Sortino Ratio** | Доходность на единицу downside-риска |
+| **Calmar Ratio** | Доходность на единицу максимальной просадки |
+| **Recovery Factor** | Способность восстанавливаться после просадок |
+| **R-Multiple** | Нормализованная доходность на единицу риска |
 
 **Пороговые значения:**
 - Sharpe > 1.0 — приемлемо, > 2.0 — отлично
@@ -366,14 +303,6 @@ double calmar = MetricsCalculator.calculateCalmarRatio(equityCurve, 0.05);
 - **REFINE (50–79)** — перспективная, но требует доработки
 - **ABANDON (<50)** — фундаментальные проблемы, лучше переработать
 
-**Пример использования:**
-```java
-BacktestExpertEvaluator evaluator = new BacktestExpertEvaluator();
-EvaluationResult eval = evaluator.evaluate(result, config);
-System.out.println("Total Score: " + eval.totalScore + "/100");
-System.out.println("Verdict: " + eval.verdict);
-```
-
 ---
 
 #### 6. LiveParityVerifier — проверка соответствия live-торговле
@@ -389,14 +318,6 @@ System.out.println("Verdict: " + eval.verdict);
 **Критерии прохождения:**
 - Pass Rate ≥ 95% — бэктест достоверен
 - Pass Rate < 95% — требуется калибровка модели
-
-**Пример использования:**
-```java
-LiveParityVerifier verifier = new LiveParityVerifier("GMKN", 0.01); // 1% tolerance
-ParityResult parity = verifier.verify(backtestResult, liveResult);
-System.out.println("Pass Rate: " + parity.passRate * 100 + "%");
-System.out.println("Valid: " + parity.passed);
-```
 
 ---
 
@@ -430,25 +351,6 @@ System.out.println("Valid: " + parity.passed);
 
 **Интеграция:**
 Используется внутри `BacktestRunner` для изоляции бэктеста от внешней системы.
-
----
-
-### Запуск бэктеста
-
-```bash
-# Запуск стандартного бэктеста (2022–2026)
-./gradlew runBacktest
-
-# Запуск с кастомными параметрами (через Java-системные свойства)
-./gradlew runBacktest -Dbacktest.start=2023-01-01 -Dbacktest.end=2025-12-31
-```
-
-**Результаты бэктеста:**
-- Вывод в консоль: общая доходность, количество сделок, win rate, максимальная просадка
-- Equity curve для построения графиков (доступна через `result.portfolioResult.equityCurve`)
-- Детализация по каждому тикеру (через `result.tickerResults`)
-
----
 
 ### Рекомендации по валидации стратегий
 
@@ -514,16 +416,7 @@ AI-стратегия, использующая дебаты между LLM-аг
 
 ### Логирование
 
-```
-=== CONSENSIUM START === TATN: Price 595.4 approached level S1 (590.1)
-Debate in progress for TATN (rounds=3)
-TATN | Round 1/3
-TATN | R1 Analyst: done
-TATN | R1 Trader: done
-TATN | R1 Risk Manager: done
-TATN | R2 Consensus check: CONTINUE
-=== CONSENSIUM RESULT === TATN: Action=LONG, Reason=Strong uptrend confirmed
-```
+Логирование включает информацию о ходе дебатов, решениях агентов и финальном вердикте арбитра.
 
 ### Конфигурация
 
@@ -533,14 +426,7 @@ TATN | R2 Consensus check: CONTINUE
 
 ### URL Resolver
 
-Все REST-вызовы к Tinkoff API используют утилиту `TinkoffApiUrlResolver` для автоматического выбора sandbox/production URL:
-
-```java
-// Автоматический выбор URL на основе mainConfig.isSandbox()
-String url = TinkoffApiUrlResolver.buildRestUrl(mainConfig, "InstrumentsService/GetFuturesMargin");
-// Sandbox: https://sandbox-invest-public-api.tbank.ru/rest/...
-// Production: https://invest-public-api.tbank.ru/rest/...
-```
+Все REST-вызовы к Tinkoff API используют утилиту `TinkoffApiUrlResolver` для автоматического выбора sandbox/production URL.
 
 **Используется в:**
 - `TCSService.getSingleContractGo()` — получение ГО для фьючерсов
