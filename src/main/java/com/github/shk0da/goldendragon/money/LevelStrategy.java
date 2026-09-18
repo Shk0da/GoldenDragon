@@ -81,6 +81,10 @@ public class LevelStrategy implements StopLossTakeProfitStrategy {
 
         slDist = Math.min(slDist, dAtr * MAX_ATR_MULT);
         tpDist = Math.min(tpDist, dAtr * MAX_ATR_MULT);
+        
+        if (tpDist < slDist) {
+            tpDist = slDist;
+        }
 
         if (strongTrendAdjust(slDist, tpDist, adx) == null) {
             return null;
