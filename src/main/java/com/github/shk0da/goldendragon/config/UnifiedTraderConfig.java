@@ -30,6 +30,7 @@ public class UnifiedTraderConfig {
         public final BadWeatherFilter.Params badWeatherParams;
         public final boolean enabled;
         public final double allocationWeight;
+        public final String slTpAlgorithm;
 
         // Money Management parameters (per-ticker overrides)
         public final double mmRiskPercent;
@@ -123,6 +124,50 @@ public class UnifiedTraderConfig {
             double mmTrailingMultiplier,
             boolean mmEnabled,
             int leverage) {
+            this(
+                group,
+                slMult,
+                tpMult,
+                riskP,
+                useMinuteCandles,
+                allocationGroup,
+                marketRegimeAdxRangeThreshold,
+                marketRegimeAdxUnclearThreshold,
+                marketRegimeVolumeRatioMin,
+                marketRegimeConfidenceMin,
+                marketRegimeAtrBars,
+                badWeatherParams,
+                enabled,
+                allocationWeight,
+                mmRiskPercent,
+                mmAtrStopMultiplier,
+                mmTrailingMultiplier,
+                mmEnabled,
+                leverage,
+                "LEVELS");
+        }
+
+        public TickerParams(
+            String group,
+            double slMult,
+            double tpMult,
+            double riskP,
+            boolean useMinuteCandles,
+            String allocationGroup,
+            double marketRegimeAdxRangeThreshold,
+            double marketRegimeAdxUnclearThreshold,
+            double marketRegimeVolumeRatioMin,
+            double marketRegimeConfidenceMin,
+            int marketRegimeAtrBars,
+            BadWeatherFilter.Params badWeatherParams,
+            boolean enabled,
+            double allocationWeight,
+            double mmRiskPercent,
+            double mmAtrStopMultiplier,
+            double mmTrailingMultiplier,
+            boolean mmEnabled,
+            int leverage,
+            String slTpAlgorithm) {
             this.group = group;
             this.slMult = slMult;
             this.tpMult = tpMult;
@@ -137,6 +182,7 @@ public class UnifiedTraderConfig {
             this.badWeatherParams = badWeatherParams;
             this.enabled = enabled;
             this.allocationWeight = allocationWeight;
+            this.slTpAlgorithm = slTpAlgorithm;
             this.mmRiskPercent = mmRiskPercent;
             this.mmAtrStopMultiplier = mmAtrStopMultiplier;
             this.mmTrailingMultiplier = mmTrailingMultiplier;
@@ -327,6 +373,8 @@ public class UnifiedTraderConfig {
                 properties.getProperty("unifiedTrader.leverage", "1"));
         int leverage =
             Integer.parseInt(properties.getProperty(prefix + "leverage", globalLeverage));
+        String slTpAlgorithm =
+            properties.getProperty(prefix + "slTpAlgorithm", "LEVELS");
 
         return new TickerParams(
             group,
@@ -347,7 +395,8 @@ public class UnifiedTraderConfig {
             tickerMmAtrStopMultiplier,
             tickerMmTrailingMultiplier,
             tickerMmEnabled,
-            leverage);
+            leverage,
+            slTpAlgorithm);
     }
 
     private String getGroupDefault(

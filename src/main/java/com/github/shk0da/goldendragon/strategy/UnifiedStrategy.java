@@ -20,6 +20,8 @@ import com.github.shk0da.goldendragon.money.PositionSizer;
 import com.github.shk0da.goldendragon.money.RiskManager;
 import com.github.shk0da.goldendragon.money.SizingStrategy;
 import com.github.shk0da.goldendragon.money.StopLossManager;
+import com.github.shk0da.goldendragon.money.StopLossTakeProfitStrategy;
+import com.github.shk0da.goldendragon.money.StopLossTakeProfitStrategyFactory;
 import com.github.shk0da.goldendragon.money.VolatilityAdjustedSizing;
 import com.github.shk0da.goldendragon.repository.TickerRepository;
 import com.github.shk0da.goldendragon.service.TradingService;
@@ -174,6 +176,7 @@ public class UnifiedStrategy extends BaseStrategy {
     private final KillSwitch killSwitch;
     private final PerformanceTracker performanceTracker;
     private final StopLossManager stopLossManager;
+    private final StopLossTakeProfitStrategy slTpStrategy;
     private final boolean mmEnabled;
 
     /** When set, overrides config leverage and disables adaptive leverage resolution. */
@@ -290,6 +293,8 @@ public class UnifiedStrategy extends BaseStrategy {
         log("RegimeFilter: enabled=" + regimeFilterEnabled + ", mode=" + regimeFilterMode
                 + ", RANGE<=" + String.format("%.1f", regimeRangeAdxMax)
                 + ", TREND>=" + String.format("%.1f", regimeTrendAdxMin));
+
+        this.slTpStrategy = null;
     }
 
     @Override
@@ -594,28 +599,19 @@ public class UnifiedStrategy extends BaseStrategy {
             }
         }
 
+        // Calculate SL/TP using configured algorithm
         double slMult = tpCfg.mmEnabled ? tpCfg.mmAtrStopMultiplier : tpCfg.slMult;
         double tpMult = tpCfg.tpMult;
-        // Use a percentage of entry price for stop and take-profit distances so R:R is
-        // reliable and achievable — ATR-based distances were too large in high-volatility entries.
-        double stopPct = slMult / 100.0;
-        double takeProfitPct = tpMult / 100.0;
-        double slDist = entry * stopPct;
-        double tpDist = entry * takeProfitPct;
+        StopLossTakeProfitStrategy strategy = StopLossTakeProfitStrategyFactory.create(tpCfg.slTpAlgorithm);
+        StopLossTakeProfitStrategy.SLTPResult sltpResult = strategy.calculate(
+                entry, isBuy, hourCandles, dAtr, avgAtr, adx, slMult, tpMult, config.atrPeriod);
 
-        if (strongTrend) {
-            slDist *= 1.10;
-            tpDist *= adx >= HOT_TREND_ADX ? 1.35 : 1.20;
-        }
-        if (rangeRegime) {
-            slDist *= 0.90;
-            tpDist *= 0.85;
-        }
-
-        if (slDist <= 0.0 || tpDist <= 0.0) {
+        if (sltpResult == null || sltpResult.slDistance <= 0.0 || sltpResult.tpDistance <= 0.0) {
             return new TradingDecision("HOLD", "dist0", 0.0, 0, null, null, null, p);
         }
 
+        double slDist = sltpResult.slDistance;
+        double tpDist = sltpResult.tpDistance;
         double sl = isBuy ? entry - slDist : entry + slDist;
         double tp = isBuy ? entry + tpDist : entry - tpDist;
 
