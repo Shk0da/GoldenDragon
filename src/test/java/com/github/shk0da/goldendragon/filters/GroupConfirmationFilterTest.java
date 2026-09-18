@@ -1,7 +1,6 @@
 package com.github.shk0da.goldendragon.filters;
 
 import com.github.shk0da.goldendragon.model.Candle;
-
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -83,7 +82,7 @@ class GroupConfirmationFilterTest {
             String ticker = "TICKER";
             boolean isBuy = true;
             Map<String, List<Candle>> peerCandles = new HashMap<>();
-            
+
             peerCandles.put("PEER1", buildBullishCandles(5));
             peerCandles.put("PEER2", buildBullishCandles(5));
             peerCandles.put("PEER3", buildBullishCandles(5));
@@ -103,7 +102,7 @@ class GroupConfirmationFilterTest {
             String ticker = "TICKER";
             boolean isBuy = true;
             Map<String, List<Candle>> peerCandles = new HashMap<>();
-            
+
             peerCandles.put("PEER1", buildBearishCandles(5));
             peerCandles.put("PEER2", buildBearishCandles(5));
             peerCandles.put("PEER3", buildBearishCandles(5));
@@ -123,7 +122,7 @@ class GroupConfirmationFilterTest {
             String ticker = "TICKER";
             boolean isBuy = true;
             Map<String, List<Candle>> peerCandles = new HashMap<>();
-            
+
             // Peer 1: moving up (confirms)
             peerCandles.put("PEER1", buildBullishCandles(5));
             // Peer 2: moving up (confirms)
@@ -146,7 +145,7 @@ class GroupConfirmationFilterTest {
             String ticker = "TICKER";
             boolean isBuy = true;
             Map<String, List<Candle>> peerCandles = new HashMap<>();
-            
+
             // Peer 1: moving up (confirms)
             peerCandles.put("PEER1", buildBullishCandles(5));
             // Peer 2: moving down (doesn't confirm)
@@ -169,7 +168,7 @@ class GroupConfirmationFilterTest {
             String ticker = "TICKER";
             boolean isBuy = true;
             Map<String, List<Candle>> peerCandles = new HashMap<>();
-            
+
             // Self: moving down (should be ignored)
             peerCandles.put("TICKER", buildBearishCandles(5));
             // Peer 1: moving up (confirms)
@@ -216,7 +215,7 @@ class GroupConfirmationFilterTest {
             String ticker = "TICKER";
             boolean isBuy = false; // Sell signal
             Map<String, List<Candle>> peerCandles = new HashMap<>();
-            
+
             peerCandles.put("PEER1", buildBearishCandles(5));
             peerCandles.put("PEER2", buildBearishCandles(5));
             peerCandles.put("PEER3", buildBearishCandles(5));
@@ -236,7 +235,7 @@ class GroupConfirmationFilterTest {
             String ticker = "TICKER";
             boolean isBuy = false; // Sell signal
             Map<String, List<Candle>> peerCandles = new HashMap<>();
-            
+
             peerCandles.put("PEER1", buildBullishCandles(5));
             peerCandles.put("PEER2", buildBullishCandles(5));
             peerCandles.put("PEER3", buildBullishCandles(5));

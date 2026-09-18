@@ -1,6 +1,7 @@
 package com.github.shk0da.goldendragon.filters;
 
 import com.github.shk0da.goldendragon.model.Candle;
+
 import java.util.List;
 import java.util.Map;
 

@@ -15,11 +15,10 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
-import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
-import static org.assertj.core.api.BDDAssertions.then;
 import static org.assertj.core.api.Assertions.within;
+import static org.assertj.core.api.BDDAssertions.then;
 
 @DisplayName("TmonCashParkingMonitor order creation with lot size")
 class TmonCashParkingMonitorTest {

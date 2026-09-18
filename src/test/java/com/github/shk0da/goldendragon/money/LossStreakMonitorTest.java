@@ -1,6 +1,5 @@
 package com.github.shk0da.goldendragon.money;
 
-import com.github.shk0da.goldendragon.model.OrderExecutionResult;
 import com.github.shk0da.goldendragon.model.TickerInfo;
 import com.github.shk0da.goldendragon.service.TradingService;
 import org.junit.jupiter.api.DisplayName;

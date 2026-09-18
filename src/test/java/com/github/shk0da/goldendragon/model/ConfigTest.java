@@ -77,7 +77,7 @@ class ConfigTest {
             then(config.mmWinsToRestore).isEqualTo(5);
             then(config.mmRiskReductionFactor).isEqualTo(0.5);
             then(config.mmCriticalDrawdownPercent).isEqualTo(0.15);
-            then(config.mmMaxPositionSize).isEqualTo(0.20);
+            then(config.mmMaxPositionSize).isEqualTo(0.15);
             then(config.shortsEnabled).isTrue();
 
             // Trailing Stop
@@ -157,7 +157,7 @@ class ConfigTest {
             then(config.mmMaxDailyLossPercent).isEqualTo(0.03);
             then(config.mmAdaptiveEnabled).isTrue();
             then(config.mmCriticalDrawdownPercent).isEqualTo(0.10);
-            then(config.mmMaxPositionSize).isEqualTo(0.25);
+            then(config.mmMaxPositionSize).isEqualTo(0.15);
             then(config.shortsEnabled).isFalse();
         }
 

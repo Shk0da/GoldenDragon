@@ -6,7 +6,9 @@ import com.github.shk0da.goldendragon.config.UnifiedTraderConfig;
 import com.github.shk0da.goldendragon.model.Config;
 
 import java.io.IOException;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.List;
 
 /**
  * Optimizer for trailing stop parameters.
@@ -68,12 +70,12 @@ public class BacktestTrailingOptimizer {
         Config modelConfig = config.toConfig();
         UnifiedTraderConfig traderConfig = new UnifiedTraderConfig();
         BacktestRunner runner = new BacktestRunner("data", INITIAL_BALANCE, COMMISSION, SLIPPAGE, 0.0);
-        
+
         BacktestExecutionResult result = runner.execute(
                 "UnifiedStrategy", START_DATE, END_DATE, TICKERS, traderConfig, modelConfig);
-        
+
         PortfolioPeriodResult portfolio = result.portfolioResult;
-        
+
         return new BacktestResult(
                 config,
                 portfolio.pnl,
@@ -100,7 +102,7 @@ public class BacktestTrailingOptimizer {
 
         // Define parameter search space (reduced for faster execution)
         List<TrailingConfig> configs = new ArrayList<>();
-        
+
         // Step percentages: 0.5%, 1.0%, 1.5%
         double[] stepPercents = {0.005, 0.01, 0.015};
         // Delta percentages: 0.3%, 0.5%
@@ -125,7 +127,7 @@ public class BacktestTrailingOptimizer {
             System.out.printf("Running config %d/%d: step=%.1f%%, delta=%.1f%%, interval=%d\n",
                     i + 1, configs.size(), config.stepPercent * 100,
                     config.deltaPercent * 100, config.checkInterval);
-            
+
             try {
                 BacktestResult result = runBacktestWithConfig(config);
                 results.add(result);

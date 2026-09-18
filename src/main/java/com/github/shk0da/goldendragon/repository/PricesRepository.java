@@ -1,6 +1,7 @@
 package com.github.shk0da.goldendragon.repository;
 
 import com.github.shk0da.goldendragon.model.TickerInfo;
+
 import java.util.Map;
 
 /**

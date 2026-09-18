@@ -7,7 +7,6 @@ import com.github.shk0da.goldendragon.model.TickerInfo;
 import com.github.shk0da.goldendragon.model.TickerType;
 import com.github.shk0da.goldendragon.model.TradingDecision;
 import com.github.shk0da.goldendragon.repository.TickerRepository;
-import com.github.shk0da.goldendragon.service.TradingService;
 import com.github.shk0da.goldendragon.strategy.BaseStrategy;
 import com.github.shk0da.goldendragon.strategy.StrategyRegistry;
 import com.github.shk0da.goldendragon.utils.PropertiesUtils;
@@ -619,7 +618,7 @@ public class BacktestRunner {
         java.time.LocalDate today = java.time.LocalDate.now();
         List<PeriodDefinition> periods = new ArrayList<>();
         int currentYear = today.getYear();
-        
+
         // In-Sample periods (first 4 years - used for training/optimization)
         for (int i = 4; i >= 1; i--) {
             int year = currentYear - i;
@@ -628,14 +627,14 @@ public class BacktestRunner {
             String label = String.valueOf(year);
             periods.add(new PeriodDefinition(start, end, label + " (IS)"));
         }
-        
+
         // Out-of-Sample period (last 12 months - used for validation)
         // OOS starts 12 months ago from today
         java.time.LocalDate oosStart = today.minusYears(1);
         String oosStartStr = oosStart.toString();
         String oosEndStr = today.toString();
         periods.add(new PeriodDefinition(oosStartStr, oosEndStr, "OOS"));
-        
+
         return periods;
     }
 
@@ -722,7 +721,7 @@ public class BacktestRunner {
             }
         }
         System.out.println(portRow);
-        
+
         // Print trade details with exit reasons (SL/TP parity verification)
         System.out.println("\nTRADE DETAILS (exit reasons):");
         System.out.println("-".repeat(100));
@@ -741,7 +740,7 @@ public class BacktestRunner {
             }
         }
         System.out.println("-".repeat(100));
-        
+
         StringBuilder avgRow = new StringBuilder();
         avgRow.append(String.format("%-10s", "СРЕДНЕЕ"));
         double totalPnl = 0;
@@ -955,7 +954,7 @@ public class BacktestRunner {
                         brokerPos = broker.getPositionState(ticker);
                         brokerPos.cooldownRemaining = cooldownCandles;
                         lastEodCloseDayByTicker.put(ticker, currentDay);
-                        
+
                         // Park cash in TMON@ immediately after closing positions at EOD
                         if (config.isTmonCashParkingEnabled()) {
                             double cash = broker.getSharedCash();
@@ -1086,7 +1085,7 @@ public class BacktestRunner {
                 + " finalSharedCash=" + finalSharedCash
                 + " openPositions=" + broker.getOpenPositionCount()
                 + " tradeRecords=" + broker.getTradeHistory().size());
-        
+
         // Print trade exit reason statistics
         Map<String, Long> exitReasons = new java.util.HashMap<>();
         Map<String, Double> pnlByReason = new java.util.HashMap<>();
@@ -1106,7 +1105,7 @@ public class BacktestRunner {
                 System.out.printf("  %-20s: %5d trades (%5.1f%%), total PnL=%+8.2f, avg=%+6.2f%n",
                     reason, count, 100.0 * count / broker.getTradeHistory().size(), pnl, avgPnl);
             });
-        
+
         // Правка 7 (fix): прокидываем накопленный parking-PnL TMON@ в reconciliation.
         double tmonParkingPnl = broker.getTmonRealizedPnl();
         verifyBacktestTruth(

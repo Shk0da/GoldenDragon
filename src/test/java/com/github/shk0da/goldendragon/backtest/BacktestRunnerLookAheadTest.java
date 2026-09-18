@@ -1,19 +1,14 @@
 package com.github.shk0da.goldendragon.backtest;
 
-import com.github.shk0da.goldendragon.config.UnifiedTraderConfig;
 import com.github.shk0da.goldendragon.model.Candle;
-import com.github.shk0da.goldendragon.model.TickerInfo;
-import com.github.shk0da.goldendragon.model.TickerType;
 import com.github.shk0da.goldendragon.repository.TickerRepository;
 import org.junit.jupiter.api.Test;
 
-import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Tests that OPEN decisions are executed on the NEXT bar (not the signal bar).

@@ -1,7 +1,6 @@
 package com.github.shk0da.goldendragon.filters;
 
 import com.github.shk0da.goldendragon.model.Candle;
-
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;

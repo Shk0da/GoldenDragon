@@ -1,7 +1,5 @@
 package com.github.shk0da.goldendragon.strategy;
 
-import com.github.shk0da.goldendragon.config.TradeCouncilConfig;
-import com.github.shk0da.goldendragon.model.Candle;
 import com.github.shk0da.goldendragon.model.Config;
 import com.github.shk0da.goldendragon.model.TickerInfo;
 import com.github.shk0da.goldendragon.model.TickerType;
@@ -11,7 +9,10 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -131,7 +132,7 @@ class TradeCouncilAsyncDebateTest {
 
         // Then: CompletableFuture.allOf should complete exceptionally
         CompletableFuture<Void> allOf = CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]));
-        
+
         // Wait and check for exceptions
         try {
             allOf.join();

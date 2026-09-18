@@ -20,20 +20,18 @@ import com.google.gson.JsonParser;
 import java.io.IOException;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
-import java.net.http.HttpRequest.BodyPublishers;
 import java.net.http.HttpResponse;
-import java.net.http.HttpResponse.BodyHandlers;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.Executor;
-import java.util.concurrent.Executors;
-import java.util.concurrent.TimeUnit;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executor;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
 
@@ -122,9 +120,6 @@ public class TradeCouncilStrategy extends BaseStrategy {
         log("TradeCouncilStrategy initialized with unifiedTrader tickers");
         log("Config: " + tcConfig);
         log("Proximity threshold: " + tcConfig.getProximityPercent() + "%");
-        
-        // Build key levels at startup
-        buildKeyLevels();
     }
 
     @Override
@@ -510,15 +505,15 @@ public class TradeCouncilStrategy extends BaseStrategy {
         for (int round = 0; round < tcConfig.getDebateRounds(); round++) {
             final int currentRound = round; // final variable for lambda
             log(ticker + " | Round " + (round + 1) + "/" + tcConfig.getDebateRounds());
-            
+
             // Launch all agents in parallel within this round
             List<CompletableFuture<Void>> agentFutures = new ArrayList<>();
             Map<String, String> roundResults = new HashMap<>();
-            
+
             for (Map.Entry<String, String> agent : agents.entrySet()) {
                 String agentName = agent.getKey();
                 String agentPrompt = agent.getValue();
-                
+
                 CompletableFuture<Void> future = CompletableFuture.runAsync(() -> {
                     try {
                         StringBuilder prompt = new StringBuilder();
@@ -528,7 +523,7 @@ public class TradeCouncilStrategy extends BaseStrategy {
                             history.forEach((n, a) -> prompt.append("[").append(n).append("]: ").append(a).append("\n"));
                             prompt.append("Take previous opinions into account.\n");
                         }
-                        
+
                         String answer = callLLM(tcConfig.getDebaterModel(), agentPrompt, prompt.toString(), 0.7);
                         roundResults.put(agentName, answer);
                         log(ticker + " | R" + (currentRound + 1) + " " + agentName + ": done");
@@ -537,10 +532,10 @@ public class TradeCouncilStrategy extends BaseStrategy {
                         throw new RuntimeException(e);
                     }
                 }, debaterExecutor);
-                
+
                 agentFutures.add(future);
             }
-            
+
             // Wait for all agents in this round to complete (60s timeout per round)
             try {
                 CompletableFuture.allOf(agentFutures.toArray(new CompletableFuture[0]))
@@ -551,7 +546,7 @@ public class TradeCouncilStrategy extends BaseStrategy {
                 analyzingTickers.remove(ticker);
                 return new TradingDecision("HOLD", "DEBATE_TIMEOUT");
             }
-            
+
             // Copy results to history in original agent order
             for (String agentName : agents.keySet()) {
                 history.put(agentName, roundResults.get(agentName));

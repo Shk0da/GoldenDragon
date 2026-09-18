@@ -1,10 +1,11 @@
 package com.github.shk0da.goldendragon.repository;
 
-import static com.github.shk0da.goldendragon.utils.SerializationUtils.loadDataFromDisk;
-
 import com.github.shk0da.goldendragon.model.TickerInfo;
 import com.google.gson.reflect.TypeToken;
+
 import java.util.Map;
+
+import static com.github.shk0da.goldendragon.utils.SerializationUtils.loadDataFromDisk;
 
 /**
  * Repository for storing ticker information. Singleton instance that loads data from disk on

@@ -15,8 +15,8 @@ import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Map;
 
-import static org.assertj.core.api.BDDAssertions.then;
 import static org.assertj.core.api.Assertions.within;
+import static org.assertj.core.api.BDDAssertions.then;
 
 @DisplayName("SimulatedBroker order creation with lot size")
 class SimulatedBrokerLotSizeTest {

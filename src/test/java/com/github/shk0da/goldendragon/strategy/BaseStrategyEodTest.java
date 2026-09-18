@@ -9,7 +9,6 @@ import com.github.shk0da.goldendragon.model.TickerInfo;
 import com.github.shk0da.goldendragon.model.TickerType;
 import com.github.shk0da.goldendragon.money.CashParkingManager;
 import com.github.shk0da.goldendragon.service.TradingService;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -20,10 +19,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
-import static org.assertj.core.api.BDDAssertions.then;
 import static org.assertj.core.api.Assertions.within;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.*;
+import static org.assertj.core.api.BDDAssertions.then;
+import static org.mockito.Mockito.when;
 
 @DisplayName("BaseStrategy End-of-Day (EOD) logic")
 class BaseStrategyEodTest {
@@ -50,12 +48,12 @@ class BaseStrategyEodTest {
                         new com.github.shk0da.goldendragon.model.TickerInfo("FIGI_VTBR", VTBR, "ISIN_VTBR", 0.01, 1, "RUB", VTBR, "STOCK"),
                         new com.github.shk0da.goldendragon.model.TickerInfo.Key(TMON, TickerType.ETF),
                         new com.github.shk0da.goldendragon.model.TickerInfo("FIGI_TMON", TMON, "ISIN_TMON", 0.01, 1, "RUB", TMON, "ETF")));
-        
+
         config = new UnifiedTraderConfig();
         tradingService = new FakeTradingService();
         tradingService.cash = 100_000.0;
         tradingService.askPrice = ASK_PRICE;
-        
+
         cashParkingManager = Mockito.mock(CashParkingManager.class);
         when(cashParkingManager.isParkingEnabled()).thenReturn(true);
         when(cashParkingManager.getParkingTicker()).thenReturn(TMON);
@@ -63,7 +61,7 @@ class BaseStrategyEodTest {
         when(cashParkingManager.isParkingTicker(TMON)).thenReturn(true);
         when(cashParkingManager.isParkingTicker(NLMK)).thenReturn(false);
         when(cashParkingManager.isParkingTicker(VTBR)).thenReturn(false);
-        
+
         strategy = new TestEodStrategy(config, tradingService, new Config(), cashParkingManager);
     }
 

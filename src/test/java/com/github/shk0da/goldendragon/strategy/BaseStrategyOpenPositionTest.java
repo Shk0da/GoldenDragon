@@ -20,8 +20,8 @@ import org.junit.jupiter.api.Test;
 import java.util.List;
 import java.util.Map;
 
-import static org.assertj.core.api.BDDAssertions.then;
 import static org.assertj.core.api.Assertions.within;
+import static org.assertj.core.api.BDDAssertions.then;
 
 @DisplayName("BaseStrategy.openPosition with lot size, SL and TP")
 class BaseStrategyOpenPositionTest {

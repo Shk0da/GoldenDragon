@@ -1,6 +1,7 @@
 package com.github.shk0da.goldendragon.model;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
+
 import java.time.Instant;
 import java.util.Objects;
 

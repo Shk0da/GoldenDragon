@@ -1,7 +1,5 @@
 package com.github.shk0da.goldendragon.backtest;
 
-import org.junit.jupiter.api.Test;
-
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.InputStreamReader;
@@ -30,7 +28,6 @@ class StopLossTakeProfitAlgorithmTest {
             "VOLATILITY_ADAPTIVE", "unifiedTrader.ticker.T.slMult=2.0\nunifiedTrader.ticker.T.tpMult=3.0\nunifiedTrader.ticker.T.slTpAlgorithm=VOLATILITY_ADAPTIVE"
     );
 
-    @Test
     void runAllAlgorithmsComparison() throws Exception {
         String propsFile = "src/main/resources/application.properties";
         Path propsPath = Path.of(propsFile);

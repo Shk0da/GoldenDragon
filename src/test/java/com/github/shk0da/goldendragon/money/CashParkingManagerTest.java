@@ -15,8 +15,8 @@ import org.junit.jupiter.api.Test;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
-import static org.assertj.core.api.BDDAssertions.then;
 import static org.assertj.core.api.Assertions.within;
+import static org.assertj.core.api.BDDAssertions.then;
 
 @DisplayName("CashParkingManager")
 class CashParkingManagerTest {
@@ -45,7 +45,7 @@ class CashParkingManagerTest {
         @Test
         @DisplayName("Should sell exact lots to cover requested cash amount")
         void shouldSellExactLots() {
-            
+
             tradingService.parkingInfo = new PositionInfo(
                     "FIGI", TMON, "ISIN", "ETF", 100, 0.0, 100, TMON_PRICE, TMON);
 
@@ -58,7 +58,7 @@ class CashParkingManagerTest {
         @Test
         @DisplayName("Should cap to available parking when requested exceeds available")
         void shouldCapToAvailable() {
-            
+
             tradingService.parkingInfo = new PositionInfo(
                     "FIGI", TMON, "ISIN", "ETF", 100, 0.0, 100, TMON_PRICE, TMON);
 
@@ -75,7 +75,7 @@ class CashParkingManagerTest {
         @Test
         @DisplayName("Should not call sell when parking balance is zero")
         void shouldNotSell() {
-            
+
             tradingService.parkingInfo = null;
 
             manager.sellParkingToFreeCash(5000, "NLMK");
@@ -91,14 +91,14 @@ class CashParkingManagerTest {
         @Test
         @DisplayName("Should return parking position when exists")
         void shouldReturnParkingPosition() {
-            
+
             tradingService.parkingInfo = new PositionInfo(
                     "FIGI", TMON, "ISIN", "ETF", 100, 0.0, 100, TMON_PRICE, TMON);
 
-            
+
             PositionInfo result = manager.getParkingPosition();
 
-            
+
             then(result).isNotNull();
             then(result.getTicker()).isEqualTo(TMON);
             then(result.getBalance()).isEqualTo(100);
@@ -107,7 +107,7 @@ class CashParkingManagerTest {
         @Test
         @DisplayName("Should return null when parking disabled")
         void shouldReturnNull_WhenParkingDisabled() {
-            
+
             CashParkingManager disabledManager = new CashParkingManager(tradingService, null, new ConcurrentHashMap<>()) {
                 @Override
                 public boolean isParkingEnabled() {
@@ -115,23 +115,23 @@ class CashParkingManagerTest {
                 }
             };
 
-            
+
             PositionInfo result = disabledManager.getParkingPosition();
 
-            
+
             then(result).isNull();
         }
 
         @Test
         @DisplayName("Should return null when exception occurs")
         void shouldReturnNull_WhenException() {
-            
+
             tradingService.throwException = true;
 
-            
+
             PositionInfo result = manager.getParkingPosition();
 
-            
+
             then(result).isNull();
         }
     }
@@ -143,41 +143,41 @@ class CashParkingManagerTest {
         @Test
         @DisplayName("Should calculate parking value correctly")
         void shouldCalculateParkingValue() {
-            
+
             tradingService.parkingInfo = new PositionInfo(
                     "FIGI", TMON, "ISIN", "ETF", 100, 0.0, 100, TMON_PRICE, TMON);
 
-            
+
             double result = manager.getParkingValue();
 
-            
+
             then(result).isEqualTo(10000.0);
         }
 
         @Test
         @DisplayName("Should return 0 when no parking position")
         void shouldReturnZero_WhenNoParking() {
-            
+
             tradingService.parkingInfo = null;
 
-            
+
             double result = manager.getParkingValue();
 
-            
+
             then(result).isZero();
         }
 
         @Test
         @DisplayName("Should return 0 when price is null")
         void shouldReturnZero_WhenPriceNull() {
-            
+
             tradingService.parkingInfo = new PositionInfo(
                     "FIGI", TMON, "ISIN", "ETF", 100, 0.0, 100, null, TMON);
 
-            
+
             double result = manager.getParkingValue();
 
-            
+
             then(result).isZero();
         }
     }
@@ -189,43 +189,43 @@ class CashParkingManagerTest {
         @Test
         @DisplayName("Should close long position")
         void shouldCloseLong() {
-            
+
             tradingService.parkingInfo = new PositionInfo(
                     "FIGI", TMON, "ISIN", "ETF", 100, 0.0, 100, TMON_PRICE, TMON);
 
-            
+
             manager.closeParkingPosition();
 
-            
+
             then(tradingService.closedLong).isTrue();
         }
 
         @Test
         @DisplayName("Should close parking position when enabled")
         void shouldCloseParkingPosition() {
-            
+
             tradingService.parkingInfo = new PositionInfo(
                     "FIGI", TMON, "ISIN", "ETF", 100, 0.0, 100, TMON_PRICE, TMON);
 
-            
+
             manager.closeParkingPosition();
 
-            
+
             then(tradingService.closedLong).isTrue();
         }
 
         @Test
         @DisplayName("Should handle exception gracefully")
         void shouldHandleException() {
-            
+
             tradingService.throwExceptionOnClose = true;
             tradingService.parkingInfo = new PositionInfo(
                     "FIGI", TMON, "ISIN", "ETF", 100, 0.0, 100, TMON_PRICE, TMON);
 
-            
+
             manager.closeParkingPosition();
 
-            
+
             then(tradingService.closedLong).isFalse();
         }
     }
@@ -237,28 +237,28 @@ class CashParkingManagerTest {
         @Test
         @DisplayName("Should store parking position")
         void shouldStoreParkingPosition() {
-            
+
             then(manager.hasStoredParkingPosition()).isFalse();
 
-            
+
             Position position = new Position("LONG", TMON_PRICE, 49.0, 51.0, 100, 0);
             manager.storeParkingPosition(position);
 
-            
+
             then(manager.hasStoredParkingPosition()).isTrue();
         }
 
         @Test
         @DisplayName("Should remove stored parking position")
         void shouldRemoveStoredParkingPosition() {
-            
+
             Position position = new Position("LONG", TMON_PRICE, 49.0, 51.0, 100, 0);
             manager.storeParkingPosition(position);
 
-            
+
             manager.removeStoredParkingPosition();
 
-            
+
             then(manager.hasStoredParkingPosition()).isFalse();
         }
     }

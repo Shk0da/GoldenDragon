@@ -1,6 +1,7 @@
 package com.github.shk0da.goldendragon.model;
 
 import com.google.gson.JsonObject;
+
 import java.util.LinkedHashMap;
 import java.util.function.BiConsumer;
 import java.util.function.Supplier;
