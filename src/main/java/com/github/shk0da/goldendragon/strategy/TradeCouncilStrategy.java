@@ -495,11 +495,10 @@ public class TradeCouncilStrategy extends BaseStrategy {
         double currentPrice,
         Map<String, Double> levels) throws Exception {
 
-        // Acquire semaphore permit (will wait if max concurrent debates reached)
+        // Skip debate if all concurrent debate slots are busy - retry on next cycle
         if (!debateSemaphore.tryAcquire()) {
-            log(ticker + " | Max concurrent debates (" + tcConfig.getMaxConcurrentDebates() + ") reached, waiting...");
-            debateSemaphore.acquire();
-            log(ticker + " | Debate permit acquired, starting...");
+            analyzingTickers.remove(ticker);
+            return new TradingDecision("HOLD", "DEBATE_BUSY");
         }
 
         try {
