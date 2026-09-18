@@ -266,12 +266,25 @@ protected static final LocalTime WORK_START_TIME = LocalTime.of(10, 0);
      * Called by BacktestRunner before starting simulation.
      * @deprecated Use setBacktestTradingService instead for full TradingService parity
      */
+    /**
+     * Set backtest broker for all strategies (deprecated — use setBacktestTradingService).
+     * @deprecated Use setBacktestTradingService instead for full TradingService parity
+     */
     @Deprecated
     public static void setBacktestBroker(OrderExecutor broker) {
         if (broker == null) {
             throw new IllegalArgumentException("Backtest broker cannot be null");
         }
         BaseStrategy.backtestBroker = broker;
+    }
+
+    /**
+     * Clear backtest broker reference.
+     * Called by BacktestRunner after simulation completes.
+     */
+    @Deprecated
+    public static void clearBacktestBroker() {
+        BaseStrategy.backtestBroker = null;
     }
 
     /**

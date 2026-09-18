@@ -80,13 +80,13 @@ public class LevelStrategy implements StopLossTakeProfitStrategy {
         }
 
         double maxSl = dAtr * MAX_ATR_MULT;
-        double maxTp = dAtr * MAX_ATR_MULT;
-        
+        double maxTp = Math.min(dAtr * MAX_ATR_MULT, entry * MAX_TP_PERCENT);
+
         if (slDist > maxSl || tpDist > maxTp) {
             double ratio = tpDist / slDist;
             slDist = Math.min(slDist, maxSl);
             tpDist = slDist * ratio;
-            
+
             if (tpDist > maxTp) {
                 tpDist = maxTp;
                 slDist = tpDist / ratio;

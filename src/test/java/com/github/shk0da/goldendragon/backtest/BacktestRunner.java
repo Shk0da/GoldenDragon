@@ -1151,7 +1151,7 @@ public class BacktestRunner {
      * This ensures live mode runs without backtest broker interference.
      */
     public static void clearBacktestBroker() {
-        BaseStrategy.setBacktestBroker(null);
+        BaseStrategy.clearBacktestBroker();
     }
 
     /**
