@@ -7,6 +7,7 @@
 - Do not expand the task scope. Avoid unnecessary refactoring or architecture changes unless explicitly requested.
 - Do not add new libraries or approaches unless necessary.
 - Do not leave TODO, commented code, temporary stubs, or unused code.
+- NEVER run `git checkout`, `git restore`, `git reset` or any other git command that reverts/discards changes to code you did not author. User's code (production and existing tests) is untouchable except by explicit request. If a destructive operation is needed, ask the user first.
 
 ## Agent Roles
 
@@ -119,6 +120,13 @@ fix it before finishing. A Risk Engineer failure is a blocker regardless of othe
 - Always run `./gradlew check` after making code changes to ensure tests pass
 - Run `./gradlew clean compileJava` to verify compilation before committing
 - Fix any compilation errors or test failures before considering work complete
+
+## Dead Code Verification
+- Run `DeadCodeArchTest` (in `src/test/java/com/github/shk0da/goldendragon/archunit/`) and bring it to a green state.
+- Delete production code that is detected as dead (unused classes, methods, constructors, or fields) instead of suppressing the findings.
+- Delete tests that only cover dead code that has been removed; do not keep tests for code that no longer exists.
+- Remove getters that are not used anywhere in production code (write-only DTOs and fields that are never read).
+- `DeadCodeArchTest` passing is a precondition before committing, alongside `./gradlew check`.
 
 ## Code Guidelines
 - Use precise and meaningful names.

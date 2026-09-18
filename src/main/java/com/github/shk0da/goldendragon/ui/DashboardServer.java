@@ -568,11 +568,12 @@ public class DashboardServer {
         sb.append("                        <th>Type</th>\n");
         sb.append("                        <th>Quantity</th>\n");
         sb.append("                        <th>Price</th>\n");
+        sb.append("                        <th>Commission</th>\n");
         sb.append("                        <th>PnL</th>\n");
         sb.append("                    </tr>\n");
         sb.append("                </thead>\n");
         sb.append("                <tbody id=\"trades-body\">\n");
-        sb.append("                    <tr><td colspan=\"7\" class=\"loading\">Loading...</td></tr>\n");
+        sb.append("                    <tr><td colspan=\"8\" class=\"loading\">Loading...</td></tr>\n");
         sb.append("                </tbody>\n");
         sb.append("            </table>\n");
         sb.append("        </div>\n");
@@ -639,7 +640,7 @@ public class DashboardServer {
         sb.append("                const trades = await tradesRes.json();\n");
         sb.append("                const tradesBody = document.getElementById('trades-body');\n");
         sb.append("                if (trades.length === 0) {\n");
-        sb.append("                    tradesBody.innerHTML = '<tr><td colspan=\"7\" class=\"loading\">No trade history</td></tr>';\n");
+        sb.append("                    tradesBody.innerHTML = '<tr><td colspan=\"8\" class=\"loading\">No trade history</td></tr>';\n");
         sb.append("                } else {\n");
         sb.append("                    tradesBody.innerHTML = trades.map(trade => \n");
         sb.append("                        '<tr>' +\n");
@@ -649,6 +650,7 @@ public class DashboardServer {
         sb.append("                            '<td>' + trade.type + '</td>' +\n");
         sb.append("                            '<td>' + trade.quantity + '</td>' +\n");
         sb.append("                            '<td>' + formatMoney(trade.price) + '</td>' +\n");
+        sb.append("                            '<td>' + formatMoney(trade.commission) + '</td>' +\n");
         sb.append("                            '<td class=\"' + (trade.pnl >= 0 ? 'positive' : 'negative') + '\">' +\n");
         sb.append("                                formatMoney(trade.pnl) +\n");
         sb.append("                            '</td>' +\n");

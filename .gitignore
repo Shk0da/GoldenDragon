@@ -105,3 +105,4 @@ tickers.json
 /output/
 backtest-report.txt
 /.omo/
+/.nessy/
