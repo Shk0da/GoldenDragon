@@ -29,6 +29,7 @@ public class TradeCouncilConfig {
     // Trading Parameters
     private final double proximityPercent;
     private final int debateRounds;
+    private final int maxConcurrentDebates;
 
     public TradeCouncilConfig() throws IOException {
         this.properties = PropertiesUtils.loadProperties();
@@ -63,17 +64,20 @@ public class TradeCouncilConfig {
         );
         this.arbiterPrompt = properties.getProperty(
             "tradecouncil.prompt.arbiter",
-            "You are the arbitrator of a trading council. Weigh all opinions and decide: CONSENSUS or CONTINUE. Output the final decision as JSON: {\"decision\":\"LONG|SHORT|NO_TRADE\", \"entry\":number, \"stop\":number, \"take_profits\":[number], \"risk_reward\":number, \"position_size\":\"FullCapital|HalfCapital|SmallPosition\", \"confidence\":number (0-100), \"ttlMinutes\":number (10-60), \"reasoning\":\"text\"}. HARD CONSTRAINTS: LONG requires stop < entry < take_profit; SHORT requires take_profit < entry < stop; risk_reward >= 2. EXECUTION: the engine enters AT MARKET when price touches 'entry' (+/-0.1%); entry below current price waits for a fall, entry above waits for a rise, entry equal to current price means immediate entry; conditions stated only in text are ignored. Set ttlMinutes so the entry is realistically reachable: 10-20 for near-market entries, 30-60 for distant triggers. reasoning: at most 3 sentences, describing only what is encoded in the numbers."
+            "You are the arbitrator of a trading council. Weigh all opinions and decide: CONSENSUS or CONTINUE. Output the final decision as JSON: {\"decision\":\"LONG|SHORT|NO_TRADE\", \"entry\":number, \"stop\":number, \"take_profits\":[number], \"risk_reward\":number, \"position_size\":\"FullCapital|HalfCapital|SmallPosition\", \"confidence\":number (0-100), \"ttlMinutes\":number (10-60), \"reasoning\":\"text\"}. HARD CONSTRAINTS: LONG requires stop < entry < take_profit; SHORT requires take_profit < entry < stop; risk_reward >= 2. EXECUTION: the engine enters AT MARKET when price touches 'entry' (+/-0.1%); entry below current price waits for a fall, entry above waits for a rise, entry equal to current price means immediate entry; discard any text-only conditions. Set ttlMinutes so the entry is realistically reachable: 10-20 for near-market entries, 30-60 for distant triggers. reasoning: at most 3 sentences, describing only what is encoded in the numbers."
         );
         this.consensusPrompt = properties.getProperty(
             "tradecouncil.prompt.consensus",
-            "You are the consensus judge. Compare all {N} debater outputs. Output CONSENSUS with a merged decision only if >=80% agree on direction (LONG/SHORT) AND their entry/stop ranges are similar; otherwise output CONTINUE. Merged numbers must satisfy HARD CONSTRAINTS: LONG: stop < entry < take_profit; SHORT: take_profit < entry < stop; risk_reward = |take_profit - entry| / |entry - stop| >= 2. 'entry' is a single executable trigger price: the engine enters AT MARKET on touch (+/-0.1%); entry below current price = wait for fall, entry above = wait for rise, entry equal to current price = immediate; discard any text-only conditions. JSON: {\"status\":\"CONSENSUS|CONTINUE\", \"decision\":\"LONG|SHORT|NO_TRADE\", \"entry\":number, \"stop\":number, \"take_profits\":[number], \"risk_reward\":number, \"position_size\":\"FullCapital|HalfCapital|SmallPosition\", \"confidence\":number (0-100), \"reasoning\":\"text\"}"
+            "You are the consensus judge. Compare all {N} debater outputs. Output CONSENSUS with a merged decision only if >=80% agree on direction (LONG/SHORT) AND their entry/stop ranges are similar; otherwise output CONTINUE. Merged numbers must satisfy HARD CONSTRAINTS: LONG: stop < entry < take_profit; SHORT: take_profit < entry < stop; risk_reward = |take_profit - entry| / |entry - stop| >= 2. 'entry' is a single executable trigger price: the engine enters AT MARKET on touch (+/-0.1%); entry below current price waits for a fall, entry above waits for a rise, entry equal to current price means immediate; discard any text-only conditions. JSON: {\"status\":\"CONSENSUS|CONTINUE\", \"decision\":\"LONG|SHORT|NO_TRADE\", \"entry\":number, \"stop\":number, \"take_profits\":[number], \"risk_reward\":number, \"position_size\":\"FullCapital|HalfCapital|SmallPosition\", \"confidence\":number (0-100), \"reasoning\":\"text\"}"
         );
         this.proximityPercent = Double.parseDouble(
             properties.getProperty("tradecouncil.proximity.percent", "2.0")
         );
         this.debateRounds = Integer.parseInt(
             properties.getProperty("tradecouncil.debate.rounds", "3")
+        );
+        this.maxConcurrentDebates = Integer.parseInt(
+            properties.getProperty("tradecouncil.maxConcurrentDebates", "3")
         );
     }
 
@@ -119,6 +123,10 @@ public class TradeCouncilConfig {
 
     public int getDebateRounds() {
         return debateRounds;
+    }
+
+    public int getMaxConcurrentDebates() {
+        return maxConcurrentDebates;
     }
 
     @Override

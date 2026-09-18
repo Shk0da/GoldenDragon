@@ -31,6 +31,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
@@ -86,6 +87,9 @@ public class TradeCouncilStrategy extends BaseStrategy {
     private final AtomicLong availableTokens = new AtomicLong(MAX_TOKENS_PER_MIN);
     private final AtomicLong lastRefillTime = new AtomicLong(System.currentTimeMillis());
 
+    // Semaphore to limit concurrent debates
+    private final Semaphore debateSemaphore;
+
     // Executor for parallel agent execution (3 agents per ticker)
     private final Executor debaterExecutor = Executors.newFixedThreadPool(6);
 
@@ -116,6 +120,9 @@ public class TradeCouncilStrategy extends BaseStrategy {
         } catch (IOException e) {
             throw new RuntimeException("Failed to load TradeCouncilConfig", e);
         }
+
+        // Initialize semaphore with configured max concurrent debates
+        this.debateSemaphore = new Semaphore(tcConfig.getMaxConcurrentDebates());
 
         log("TradeCouncilStrategy initialized with unifiedTrader tickers");
         log("Config: " + tcConfig);
@@ -488,92 +495,100 @@ public class TradeCouncilStrategy extends BaseStrategy {
         double currentPrice,
         Map<String, Double> levels) throws Exception {
 
-        TickerInfo info = findTickerInfo(ticker);
-        String tickerName = info != null ? info.getName() : ticker;
+        // Acquire semaphore permit (will wait if max concurrent debates reached)
+        if (!debateSemaphore.tryAcquire()) {
+            log(ticker + " | Max concurrent debates (" + tcConfig.getMaxConcurrentDebates() + ") reached, waiting...");
+            debateSemaphore.acquire();
+            log(ticker + " | Debate permit acquired, starting...");
+        }
 
-        // Prepare market data context
-        String marketData = formatMarketData(ticker, tickerName, currentPrice, hourCandles, minuteCandles, levels);
+        try {
+            TickerInfo info = findTickerInfo(ticker);
+            String tickerName = info != null ? info.getName() : ticker;
 
-        // Run debate rounds
-        log("Starting debate for " + ticker + " with " + tcConfig.getDebateRounds() + " rounds...");
-        Map<String, String> history = new LinkedHashMap<>();
-        Map<String, String> agents = new LinkedHashMap<>();
-        agents.put("Analyst", tcConfig.getAnalystPrompt());
-        agents.put("Trader", tcConfig.getTraderPrompt());
-        agents.put("Risk Manager", tcConfig.getRiskManagerPrompt());
+            // Prepare market data context
+            String marketData = formatMarketData(ticker, tickerName, currentPrice, hourCandles, minuteCandles, levels);
 
-        for (int round = 0; round < tcConfig.getDebateRounds(); round++) {
-            final int currentRound = round; // final variable for lambda
-            log(ticker + " | Round " + (round + 1) + "/" + tcConfig.getDebateRounds());
+            // Run debate rounds
+            log("Starting debate for " + ticker + " with " + tcConfig.getDebateRounds() + " rounds...");
+            Map<String, String> history = new LinkedHashMap<>();
+            Map<String, String> agents = new LinkedHashMap<>();
+            agents.put("Analyst", tcConfig.getAnalystPrompt());
+            agents.put("Trader", tcConfig.getTraderPrompt());
+            agents.put("Risk Manager", tcConfig.getRiskManagerPrompt());
 
-            // Launch all agents in parallel within this round
-            List<CompletableFuture<Void>> agentFutures = new ArrayList<>();
-            Map<String, String> roundResults = new HashMap<>();
+            for (int round = 0; round < tcConfig.getDebateRounds(); round++) {
+                final int currentRound = round; // final variable for lambda
+                log(ticker + " | Round " + (round + 1) + "/" + tcConfig.getDebateRounds());
 
-            for (Map.Entry<String, String> agent : agents.entrySet()) {
-                String agentName = agent.getKey();
-                String agentPrompt = agent.getValue();
+                // Launch all agents in parallel within this round
+                List<CompletableFuture<Void>> agentFutures = new ArrayList<>();
+                Map<String, String> roundResults = new HashMap<>();
 
-                CompletableFuture<Void> future = CompletableFuture.runAsync(() -> {
-                    try {
-                        StringBuilder prompt = new StringBuilder();
-                        prompt.append("Market data:\n").append(marketData).append("\n");
-                        if (!history.isEmpty()) {
-                            prompt.append("Previous opinions:\n");
-                            history.forEach((n, a) -> prompt.append("[").append(n).append("]: ").append(a).append("\n"));
-                            prompt.append("Take previous opinions into account.\n");
+                for (Map.Entry<String, String> agent : agents.entrySet()) {
+                    String agentName = agent.getKey();
+                    String agentPrompt = agent.getValue();
+
+                    CompletableFuture<Void> future = CompletableFuture.runAsync(() -> {
+                        try {
+                            StringBuilder prompt = new StringBuilder();
+                            prompt.append("Market data:\n").append(marketData).append("\n");
+                            if (!history.isEmpty()) {
+                                prompt.append("Previous opinions:\n");
+                                history.forEach((n, a) -> prompt.append("[").append(n).append("]: ").append(a).append("\n"));
+                                prompt.append("Take previous opinions into account.\n");
+                            }
+
+                            String answer = callLLM(tcConfig.getDebaterModel(), agentPrompt, prompt.toString(), 0.7);
+                            roundResults.put(agentName, answer);
+                            log(ticker + " | R" + (currentRound + 1) + " " + agentName + ": done");
+                        } catch (Exception e) {
+                            log(ticker + " | R" + (currentRound + 1) + " " + agentName + " failed: " + e.getMessage());
+                            throw new RuntimeException(e);
                         }
+                    }, debaterExecutor);
 
-                        String answer = callLLM(tcConfig.getDebaterModel(), agentPrompt, prompt.toString(), 0.7);
-                        roundResults.put(agentName, answer);
-                        log(ticker + " | R" + (currentRound + 1) + " " + agentName + ": done");
-                    } catch (Exception e) {
-                        log(ticker + " | R" + (currentRound + 1) + " " + agentName + " failed: " + e.getMessage());
-                        throw new RuntimeException(e);
-                    }
-                }, debaterExecutor);
+                    agentFutures.add(future);
+                }
 
-                agentFutures.add(future);
-            }
+                // Wait for all agents in this round to complete (10 min timeout per round)
+                try {
+                    CompletableFuture.allOf(agentFutures.toArray(new CompletableFuture[0]))
+                        .orTimeout(10, TimeUnit.MINUTES)
+                        .join();
+                } catch (Exception e) {
+                    log(ticker + " | Round " + (round + 1) + " timeout/error: " + e.getMessage());
+                    analyzingTickers.remove(ticker);
+                    return new TradingDecision("HOLD", "DEBATE_TIMEOUT");
+                }
 
-            // Wait for all agents in this round to complete (10 min timeout per round)
-            try {
-                CompletableFuture.allOf(agentFutures.toArray(new CompletableFuture[0]))
-                    .orTimeout(10, TimeUnit.MINUTES)
-                    .join();
-            } catch (Exception e) {
-                log(ticker + " | Round " + (round + 1) + " timeout/error: " + e.getMessage());
-                analyzingTickers.remove(ticker);
-                return new TradingDecision("HOLD", "DEBATE_TIMEOUT");
-            }
+                // Copy results to history in original agent order
+                for (String agentName : agents.keySet()) {
+                    history.put(agentName, roundResults.get(agentName));
+                }
 
-            // Copy results to history in original agent order
-            for (String agentName : agents.keySet()) {
-                history.put(agentName, roundResults.get(agentName));
-            }
+                if (round >= 1) {
+                    StringBuilder allOpinions = new StringBuilder();
+                    allOpinions.append("Market data:\n").append(marketData).append("\n\n");
+                    allOpinions.append("Debate history:\n");
+                    history.forEach((n, a) -> allOpinions.append("[").append(n).append("]:\n").append(a).append("\n\n"));
 
-            if (round >= 1) {
-                StringBuilder allOpinions = new StringBuilder();
-                allOpinions.append("Market data:\n").append(marketData).append("\n\n");
-                allOpinions.append("Debate history:\n");
-                history.forEach((n, a) -> allOpinions.append("[").append(n).append("]:\n").append(a).append("\n\n"));
+                    String roundNum = "Round " + (round + 1);
+                    String consensusCheck = callLLM(
+                        tcConfig.getDebaterModel(),
+                        tcConfig.getConsensusPrompt().replace("{N}", String.valueOf(agents.size())) + "\n\nEvaluate consensus from: " + roundNum,
+                        allOpinions.toString(),
+                        0.0
+                    );
 
-                String roundNum = "Round " + (round + 1);
-                String consensusCheck = callLLM(
-                    tcConfig.getDebaterModel(),
-                    tcConfig.getConsensusPrompt().replace("{N}", String.valueOf(agents.size())) + "\n\nEvaluate consensus from: " + roundNum,
-                    allOpinions.toString(),
-                    0.0
-                );
+                    if ("NO_RESPONSE".equals(consensusCheck)) {
+                        log("Consensus check (" + roundNum + "): no response");
+                    } else if (consensusCheck.contains("CONSENSUS")) {
+                        log("Consensus check (" + roundNum + "): CONSENSUS reached!");
 
-                if ("NO_RESPONSE".equals(consensusCheck)) {
-                    log("Consensus check (" + roundNum + "): no response");
-                } else if (consensusCheck.contains("CONSENSUS")) {
-                    log("Consensus check (" + roundNum + "): CONSENSUS reached!");
-
-                    if (consensusCheck.contains("decision")) {
-                        return parseDecision(consensusCheck, ticker, currentPrice);
-                    }
+                        if (consensusCheck.contains("decision")) {
+                            return parseDecision(consensusCheck, ticker, currentPrice);
+                        }
 
                     String lastOpinion = new ArrayList<>(history.values()).get(history.size() - 1);
                     return parseDecision(lastOpinion, ticker, currentPrice);
@@ -595,6 +610,11 @@ public class TradeCouncilStrategy extends BaseStrategy {
 
         // Parse decision
         return parseDecision(result, ticker, currentPrice);
+        } finally {
+            // Release semaphore permit
+            debateSemaphore.release();
+            log(ticker + " | Debate completed, permit released");
+        }
     }
 
     private String formatMarketData(
