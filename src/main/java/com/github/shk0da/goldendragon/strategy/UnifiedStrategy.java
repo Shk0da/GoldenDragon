@@ -199,7 +199,7 @@ public class UnifiedStrategy extends BaseStrategy {
     private int normalBars = 0;
 
     public UnifiedStrategy(UnifiedTraderConfig unifiedTraderConfig, TradingService tradingService) {
-        this(unifiedTraderConfig, tradingService, new Config(unifiedTraderConfig.getShortsEnabled()));
+        this(unifiedTraderConfig, tradingService, new Config(unifiedTraderConfig));
     }
 
     public UnifiedStrategy(
@@ -215,9 +215,9 @@ public class UnifiedStrategy extends BaseStrategy {
             Config config,
             com.github.shk0da.goldendragon.config.MainConfig mainConfig) {
         super(unifiedTraderConfig, tradingService,
-                config != null ? config : new Config(unifiedTraderConfig.getShortsEnabled()), null, mainConfig);
+                config != null ? config : new Config(unifiedTraderConfig), null, mainConfig);
 
-        Config effectiveConfig = config != null ? config : new Config(unifiedTraderConfig.getShortsEnabled());
+        Config effectiveConfig = config != null ? config : new Config(unifiedTraderConfig);
         effectiveConfig.shortsEnabled = unifiedTraderConfig.getShortsEnabled();
         this.mmEnabled = effectiveConfig.mmEnabled;
 

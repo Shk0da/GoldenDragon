@@ -1,5 +1,7 @@
 package com.github.shk0da.goldendragon.model;
 
+import com.github.shk0da.goldendragon.config.UnifiedTraderConfig;
+
 public class Config {
 
     public final int emaTrend;
@@ -123,6 +125,71 @@ public class Config {
         this.mmCriticalDrawdownPercent = 0.15;
         this.mmMaxPositionSize = 0.15;
         this.shortsEnabled = shortsEnabled;
+
+        // Trailing Stop defaults
+        this.mmTrailingEnabled = true;
+        this.mmTrailingStepPercent = 0.005;
+        this.mmTrailingDeltaPercent = 0.003;
+        this.mmTrailingCheckInterval = 1;
+        this.mmTrailingVolumePercent = 0.5;
+    }
+
+    /**
+     * Create Config from UnifiedTraderConfig for live/production use.
+     * Reads all settings from configuration properties.
+     * @param cfg unified trader configuration
+     */
+    public Config(UnifiedTraderConfig cfg) {
+        this.emaTrend = 24;
+        this.emaFast = 3;
+        this.emaSlow = 7;
+        this.rsiPeriod = 14;
+        this.adxPeriod = 14;
+        this.atrPeriod = 14;
+        this.adxMin = 20.0;
+        this.rsiOversold = 25.0;
+        this.rsiOverbought = 75.0;
+        this.commission = 0.0005;
+        this.maxCandlesHold = 24;
+        this.maxCandlesHoldFx = 12;
+        this.atrSpikeThreshold = 3.0;
+        this.atrSpikeWindow = 10;
+        this.cooldownCandles = cfg.getCooldownCandles();
+
+        // Bad Weather Filter defaults
+        this.marketRegimeFilterEnabled = false;
+        this.badWeatherFilterEnabled = false;
+        this.badWeatherLowVolumeThreshold = 0.5;
+        this.badWeatherLowAtrThreshold = 0.7;
+        this.badWeatherMinRangePercent = 0.005;
+        this.badWeatherHighAtrThreshold = 2.0;
+        this.badWeatherMaxSpreadPercent = 0.01;
+        this.badWeatherMaxWickRatio = 0.4;
+        this.badWeatherPanicVolumeThreshold = 3.0;
+        this.badWeatherMinAvgDailyVolume = 100000;
+        this.badWeatherAtrSpikeThreshold = 2.5;
+
+        // Money Management defaults
+        this.mmEnabled = true;
+        this.mmRiskPercent = 0.006;
+        this.mmMaxDailyLossPercent = 0.02;
+        this.mmMaxConsecutiveLosses = 3;
+        this.mmSizingStrategy = "FIXED";
+        this.mmVolatilityBaseAtr = 1.0;
+        this.mmVolatilityMinAdjustment = 0.5;
+        this.mmVolatilityMaxAdjustment = 1.5;
+        this.mmAtrStopMultiplier = 1.75;
+        this.mmTrailingActivationR = 0.85;
+        this.mmTrailingMultiplier = 0.85;
+        this.mmBreakevenActivationR = 0.4;
+        this.mmBreakevenBuffer = 0.001;
+        this.mmAdaptiveEnabled = false;
+        this.mmLossesToReduce = 3;
+        this.mmWinsToRestore = 5;
+        this.mmRiskReductionFactor = 0.5;
+        this.mmCriticalDrawdownPercent = 0.15;
+        this.mmMaxPositionSize = 0.15;
+        this.shortsEnabled = cfg.getShortsEnabled();
 
         // Trailing Stop defaults
         this.mmTrailingEnabled = true;
