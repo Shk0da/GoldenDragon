@@ -603,7 +603,7 @@ public class TradeCouncilStrategy extends BaseStrategy {
 
         String result = callLLM(tcConfig.getArbiterModel(), tcConfig.getArbiterPrompt(),
             "Market data:\n" + marketData + "\n\nExpert opinions:\n" + summary + "\n\nMake the final decision.",
-            0.2);
+            1.0);
 
         log(ticker + " | Arbiter decision: " + result);
 

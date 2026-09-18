@@ -4,13 +4,18 @@ import com.github.shk0da.goldendragon.model.Candle;
 import com.github.shk0da.goldendragon.model.Position;
 
 /**
- * Stop loss manager with trailing logic. Supports breakeven move and step-based trailing
- * for both stop loss and take profit.
+ * Stop loss manager with trailing logic.
  *
- * Trailing activation logic:
- * 1. When position reaches breakeven (including commission), SL moves to entry + buffer
- * 2. After breakeven, trailing activates and moves both SL and TP as price moves favorably
- * 3. Trailing uses step-based approach: SL/TP move only when price moves by stepPercent
+ * Trailing Stop:
+ * 1. When price reaches Entry + Initial Risk * trailingActivationR, trailing activates
+ * 2. SL is set to Market Price - ATR * trailingMultiplier
+ * 3. SL only moves in profit direction (never down for LONG)
+ *
+ * Trailing Take Profit:
+ * 1. When price reaches Initial TP (or close), TP is removed
+ * 2. Highest price is tracked
+ * 3. Execution Price = Highest Price * (1 - callbackPercent)
+ * 4. Position closes when price <= executionPrice
  */
 public class StopLossManager {
 
@@ -19,74 +24,105 @@ public class StopLossManager {
     private final double breakevenActivationR;
     private final double breakevenBuffer;
 
-    // New trailing parameters
+    // Trailing TP parameters
+    private final boolean trailingTpEnabled;
+    private final double trailingTpCallbackPercent;
+
+    // Trailing control
     private final boolean trailingEnabled;
-    private final double trailingStepPercent;
-    private final double trailingDeltaPercent;
     private final int trailingCheckInterval;
 
     // Commission for breakeven calculation
     private final double commission;
 
     /**
-     * Create stop loss manager with specified parameters.
+     * Create stop loss manager.
      *
-     * @param trailingActivationR activate trailing after X R profit (e.g., 1.0)
-     * @param trailingMultiplier trailing stop distance in ATR (e.g., 1.0)
-     * @param breakevenActivationR move to breakeven after X R profit (e.g., 0.5)
-     * @param breakevenBuffer buffer above entry for breakeven (e.g., 0.001)
-     * @param trailingEnabled enable/disable trailing
-     * @param trailingStepPercent step size as % of price (e.g., 0.005 = 0.5%)
-     * @param trailingDeltaPercent minimum price movement to trigger trail (e.g., 0.003 = 0.3%)
+     * @param trailingActivationR activate trailing after X R profit (e.g. 1.0)
+     * @param trailingMultiplier trailing stop distance in ATR (e.g. 1.0)
+     * @param breakevenActivationR move to breakeven after X R profit (e.g. 0.5)
+     * @param breakevenBuffer buffer above entry for breakeven (e.g. 0.001)
+     * @param trailingTpEnabled enable trailing take profit
+     * @param trailingTpCallbackPercent callback % from highest price to close (e.g. 0.005)
+     * @param trailingEnabled enable trailing stop loss
      * @param trailingCheckInterval check trailing every N candles
-     * @param commission commission rate for breakeven calculation (e.g., 0.0005)
+     * @param commission commission rate for breakeven calculation (e.g. 0.0005)
      */
     public StopLossManager(
             double trailingActivationR,
             double trailingMultiplier,
             double breakevenActivationR,
             double breakevenBuffer,
+            boolean trailingTpEnabled,
+            double trailingTpCallbackPercent,
             boolean trailingEnabled,
-            double trailingStepPercent,
-            double trailingDeltaPercent,
             int trailingCheckInterval,
             double commission) {
         this.trailingActivationR = trailingActivationR;
         this.trailingMultiplier = trailingMultiplier;
         this.breakevenActivationR = breakevenActivationR;
         this.breakevenBuffer = breakevenBuffer;
+        this.trailingTpEnabled = trailingTpEnabled;
+        this.trailingTpCallbackPercent = trailingTpCallbackPercent;
         this.trailingEnabled = trailingEnabled;
-        this.trailingStepPercent = trailingStepPercent;
-        this.trailingDeltaPercent = trailingDeltaPercent;
         this.trailingCheckInterval = trailingCheckInterval;
         this.commission = commission;
     }
 
     /**
-     * Result of stop loss update containing new SL and TP levels.
+     * Result of stop loss update with trailing close signal.
      */
     public static class TrailingResult {
         public final Double newStopLoss;
         public final Double newTakeProfit;
         public final boolean trailingActivated;
+        public final boolean shouldClose;
+        public final Double highestPrice;
+        public final Double executionPrice;
 
-        public TrailingResult(Double newStopLoss, Double newTakeProfit, boolean trailingActivated) {
+        public TrailingResult(
+                Double newStopLoss,
+                Double newTakeProfit,
+                boolean trailingActivated) {
+            this(newStopLoss, newTakeProfit, trailingActivated, false, null, null);
+        }
+
+        public TrailingResult(
+                Double newStopLoss,
+                Double newTakeProfit,
+                boolean trailingActivated,
+                boolean shouldClose,
+                Double highestPrice,
+                Double executionPrice) {
             this.newStopLoss = newStopLoss;
             this.newTakeProfit = newTakeProfit;
             this.trailingActivated = trailingActivated;
+            this.shouldClose = shouldClose;
+            this.highestPrice = highestPrice;
+            this.executionPrice = executionPrice;
         }
     }
 
     /**
      * Update stop loss and take profit for existing position.
-     * Only moves stops in favorable direction (up for long, down for short).
+     *
+     * Trailing Stop:
+     * 1. When price reaches Entry + InitialRisk * trailingActivationR, trailing activates
+     * 2. SL = MarketPrice - ATR * trailingMultiplier
+     * 3. SL only moves in profit direction
+     *
+     * Trailing Take Profit:
+     * 1. When price reaches Initial TP, TP is removed
+     * 2. Track highestPrice
+     * 3. executionPrice = highestPrice * (1 - callbackPercent)
+     * 4. Close when price <= executionPrice
      *
      * @param position current position
      * @param candle current candle
-     * @param atr current ATR value
+     * @param atr current ATR
      * @param initialRisk initial risk (entry - initial SL for long)
      * @param candlesHeld number of candles held (for check interval)
-     * @return TrailingResult with new SL/TP levels or null if unchanged
+     * @return TrailingResult with new SL/TP and close signal
      */
     public TrailingResult updateStopLoss(
             Position position,
@@ -104,84 +140,90 @@ public class StopLossManager {
         Double currentTP = position.takeProfit;
         double entry = position.entryPrice;
         double close = candle.close;
+        boolean isBuy = "BUY".equals(direction);
 
         // Calculate current PnL in R units
         double pnlR = calculatePnLInR(position, close, initialRisk);
 
         // Calculate breakeven price including commission
         double breakevenPrice = calculateBreakevenPrice(entry, direction);
-
-        // Check if price reached breakeven
-        boolean reachedBreakeven = false;
-        if ("BUY".equals(direction)) {
-            reachedBreakeven = close >= breakevenPrice;
-        } else {
-            reachedBreakeven = close <= breakevenPrice;
-        }
+        boolean reachedBreakeven = isBuy ? close >= breakevenPrice : close <= breakevenPrice;
 
         // Step 1: Move to breakeven when reached
         if (reachedBreakeven && pnlR >= breakevenActivationR) {
-            double breakevenStop = "BUY".equals(direction)
-                    ? entry + breakevenBuffer
-                    : entry - breakevenBuffer;
-
+            double breakevenStop = isBuy ? entry + breakevenBuffer : entry - breakevenBuffer;
             if (isBetterStop(breakevenStop, currentStop, direction)) {
                 return new TrailingResult(breakevenStop, currentTP, false);
             }
         }
 
-        // Step 2: Trailing after breakeven (if enabled)
+        // Step 2: Trailing Take Profit — when price reaches Initial TP,
+        // TP is removed, track highestPrice, close on callback from peak
+        if (trailingTpEnabled && currentTP != null && reachedTakeProfit(close, currentTP, direction)) {
+            // Determine new highest price (LONG: max, SHORT: min)
+            Double prevHighest = position.highestPrice;
+            double newHighest;
+            if (isBuy) {
+                newHighest = prevHighest != null ? Math.max(prevHighest, close) : close;
+            } else {
+                newHighest = prevHighest != null ? Math.min(prevHighest, close) : close;
+            }
+
+            // Execution price = highestPrice * (1 - callback%)
+            double newExecution;
+            if (isBuy) {
+                newExecution = newHighest * (1.0 - trailingTpCallbackPercent);
+            } else {
+                newExecution = newHighest * (1.0 + trailingTpCallbackPercent);
+            }
+
+            // Close position when price reaches executionPrice
+            boolean shouldClose = isBuy
+                    ? close <= newExecution
+                    : close >= newExecution;
+
+            return new TrailingResult(
+                    currentStop,
+                    null, // TP removed
+                    true,
+                    shouldClose,
+                    newHighest,
+                    newExecution);
+        }
+
+        // Step 2b: If TP already removed and highestPrice is tracked, check for close signal
+        if (trailingTpEnabled && position.highestPrice != null && position.executionPrice != null) {
+            boolean shouldClose = isBuy
+                    ? close <= position.executionPrice
+                    : close >= position.executionPrice;
+
+            if (shouldClose) {
+                return new TrailingResult(currentStop, null, true, true, position.highestPrice, position.executionPrice);
+            }
+        }
+
+        // Step 3: Trailing Stop Loss after breakeven (if enabled)
         if (trailingEnabled && reachedBreakeven && pnlR >= trailingActivationR) {
             // Check interval
             if (candlesHeld % trailingCheckInterval != 0) {
                 return new TrailingResult(null, null, false);
             }
 
-            // Calculate trailing levels
+            // Trailing stop follows price at fixed ATR distance
             double trailDistance = atr * trailingMultiplier;
-            double stepDistance = entry * trailingStepPercent;
+            double trailingStop = isBuy ? close - trailDistance : close + trailDistance;
 
-            // Calculate new trailing stop
-            double trailingStop = "BUY".equals(direction)
-                    ? close - trailDistance
-                    : close + trailDistance;
+            // Stop must stay below TP (LONG) / above TP (SHORT)
+            double stopLimit = currentTP != null ? currentTP : (isBuy ? Double.MAX_VALUE : -Double.MAX_VALUE);
+            boolean stopBelowTp = isBuy ? trailingStop < stopLimit : trailingStop > stopLimit;
 
-            // Calculate new trailing TP (maintain R:R ratio or use step-based)
-            Double trailingTP = null;
-            if (currentTP != null) {
-                if ("BUY".equals(direction)) {
-                    double priceMove = close - entry;
-                    if (priceMove >= stepDistance) {
-                        int steps = (int) (priceMove / stepDistance);
-                        double tpMove = steps * stepDistance;
-                        trailingTP = entry + (currentTP - entry) + tpMove * 0.5;
-                    }
-                } else {
-                    double priceMove = entry - close;
-                    if (priceMove >= stepDistance) {
-                        int steps = (int) (priceMove / stepDistance);
-                        double tpMove = steps * stepDistance;
-                        trailingTP = entry - (entry - currentTP) - tpMove * 0.5;
-                    }
-                }
-            }
-
-            // Apply trailing if better than current
             Double newStop = null;
-            if (isBetterStop(trailingStop, currentStop, direction)) {
+            if (isBetterStop(trailingStop, currentStop, direction) && stopBelowTp) {
                 newStop = trailingStop;
             }
 
-            Double newTP = null;
-            if (trailingTP != null && isBetterTP(trailingTP, currentTP, direction)) {
-                newTP = trailingTP;
-            }
-
-            if (newStop != null || newTP != null) {
-                return new TrailingResult(
-                        newStop != null ? newStop : currentStop,
-                        newTP != null ? newTP : currentTP,
-                        true);
+            if (newStop != null) {
+                return new TrailingResult(newStop, currentTP, true);
             }
         }
 
@@ -230,16 +272,16 @@ public class StopLossManager {
     }
 
     /**
-     * Check if new TP is better than current TP.
+     * Check if price has reached take profit level.
      */
-    private boolean isBetterTP(double newTP, Double currentTP, String direction) {
-        if (currentTP == null) {
-            return true;
+    private boolean reachedTakeProfit(double close, Double takeProfit, String direction) {
+        if (takeProfit == null) {
+            return false;
         }
         if ("BUY".equals(direction)) {
-            return newTP > currentTP;
+            return close >= takeProfit;
         } else {
-            return newTP < currentTP;
+            return close <= takeProfit;
         }
     }
 }

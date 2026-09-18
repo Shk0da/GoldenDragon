@@ -16,11 +16,10 @@ class StopLossManagerTest {
     private static final double BREAKEVEN_ACTIVATION_R = 0.5;
     private static final double BREAKEVEN_BUFFER = 0.001;
     private static final boolean TRAILING_ENABLED = true;
-    private static final double TRAILING_STEP_PERCENT = 0.005;
-    private static final double TRAILING_DELTA_PERCENT = 0.003;
     private static final int TRAILING_CHECK_INTERVAL = 1;
-    private static final double TRAILING_VOLUME_PERCENT = 0.5;
     private static final double COMMISSION = 0.0005;
+    private static final boolean TRAILING_TP_ENABLED = true;
+    private static final double TRAILING_TP_CALLBACK_PERCENT = 0.005;
 
     private static final double INITIAL_RISK = 10.0;
     private static final double ATR = 5.0;
@@ -28,16 +27,16 @@ class StopLossManagerTest {
     private static StopLossManager createManager() {
         return new StopLossManager(
                 TRAILING_ACTIVATION_R, TRAILING_MULTIPLIER, BREAKEVEN_ACTIVATION_R, BREAKEVEN_BUFFER,
-                TRAILING_ENABLED, TRAILING_STEP_PERCENT, TRAILING_DELTA_PERCENT,
-                TRAILING_CHECK_INTERVAL, COMMISSION);
+                TRAILING_TP_ENABLED, TRAILING_TP_CALLBACK_PERCENT,
+                TRAILING_ENABLED, TRAILING_CHECK_INTERVAL, COMMISSION);
     }
 
     private static Position longPosition(double entry, Double stopLoss) {
-        return new Position("BUY", entry, stopLoss, null, 100, 0, 0);
+        return new Position("BUY", entry, stopLoss, null, 100, 0, 0, 1, null, null);
     }
 
     private static Position shortPosition(double entry, Double stopLoss) {
-        return new Position("SELL", entry, stopLoss, null, 100, 0, 0);
+        return new Position("SELL", entry, stopLoss, null, 100, 0, 0, 1, null, null);
     }
 
     private static Candle candle(double close) {
@@ -64,7 +63,7 @@ class StopLossManagerTest {
         @DisplayName("Should return null result when quantity is zero")
         void shouldReturnNullResult_WhenQuantityIsZero() {
             StopLossManager manager = createManager();
-            Position position = new Position("BUY", 100.0, 90.0, null, 0, 0, 0);
+            Position position = new Position("BUY", 100.0, 90.0, null, 0, 0, 0, 1, null, null);
             StopLossManager.TrailingResult result = manager.updateStopLoss(
                     position, candle(110.0), ATR, INITIAL_RISK, 0);
             then(result).isNotNull();
@@ -109,8 +108,8 @@ class StopLossManagerTest {
         void shouldSetTrailingStop_WhenTrailingBelowBreakeven() {
             StopLossManager manager = new StopLossManager(
                     0.3, 1.0, 0.5, BREAKEVEN_BUFFER,
-                    true, TRAILING_STEP_PERCENT, TRAILING_DELTA_PERCENT,
-                    TRAILING_CHECK_INTERVAL, COMMISSION);
+                    true, TRAILING_TP_CALLBACK_PERCENT,
+                    true, TRAILING_CHECK_INTERVAL, COMMISSION);
             Position position = longPosition(100.0, 90.0);
             StopLossManager.TrailingResult result = manager.updateStopLoss(
                     position, candle(103.5), ATR, INITIAL_RISK, 0);
@@ -122,7 +121,7 @@ class StopLossManagerTest {
         void shouldMoveToBreakevenFirst_ThenTrailOnNextCall() {
             StopLossManager manager = createManager();
             Position position = longPosition(100.0, 90.0);
-            
+
             // First call: move to breakeven
             StopLossManager.TrailingResult result = manager.updateStopLoss(
                     position, candle(115.0), ATR, INITIAL_RISK, 0);
@@ -147,8 +146,8 @@ class StopLossManagerTest {
             then(result1.newStopLoss).isEqualTo(100.001);
             then(result1.trailingActivated).isFalse();
 
-            
-            Position positionWithBreakeven = new Position("BUY", 100.0, 100.001, null, 100, 10, 0);
+
+            Position positionWithBreakeven = new Position("BUY", 100.0, 100.001, null, 100, 10, 0, 1, null, null);
             StopLossManager.TrailingResult result2 = manager.updateStopLoss(
                     positionWithBreakeven, candle(115.0), ATR, INITIAL_RISK, 10);
             then(result2.newStopLoss).isNotNull();
@@ -179,7 +178,7 @@ class StopLossManagerTest {
         void shouldCalculateBreakevenPrice_Short() {
             StopLossManager manager = createManager();
             Position position = shortPosition(100.0, 110.0);
-            
+
             StopLossManager.TrailingResult result = manager.updateStopLoss(
                     position, candle(95.0), ATR, INITIAL_RISK, 0);
             then(result.newStopLoss).isEqualTo(99.999);
@@ -190,8 +189,8 @@ class StopLossManagerTest {
         void shouldSetTrailingStop_Short() {
             StopLossManager manager = new StopLossManager(
                     0.3, 1.0, 0.5, BREAKEVEN_BUFFER,
-                    true, TRAILING_STEP_PERCENT, TRAILING_DELTA_PERCENT,
-                    TRAILING_CHECK_INTERVAL, COMMISSION);
+                    true, TRAILING_TP_CALLBACK_PERCENT,
+                    true, TRAILING_CHECK_INTERVAL, COMMISSION);
             Position position = shortPosition(100.0, 110.0);
             StopLossManager.TrailingResult result = manager.updateStopLoss(
                     position, candle(96.5), ATR, INITIAL_RISK, 0);
@@ -210,8 +209,8 @@ class StopLossManagerTest {
             then(result1.newStopLoss).isEqualTo(99.999);
             then(result1.trailingActivated).isFalse();
 
-            
-            Position positionWithBreakeven = new Position("SELL", 100.0, 99.999, null, 100, 10, 0);
+
+            Position positionWithBreakeven = new Position("SELL", 100.0, 99.999, null, 100, 10, 0, 1, null, null);
             StopLossManager.TrailingResult result2 = manager.updateStopLoss(
                     positionWithBreakeven, candle(85.0), ATR, INITIAL_RISK, 10);
             then(result2.newStopLoss).isEqualTo(90.0);
@@ -224,40 +223,56 @@ class StopLossManagerTest {
     class TrailingTP {
 
         @Test
-        @DisplayName("Should move TP for LONG when price moves favorably")
-        void shouldMoveTP_Long() {
+        @DisplayName("Should remove TP and track highestPrice for LONG")
+        void shouldRemoveTP_Long() {
             StopLossManager manager = createManager();
-            Position position = new Position("BUY", 100.0, 100.001, 120.0, 100, 10, 0);
+            Position position = new Position("BUY", 100.0, 100.001, 120.0, 100, 10, 0, 1, null, null);
 
-            
+            // When price reaches TP, TP is removed and highestPrice is tracked
             StopLossManager.TrailingResult result = manager.updateStopLoss(
-                    position, candle(115.0), ATR, INITIAL_RISK, 9);
+                    position, candle(120.0), ATR, INITIAL_RISK, 9);
             then(result).isNotNull();
             then(result.trailingActivated).isTrue();
-            then(result.newTakeProfit).isNotNull();
-            then(result.newTakeProfit).isEqualTo(127.5);
+            then(result.newTakeProfit).isNull(); // TP removed
+            then(result.highestPrice).isEqualTo(120.0);
+            then(result.executionPrice).isEqualTo(120.0 * (1.0 - TRAILING_TP_CALLBACK_PERCENT));
         }
 
         @Test
-        @DisplayName("Should move TP for SHORT when price moves favorably")
-        void shouldMoveTP_Short() {
+        @DisplayName("Should remove TP and track lowestPrice for SHORT")
+        void shouldRemoveTP_Short() {
             StopLossManager manager = createManager();
-            Position position = new Position("SELL", 100.0, 99.999, 80.0, 100, 10, 0);
+            Position position = new Position("SELL", 100.0, 99.999, 80.0, 100, 10, 0, 1, null, null);
 
-            
+            // When price reaches TP, TP is removed and lowestPrice is tracked
             StopLossManager.TrailingResult result = manager.updateStopLoss(
-                    position, candle(85.0), ATR, INITIAL_RISK, 9);
+                    position, candle(80.0), ATR, INITIAL_RISK, 9);
             then(result).isNotNull();
             then(result.trailingActivated).isTrue();
-            then(result.newTakeProfit).isNotNull();
-            then(result.newTakeProfit).isEqualTo(72.5);
+            then(result.newTakeProfit).isNull(); // TP removed
+            then(result.highestPrice).isEqualTo(80.0);
+            then(result.executionPrice).isEqualTo(80.0 * (1.0 + TRAILING_TP_CALLBACK_PERCENT));
+        }
+
+        @Test
+        @DisplayName("Should signal close when price falls to executionPrice")
+        void shouldSignalClose_AtExecutionPrice() {
+            StopLossManager manager = createManager();
+            Position position = new Position("BUY", 100.0, 100.001, 120.0, 100, 10, 0, 1, 120.0, 119.4);
+
+            // executionPrice = 120.0 * (1 - 0.005) = 119.4
+            // Price at or below executionPrice should trigger close
+            StopLossManager.TrailingResult result = manager.updateStopLoss(
+                    position, candle(119.4), ATR, INITIAL_RISK, 9);
+            then(result).isNotNull();
+            then(result.shouldClose).isTrue();
         }
 
         @Test
         @DisplayName("Should not move TP when current TP is null")
         void shouldNotMoveTP_WhenNull() {
             StopLossManager manager = createManager();
-            Position position = new Position("BUY", 100.0, 90.0, null, 100, 10, 0);
+            Position position = new Position("BUY", 100.0, 90.0, null, 100, 10, 0, 1, null, null);
 
             // When
             StopLossManager.TrailingResult result = manager.updateStopLoss(
@@ -275,7 +290,7 @@ class StopLossManagerTest {
         @DisplayName("Should handle null entryPrice gracefully")
         void shouldHandleNullEntryPrice() {
             StopLossManager manager = createManager();
-            Position position = new Position("BUY", null, 90.0, null, 100, 0, 0);
+            Position position = new Position("BUY", null, 90.0, null, 100, 0, 0, 1, null, null);
 
             // When
             StopLossManager.TrailingResult result = manager.updateStopLoss(
@@ -299,7 +314,7 @@ class StopLossManagerTest {
         @Test
         @DisplayName("Should return true for isBetterStop when currentStop is null")
         void shouldReturnTrue_WhenCurrentStopNull() {
-            
+
             StopLossManager manager = createManager();
             Position position = longPosition(100.0, null);
             StopLossManager.TrailingResult result = manager.updateStopLoss(

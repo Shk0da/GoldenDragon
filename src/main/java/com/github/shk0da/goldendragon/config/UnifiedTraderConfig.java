@@ -37,6 +37,8 @@ public class UnifiedTraderConfig {
         public final double mmAtrStopMultiplier;
         public final double mmTrailingMultiplier;
         public final boolean mmEnabled;
+        public final boolean mmTrailingTpEnabled;
+        public final double mmTrailingTpCallbackPercent;
         public final int leverage;
 
         public TickerParams(
@@ -64,6 +66,8 @@ public class UnifiedTraderConfig {
                 2.0,
                 1.0,
                 true,
+                true,
+                0.005,
                 1);
         }
 
@@ -101,6 +105,8 @@ public class UnifiedTraderConfig {
                 2.0,
                 1.0,
                 true,
+                true,
+                0.005,
                 1);
         }
 
@@ -123,6 +129,8 @@ public class UnifiedTraderConfig {
             double mmAtrStopMultiplier,
             double mmTrailingMultiplier,
             boolean mmEnabled,
+            boolean mmTrailingTpEnabled,
+            double mmTrailingTpCallbackPercent,
             int leverage) {
             this(
                 group,
@@ -143,6 +151,8 @@ public class UnifiedTraderConfig {
                 mmAtrStopMultiplier,
                 mmTrailingMultiplier,
                 mmEnabled,
+                mmTrailingTpEnabled,
+                mmTrailingTpCallbackPercent,
                 leverage,
                 "LEVELS");
         }
@@ -166,6 +176,8 @@ public class UnifiedTraderConfig {
             double mmAtrStopMultiplier,
             double mmTrailingMultiplier,
             boolean mmEnabled,
+            boolean mmTrailingTpEnabled,
+            double mmTrailingTpCallbackPercent,
             int leverage,
             String slTpAlgorithm) {
             this.group = group;
@@ -187,6 +199,8 @@ public class UnifiedTraderConfig {
             this.mmAtrStopMultiplier = mmAtrStopMultiplier;
             this.mmTrailingMultiplier = mmTrailingMultiplier;
             this.mmEnabled = mmEnabled;
+            this.mmTrailingTpEnabled = mmTrailingTpEnabled;
+            this.mmTrailingTpCallbackPercent = mmTrailingTpCallbackPercent;
             this.leverage = leverage;
         }
     }
@@ -367,6 +381,11 @@ public class UnifiedTraderConfig {
             Double.parseDouble(properties.getProperty(prefix + "mmTrailingMultiplier", "1.0"));
         boolean tickerMmEnabled =
             Boolean.parseBoolean(properties.getProperty(prefix + "mmEnabled", "true"));
+        boolean tickerMmTrailingTpEnabled =
+            Boolean.parseBoolean(properties.getProperty(prefix + "mmTrailingTpEnabled", "true"));
+        double tickerMmTrailingTpCallbackPercent =
+            Double.parseDouble(
+                properties.getProperty(prefix + "mmTrailingTpCallbackPercent", "0.005"));
         String globalLeverage =
             System.getProperty(
                 "unifiedTrader.leverage",
@@ -395,6 +414,8 @@ public class UnifiedTraderConfig {
             tickerMmAtrStopMultiplier,
             tickerMmTrailingMultiplier,
             tickerMmEnabled,
+            tickerMmTrailingTpEnabled,
+            tickerMmTrailingTpCallbackPercent,
             leverage,
             slTpAlgorithm);
     }

@@ -49,4 +49,12 @@ public interface StopLossTakeProfitStrategy {
             this.tpDistance = tpDistance;
         }
     }
+
+    /**
+     * Check if a take-profit distance covers the cost of two commissions (entry + exit).
+     */
+    static boolean tpDistanceCoversCommissions(double entry, boolean isBuy, double commission, double tpDistance) {
+        double minCommissionCost = entry * 2.0 * commission;
+        return tpDistance > minCommissionCost;
+    }
 }

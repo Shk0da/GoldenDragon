@@ -88,6 +88,9 @@ public class VolatilityAdaptiveStrategy implements StopLossTakeProfitStrategy {
             tpDist *= 0.85;
         }
 
+        if (!StopLossTakeProfitStrategy.tpDistanceCoversCommissions(entry, isBuy, commission, tpDist)) {
+            return null;
+        }
         return new SLTPResult(slDist, tpDist);
     }
 

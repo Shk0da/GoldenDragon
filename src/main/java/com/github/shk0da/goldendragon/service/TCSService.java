@@ -1266,7 +1266,164 @@ public class TCSService implements TradingService {
 
     @Override
     public void syncProtectiveOrders(String name, TickerType type, Position position) {
-        // No-op in TCSService — protective orders are tracked internally via protectiveOrdersByTicker
+        if (position == null || position.quantity <= 0) {
+            return;
+        }
+
+        TickerInfo.Key key = new TickerInfo.Key(name, type);
+        String figi = figiByName(key);
+        if (figi == null || figi.isEmpty()) {
+            log("WARN: syncProtectiveOrders - figi not found for " + name);
+            return;
+        }
+
+        // Get all stop orders from API and find existing for this FIGI
+        List<ru.tinkoff.piapi.contract.v1.StopOrder> allStopOrders;
+        try {
+            allStopOrders = investApi.getStopOrdersService().getStopOrdersSync(mainConfig.getTcsAccountId());
+        } catch (Exception ex) {
+            log("WARN: syncProtectiveOrders - failed to get stop orders: " + ex.getMessage());
+            return;
+        }
+
+        // Find existing SL/TP orders for this FIGI
+        String existingSlOrderId = null;
+        String existingTpOrderId = null;
+
+        for (ru.tinkoff.piapi.contract.v1.StopOrder order : allStopOrders) {
+            if (!figi.equals(order.getFigi())) {
+                continue;
+            }
+
+// Check order type
+            if (order.getOrderType() == STOP_ORDER_TYPE_STOP_LOSS) {
+                existingSlOrderId = order.getStopOrderId();
+                log(name + " | Found existing SL order: " + existingSlOrderId);
+            } else if (order.getOrderType() == STOP_ORDER_TYPE_TAKE_PROFIT) {
+                existingTpOrderId = order.getStopOrderId();
+                log(name + " | Found existing TP order: " + existingTpOrderId);
+            }
+        }
+
+        // Calculate quantity in lots
+        TickerInfo tickerInfo = searchTicker(key);
+        int lot = tickerInfo != null && tickerInfo.getLot() != null ? Math.max(1, tickerInfo.getLot()) : 1;
+        int quantityLots = position.quantity / lot;
+
+        // Cancel old SL order
+        if (existingSlOrderId != null) {
+            cancelStopOrder(key, existingSlOrderId, "SL");
+            sleep(100);
+            if (!verifyOrderCancelled(key, existingSlOrderId, "SL")) {
+                log("WARN: " + name + " | SL order cancellation NOT confirmed via API");
+            }
+        }
+
+        // Cancel old TP order
+        if (existingTpOrderId != null) {
+            cancelStopOrder(key, existingTpOrderId, "TP");
+            sleep(100);
+            if (!verifyOrderCancelled(key, existingTpOrderId, "TP")) {
+                log("WARN: " + name + " | TP order cancellation NOT confirmed via API");
+            }
+        }
+
+        // Place new SL order
+        if (position.stopLoss != null && position.stopLoss > 0) {
+            StopOrderDirection stopOrderDirection = "BUY".equals(position.direction)
+                    ? STOP_ORDER_DIRECTION_SELL
+                    : STOP_ORDER_DIRECTION_BUY;
+
+            String stopOrderId = postMarketStopOrder(
+                    figi,
+                    name,
+                    quantityLots,
+                    position.stopLoss,
+                    stopOrderDirection,
+                    STOP_ORDER_TYPE_STOP_LOSS);
+
+            if (stopOrderId != null) {
+                sleep(100);
+                if (verifyOrderExists(key, stopOrderId, "SL")) {
+                    log(name + " | SL order UPDATED: lots=" + quantityLots + ", price=" + position.stopLoss);
+                } else {
+                    log("WARN: " + name + " | SL order placement NOT confirmed via API, orderId=" + stopOrderId);
+                }
+            } else {
+                log("WARN: " + name + " | SL order UPDATE FAILED, lots=" + quantityLots + " left unprotected");
+            }
+        }
+
+        // Place new TP order
+        if (position.takeProfit != null && position.takeProfit > 0) {
+            StopOrderDirection stopOrderDirection = "BUY".equals(position.direction)
+                    ? STOP_ORDER_DIRECTION_SELL
+                    : STOP_ORDER_DIRECTION_BUY;
+
+            String tpOrderId = postMarketStopOrder(
+                    figi,
+                    name,
+                    quantityLots,
+                    position.takeProfit,
+                    stopOrderDirection,
+                    STOP_ORDER_TYPE_TAKE_PROFIT);
+
+            if (tpOrderId != null) {
+                sleep(100);
+                if (verifyOrderExists(key, tpOrderId, "TP")) {
+                    log(name + " | TP order UPDATED: lots=" + quantityLots + ", price=" + position.takeProfit);
+                } else {
+                    log("WARN: " + name + " | TP order placement NOT confirmed via API, orderId=" + tpOrderId);
+                }
+            } else {
+                log("WARN: " + name + " | TP order UPDATE FAILED, lots=" + quantityLots + " left unprotected");
+            }
+        }
+    }
+
+    /**
+     * Verify that a stop order was cancelled by checking GetStopOrders API.
+     */
+    private boolean verifyOrderCancelled(TickerInfo.Key key, String orderId, String orderTypeName) {
+        try {
+            List<ru.tinkoff.piapi.contract.v1.StopOrder> stopOrders =
+                    investApi.getStopOrdersService().getStopOrdersSync(mainConfig.getTcsAccountId());
+
+            for (ru.tinkoff.piapi.contract.v1.StopOrder order : stopOrders) {
+                if (orderId.equals(order.getStopOrderId())) {
+                    log("WARN: verifyOrderCancelled - " + orderTypeName + " " + orderId + " still active");
+                    return false;
+                }
+            }
+            log(orderTypeName + " " + orderId + " confirmed cancelled via API");
+            return true;
+        } catch (Exception ex) {
+            log("WARN: verifyOrderCancelled failed for " + orderTypeName + ": " + ex.getMessage());
+            return false;
+        }
+    }
+
+    /**
+     * Verify that a stop order exists by checking GetStopOrders API.
+     */
+    private boolean verifyOrderExists(TickerInfo.Key key, String orderId, String orderTypeName) {
+        try {
+            List<ru.tinkoff.piapi.contract.v1.StopOrder> stopOrders =
+                    investApi.getStopOrdersService().getStopOrdersSync(mainConfig.getTcsAccountId());
+
+            for (ru.tinkoff.piapi.contract.v1.StopOrder order : stopOrders) {
+                if (orderId.equals(order.getStopOrderId())) {
+                    double stopPrice = toDouble(order.getStopPrice().getUnits(), order.getStopPrice().getNano());
+                    log(orderTypeName + " " + orderId + " confirmed active via API, price=" + stopPrice);
+                    return true;
+                }
+            }
+            log("WARN: verifyOrderExists - " + orderTypeName + " " + orderId + " NOT found in active orders");
+            return false;
+        } catch (Exception ex) {
+            log("WARN: verifyOrderExists failed for " + orderTypeName + ": " + ex.getMessage());
+            return false;
+        }
     }
 
     private Position createProtectivePosition(

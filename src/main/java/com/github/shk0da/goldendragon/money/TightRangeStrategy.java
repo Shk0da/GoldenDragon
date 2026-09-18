@@ -53,6 +53,9 @@ public class TightRangeStrategy implements StopLossTakeProfitStrategy {
         double maxTpDist = entry * (MAX_SL_PERCENT * 2.0);
         tpDist = Math.min(tpDist, maxTpDist);
 
+        if (!StopLossTakeProfitStrategy.tpDistanceCoversCommissions(entry, isBuy, commission, tpDist)) {
+            return null;
+        }
         return new SLTPResult(slDist, tpDist);
     }
 }

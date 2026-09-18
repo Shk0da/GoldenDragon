@@ -62,6 +62,8 @@ public class Config {
     public double mmTrailingStepPercent;
     public double mmTrailingDeltaPercent;
     public int mmTrailingCheckInterval;
+    public boolean mmTrailingTpEnabled;
+    public double mmTrailingTpCallbackPercent;
 
     public Config() {
         this(true);
@@ -130,6 +132,8 @@ public class Config {
         this.mmTrailingStepPercent = 0.005;
         this.mmTrailingDeltaPercent = 0.003;
         this.mmTrailingCheckInterval = 1;
+        this.mmTrailingTpEnabled = true;
+        this.mmTrailingTpCallbackPercent = 0.005;
     }
 
     /**
@@ -194,6 +198,8 @@ public class Config {
         this.mmTrailingStepPercent = 0.005;
         this.mmTrailingDeltaPercent = 0.003;
         this.mmTrailingCheckInterval = 1;
+        this.mmTrailingTpEnabled = true;
+        this.mmTrailingTpCallbackPercent = 0.005;
     }
 
     public Config(

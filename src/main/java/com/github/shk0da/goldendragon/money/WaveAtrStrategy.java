@@ -68,6 +68,9 @@ public class WaveAtrStrategy implements StopLossTakeProfitStrategy {
             slDist = Math.min(slDist, dAtr * MAX_ATR_MULT);
             tpDist = Math.min(tpDist, dAtr * MAX_ATR_MULT);
 
+            if (!StopLossTakeProfitStrategy.tpDistanceCoversCommissions(entry, isBuy, commission, tpDist)) {
+                return null;
+            }
             return new SLTPResult(slDist, tpDist);
 
         } else {
@@ -100,6 +103,9 @@ public class WaveAtrStrategy implements StopLossTakeProfitStrategy {
             slDist = Math.min(slDist, dAtr * MAX_ATR_MULT);
             tpDist = Math.min(tpDist, dAtr * MAX_ATR_MULT);
 
+            if (!StopLossTakeProfitStrategy.tpDistanceCoversCommissions(entry, isBuy, commission, tpDist)) {
+                return null;
+            }
             return new SLTPResult(slDist, tpDist);
         }
     }

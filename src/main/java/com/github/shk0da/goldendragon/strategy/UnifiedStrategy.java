@@ -269,9 +269,9 @@ public class UnifiedStrategy extends BaseStrategy {
                             effectiveConfig.mmTrailingMultiplier,
                             effectiveConfig.mmBreakevenActivationR,
                             effectiveConfig.mmBreakevenBuffer,
+                            effectiveConfig.mmTrailingTpEnabled,
+                            effectiveConfig.mmTrailingTpCallbackPercent,
                             effectiveConfig.mmTrailingEnabled,
-                            effectiveConfig.mmTrailingStepPercent,
-                            effectiveConfig.mmTrailingDeltaPercent,
                             effectiveConfig.mmTrailingCheckInterval,
                             effectiveConfig.commission);
 

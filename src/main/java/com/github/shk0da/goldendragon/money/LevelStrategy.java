@@ -94,8 +94,7 @@ public class LevelStrategy implements StopLossTakeProfitStrategy {
             }
         }
 
-        double minCommissionCost = entry * 2.0 * commission;
-        if (tpDist < minCommissionCost) {
+        if (!StopLossTakeProfitStrategy.tpDistanceCoversCommissions(entry, isBuy, commission, tpDist)) {
             return null;
         }
 
