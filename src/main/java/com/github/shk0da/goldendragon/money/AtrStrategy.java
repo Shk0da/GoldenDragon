@@ -10,8 +10,12 @@ import java.util.List;
  *
  * <p>SL = ATR × slMult, TP = ATR × tpMult.
  * This adapts to market volatility: wider stops in volatile markets, tighter in calm markets.
+ *
+ * <p>Maximum SL/TP distance is capped at 2 ATR to prevent excessive risk.
  */
 public class AtrStrategy implements StopLossTakeProfitStrategy {
+
+    private static final double MAX_ATR_MULT = 2.0;
 
     @Override
     public SLTPResult calculate(
@@ -43,6 +47,10 @@ public class AtrStrategy implements StopLossTakeProfitStrategy {
             slDist *= 0.90;
             tpDist *= 0.85;
         }
+
+        // Cap SL/TP distance at 2 ATR to prevent excessive risk
+        slDist = Math.min(slDist, dAtr * MAX_ATR_MULT);
+        tpDist = Math.min(tpDist, dAtr * MAX_ATR_MULT);
 
         return new SLTPResult(slDist, tpDist);
     }

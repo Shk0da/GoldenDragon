@@ -9,8 +9,12 @@ import java.util.List;
  * Uses fixed percentage of entry price for SL and TP distances.
  *
  * <p>Config: slMult and tpMult from UnifiedTraderConfig.TickerParams.
+ *
+ * <p>Maximum SL/TP distance is capped at 2 ATR to prevent excessive risk when ATR is low.
  */
 public class PercentageStrategy implements StopLossTakeProfitStrategy {
+
+    private static final double MAX_ATR_MULT = 2.0;
 
     @Override
     public SLTPResult calculate(
@@ -43,6 +47,9 @@ public class PercentageStrategy implements StopLossTakeProfitStrategy {
             slDist *= 0.90;
             tpDist *= 0.85;
         }
+
+        slDist = Math.min(slDist, dAtr * MAX_ATR_MULT);
+        tpDist = Math.min(tpDist, dAtr * MAX_ATR_MULT);
 
         return new SLTPResult(slDist, tpDist);
     }

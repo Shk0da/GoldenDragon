@@ -12,10 +12,13 @@ import java.util.List;
  * For SHORT: SL = recent swing high (or near), TP = distance from swing to entry × R:R ratio.
  *
  * <p>Config: slMult = swing lookback period, tpMult = risk:reward multiplier.
+ *
+ * <p>Maximum SL/TP distance is capped at 2 ATR to prevent excessive risk when swings are far.
  */
 public class WaveAtrStrategy implements StopLossTakeProfitStrategy {
 
     private static final int DEFAULT_SWING_LOOKBACK = 20;
+    private static final double MAX_ATR_MULT = 2.0;
 
     @Override
     public SLTPResult calculate(
@@ -60,6 +63,10 @@ public class WaveAtrStrategy implements StopLossTakeProfitStrategy {
                 tpDist *= 1.25;
             }
 
+            // Cap SL/TP distance at 2 ATR to prevent excessive risk when swings are far
+            slDist = Math.min(slDist, dAtr * MAX_ATR_MULT);
+            tpDist = Math.min(tpDist, dAtr * MAX_ATR_MULT);
+
             return new SLTPResult(slDist, tpDist);
 
         } else {
@@ -87,6 +94,10 @@ public class WaveAtrStrategy implements StopLossTakeProfitStrategy {
             if (adx >= 30.0) {
                 tpDist *= 1.25;
             }
+
+            // Cap SL/TP distance at 2 ATR to prevent excessive risk when swings are far
+            slDist = Math.min(slDist, dAtr * MAX_ATR_MULT);
+            tpDist = Math.min(tpDist, dAtr * MAX_ATR_MULT);
 
             return new SLTPResult(slDist, tpDist);
         }
