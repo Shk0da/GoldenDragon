@@ -18,6 +18,7 @@ import com.github.shk0da.goldendragon.repository.PricesRepository;
 import com.github.shk0da.goldendragon.repository.Repository;
 import com.github.shk0da.goldendragon.repository.TickerRepository;
 import com.github.shk0da.goldendragon.utils.TinkoffApiUrlResolver;
+import com.github.shk0da.goldendragon.utils.MoneyUtils;
 import ru.tinkoff.piapi.contract.v1.Bond;
 import ru.tinkoff.piapi.contract.v1.CandleInterval;
 import ru.tinkoff.piapi.contract.v1.Currency;
@@ -1162,7 +1163,7 @@ public class TCSService implements TradingService {
                     com.google.gson.JsonObject moneyObj = val.getAsJsonObject();
                     long units = moneyObj.has("units") ? moneyObj.get("units").getAsLong() : 0;
                     int nano = moneyObj.has("nano") ? moneyObj.get("nano").getAsInt() : 0;
-                    return units + (nano / 1_000_000_000.0);
+                    return MoneyUtils.parseUnitsNano(units, nano);
                 }
             }
             return null;
@@ -1215,13 +1216,11 @@ public class TCSService implements TradingService {
                         if (stopLoss == null || stopPrice > stopLoss) {
                             stopLoss = stopPrice;
                             protectiveOrders.stopLossOrderId = stopOrder.getStopOrderId();
-                            protectiveOrders.stopLossPrice = stopPrice;
                         }
                     } else {
                         if (takeProfit == null || stopPrice < takeProfit) {
                             takeProfit = stopPrice;
                             protectiveOrders.takeProfitOrderId = stopOrder.getStopOrderId();
-                            protectiveOrders.takeProfitPrice = stopPrice;
                         }
                     }
                 } else if ("SELL".equals(position.direction)) {
@@ -1229,13 +1228,11 @@ public class TCSService implements TradingService {
                         if (stopLoss == null || stopPrice < stopLoss) {
                             stopLoss = stopPrice;
                             protectiveOrders.stopLossOrderId = stopOrder.getStopOrderId();
-                            protectiveOrders.stopLossPrice = stopPrice;
                         }
                     } else {
                         if (takeProfit == null || stopPrice > takeProfit) {
                             takeProfit = stopPrice;
                             protectiveOrders.takeProfitOrderId = stopOrder.getStopOrderId();
-                            protectiveOrders.takeProfitPrice = stopPrice;
                         }
                     }
                 }
@@ -1503,7 +1500,6 @@ public class TCSService implements TradingService {
             if (stopOrderId != null) {
                 ProtectiveOrders protectiveOrders = protectiveOrdersByTicker.computeIfAbsent(key, ignored -> new ProtectiveOrders());
                 protectiveOrders.stopLossOrderId = stopOrderId;
-                protectiveOrders.stopLossPrice =slPrice;
                 log(key.getTicker() + " | SL order placed: lots=" + quantity + ", price=" + slPrice);
             } else {
                 log("WARN: " + key.getTicker() + " | SL order FAILED, lots=" + quantity + " left unprotected");
@@ -1527,7 +1523,6 @@ public class TCSService implements TradingService {
                 if (tpOrderId != null) {
                     ProtectiveOrders orders = protectiveOrdersByTicker.computeIfAbsent(key, ignored -> new ProtectiveOrders());
                     orders.takeProfitOrderId = tpOrderId;
-                    orders.takeProfitPrice = tpPrice;
                     log(key.getTicker() + " | TP order placed: lots=" + quantity + ", price=" + tpPrice);
                 } else {
                     log("WARN: " + key.getTicker() + " | TP order FAILED, lots=" + quantity + " left unprotected");
@@ -1653,9 +1648,7 @@ public class TCSService implements TradingService {
     private static class ProtectiveOrders {
 
         private String stopLossOrderId;
-        private Double stopLossPrice;
         private String takeProfitOrderId;
-        private Double takeProfitPrice;
     }
 
     /**
@@ -2891,7 +2884,7 @@ public class TCSService implements TradingService {
                 if (priceNode.has("units")) {
                     long units = priceNode.path("units").asLong(0);
                     int nano = priceNode.path("nano").asInt(0);
-                    price = units + (nano / 1_000_000_000.0);
+                    price = MoneyUtils.parseUnitsNano(units, nano);
                 }
                 trade.put("price", price);
                 trade.put("description", op.path("description").asText(""));
@@ -2913,7 +2906,7 @@ public class TCSService implements TradingService {
         if (yieldNode.has("units")) {
             long units = yieldNode.path("units").asLong(0);
             int nano = yieldNode.path("nano").asInt(0);
-            return units + (nano / 1_000_000_000.0);
+            return MoneyUtils.parseUnitsNano(units, nano);
         }
         return 0.0;
     }

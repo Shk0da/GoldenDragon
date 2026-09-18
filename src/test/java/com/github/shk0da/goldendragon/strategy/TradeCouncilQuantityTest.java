@@ -62,7 +62,7 @@ class TradeCouncilQuantityTest {
         void shouldReturnLots() {
             // Given: 1% of 100_000 = 1000, / 71.2 = 14.04 units, / 10 lot = 1.4 -> 1 lot
             // When
-            int quantity = strategy.calculateQuantityFromDepositPercent(NLMK, 1.0, 71.2, 100_000.0);
+            int quantity = strategy.calculateQuantityFromDepositPercent(NLMK, 1.0, 71.2, 100_000.0, "FIGI_NLMK");
 
             // Then
             then(quantity).isEqualTo(1);
@@ -73,7 +73,7 @@ class TradeCouncilQuantityTest {
         void shouldReturnZero_WhenBelowMinLot() {
             // Given: 0.5% of 100_000 = 500, / 71.2 = 7.02 units < 10 lot
             // When
-            int quantity = strategy.calculateQuantityFromDepositPercent(NLMK, 0.5, 71.2, 100_000.0);
+            int quantity = strategy.calculateQuantityFromDepositPercent(NLMK, 0.5, 71.2, 100_000.0, "FIGI_NLMK");
 
             // Then
             then(quantity).isZero();
@@ -84,7 +84,7 @@ class TradeCouncilQuantityTest {
         void shouldReturnZero_WhenLotOneAndBelowOneUnit() {
             // Given: 1% of 100_000 = 1000, / 3794 = 0.26 units < 1 lot (YDEX case)
             // When
-            int quantity = strategy.calculateQuantityFromDepositPercent(T, 1.0, 3794.0, 100_000.0);
+            int quantity = strategy.calculateQuantityFromDepositPercent(T, 1.0, 3794.0, 100_000.0, "FIGI_T");
 
             // Then
             then(quantity).isZero();
@@ -93,22 +93,22 @@ class TradeCouncilQuantityTest {
         @Test
         @DisplayName("Should return 0 for null or non-positive deposit percent")
         void shouldReturnZero_WhenInvalidDepositPercent() {
-            then(strategy.calculateQuantityFromDepositPercent(NLMK, null, 71.2, 100_000.0)).isZero();
-            then(strategy.calculateQuantityFromDepositPercent(NLMK, 0.0, 71.2, 100_000.0)).isZero();
-            then(strategy.calculateQuantityFromDepositPercent(NLMK, -1.0, 71.2, 100_000.0)).isZero();
+            then(strategy.calculateQuantityFromDepositPercent(NLMK, null, 71.2, 100_000.0, "FIGI_NLMK")).isZero();
+            then(strategy.calculateQuantityFromDepositPercent(NLMK, 0.0, 71.2, 100_000.0, "FIGI_NLMK")).isZero();
+            then(strategy.calculateQuantityFromDepositPercent(NLMK, -1.0, 71.2, 100_000.0, "FIGI_NLMK")).isZero();
         }
 
         @Test
         @DisplayName("Should return 0 for non-positive entry price or balance")
         void shouldReturnZero_WhenInvalidPriceOrBalance() {
-            then(strategy.calculateQuantityFromDepositPercent(NLMK, 1.0, 0.0, 100_000.0)).isZero();
-            then(strategy.calculateQuantityFromDepositPercent(NLMK, 1.0, 71.2, 0.0)).isZero();
+            then(strategy.calculateQuantityFromDepositPercent(NLMK, 1.0, 0.0, 100_000.0, "FIGI_NLMK")).isZero();
+            then(strategy.calculateQuantityFromDepositPercent(NLMK, 1.0, 71.2, 0.0, "FIGI_NLMK")).isZero();
         }
 
         @Test
         @DisplayName("Should return 0 when ticker info is missing")
         void shouldReturnZero_WhenTickerNotFound() {
-            then(strategy.calculateQuantityFromDepositPercent("UNKNOWN", 1.0, 71.2, 100_000.0)).isZero();
+            then(strategy.calculateQuantityFromDepositPercent("UNKNOWN", 1.0, 71.2, 100_000.0, null)).isZero();
         }
     }
 

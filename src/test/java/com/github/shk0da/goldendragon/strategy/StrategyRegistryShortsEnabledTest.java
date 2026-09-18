@@ -8,12 +8,12 @@ import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.BDDAssertions.then;
 
-@DisplayName("StrategyRegistry shortsEnabled propagation")
+@DisplayName("UnifiedStrategy shortsEnabled propagation")
 class StrategyRegistryShortsEnabledTest {
 
     @Nested
-    @DisplayName("When creating backtest strategy")
-    class CreateBacktest {
+    @DisplayName("When creating strategy")
+    class CreateStrategy {
 
         @Test
         @DisplayName("Should pass shortsEnabled from UnifiedTraderConfig to Config")
@@ -28,8 +28,8 @@ class StrategyRegistryShortsEnabledTest {
 
             boolean shortsEnabled = unifiedTraderConfig.getShortsEnabled();
 
-            // When - create backtest strategy (which internally creates Config with shortsEnabled)
-            BaseStrategy strategy = StrategyRegistry.createBacktest("UnifiedStrategy", unifiedTraderConfig);
+            // When - create strategy (which internally creates Config with shortsEnabled)
+            BaseStrategy strategy = new UnifiedStrategy(unifiedTraderConfig, null, new Config(unifiedTraderConfig));
 
             // Then - strategy should be created without errors
             then(strategy).isNotNull();
@@ -52,7 +52,7 @@ class StrategyRegistryShortsEnabledTest {
             }
 
             // When
-            BaseStrategy strategy = StrategyRegistry.createBacktest("UnifiedStrategy", unifiedTraderConfig);
+            BaseStrategy strategy = new UnifiedStrategy(unifiedTraderConfig, null, new Config(unifiedTraderConfig));
 
             // Then - strategy should be created without errors
             then(strategy).isNotNull();
@@ -62,7 +62,7 @@ class StrategyRegistryShortsEnabledTest {
 
     @Nested
     @DisplayName("When creating with custom Config")
-    class CreateBacktestWithConfig {
+    class CreateWithConfig {
 
         @Test
         @DisplayName("Should override Config.shortsEnabled from UnifiedTraderConfig")
@@ -82,12 +82,7 @@ class StrategyRegistryShortsEnabledTest {
             boolean traderConfigShortsEnabled = unifiedTraderConfig.getShortsEnabled();
 
             // When - create strategy with custom Config
-            BaseStrategy strategy = StrategyRegistry.createBacktest(
-                "UnifiedStrategy",
-                unifiedTraderConfig,
-                null,
-                configWithShortsTrue
-            );
+            BaseStrategy strategy = new UnifiedStrategy(unifiedTraderConfig, null, configWithShortsTrue);
 
             // Then - strategy should be created and config.shortsEnabled should be overridden
             then(strategy).isNotNull();

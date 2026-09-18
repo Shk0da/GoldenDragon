@@ -226,8 +226,19 @@ public class UnifiedStrategy extends BaseStrategy {
             TradingService tradingService,
             Config config,
             com.github.shk0da.goldendragon.config.MainConfig mainConfig) {
+        this(unifiedTraderConfig, tradingService, config, mainConfig, null, null);
+    }
+
+    public UnifiedStrategy(
+            UnifiedTraderConfig unifiedTraderConfig,
+            TradingService tradingService,
+            Config config,
+            com.github.shk0da.goldendragon.config.MainConfig mainConfig,
+            TradingService backtestTradingService,
+            Map<String, List<Candle>> peerCandlesForBacktest) {
         super(unifiedTraderConfig, tradingService,
-                config != null ? config : new Config(unifiedTraderConfig), null, mainConfig);
+                config != null ? config : new Config(unifiedTraderConfig), null,
+                mainConfig, backtestTradingService, peerCandlesForBacktest);
 
         Config effectiveConfig = config != null ? config : new Config(unifiedTraderConfig);
         effectiveConfig.shortsEnabled = unifiedTraderConfig.getShortsEnabled();
@@ -373,23 +384,10 @@ public class UnifiedStrategy extends BaseStrategy {
         if (mmEnabled && riskManager != null) {
             // Use initial balance for daily loss calculation (prevents equity drift)
             double riskBalance = balance;
-            if (BaseStrategy.isBacktestMode()) {
-                try {
-                    java.lang.reflect.Field backtestBrokerField = BaseStrategy.class.getDeclaredField("backtestBroker");
-                    backtestBrokerField.setAccessible(true);
-                    Object broker = backtestBrokerField.get(null);
-                    if (broker != null) {
-                        java.lang.reflect.Method getInitialBalanceMethod = broker.getClass().getMethod("getInitialBalance");
-                        Object result = getInitialBalanceMethod.invoke(broker);
-                        if (result instanceof Double) {
-                            double initialBalance = (Double) result;
-                            if (initialBalance > 0) {
-                                riskBalance = initialBalance;
-                            }
-                        }
-                    }
-                } catch (Exception ignored) {
-                    // Fallback to current balance
+            if (isBacktestMode()) {
+                double initialBalance = tradingService.getInitialBalance();
+                if (initialBalance > 0) {
+                    riskBalance = initialBalance;
                 }
             }
             if (!riskManager.canTrade(riskBalance)) {
@@ -649,23 +647,10 @@ public class UnifiedStrategy extends BaseStrategy {
             // Size positions on initial balance to prevent compounding oversizing in backtest
             // In backtest mode, use SimulatedBroker's initialBalance; in live mode, use current balance
             double sizingBalance = balance;
-            if (BaseStrategy.isBacktestMode()) {
-                try {
-                    java.lang.reflect.Field backtestBrokerField = BaseStrategy.class.getDeclaredField("backtestBroker");
-                    backtestBrokerField.setAccessible(true);
-                    Object broker = backtestBrokerField.get(null);
-                    if (broker != null) {
-                        java.lang.reflect.Method getInitialBalanceMethod = broker.getClass().getMethod("getInitialBalance");
-                        Object result = getInitialBalanceMethod.invoke(broker);
-                        if (result instanceof Double) {
-                            double initialBalance = (Double) result;
-                            if (initialBalance > 0) {
-                                sizingBalance = initialBalance;
-                            }
-                        }
-                    }
-                } catch (Exception ignored) {
-                    // Fallback to current balance
+            if (isBacktestMode()) {
+                double initialBalance = tradingService.getInitialBalance();
+                if (initialBalance > 0) {
+                    sizingBalance = initialBalance;
                 }
             }
             double riskMultiplier = adaptiveCapital.getRiskMultiplier();
@@ -685,21 +670,10 @@ public class UnifiedStrategy extends BaseStrategy {
                 Double equity = tradingService.getTotalPortfolioValue();
                 if (equity != null && equity > 0) {
                     // For backtest, get peak from broker directly (not from reset daily PerformanceTracker)
-                    if (BaseStrategy.isBacktestMode()) {
-                        try {
-                            java.lang.reflect.Field brokerField = BaseStrategy.class.getDeclaredField("backtestBroker");
-                            brokerField.setAccessible(true);
-                            Object broker = brokerField.get(null);
-                            if (broker != null) {
-                                java.lang.reflect.Method getGlobalPeakMethod =
-                                        broker.getClass().getMethod("getGlobalPeakEquity");
-                                Double peak = (Double) getGlobalPeakMethod.invoke(broker);
-                                if (peak != null && peak > 0) {
-                                    positionSizeCap *= performanceTracker.getPositionSizeMultiplier(peak, equity);
-                                }
-                            }
-                        } catch (Exception ignore) {
-                            // No-op
+                    if (isBacktestMode()) {
+                        Double peak = tradingService.getGlobalPeakEquity();
+                        if (peak != null && peak > 0) {
+                            positionSizeCap *= performanceTracker.getPositionSizeMultiplier(peak, equity);
                         }
                     } else {
                         positionSizeCap *= performanceTracker.getPositionSizeMultiplier(
@@ -982,7 +956,7 @@ public class UnifiedStrategy extends BaseStrategy {
     }
 
     private int calculateAvailableLiquidity(String ticker, boolean isBuy, List<Candle> hourCandles) {
-        if (BaseStrategy.isBacktestMode()) {
+        if (isBacktestMode()) {
             if (hourCandles == null || hourCandles.isEmpty()) {
                 return 0;
             }

@@ -8,7 +8,7 @@ import com.github.shk0da.goldendragon.model.TickerType;
 import com.github.shk0da.goldendragon.model.TradingDecision;
 import com.github.shk0da.goldendragon.repository.TickerRepository;
 import com.github.shk0da.goldendragon.strategy.BaseStrategy;
-import com.github.shk0da.goldendragon.strategy.StrategyRegistry;
+import com.github.shk0da.goldendragon.strategy.UnifiedStrategy;
 import com.github.shk0da.goldendragon.utils.PropertiesUtils;
 import org.jfree.chart.ChartFactory;
 import org.jfree.chart.ChartUtilities;
@@ -52,8 +52,7 @@ import java.util.concurrent.Future;
 /**
  * Движок бэктестинга торговых стратегий на исторических данных.
  *
- * <p>Класс симулирует исполнение одной или нескольких стратегий (см. {@link
- * StrategyRegistry#backtestableNames()}) на массиве тикеров и временных периодов, имитируя реальную
+ * <p>Класс симулирует исполнение одной или нескольких стратегий на массиве тикеров и временных периодов, имитируя реальную
  * торговлю с учётом комиссий, рабочих часов, EOD-закрытий и портфельного управления капиталом. По
  * завершении формирует сводную статистику и сравнительный рейтинг стратегий.
  *
@@ -92,7 +91,8 @@ public class BacktestRunner {
             Integer.getInteger(
                 "backtest.threads",
                 Math.max(1, Runtime.getRuntime().availableProcessors() - 1)));
-    private static final List<String> ALL_STRATEGIES = StrategyRegistry.backtestableNames();
+    /** List of backtestable strategy names. */
+    private static final List<String> ALL_STRATEGIES = List.of("UnifiedStrategy");
     /**
      * Default cooldown in 5-min candles if not specified in config.
      */
@@ -842,8 +842,7 @@ public class BacktestRunner {
         }
         // Create TradingService wrapper for backtest parity with live trading
         BacktestTradingService backtestTradingService = new BacktestTradingService(broker);
-        BaseStrategy.setBacktestTradingService(backtestTradingService);
-        BaseStrategy strategy = StrategyRegistry.createBacktest(strategyName, config, backtestTradingService, modelConfig);
+        UnifiedStrategy strategy = createBacktestStrategy(strategyName, config, backtestTradingService, modelConfig);
         List<EquityPoint> portfolioEquity = new ArrayList<>();
         Map<String, List<TradeResult>> tradesByTicker = new LinkedHashMap<>();
         Map<String, Integer> minuteIndexByTicker = new LinkedHashMap<>();
@@ -931,7 +930,7 @@ public class BacktestRunner {
                     if (sltpResult != null) {
                         brokerPos = broker.getPositionState(ticker);
                         brokerPos.cooldownRemaining = cooldownCandles;
-                        strategy.getPositionStore().put(ticker, brokerPos.position);
+                        putPositionReflection(strategy, ticker, brokerPos.position);
                         portfolioEquity.add(new EquityPoint(time, broker.getTotalPortfolioValue()));
                         minuteIndexByTicker.put(ticker, idx + 1);
                         continue;
@@ -974,7 +973,7 @@ public class BacktestRunner {
                             }
                         }
                     }
-                    strategy.getPositionStore().put(ticker, brokerPos.position);
+                    putPositionReflection(strategy, ticker, brokerPos.position);
                     portfolioEquity.add(new EquityPoint(time, broker.getTotalPortfolioValue()));
                     minuteIndexByTicker.put(ticker, idx + 1);
                     continue;
@@ -1000,7 +999,7 @@ public class BacktestRunner {
                     minuteFromIdx = Math.min(Math.max(0, minuteFromIdx), idx + 1);
                     Map<String, List<Candle>> currentPeerCandles = buildCurrentPeerCandles(
                         ticker, currentTime, allHourlyCandles, groupTickers, peerTimesMap, hourHistory, config);
-                    strategy.setPeerCandles(currentPeerCandles.isEmpty() ? Collections.emptyMap() : currentPeerCandles);
+                    setPeerCandlesReflection(strategy, currentPeerCandles.isEmpty() ? Collections.emptyMap() : currentPeerCandles);
                     double effectiveBalance = broker.getSharedCash();
                     // TMON@ cash parking value (Tinkoff money market ETF)
                     if (!"TMON@".equals(ticker) && config.isTmonCashParkingEnabled()) {
@@ -1009,7 +1008,7 @@ public class BacktestRunner {
                             effectiveBalance += tmonValue;
                         }
                     }
-                    strategy.getPositionStore().put(ticker, brokerPos.position);
+                    putPositionReflection(strategy, ticker, brokerPos.position);
                     TradingDecision decision = strategy.decide(
                         ticker, hourHistory, marketData.minuteCandles.subList(minuteFromIdx, idx + 1),
                         brokerPos.position, effectiveBalance, hourChanged);
@@ -1023,7 +1022,7 @@ public class BacktestRunner {
                         lastProcessedTradeCount =
                                 processNewClosedTrades(strategy, broker, beforePending, lastProcessedTradeCount);
                         brokerPos = broker.getPositionState(ticker);
-                        strategy.getPositionStore().put(ticker, brokerPos.position);
+                        putPositionReflection(strategy, ticker, brokerPos.position);
                         pendingEntries.remove(ticker);
                     }
 
@@ -1037,7 +1036,7 @@ public class BacktestRunner {
                         lastProcessedTradeCount =
                                 processNewClosedTrades(strategy, broker, beforeDecision, lastProcessedTradeCount);
                         brokerPos = broker.getPositionState(ticker);
-                        strategy.getPositionStore().put(ticker, brokerPos.position);
+                        putPositionReflection(strategy, ticker, brokerPos.position);
                     }
                 }
                 minuteIndexByTicker.put(ticker, idx + 1);
@@ -1142,16 +1141,7 @@ public class BacktestRunner {
         PortfolioPeriodResult portfolioResult =
             new PortfolioPeriodResult(
                 portfolioPnl, portfolioDd, portfolioEquity, totalTrades, portfolioWinRate);
-        clearBacktestBroker();
         return new BacktestExecutionResult(tickerResults, portfolioResult);
-    }
-
-    /**
-     * Clear backtest broker reference after simulation completes.
-     * This ensures live mode runs without backtest broker interference.
-     */
-    public static void clearBacktestBroker() {
-        BaseStrategy.clearBacktestBroker();
     }
 
     /**
@@ -1887,5 +1877,56 @@ public class BacktestRunner {
             ", Closes=" + totalCloses +
             ", ConcurrentPeak=" + concurrentPeak +
             ", FinalCash=" + String.format("%.2f", finalSharedCash));
+    }
+
+    /**
+     * Factory method to create backtest strategy instances.
+     * Kept in BacktestRunner to centralize strategy creation for backtesting.
+     */
+    private static UnifiedStrategy createBacktestStrategy(
+            String strategyName,
+            UnifiedTraderConfig config,
+            com.github.shk0da.goldendragon.service.TradingService backtestTradingService,
+            com.github.shk0da.goldendragon.model.Config modelConfig) {
+        if ("UnifiedStrategy".equals(strategyName)) {
+            return new UnifiedStrategy(
+                    config,
+                    backtestTradingService,
+                    modelConfig,
+                    null,
+                    backtestTradingService,
+                    new java.util.concurrent.ConcurrentHashMap<>());
+        } else {
+            throw new IllegalArgumentException("Unknown strategy: " + strategyName);
+        }
+    }
+
+    /**
+     * Set peer candles via reflection (avoids test methods in production code).
+     */
+    private static void setPeerCandlesReflection(UnifiedStrategy strategy, Map<String, List<Candle>> peerCandles) {
+        try {
+            java.lang.reflect.Field field = BaseStrategy.class.getDeclaredField("peerCandles");
+            field.setAccessible(true);
+            field.set(strategy, new java.util.concurrent.ConcurrentHashMap<>(peerCandles));
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to set peerCandles via reflection", e);
+        }
+    }
+
+    /**
+     * Put position via reflection (avoids test methods in production code).
+     */
+    private static void putPositionReflection(UnifiedStrategy strategy, String ticker, com.github.shk0da.goldendragon.model.Position position) {
+        try {
+            java.lang.reflect.Field field = BaseStrategy.class.getDeclaredField("positionStore");
+            field.setAccessible(true);
+            @SuppressWarnings("unchecked")
+            java.util.Map<String, com.github.shk0da.goldendragon.model.Position> store =
+                (java.util.Map<String, com.github.shk0da.goldendragon.model.Position>) field.get(strategy);
+            store.put(ticker, position);
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to put position via reflection", e);
+        }
     }
 }

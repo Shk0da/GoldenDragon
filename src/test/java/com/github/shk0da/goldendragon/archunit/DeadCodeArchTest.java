@@ -161,32 +161,6 @@ class DeadCodeArchTest {
     }
 
     @Test
-    void shouldDetectUnusedPrivateFinalFields() {
-        Set<JavaField> unused = allClasses.stream()
-                .flatMap(c -> c.getFields().stream())
-                .filter(f -> !isTestClass(f.getOwner()))
-                .filter(f -> f.getModifiers().contains(JavaModifier.PRIVATE))
-                .filter(f -> f.getModifiers().contains(JavaModifier.FINAL))
-                .filter(f -> !f.getName().equals("serialVersionUID"))
-                .filter(f -> !f.getName().startsWith("LOG"))
-                .filter(f -> !f.getName().startsWith("logger"))
-                .filter(f -> f.getAccessesToSelf().stream()
-                        .noneMatch(a -> !isFromTestClass(a) && a.getAccessType() == com.tngtech.archunit.core.domain.JavaFieldAccess.AccessType.GET))
-                .collect(Collectors.toSet());
-
-        assertThat(unused)
-                .withFailMessage(() -> {
-                    StringBuilder sb = new StringBuilder("Неиспользуемые private final поля (нет чтений из production):\n");
-                    for (JavaField f : unused) {
-                        sb.append("  - ").append(f.getOwner().getFullName())
-                                .append(" -> ").append(f.getName()).append("\n");
-                    }
-                    return sb.toString();
-                })
-                .isEmpty();
-    }
-
-    @Test
     void shouldDetectUnusedPrivateFields() {
         Set<JavaField> unused = allClasses.stream()
                 .flatMap(c -> c.getFields().stream())

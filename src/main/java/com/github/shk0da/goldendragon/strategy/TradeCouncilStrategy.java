@@ -113,7 +113,17 @@ public class TradeCouncilStrategy extends BaseStrategy {
         TradingService tradingService,
         Config config,
         MainConfig mainConfig) {
-        super(unifiedTraderConfig, tradingService, config, null, mainConfig);
+        this(unifiedTraderConfig, tradingService, config, mainConfig, null, null);
+    }
+
+    public TradeCouncilStrategy(
+        UnifiedTraderConfig unifiedTraderConfig,
+        TradingService tradingService,
+        Config config,
+        MainConfig mainConfig,
+        TradingService backtestTradingService,
+        Map<String, List<Candle>> peerCandlesForBacktest) {
+        super(unifiedTraderConfig, tradingService, config, null, mainConfig, backtestTradingService, peerCandlesForBacktest);
 
         try {
             this.tcConfig = new TradeCouncilConfig();
@@ -937,20 +947,6 @@ public class TradeCouncilStrategy extends BaseStrategy {
         if (avgL == 0) return 100.0;
         double rs = avgG / avgL;
         return Math.round((100 - (100 / (1 + rs))) * 100.0) / 100.0;
-    }
-
-    /**
-     * Calculate quantity from deposit percent, entry price and available balance.
-     * Uses available balance to determine how many units can be bought.
-     *
-     * @param ticker ticker symbol
-     * @param depositPercent percent of deposit to use (e.g., 1.0 for 1%)
-     * @param entryPrice entry price
-     * @param balance available balance
-     * @return quantity in units (0 if calculation fails)
-     */
-    int calculateQuantityFromDepositPercent(String ticker, Double depositPercent, double entryPrice, double balance) {
-        return calculateQuantityFromDepositPercent(ticker, depositPercent, entryPrice, balance, null);
     }
 
     /**

@@ -307,13 +307,6 @@ public class TradingServiceCache implements TradingService {
     }
 
     /**
-     * Invalidate specific cache key.
-     */
-    public void invalidate(String key) {
-        cache.invalidate(key);
-    }
-
-    /**
      * Invalidate all cash-related keys.
      */
     public void invalidateCash() {

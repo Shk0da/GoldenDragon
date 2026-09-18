@@ -14,7 +14,6 @@ import java.io.IOException;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * Tests for strategy startup and registration.
@@ -71,21 +70,9 @@ class StrategyStartupTest {
 
         // Act & Assert
         assertThatCode(() -> {
-            BaseStrategy strategy = StrategyRegistry.createBacktest("UnifiedStrategy", config);
+            BaseStrategy strategy = new UnifiedStrategy(config, null, new Config(config));
             assertThat(strategy).isInstanceOf(UnifiedStrategy.class);
         }).doesNotThrowAnyException();
-    }
-
-    @Test
-    @DisplayName("Unknown backtest strategy should throw exception")
-    void unknownBacktestStrategyShouldThrowException() throws IOException {
-        // Arrange
-        UnifiedTraderConfig config = new UnifiedTraderConfig();
-
-        // Act & Assert
-        assertThatThrownBy(() -> StrategyRegistry.createBacktest("UnknownStrategy", config))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("Unknown strategy");
     }
 
     @Test
@@ -129,23 +116,5 @@ class StrategyStartupTest {
         assertThat(tradeCouncilEntry).isNotNull();
         assertThat(unifiedEntry.hasLiveRunner()).isTrue();
         assertThat(tradeCouncilEntry.hasLiveRunner()).isTrue();
-    }
-
-    @Test
-    @DisplayName("BaseStrategy setBacktestTradingService should reject null")
-    void setBacktestTradingServiceShouldRejectNull() {
-        // Act & Assert
-        assertThatThrownBy(() -> BaseStrategy.setBacktestTradingService(null))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("cannot be null");
-    }
-
-    @Test
-    @DisplayName("BaseStrategy setBacktestBroker should reject null")
-    void setBacktestBrokerShouldRejectNull() {
-        // Act & Assert
-        assertThatThrownBy(() -> BaseStrategy.setBacktestBroker(null))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("cannot be null");
     }
 }

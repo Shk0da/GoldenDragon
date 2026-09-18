@@ -218,11 +218,6 @@ import static java.util.concurrent.CompletableFuture.runAsync;
     protected final CashParkingManager cashParkingManager;
     protected OrderExecutor orderExecutor;
     protected TimeProvider timeProvider;
-
-    /** Backtest broker for parity with live trading (injected via setBacktestBroker). */
-    protected static OrderExecutor backtestBroker;
-    /** Backtest TradingService wrapper (injected via setBacktestTradingService). */
-    protected static TradingService backtestTradingService;
     protected final BadWeatherFilter badWeatherFilter;
     protected final MarketRegimeFilter marketRegimeFilter;
 
@@ -251,59 +246,10 @@ protected static final LocalTime WORK_START_TIME = LocalTime.of(10, 0);
     protected final Map<String, String> lastSeenHourBarByTicker = new ConcurrentHashMap<>();
     protected volatile Map<String, List<Candle>> peerCandles = new ConcurrentHashMap<>();
     protected final Map<String, Long> throttledLogLastTime = new ConcurrentHashMap<>();
+    protected final boolean inBacktestMode;
 
-    /**
-     * Get position store for backtest access.
-     */
-    public Map<String, Position> getPositionStore() {
-        return positionStore;
-    }
-
-
-
-    /**
-     * Set backtest broker for all strategies.
-     * Called by BacktestRunner before starting simulation.
-     * @deprecated Use setBacktestTradingService instead for full TradingService parity
-     */
-    /**
-     * Set backtest broker for all strategies (deprecated — use setBacktestTradingService).
-     * @deprecated Use setBacktestTradingService instead for full TradingService parity
-     */
-    @Deprecated
-    public static void setBacktestBroker(OrderExecutor broker) {
-        if (broker == null) {
-            throw new IllegalArgumentException("Backtest broker cannot be null");
-        }
-        BaseStrategy.backtestBroker = broker;
-    }
-
-    /**
-     * Clear backtest broker reference.
-     * Called by BacktestRunner after simulation completes.
-     */
-    @Deprecated
-    public static void clearBacktestBroker() {
-        BaseStrategy.backtestBroker = null;
-    }
-
-    /**
-     * Set backtest TradingService for all strategies.
-     * Called by BacktestRunner before starting simulation.
-     */
-    public static void setBacktestTradingService(TradingService service) {
-        if (service == null) {
-            throw new IllegalArgumentException("Backtest TradingService cannot be null");
-        }
-        BaseStrategy.backtestTradingService = service;
-    }
-
-    /**
-     * Check if currently running in backtest mode.
-     * @return true if backtest broker or trading service is set
-     */
-    protected static boolean isBacktestMode() {
-        return backtestBroker != null || backtestTradingService != null;
+    protected boolean isBacktestMode() {
+        return inBacktestMode;
     }
 
     protected BaseStrategy(
@@ -327,14 +273,29 @@ protected static final LocalTime WORK_START_TIME = LocalTime.of(10, 0);
             Config config,
             TimeProvider timeProvider,
             MainConfig mainConfig) {
+        this(unifiedTraderConfig, tradingService, config, timeProvider, mainConfig, null, null);
+    }
+
+    protected BaseStrategy(
+            UnifiedTraderConfig unifiedTraderConfig,
+            TradingService tradingService,
+            Config config,
+            TimeProvider timeProvider,
+            MainConfig mainConfig,
+            TradingService backtestTradingService,
+            Map<String, List<Candle>> peerCandles) {
         this.config = config;
         this.mainConfig = mainConfig;
-        // Use backtestTradingService if set (backtest mode), otherwise wrap live service with cache
+        this.inBacktestMode = backtestTradingService != null;
+        // Use backtestTradingService if provided (backtest mode), otherwise wrap live service with cache
         this.tradingService = backtestTradingService != null
                 ? backtestTradingService
                 : new TradingServiceCache(tradingService);
         this.unifiedTraderConfig = unifiedTraderConfig;
         this.timeProvider = timeProvider != null ? timeProvider : new LiveTimeProvider();
+        if (peerCandles != null) {
+            this.peerCandles = new ConcurrentHashMap<>(peerCandles);
+        }
 
         this.marketDataProvider = new LiveMarketDataProvider(this.tradingService);
         this.orderExecutor = new LiveOrderExecutor(this.tradingService);
@@ -346,20 +307,6 @@ protected static final LocalTime WORK_START_TIME = LocalTime.of(10, 0);
                         : config.badWeatherFilterEnabled;
         this.badWeatherFilter = new BadWeatherFilter(bwFilterEnabled);
         this.marketRegimeFilter = new MarketRegimeFilter(config.marketRegimeFilterEnabled);
-    }
-
-    public void setPeerCandles(Map<String, List<Candle>> peerCandles) {
-        this.peerCandles =
-                peerCandles != null
-                        ? new ConcurrentHashMap<>(peerCandles)
-                        : new ConcurrentHashMap<>();
-    }
-
-    /**
-     * Set position for a ticker (used in backtest for TMON@ cash parking sync).
-     */
-    public void setPosition(String ticker, Position position) {
-        positionStore.put(ticker, position);
     }
 
     /**
@@ -2012,7 +1959,7 @@ protected static final LocalTime WORK_START_TIME = LocalTime.of(10, 0);
         }
     }
 
-    protected static void log(String message) {
+    protected void log(String message) {
         log(message, isBacktestMode());
     }
 

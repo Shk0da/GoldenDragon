@@ -272,6 +272,11 @@ class BaseStrategyOpenPositionTest {
         void processTick(String name) {
             processTicker(name, tradingService, unifiedTraderConfig, 0.0);
         }
+
+        // Expose protected positionStore for test assertions (test-only method)
+        Map<String, Position> getPositionStore() {
+            return positionStore;
+        }
     }
 
     /** Minimal TradingService fake recording order values and SL/TP percents. */
