@@ -824,10 +824,12 @@ public class SimulatedBroker implements MarketDataProvider, OrderExecutor {
 
         // Stop-loss takes precedence over take-profit on the same bar.
         if (slHit) {
-            return closePosition(ticker, pos, currentBar.close, currentBar.time, "sl_hit");
+            // Close at SL price level, not bar.close (parity with live stop-order execution)
+            return closePosition(ticker, pos, sl, currentBar.time, "sl_hit");
         }
         if (tpHit) {
-            return closePosition(ticker, pos, currentBar.close, currentBar.time, "tp_hit");
+            // Close at TP price level, not bar.close (parity with live take-profit execution)
+            return closePosition(ticker, pos, tp, currentBar.time, "tp_hit");
         }
         return null;
     }

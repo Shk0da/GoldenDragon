@@ -44,6 +44,7 @@ import java.util.Properties;
 import java.util.Set;
 import java.util.TreeSet;
 import java.util.concurrent.Callable;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -74,7 +75,7 @@ import java.util.concurrent.Future;
  * <ul>
  *   <li>PnL reconciliation: sum(trade.pnl) + tmonParkingPnl ≈ finalCash - initialBalance - totalDeposits.
  *   <li>Opens == Closes (все позиции закрыты).
- *   <li>concurrentPeak &le; {@link #MAX_CONCURRENT_POSITIONS}.
+ *   <li>concurrentPeak &le; unifiedTrader.maxConcurrentPositions (из конфига).
  *   <li>Final equity ≈ finalCash (после closeAll позиций нет), отдельный жёсткий допуск.
  * </ul>
  */
@@ -83,7 +84,6 @@ public class BacktestRunner {
     private static final DateTimeFormatter DATE_TIME_FMT =
         DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm:ss");
     private static final int MIN_HOURS_REQUIRED = 10;
-    private static final int MAX_CONCURRENT_POSITIONS = 8;
     private static final LocalTime WORK_START_TIME = LocalTime.of(8, 30);
     private static final LocalTime EOD_CLOSE_TIME = LocalTime.of(18, 50);
     private static final String BACKTEST_MODE = System.getProperty("backtest.mode", "full");
@@ -103,6 +103,9 @@ public class BacktestRunner {
      * Parking ticker for cash parking: TMON@ (Tinkoff money market ETF).
      */
     private String parkingTickerForBacktest = "TMON@";
+
+    /** Pending entry decisions to execute on the next bar (avoids intra-bar look-ahead). */
+    private final Map<String, TradingDecision> pendingEntries = new ConcurrentHashMap<>();
 
     public static class RawCandle {
         public final String time;
@@ -832,7 +835,7 @@ public class BacktestRunner {
             config.getBacktestDefaultSlPercent(),
             config.getBacktestDefaultTpPercent(),
             config.getBacktestShortMarginRatio(),
-            config.getBacktestMaxConcurrentPositions()
+            config.getMaxConcurrentPositions()
         );
         for (MarketDataLoadResult loadResult : loadedMarketData) {
             broker.loadCandles(loadResult.ticker, "HOUR", loadResult.hourCandles);
@@ -1011,12 +1014,32 @@ public class BacktestRunner {
                     TradingDecision decision = strategy.decide(
                         ticker, hourHistory, marketData.minuteCandles.subList(minuteFromIdx, idx + 1),
                         brokerPos.position, effectiveBalance, hourChanged);
-                    int beforeDecision = broker.getTradeHistory().size();
-                    executeDecisionViaBroker(ticker, strategy, decision, current, broker, cooldownCandles);
-                    lastProcessedTradeCount =
-                            processNewClosedTrades(strategy, broker, beforeDecision, lastProcessedTradeCount);
-                    brokerPos = broker.getPositionState(ticker);
-                    strategy.getPositionStore().put(ticker, brokerPos.position);
+
+                    // Execute pending entry from the previous bar (avoids intra-bar look-ahead)
+                    TradingDecision pendingDecision = pendingEntries.get(ticker);
+                    if (pendingDecision != null && "OPEN".equals(pendingDecision.action)) {
+                        // Execute on the current bar (which is the NEXT bar after the signal)
+                        int beforePending = broker.getTradeHistory().size();
+                        executeDecisionViaBroker(ticker, strategy, pendingDecision, current, broker, cooldownCandles);
+                        lastProcessedTradeCount =
+                                processNewClosedTrades(strategy, broker, beforePending, lastProcessedTradeCount);
+                        brokerPos = broker.getPositionState(ticker);
+                        strategy.getPositionStore().put(ticker, brokerPos.position);
+                        pendingEntries.remove(ticker);
+                    }
+
+                    // Store new OPEN decision for execution on the next bar
+                    if (decision != null && "OPEN".equals(decision.action)) {
+                        pendingEntries.put(ticker, decision);
+                    } else if (decision != null && !"OPEN".equals(decision.action)) {
+                        // Non-OPEN decisions (CLOSE, HOLD, PARTIAL_CLOSE) execute immediately
+                        int beforeDecision = broker.getTradeHistory().size();
+                        executeDecisionViaBroker(ticker, strategy, decision, current, broker, cooldownCandles);
+                        lastProcessedTradeCount =
+                                processNewClosedTrades(strategy, broker, beforeDecision, lastProcessedTradeCount);
+                        brokerPos = broker.getPositionState(ticker);
+                        strategy.getPositionStore().put(ticker, brokerPos.position);
+                    }
                 }
                 minuteIndexByTicker.put(ticker, idx + 1);
             }
@@ -1093,7 +1116,8 @@ public class BacktestRunner {
             totalDeposits,
             tmonParkingPnl,
             concurrentPeak,
-            portfolioEquity);
+            portfolioEquity,
+            config);
         Map<String, TickerPeriodResult> tickerResults = new LinkedHashMap<>();
         int totalTrades = 0;
         int winningTrades = 0;
@@ -1807,7 +1831,8 @@ public class BacktestRunner {
         double totalDeposits,
         double tmonParkingPnl,
         int concurrentPeak,
-        List<EquityPoint> portfolioEquity) {
+        List<EquityPoint> portfolioEquity,
+        UnifiedTraderConfig config) {
         double totalTradePnl = 0.0;
         int totalOpens = 0;
         int totalCloses = 0;
@@ -1837,9 +1862,10 @@ public class BacktestRunner {
             System.err.println("⚠️  BACKTEST VERIFICATION WARNING: Opens != Closes");
             System.err.println("   Opens: " + totalOpens + ", Closes: " + totalCloses);
         }
-        if (concurrentPeak > MAX_CONCURRENT_POSITIONS) {
+        int maxConcurrent = config.getMaxConcurrentPositions();
+        if (concurrentPeak > maxConcurrent) {
             System.err.println("⚠️  BACKTEST VERIFICATION WARNING: concurrentPeak exceeded MAX");
-            System.err.println("   Peak: " + concurrentPeak + ", MAX: " + MAX_CONCURRENT_POSITIONS);
+            System.err.println("   Peak: " + concurrentPeak + ", MAX: " + maxConcurrent);
         }
         // Правка 4: жёсткий абсолютный допуск для final equity vs cash.
         final double PORTFOLIO_TOLERANCE = 1.0;

@@ -257,7 +257,7 @@ import static java.util.concurrent.CompletableFuture.runAsync;
         return positionStore;
     }
 
-    protected static final int MAX_CONCURRENT_POSITIONS = 8; // Максимум 8 одновременных позиций
+
 
     /**
      * Set backtest broker for all strategies.
@@ -758,7 +758,8 @@ import static java.util.concurrent.CompletableFuture.runAsync;
             TradingDecision decision;
             // Skip decision computation when max concurrent positions reached
             long currentPositionCount = positionStore.values().stream().filter(pos -> pos.quantity > 0).count();
-            if (currentPositionCount < MAX_CONCURRENT_POSITIONS) {
+            int maxConcurrent = unifiedTraderConfig.getMaxConcurrentPositions();
+            if (currentPositionCount < maxConcurrent) {
                 decision = decide(name, hourCandles, minuteCandles, storedPosition, effectiveBalance, hourChanged);
             } else {
                 decision = new TradingDecision("HOLD", "MAX_CONCURRENT_POSITIONS");
@@ -976,11 +977,12 @@ import static java.util.concurrent.CompletableFuture.runAsync;
         long currentPositionCount =
                 positionStore.values().stream().filter(pos -> pos.quantity > 0).count();
 
-        if (currentPositionCount >= MAX_CONCURRENT_POSITIONS) {
+        int maxConcurrent = unifiedTraderConfig.getMaxConcurrentPositions();
+        if (currentPositionCount >= maxConcurrent) {
             logOpenCandidateSkipped(name, "max_concurrent_positions_reached", decision);
             logThrottled(name + "MAX_CONCURRENT_POSITIONS",
                     "Maximum concurrent positions reached ("
-                            + MAX_CONCURRENT_POSITIONS
+                            + maxConcurrent
                             + "), skipping "
                             + name, 10);
             return;
@@ -2229,8 +2231,9 @@ import static java.util.concurrent.CompletableFuture.runAsync;
                         && weights.containsKey(parkingTicker)
                         && unifiedTraderConfig.isTmonCashParkingEnabled();
 
-        // Each position gets totalCash / MAX_CONCURRENT_POSITIONS, not totalCash / tickers.size()
-        double capitalPerPosition = totalCash / MAX_CONCURRENT_POSITIONS;
+        // Each position gets totalCash / maxConcurrent, not totalCash / tickers.size()
+        int maxConcurrent = unifiedTraderConfig.getMaxConcurrentPositions();
+        double capitalPerPosition = totalCash / maxConcurrent;
 
         Map<String, Double> allocation = new HashMap<>();
         for (Map.Entry<String, Double> e : weights.entrySet()) {

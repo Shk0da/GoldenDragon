@@ -527,12 +527,12 @@ public class UnifiedTraderConfig {
     }
 
     /**
-     * Maximum concurrent positions for backtest.
-     * Mirrors SimulatedBroker.MAX_CONCURRENT_POSITIONS
+     * Maximum concurrent positions (live + backtest).
+     * TMON@ cash parking excluded from this limit.
      */
-    public int getBacktestMaxConcurrentPositions() {
+    public int getMaxConcurrentPositions() {
         return Integer.parseInt(
-            properties.getProperty("unifiedTrader.backtest.maxConcurrentPositions", "8"));
+            properties.getProperty("unifiedTrader.maxConcurrentPositions", "8"));
     }
 
     /**

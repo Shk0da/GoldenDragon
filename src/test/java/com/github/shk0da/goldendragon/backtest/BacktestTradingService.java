@@ -114,11 +114,20 @@ public class BacktestTradingService implements TradingService {
         }
         TickerInfo info = TickerRepository.INSTANCE.getByName(name);
         int lotSize = info != null && info.getLot() != null ? Math.max(1, info.getLot()) : 1;
-        int quantity = (int) (cashToBuy / (bar.close * lotSize));
+        // Round quantity to lots (parity with live TCSService.calculateTradeCount)
+        int quantity = calculateTradeCount(new TickerInfo.Key(name, type), cashToBuy, bar.close);
         if (quantity <= 0) {
             return OrderExecutionResult.failed("Insufficient cash");
         }
-        return convertResult(broker.buy(name, quantity, stopLose, takeProfit));
+        // Convert absolute SL/TP prices to percentages (parity with live TCSService interpretation)
+        // stopLose/takeProfit = 0 means no SL/TP set
+        double slPercent = (stopLose > 0 && bar.close > 0)
+            ? Math.abs(bar.close - stopLose) / bar.close * 100
+            : 0;
+        double tpPercent = (takeProfit > 0 && bar.close > 0)
+            ? Math.abs(takeProfit - bar.close) / bar.close * 100
+            : 0;
+        return convertResult(broker.buy(name, quantity, slPercent, tpPercent));
     }
 
     @Override
@@ -130,11 +139,20 @@ public class BacktestTradingService implements TradingService {
         }
         TickerInfo info = TickerRepository.INSTANCE.getByName(name);
         int lotSize = info != null && info.getLot() != null ? Math.max(1, info.getLot()) : 1;
-        int quantity = (int) (cashToSell / (bar.close * lotSize));
+        // Round quantity to lots (parity with live TCSService.calculateTradeCount)
+        int quantity = calculateTradeCount(new TickerInfo.Key(name, type), cashToSell, bar.close);
         if (quantity <= 0) {
             return OrderExecutionResult.failed("Insufficient cash");
         }
-        return convertResult(broker.sell(name, quantity, stopLose, takeProfit));
+        // Convert absolute SL/TP prices to percentages (parity with live TCSService interpretation)
+        // stopLose/takeProfit = 0 means no SL/TP set
+        double slPercent = (stopLose > 0 && bar.close > 0)
+            ? Math.abs(bar.close - stopLose) / bar.close * 100
+            : 0;
+        double tpPercent = (takeProfit > 0 && bar.close > 0)
+            ? Math.abs(takeProfit - bar.close) / bar.close * 100
+            : 0;
+        return convertResult(broker.sell(name, quantity, slPercent, tpPercent));
     }
 
     @Override

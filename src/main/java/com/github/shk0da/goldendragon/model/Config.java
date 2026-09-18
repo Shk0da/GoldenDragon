@@ -121,7 +121,7 @@ public class Config {
         this.mmWinsToRestore = 5;
         this.mmRiskReductionFactor = 0.5;
         this.mmCriticalDrawdownPercent = 0.15;
-        this.mmMaxPositionSize = 0.20;
+        this.mmMaxPositionSize = 0.15;
         this.shortsEnabled = shortsEnabled;
 
         // Trailing Stop defaults
@@ -191,7 +191,7 @@ public class Config {
         this.mmWinsToRestore = 5;
         this.mmRiskReductionFactor = 0.5;
         this.mmCriticalDrawdownPercent = 0.10;
-        this.mmMaxPositionSize = 0.25;
+        this.mmMaxPositionSize = 0.15;
         this.shortsEnabled = false;
 
         // Trailing Stop defaults
