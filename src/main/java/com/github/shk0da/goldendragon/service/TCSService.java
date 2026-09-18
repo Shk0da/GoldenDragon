@@ -1,5 +1,7 @@
 package com.github.shk0da.goldendragon.service;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.shk0da.goldendragon.config.MainConfig;
 import com.github.shk0da.goldendragon.model.Candle;
 import com.github.shk0da.goldendragon.model.MarketDepthLevel;
@@ -336,7 +338,7 @@ public class TCSService implements TradingService {
                             int count = ticker.getBalance();
                             String name = ticker.getTicker();
                             if (count > 0) {
-                                var message = formatTradeLog("Sell", name, count, type, "Market");
+                                String message = formatTradeLog("Sell", name, count, type, "Market");
                                 log(message);
                                 if (mainConfig.isTestMode()) {
                                     return;
@@ -344,7 +346,7 @@ public class TCSService implements TradingService {
                                 createOrder(new TickerInfo.Key(name, type), 0.0, count, "Sell");
                             }
                             if (count < 0) {
-                                var message =
+                                String message =
                                         formatTradeLog(
                                                 "Buy", name, Math.abs(count), type, "Market");
                                 log(message);
@@ -517,7 +519,7 @@ public class TCSService implements TradingService {
             double takeProfit,
             double stopLose,
             boolean isFullPrice) {
-        var key = new TickerInfo.Key(name, type);
+        TickerInfo.Key key = new TickerInfo.Key(name, type);
 
         String basicCurrency = "RUB";
         String currency = searchTicker(key).getCurrency();
@@ -605,7 +607,7 @@ public class TCSService implements TradingService {
             return false;
         }
 
-        var key = new TickerInfo.Key(name, type);
+        TickerInfo.Key key = new TickerInfo.Key(name, type);
 
         String basicCurrency = "RUB";
         String currency = searchTicker(key).getCurrency();
@@ -697,7 +699,7 @@ public class TCSService implements TradingService {
             double takeProfit,
             double stopLose,
             boolean isFullPrice) {
-        var key = new TickerInfo.Key(name, type);
+        TickerInfo.Key key = new TickerInfo.Key(name, type);
 
         String basicCurrency = "RUB";
         String currency = searchTicker(key).getCurrency();
@@ -1343,7 +1345,7 @@ public class TCSService implements TradingService {
                 stopOrderDirection,
                 STOP_ORDER_TYPE_STOP_LOSS);
             if (stopOrderId != null) {
-                var protectiveOrders = protectiveOrdersByTicker.computeIfAbsent(key, ignored -> new ProtectiveOrders());
+                ProtectiveOrders protectiveOrders = protectiveOrdersByTicker.computeIfAbsent(key, ignored -> new ProtectiveOrders());
                 protectiveOrders.stopLossOrderId = stopOrderId;
                 protectiveOrders.stopLossPrice =slPrice;
                 log(key.getTicker() + " | SL order placed: lots=" + quantity + ", price=" + slPrice);
@@ -1425,8 +1427,8 @@ public class TCSService implements TradingService {
                 return null;
             }
 
-            var objectMapper = new com.fasterxml.jackson.databind.ObjectMapper();
-            var json = objectMapper.readTree(response.body());
+            ObjectMapper objectMapper = new ObjectMapper();
+            JsonNode json = objectMapper.readTree(response.body());
             String stopOrderId = json.path("stopOrderId").asText(null);
             if (stopOrderId == null || stopOrderId.isEmpty()) {
                 log("Missing stopOrderId in response: " + response.body());
@@ -1449,13 +1451,21 @@ public class TCSService implements TradingService {
         if (stopOrderId == null || stopOrderId.isBlank()) {
             return;
         }
+        if (key == null || key.getTicker() == null) {
+            log("WARN: cancelStopOrder called with null key, skipping cancel for " + stopOrderId);
+            return;
+        }
+        if (orderTypeName == null || orderTypeName.isBlank()) {
+            log("WARN: cancelStopOrder called with null orderTypeName for " + stopOrderId);
+            return;
+        }
         try {
             investApi
                     .getStopOrdersService()
                     .cancelStopOrderSync(mainConfig.getTcsAccountId(), stopOrderId);
             log(key.getTicker() + " " + orderTypeName + " cancelled: " + stopOrderId);
         } catch (Exception ex) {
-            var error =
+            String error =
                     "Failed cancel "
                             + orderTypeName
                             + " for "
@@ -1542,12 +1552,22 @@ public class TCSService implements TradingService {
 
     private String formatTradeLog(
             String operation, String ticker, int count, TickerType type, String details) {
+        if (operation == null || operation.isEmpty()) {
+            throw new IllegalArgumentException("Operation cannot be null or empty");
+        }
+        if (ticker == null || ticker.isEmpty()) {
+            throw new IllegalArgumentException("Ticker cannot be null or empty");
+        }
+        if (type == null) {
+            throw new IllegalArgumentException("TickerType cannot be null");
+        }
+
         int normalizedCount = Math.abs(count);
         int lot = 1;
         try {
             lot = Math.max(1, searchTicker(new TickerInfo.Key(ticker, type)).getLot());
-        } catch (Exception ignored) {
-            // keep default lot
+        } catch (Exception e) {
+            log("WARN: Failed to get lot size for " + ticker + ", using default lot=1: " + e.getMessage());
         }
         int quantity = normalizedCount * lot;
         return String.format(
@@ -1986,11 +2006,11 @@ public class TCSService implements TradingService {
                             TickerInfo tickerInfo = searchTicker(tickerKey.get());
                             if (null != tickerInfo
                                     && "RUB".equals(tickerInfo.getCurrency())) {
-                                var expectedYield = it.getExpectedYield().doubleValue();
+                                Double expectedYield = it.getExpectedYield().doubleValue();
                                 if (0.0 == expectedYield) {
-                                    var currentPrice =
+                                    Double currentPrice =
                                             it.getCurrentPrice().getValue().doubleValue();
-                                    var averagePositionPrice =
+                                    Double averagePositionPrice =
                                             it.getAveragePositionPriceFifo()
                                                     .getValue()
                                                     .doubleValue();
@@ -2100,11 +2120,17 @@ public class TCSService implements TradingService {
      * @return FIGI identifier string
      */
     public String figiByName(TickerInfo.Key key) {
+        if (key == null || key.getTicker() == null || key.getType() == null) {
+            throw new IllegalArgumentException("TickerInfo.Key cannot be null, ticker or type must not be null");
+        }
         if (figiRepository.containsKey(key)) {
             return figiRepository.getById(key);
         }
-        var ticker = searchTicker(key);
-        var figi = ticker.getFigi();
+        TickerInfo ticker = searchTicker(key);
+        if (ticker == null || ticker.getFigi() == null) {
+            throw new IllegalArgumentException("Ticker not found or missing FIGI: " + key.getTicker());
+        }
+        String figi = ticker.getFigi();
         figiRepository.insert(key, figi);
         return figi;
     }
@@ -2148,7 +2174,7 @@ public class TCSService implements TradingService {
         long value = count;
         double tickerPrice = 0.0;
 
-        var glass = getCurrentPrices(key, isPrintGlass).get(type).entrySet();
+        Set<Map.Entry<Double, Long>> glass = getCurrentPrices(key, isPrintGlass).get(type).entrySet();
         if ("asks".equals(type)) {
             glass =
                     glass.stream()
@@ -2541,7 +2567,7 @@ public class TCSService implements TradingService {
                     / 1000.0;
         }
 
-        var key = new TickerInfo.Key(currencyTicker, com.github.shk0da.goldendragon.model.TickerType.CURRENCY);
+        TickerInfo.Key key = new TickerInfo.Key(currencyTicker, com.github.shk0da.goldendragon.model.TickerType.CURRENCY);
         TickerInfo currencyTickerInfo = searchTicker(key);
         if (basicCurrency.equals(currencyTickerInfo.getCurrency())) {
             return round((price / getAvailablePrice(key)) * 100000) / 100000.0;
@@ -2573,6 +2599,10 @@ public class TCSService implements TradingService {
      */
     @Override
     public List<Map<String, Object>> getTradeHistory(Instant since) {
+        if (since == null) {
+            log("WARN: getTradeHistory called with null since parameter, using 7 days ago");
+            since = Instant.now().minus(java.time.Duration.ofDays(7));
+        }
         try {
             // Retry with exponential backoff for 429 errors
             int maxRetries = 3;
@@ -2583,10 +2613,15 @@ public class TCSService implements TradingService {
                 if (result != null) {
                     return result;
                 }
+                log("Trade history rate limited (429), retry " + (attempt + 1) + "/" + maxRetries);
                 if (attempt < maxRetries - 1) {
                     Thread.sleep(retryDelayMs * (attempt + 1));
                 }
             }
+            return emptyList();
+        } catch (InterruptedException ie) {
+            Thread.currentThread().interrupt();
+            log("Trade history fetch interrupted");
             return emptyList();
         } catch (Exception ex) {
             log("Failed to get trade history after retries: " + ex.getMessage());
@@ -2595,6 +2630,9 @@ public class TCSService implements TradingService {
     }
 
     private List<Map<String, Object>> fetchTradeHistory(Instant since) throws Exception {
+        if (since == null) {
+            throw new IllegalArgumentException("since parameter cannot be null");
+        }
         Instant now = Instant.now();
         String fromParam = java.time.format.DateTimeFormatter.ISO_INSTANT.format(since);
         String toParam = java.time.format.DateTimeFormatter.ISO_INSTANT.format(now);
@@ -2622,7 +2660,6 @@ public class TCSService implements TradingService {
                 MainConfig.httpClient.send(request, HttpResponse.BodyHandlers.ofString());
 
         if (response.statusCode() == 429) {
-            log("Rate limited (429), will retry...");
             return null; // signal to retry
         }
 
@@ -2631,10 +2668,10 @@ public class TCSService implements TradingService {
             return emptyList();
         }
 
-        var objectMapper = new com.fasterxml.jackson.databind.ObjectMapper();
-        var json = objectMapper.readTree(response.body());
+        ObjectMapper objectMapper = new ObjectMapper();
+        JsonNode json = objectMapper.readTree(response.body());
         // GetOperationsByCursor returns 'items' array, not 'operations'
-        var operationsNode = json.has("operations") ? json.path("operations") : json.path("items");
+        JsonNode operationsNode = json.has("operations") ? json.path("operations") : json.path("items");
 
         if (!operationsNode.isArray()) {
             log("No 'items' array in response: " + response.body());
@@ -2643,7 +2680,7 @@ public class TCSService implements TradingService {
 
         List<Map<String, Object>> trades = new ArrayList<>();
 
-        for (var op : operationsNode) {
+        for (JsonNode op : operationsNode) {
             String type = op.path("type").asText("");
             if ("OPERATION_TYPE_BUY".equals(type) || "OPERATION_TYPE_SELL".equals(type)) {
                 Map<String, Object> trade = new LinkedHashMap<>();
@@ -2675,7 +2712,7 @@ public class TCSService implements TradingService {
                 trade.put("quantity", op.path("quantity").asInt(0));
 
                 // Parse price from {units, nano} object
-                var priceNode = op.path("price");
+                JsonNode priceNode = op.path("price");
                 double price = 0.0;
                 if (priceNode.has("units")) {
                     long units = priceNode.path("units").asLong(0);
@@ -2696,9 +2733,9 @@ public class TCSService implements TradingService {
         return trades;
     }
 
-    private double parseYieldFromJson(com.fasterxml.jackson.databind.JsonNode op) {
+    private double parseYieldFromJson(JsonNode op) {
         // Use 'yield' field from API - this is the actual PnL in RUB
-        var yieldNode = op.path("yield");
+        JsonNode yieldNode = op.path("yield");
         if (yieldNode.has("units")) {
             long units = yieldNode.path("units").asLong(0);
             int nano = yieldNode.path("nano").asInt(0);

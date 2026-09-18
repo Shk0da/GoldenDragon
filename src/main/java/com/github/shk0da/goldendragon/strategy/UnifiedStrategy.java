@@ -188,6 +188,22 @@ public class UnifiedStrategy extends BaseStrategy {
     // Track consecutive losses per ticker for entry cooldown
     private final ConcurrentMap<String, Integer> consecutiveLossTracker = new ConcurrentHashMap<>();
 
+    // Liquidity cache: ticker -> {liquidity, timestamp} to avoid repeated order book reads
+    private static final long LIQUIDITY_CACHE_TTL_MS = 5000; // 5 seconds
+    private final ConcurrentMap<String, LiquidityCacheEntry> liquidityCache = new ConcurrentHashMap<>();
+
+    private static class LiquidityCacheEntry {
+        final int liquidity;
+        final long timestamp;
+        LiquidityCacheEntry(int liquidity, long timestamp) {
+            this.liquidity = liquidity;
+            this.timestamp = timestamp;
+        }
+        boolean isExpired() {
+            return System.currentTimeMillis() - timestamp > LIQUIDITY_CACHE_TTL_MS;
+        }
+    }
+
     // Regime Filter (migrated from RegimeAwareStrategy)
     private final boolean regimeFilterEnabled;
     private final String regimeFilterMode;
@@ -981,8 +997,6 @@ public class UnifiedStrategy extends BaseStrategy {
     }
 
     private int calculateAvailableLiquidity(String ticker, boolean isBuy, List<Candle> hourCandles) {
-        // In backtest mode, cap the position by a fraction of recently traded volume so results
-        // reflect realistic MOEX liquidity instead of idealized fills.
         if (BaseStrategy.isBacktestMode()) {
             if (hourCandles == null || hourCandles.isEmpty()) {
                 return 0;
@@ -994,13 +1008,18 @@ public class UnifiedStrategy extends BaseStrategy {
                 sumVolume += c.volume;
             }
             double avgHourlyVolume = sumVolume / (double) n;
-            // Assume ~5% of hourly volume is fillable without moving the market.
             double fillable = avgHourlyVolume * 0.05;
             return fillable > Integer.MAX_VALUE ? Integer.MAX_VALUE : (int) fillable;
         }
 
         if (tradingService == null) {
             return Integer.MAX_VALUE;
+        }
+
+        String cacheKey = ticker + ":" + (isBuy ? "asks" : "bids");
+        LiquidityCacheEntry cached = liquidityCache.get(cacheKey);
+        if (cached != null && !cached.isExpired()) {
+            return cached.liquidity;
         }
 
         TickerInfo tickerInfo = resolveTickerInfo(ticker);
@@ -1020,7 +1039,9 @@ public class UnifiedStrategy extends BaseStrategy {
             }
 
             long sum = levels.values().stream().mapToLong(Long::longValue).sum();
-            return sum > Integer.MAX_VALUE ? Integer.MAX_VALUE : (int) sum;
+            int result = sum > Integer.MAX_VALUE ? Integer.MAX_VALUE : (int) sum;
+            liquidityCache.put(cacheKey, new LiquidityCacheEntry(result, System.currentTimeMillis()));
+            return result;
         } catch (Exception ex) {
             log("Failed to read " + side + " for " + ticker + ": " + ex.getMessage());
             return 0;

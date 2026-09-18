@@ -832,8 +832,45 @@ public class TradeCouncilStrategy extends BaseStrategy {
                 .header("Authorization", "Bearer " + tcConfig.getOpenAiApiKey())
                 .POST(HttpRequest.BodyPublishers.ofString(jsonBody)).build();
 
-            try {
-                String response = client.send(req, HttpResponse.BodyHandlers.ofString()).body();
+            int maxRetries = 3;
+            int retryDelayMs = 2000;
+            HttpResponse<String> httpResponse = null;
+            Exception lastException = null;
+
+            for (int attempt = 1; attempt <= maxRetries; attempt++) {
+                try {
+                    httpResponse = client.send(req, HttpResponse.BodyHandlers.ofString());
+                    if (httpResponse.statusCode() == 429) {
+                        long jitter = java.util.concurrent.ThreadLocalRandom.current().nextLong(retryDelayMs / 2, retryDelayMs);
+                        log("LLM API rate limited (429), retry " + attempt + "/" + maxRetries + " after " + (retryDelayMs + jitter) + "ms...");
+                        Thread.sleep(retryDelayMs + jitter);
+                        retryDelayMs = Math.min(retryDelayMs * 2, 10000);
+                        continue;
+                    }
+                    break;
+                } catch (Exception e) {
+                    lastException = e;
+                    if (attempt < maxRetries) {
+                        long jitter = java.util.concurrent.ThreadLocalRandom.current().nextLong(retryDelayMs / 2, retryDelayMs);
+                        log("LLM API call failed (attempt " + attempt + "/" + maxRetries + "): " + e.getMessage() + ", retrying in " + (retryDelayMs + jitter) + "ms...");
+                        try {
+                            Thread.sleep(retryDelayMs + jitter);
+                            retryDelayMs = Math.min(retryDelayMs * 2, 10000);
+                        } catch (InterruptedException ie) {
+                            Thread.currentThread().interrupt();
+                            throw new IOException("LLM API call interrupted", ie);
+                        }
+                    }
+                }
+            }
+
+            if (httpResponse == null) {
+                log("LLM API call failed after " + maxRetries + " attempts: " + (lastException != null ? lastException.getMessage() : "unknown error"));
+                throw lastException != null ? lastException : new IOException("LLM API call failed after " + maxRetries + " attempts");
+            }
+
+            {
+                String response = httpResponse.body();
 
                 try {
                     JsonObject respObj = JsonParser.parseString(response).getAsJsonObject();
@@ -851,8 +888,6 @@ public class TradeCouncilStrategy extends BaseStrategy {
                     log("LLM parse error: " + e.getMessage());
                     log("LLM raw response: " + response);
                 }
-            } catch (Exception e) {
-                log("LLM call failed: " + e.getMessage());
             }
 
             return "NO_RESPONSE";

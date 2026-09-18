@@ -27,7 +27,7 @@ public final class SerializationUtils {
     private static volatile Gson gsonInstance;
 
     static {
-        var tickerInfoToken = new TypeToken<TickerInfo.Key>() {};
+        TypeToken<TickerInfo.Key> tickerInfoToken = new TypeToken<TickerInfo.Key>() {};
         gsonBuilder.registerTypeAdapter(
                 tickerInfoToken.getType(),
                 (JsonDeserializer<TickerInfo.Key>)

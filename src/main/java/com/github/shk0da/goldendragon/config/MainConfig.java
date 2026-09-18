@@ -38,6 +38,7 @@ public class MainConfig {
                 Boolean.parseBoolean(properties.getProperty("tcs.marketData.writeTicks", "false"));
         this.tcsAccountId = properties.getProperty("tcs.accountId");
         this.tcsApiKey = properties.getProperty("tcs.apiKey");
+        validateCredentials();
         this.tickerLotOverrides = loadTickerLotOverrides(properties);
         this.lossStreakEnabled =
                 Boolean.parseBoolean(properties.getProperty("killswitch.lossStreak.enabled", "true"));
@@ -99,5 +100,19 @@ public class MainConfig {
 
     public String getTcsApiKey() {
         return tcsApiKey;
+    }
+
+    private void validateCredentials() {
+        if (isTestMode || isSandbox) {
+            return;
+        }
+        if (tcsAccountId == null || tcsAccountId.isEmpty()) {
+            throw new IllegalStateException(
+                    "Tinkoff account ID is not configured. Set tcs.accountId in application.properties");
+        }
+        if (tcsApiKey == null || tcsApiKey.isEmpty()) {
+            throw new IllegalStateException(
+                    "Tinkoff API key is not configured. Set tcs.apiKey in application.properties");
+        }
     }
 }

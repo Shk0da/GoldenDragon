@@ -226,14 +226,16 @@ import static java.util.concurrent.CompletableFuture.runAsync;
     protected final BadWeatherFilter badWeatherFilter;
     protected final MarketRegimeFilter marketRegimeFilter;
 
-    protected static final long COOLDOWN_DURATION_MS = 5 * 60 * 1000L;
-    protected static final long API_CALL_DELAY_MS = 100;
-    protected static final long TICKER_STAGGER_STEP_MS = 500;
-    protected static final long TICKER_STAGGER_JITTER_MS = 2_000;
-    protected static final Object API_LOCK = new Object();
-    protected static final int MIN_CANDLES_THRESHOLD = 5;
-
-    protected static final LocalTime WORK_START_TIME = LocalTime.of(10, 0);
+protected static final long COOLDOWN_DURATION_MS = 5 * 60 * 1000L;
+protected static final long API_CALL_DELAY_MS = 100;
+protected static final long TICKER_STAGGER_STEP_MS = 500;
+protected static final long TICKER_STAGGER_JITTER_MS = 2_000;
+protected static final Object API_LOCK = new Object();
+protected static final int MIN_CANDLES_THRESHOLD = 5;
+protected static final long TICKER_PROCESS_INTERVAL_MS = 30_000;
+protected static final long WORKER_REFRESH_INTERVAL_MS = 60_000;
+protected static final long CASH_SETTLEMENT_DELAY_MS = 3_000;
+protected static final LocalTime WORK_START_TIME = LocalTime.of(10, 0);
     // MOEX evening session close / Tinkoff market close - park cash immediately after
     protected static final LocalTime EOD_CLOSE_TIME = LocalTime.of(18, 50);
 
@@ -266,6 +268,9 @@ import static java.util.concurrent.CompletableFuture.runAsync;
      */
     @Deprecated
     public static void setBacktestBroker(OrderExecutor broker) {
+        if (broker == null) {
+            throw new IllegalArgumentException("Backtest broker cannot be null");
+        }
         BaseStrategy.backtestBroker = broker;
     }
 
@@ -274,6 +279,9 @@ import static java.util.concurrent.CompletableFuture.runAsync;
      * Called by BacktestRunner before starting simulation.
      */
     public static void setBacktestTradingService(TradingService service) {
+        if (service == null) {
+            throw new IllegalArgumentException("Backtest TradingService cannot be null");
+        }
         BaseStrategy.backtestTradingService = service;
     }
 
@@ -425,11 +433,11 @@ import static java.util.concurrent.CompletableFuture.runAsync;
 
         restoreTrackedPositions(activeTickers);
 
-        var initPortfolioCost = calculatePortfolioCostFromPositions();
+        double initPortfolioCost = calculatePortfolioCostFromPositions();
         if (initPortfolioCost <= 0.0) {
             initPortfolioCost = safeGetTotalPortfolioCost();
         }
-        var infoMessage =
+        String infoMessage =
                 getStrategyName() + " started. Total Portfolio Cost: " + initPortfolioCost;
         log(infoMessage);
 
@@ -456,14 +464,14 @@ import static java.util.concurrent.CompletableFuture.runAsync;
         while (!isWorkingHours() && isTradingDay() && !tradingHalted) {
             LocalTime now = timeProvider.now().toLocalTime();
             if (now.isBefore(WORK_START_TIME)) {
-                sleep(60_000);
+                sleep(WORKER_REFRESH_INTERVAL_MS);
             } else {
                 break;
             }
         }
 
         if (!isWorkingHours()) {
-            var message =
+            String message =
                     getStrategyName() + ": outside working hours, closing positions if needed.";
             log(message);
             closeAllPositions(tradingService, unifiedTraderConfig);
@@ -487,7 +495,7 @@ import static java.util.concurrent.CompletableFuture.runAsync;
                                     } catch (Exception ex) {
                                         log("Failed to refresh peer candles: " + ex.getMessage());
                                     }
-                                    sleep(60_000);
+                                    sleep(WORKER_REFRESH_INTERVAL_MS);
                                 }
                             },
                             executor));
@@ -509,7 +517,7 @@ import static java.util.concurrent.CompletableFuture.runAsync;
                                                 tradingService,
                                                 unifiedTraderConfig,
                                                 allocatedBalance);
-                                        sleep(30_000);
+                                        sleep(TICKER_PROCESS_INTERVAL_MS);
                                     }
                                 },
                                 executor));
@@ -525,7 +533,7 @@ import static java.util.concurrent.CompletableFuture.runAsync;
 
             // 3. Wait for cash to settle after closing positions
             try {
-                Thread.sleep(3_000);
+                Thread.sleep(CASH_SETTLEMENT_DELAY_MS);
                 log("EOD: Waiting for cash settlement before buying TMON@...");
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
@@ -549,8 +557,8 @@ import static java.util.concurrent.CompletableFuture.runAsync;
             }
             shutdownExecutor(executor);
 
-            var endPortfolioCost = safeGetTotalPortfolioCost();
-            var message = getStrategyName() + " stopped. Total Portfolio Cost: " + endPortfolioCost;
+            double endPortfolioCost = safeGetTotalPortfolioCost();
+            String message = getStrategyName() + " stopped. Total Portfolio Cost: " + endPortfolioCost;
             log(message);
         }
     }
@@ -801,6 +809,12 @@ import static java.util.concurrent.CompletableFuture.runAsync;
                 positionStore.put(name, decision.updatedPosition);
                 syncProtectiveOrdersIfNeeded(
                         name, ticker, storedPosition, decision.updatedPosition);
+            }
+
+            // Final EOD check before trade execution to prevent race condition
+            if (!isWorkingHours()) {
+                log("EOD: Trading hours ended, skipping trade execution for " + name);
+                return;
             }
 
             if ("OPEN".equals(decision.action)) {

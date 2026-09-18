@@ -23,7 +23,7 @@ public final class PropertiesUtils {
         final Properties properties = new Properties();
 
         ClassLoader classLoader = PropertiesUtils.class.getClassLoader();
-        try (var internalProperties = classLoader.getResourceAsStream(fileName)) {
+        try (java.io.InputStream internalProperties = classLoader.getResourceAsStream(fileName)) {
             if (null != internalProperties) {
                 properties.load(internalProperties);
             }
@@ -39,7 +39,7 @@ public final class PropertiesUtils {
 
         String externalPathProperties = System.getProperty(fileName);
         if (null != externalPathProperties && Files.exists(Path.of(externalPathProperties))) {
-            try (var externalProperties = new FileInputStream(externalPathProperties)) {
+            try (FileInputStream externalProperties = new FileInputStream(externalPathProperties)) {
                 properties.load(Objects.requireNonNull(externalProperties));
             }
         }

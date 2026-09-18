@@ -40,7 +40,7 @@ public class PositionInfo {
     }
 
     public static PositionInfo of(JsonObject jsonObject) {
-        var values =
+        java.util.Map<String, Object> values =
                 new LinkedHashMap<>() {
                     {
                         BiConsumer<String, Supplier<?>> putField =

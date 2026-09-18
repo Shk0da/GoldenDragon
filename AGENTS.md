@@ -132,6 +132,7 @@ fix it before finishing. A Risk Engineer failure is a blocker regardless of othe
 - Use named arguments where applicable.
 - Use `CONST == value` style for comparisons.
 - Use only full imports (no wildcards unless required).
+- Use short class names (e.g., `JsonNode json = ...`) instead of fully qualified names (e.g., `com.fasterxml.jackson.databind.JsonNode json = ...`). Add proper `import` statements.
 - Leave a blank line after class declarations.
 - Use at most one blank line between fields and functions.
 - In multi-line signatures, place a comma after each argument.
