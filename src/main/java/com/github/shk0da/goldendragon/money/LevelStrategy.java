@@ -79,11 +79,18 @@ public class LevelStrategy implements StopLossTakeProfitStrategy {
             }
         }
 
-        slDist = Math.min(slDist, dAtr * MAX_ATR_MULT);
-        tpDist = Math.min(tpDist, dAtr * MAX_ATR_MULT);
+        double maxSl = dAtr * MAX_ATR_MULT;
+        double maxTp = dAtr * MAX_ATR_MULT;
         
-        if (tpDist < slDist) {
-            tpDist = slDist;
+        if (slDist > maxSl || tpDist > maxTp) {
+            double ratio = tpDist / slDist;
+            slDist = Math.min(slDist, maxSl);
+            tpDist = slDist * ratio;
+            
+            if (tpDist > maxTp) {
+                tpDist = maxTp;
+                slDist = tpDist / ratio;
+            }
         }
 
         if (strongTrendAdjust(slDist, tpDist, adx) == null) {
