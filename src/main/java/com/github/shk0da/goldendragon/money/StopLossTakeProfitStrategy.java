@@ -22,6 +22,7 @@ public interface StopLossTakeProfitStrategy {
      * @param slMult stop-loss multiplier from config
      * @param tpMult take-profit multiplier from config
      * @param atrPeriod ATR period
+     * @param commission commission rate per side (e.g., 0.0005 for 0.05%)
      * @return SLTPResult with calculated distances, or null if calculation fails
      */
     SLTPResult calculate(
@@ -33,7 +34,8 @@ public interface StopLossTakeProfitStrategy {
             double adx,
             double slMult,
             double tpMult,
-            int atrPeriod);
+            int atrPeriod,
+            double commission);
 
     /**
      * Result of SL/TP calculation containing distances from entry price.

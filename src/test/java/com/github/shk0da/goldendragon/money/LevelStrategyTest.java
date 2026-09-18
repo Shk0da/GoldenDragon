@@ -19,9 +19,11 @@ class LevelStrategyTest {
     private static final double SL_MULT = 1.2;
     private static final double TP_MULT = 2.5;
     private static final int ATR_PERIOD = 14;
+    private static final double COMMISSION = 0.0005; // 0.05% per side
 
     private static final double MAX_TP_PERCENT = 0.015;
     private static final double MAX_ATR_MULT = 2.0;
+    private static final double MIN_TP_PERCENT = 0.001; // 0.1% to cover commission on round trip
 
     private final LevelStrategy strategy = new LevelStrategy();
 
@@ -66,7 +68,7 @@ class LevelStrategyTest {
             List<Candle> candles = createCandlesBetween(98.0, 101.0);
 
             StopLossTakeProfitStrategy.SLTPResult result = strategy.calculate(
-                    ENTRY_PRICE, true, candles, ATR, ATR, 25.0, SL_MULT, TP_MULT, ATR_PERIOD
+                    ENTRY_PRICE, true, candles, ATR, ATR, 25.0, SL_MULT, TP_MULT, ATR_PERIOD, COMMISSION
             );
 
             then(result).isNotNull();
@@ -80,7 +82,7 @@ class LevelStrategyTest {
             List<Candle> candles = createCandlesBetween(99.0, 102.0);
 
             StopLossTakeProfitStrategy.SLTPResult result = strategy.calculate(
-                    ENTRY_PRICE, false, candles, ATR, ATR, 25.0, SL_MULT, TP_MULT, ATR_PERIOD
+                    ENTRY_PRICE, false, candles, ATR, ATR, 25.0, SL_MULT, TP_MULT, ATR_PERIOD, COMMISSION
             );
 
             then(result).isNotNull();
@@ -94,7 +96,7 @@ class LevelStrategyTest {
             List<Candle> candles = createCandlesBetween(98.0, 101.0);
 
             StopLossTakeProfitStrategy.SLTPResult result = strategy.calculate(
-                    ENTRY_PRICE, true, candles, ATR, ATR, 25.0, SL_MULT, TP_MULT, ATR_PERIOD
+                    ENTRY_PRICE, true, candles, ATR, ATR, 25.0, SL_MULT, TP_MULT, ATR_PERIOD, COMMISSION
             );
 
             then(result).isNotNull();
@@ -107,7 +109,7 @@ class LevelStrategyTest {
             List<Candle> candles = createCandlesBetween(98.0, 101.0);
 
             StopLossTakeProfitStrategy.SLTPResult result = strategy.calculate(
-                    ENTRY_PRICE, true, candles, ATR, ATR, 25.0, SL_MULT, TP_MULT, ATR_PERIOD
+                    ENTRY_PRICE, true, candles, ATR, ATR, 25.0, SL_MULT, TP_MULT, ATR_PERIOD, COMMISSION
             );
 
             then(result).isNotNull();
@@ -125,7 +127,7 @@ class LevelStrategyTest {
             List<Candle> candles = createCandlesBetween(50.0, 150.0);
 
             StopLossTakeProfitStrategy.SLTPResult result = strategy.calculate(
-                    ENTRY_PRICE, true, candles, ATR, ATR, 25.0, SL_MULT, TP_MULT, ATR_PERIOD
+                    ENTRY_PRICE, true, candles, ATR, ATR, 25.0, SL_MULT, TP_MULT, ATR_PERIOD, COMMISSION
             );
 
             then(result).isNotNull();
@@ -139,7 +141,7 @@ class LevelStrategyTest {
             List<Candle> candles = createCandlesBetween(50.0, 150.0);
 
             StopLossTakeProfitStrategy.SLTPResult result = strategy.calculate(
-                    ENTRY_PRICE, false, candles, ATR, ATR, 25.0, SL_MULT, TP_MULT, ATR_PERIOD
+                    ENTRY_PRICE, false, candles, ATR, ATR, 25.0, SL_MULT, TP_MULT, ATR_PERIOD, COMMISSION
             );
 
             then(result).isNotNull();
@@ -153,7 +155,7 @@ class LevelStrategyTest {
             List<Candle> candles = createCandlesBetween(50.0, 150.0);
 
             StopLossTakeProfitStrategy.SLTPResult result = strategy.calculate(
-                    ENTRY_PRICE, true, candles, ATR, ATR, 25.0, SL_MULT, TP_MULT, ATR_PERIOD
+                    ENTRY_PRICE, true, candles, ATR, ATR, 25.0, SL_MULT, TP_MULT, ATR_PERIOD, COMMISSION
             );
 
             then(result).isNotNull();
@@ -168,7 +170,7 @@ class LevelStrategyTest {
             List<Candle> candles = createCandlesBetween(50.0, 150.0);
 
             StopLossTakeProfitStrategy.SLTPResult result = strategy.calculate(
-                    ENTRY_PRICE, true, candles, ATR, ATR, 25.0, SL_MULT, TP_MULT, ATR_PERIOD
+                    ENTRY_PRICE, true, candles, ATR, ATR, 25.0, SL_MULT, TP_MULT, ATR_PERIOD, COMMISSION
             );
 
             then(result).isNotNull();
@@ -182,7 +184,7 @@ class LevelStrategyTest {
             List<Candle> candles = createCandlesBetween(50.0, 150.0);
 
             StopLossTakeProfitStrategy.SLTPResult result = strategy.calculate(
-                    ENTRY_PRICE, false, candles, ATR, ATR, 25.0, SL_MULT, TP_MULT, ATR_PERIOD
+                    ENTRY_PRICE, false, candles, ATR, ATR, 25.0, SL_MULT, TP_MULT, ATR_PERIOD, COMMISSION
             );
 
             then(result).isNotNull();
@@ -201,7 +203,7 @@ class LevelStrategyTest {
             List<Candle> candles = createMonotonicCandles();
 
             StopLossTakeProfitStrategy.SLTPResult result = strategy.calculate(
-                    ENTRY_PRICE, true, candles, ATR, ATR, 25.0, SL_MULT, TP_MULT, ATR_PERIOD
+                    ENTRY_PRICE, true, candles, ATR, ATR, 25.0, SL_MULT, TP_MULT, ATR_PERIOD, COMMISSION
             );
 
             then(result).isNotNull();
@@ -215,7 +217,7 @@ class LevelStrategyTest {
             List<Candle> candles = createMonotonicCandles();
 
             StopLossTakeProfitStrategy.SLTPResult result = strategy.calculate(
-                    ENTRY_PRICE, false, candles, ATR, ATR, 25.0, SL_MULT, TP_MULT, ATR_PERIOD
+                    ENTRY_PRICE, false, candles, ATR, ATR, 25.0, SL_MULT, TP_MULT, ATR_PERIOD, COMMISSION
             );
 
             then(result).isNotNull();
@@ -229,7 +231,7 @@ class LevelStrategyTest {
             List<Candle> candles = createMonotonicCandles();
 
             StopLossTakeProfitStrategy.SLTPResult result = strategy.calculate(
-                    ENTRY_PRICE, true, candles, ATR, ATR, 25.0, SL_MULT, TP_MULT, ATR_PERIOD
+                    ENTRY_PRICE, true, candles, ATR, ATR, 25.0, SL_MULT, TP_MULT, ATR_PERIOD, COMMISSION
             );
 
             then(result).isNotNull();
@@ -250,7 +252,7 @@ class LevelStrategyTest {
             List<Candle> candles = createCandlesBetween(98.0, resistance);
 
             StopLossTakeProfitStrategy.SLTPResult result = strategy.calculate(
-                    ENTRY_PRICE, true, candles, ATR, ATR, 25.0, SL_MULT, TP_MULT, ATR_PERIOD
+                    ENTRY_PRICE, true, candles, ATR, ATR, 25.0, SL_MULT, TP_MULT, ATR_PERIOD, COMMISSION
             );
 
             then(result).isNotNull();
@@ -265,12 +267,71 @@ class LevelStrategyTest {
             List<Candle> candles = createCandlesBetween(98.0, resistance);
 
             StopLossTakeProfitStrategy.SLTPResult result = strategy.calculate(
-                    ENTRY_PRICE, true, candles, ATR, ATR, 25.0, SL_MULT, TP_MULT, ATR_PERIOD
+                    ENTRY_PRICE, true, candles, ATR, ATR, 25.0, SL_MULT, TP_MULT, ATR_PERIOD, COMMISSION
             );
 
             then(result).isNotNull();
             then(result.tpDistance).isLessThanOrEqualTo(ENTRY_PRICE * MAX_TP_PERCENT);
             then(result.tpDistance).isGreaterThan(0.0);
+        }
+    }
+
+    @Nested
+    @DisplayName("When TP cannot cover commission")
+    class TpCannotCoverCommission {
+
+        @Test
+        @DisplayName("Should return null when TP is too small to cover round-trip commission (LONG)")
+        void long_TpTooSmall_ReturnNull() {
+            // Given: very tight range where TP would be < 0.1% (2 × 0.05% commission)
+            List<Candle> candles = createCandlesBetween(99.95, 100.05);
+
+            StopLossTakeProfitStrategy.SLTPResult result = strategy.calculate(
+                    ENTRY_PRICE, true, candles, ATR, ATR, 25.0, SL_MULT, TP_MULT, ATR_PERIOD, COMMISSION
+            );
+
+            // Then: null = HOLD, trade not worth entering
+            then(result).isNull();
+        }
+
+        @Test
+        @DisplayName("Should return null when TP is too small to cover round-trip commission (SHORT)")
+        void short_TpTooSmall_ReturnNull() {
+            // Given: very tight range where TP would be < 0.1% (2 × 0.05% commission)
+            List<Candle> candles = createCandlesBetween(99.95, 100.05);
+
+            StopLossTakeProfitStrategy.SLTPResult result = strategy.calculate(
+                    ENTRY_PRICE, false, candles, ATR, ATR, 25.0, SL_MULT, TP_MULT, ATR_PERIOD, COMMISSION
+            );
+
+            // Then: null = HOLD, trade not worth entering
+            then(result).isNull();
+        }
+
+        @Test
+        @DisplayName("Should allow trade when TP covers commission with margin (LONG)")
+        void long_TpCoversCommission_Allowed() {
+            List<Candle> candles = createCandlesBetween(98.0, 101.0);
+
+            StopLossTakeProfitStrategy.SLTPResult result = strategy.calculate(
+                    ENTRY_PRICE, true, candles, ATR, ATR, 25.0, SL_MULT, TP_MULT, ATR_PERIOD, COMMISSION
+            );
+
+            then(result).isNotNull();
+            then(result.tpDistance).isGreaterThan(ENTRY_PRICE * 2.0 * COMMISSION);
+        }
+
+        @Test
+        @DisplayName("Should allow trade when TP covers commission with margin (SHORT)")
+        void short_TpCoversCommission_Allowed() {
+            List<Candle> candles = createCandlesBetween(99.0, 102.0);
+
+            StopLossTakeProfitStrategy.SLTPResult result = strategy.calculate(
+                    ENTRY_PRICE, false, candles, ATR, ATR, 25.0, SL_MULT, TP_MULT, ATR_PERIOD, COMMISSION
+            );
+
+            then(result).isNotNull();
+            then(result.tpDistance).isGreaterThan(ENTRY_PRICE * 2.0 * COMMISSION);
         }
     }
 
@@ -282,7 +343,7 @@ class LevelStrategyTest {
         @DisplayName("Should return null when candles list is empty")
         void shouldReturnNull_EmptyCandles() {
             StopLossTakeProfitStrategy.SLTPResult result = strategy.calculate(
-                    ENTRY_PRICE, true, new ArrayList<>(), ATR, ATR, 25.0, SL_MULT, TP_MULT, ATR_PERIOD
+                    ENTRY_PRICE, true, new ArrayList<>(), ATR, ATR, 25.0, SL_MULT, TP_MULT, ATR_PERIOD, COMMISSION
             );
 
             then(result).isNull();
@@ -294,7 +355,7 @@ class LevelStrategyTest {
             List<Candle> candles = createCandlesBetween(98.0, 101.0);
 
             StopLossTakeProfitStrategy.SLTPResult result = strategy.calculate(
-                    ENTRY_PRICE, true, candles, 0.0, 0.0, 25.0, SL_MULT, TP_MULT, ATR_PERIOD
+                    ENTRY_PRICE, true, candles, 0.0, 0.0, 25.0, SL_MULT, TP_MULT, ATR_PERIOD, COMMISSION
             );
 
             then(result).isNull();
@@ -306,7 +367,7 @@ class LevelStrategyTest {
             List<Candle> candles = createCandlesBetween(0.5, 1.5);
 
             StopLossTakeProfitStrategy.SLTPResult result = strategy.calculate(
-                    0.0, true, candles, ATR, ATR, 25.0, SL_MULT, TP_MULT, ATR_PERIOD
+                    0.0, true, candles, ATR, ATR, 25.0, SL_MULT, TP_MULT, ATR_PERIOD, COMMISSION
             );
 
             then(result).isNull();

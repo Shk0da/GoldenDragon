@@ -30,7 +30,8 @@ public class HybridStrategy implements StopLossTakeProfitStrategy {
             double adx,
             double slMult,
             double tpMult,
-            int atrPeriod) {
+            int atrPeriod,
+            double commission) {
         if (entry <= 0.0 || dAtr <= 0.0 || slMult <= 0.0 || tpMult <= 0.0) {
             return null;
         }

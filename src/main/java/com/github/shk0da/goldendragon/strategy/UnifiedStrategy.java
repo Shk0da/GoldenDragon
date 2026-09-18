@@ -613,7 +613,7 @@ public class UnifiedStrategy extends BaseStrategy {
         double tpMult = tpCfg.tpMult;
         StopLossTakeProfitStrategy strategy = StopLossTakeProfitStrategyFactory.create(tpCfg.slTpAlgorithm);
         StopLossTakeProfitStrategy.SLTPResult sltpResult = strategy.calculate(
-                entry, isBuy, hourCandles, dAtr, avgAtr, adx, slMult, tpMult, config.atrPeriod);
+                entry, isBuy, hourCandles, dAtr, avgAtr, adx, slMult, tpMult, config.atrPeriod, config.commission);
 
         if (sltpResult == null || sltpResult.slDistance <= 0.0 || sltpResult.tpDistance <= 0.0) {
             return new TradingDecision("HOLD", "dist0", 0.0, 0, null, null, null, p);

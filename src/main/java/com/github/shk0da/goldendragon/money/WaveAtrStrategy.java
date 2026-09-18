@@ -30,7 +30,8 @@ public class WaveAtrStrategy implements StopLossTakeProfitStrategy {
             double adx,
             double slMult,
             double tpMult,
-            int atrPeriod) {
+            int atrPeriod,
+            double commission) {
         if (entry <= 0.0 || hourCandles == null || hourCandles.size() < DEFAULT_SWING_LOOKBACK) {
             return null;
         }

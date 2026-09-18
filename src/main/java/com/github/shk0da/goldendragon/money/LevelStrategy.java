@@ -36,7 +36,8 @@ public class LevelStrategy implements StopLossTakeProfitStrategy {
             double adx,
             double slMult,
             double tpMult,
-            int atrPeriod) {
+            int atrPeriod,
+            double commission) {
         if (entry <= 0.0 || hourCandles == null || hourCandles.size() < DEFAULT_LOOKBACK || dAtr <= 0.0) {
             return null;
         }
@@ -91,6 +92,11 @@ public class LevelStrategy implements StopLossTakeProfitStrategy {
                 tpDist = maxTp;
                 slDist = tpDist / ratio;
             }
+        }
+
+        double minCommissionCost = entry * 2.0 * commission;
+        if (tpDist < minCommissionCost) {
+            return null;
         }
 
         if (strongTrendAdjust(slDist, tpDist, adx) == null) {
