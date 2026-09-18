@@ -14,6 +14,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Callable;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -38,6 +39,7 @@ public class TradingServiceCache implements TradingService {
 
     private final TradingService delegate;
     private final Cache<String, Object> cache;
+    private final Map<String, Object> pendingLoads = new ConcurrentHashMap<>();
 
     // TTL для разных типов данных
     private static final Duration CASH_TTL = Duration.ofSeconds(1);
@@ -47,9 +49,9 @@ public class TradingServiceCache implements TradingService {
 
     public TradingServiceCache(TradingService delegate) {
         this.delegate = delegate;
+        // No global expiration - TTL is managed per-key by getWithTTL()
         this.cache = Caffeine.newBuilder()
             .maximumSize(100)
-            .expireAfterWrite(1, TimeUnit.SECONDS)
             .build();
     }
 
@@ -136,24 +138,52 @@ public class TradingServiceCache implements TradingService {
     }
 
     /**
-     * Get value with TTL-based caching.
+     * Get value with TTL-based caching and per-key locking to prevent cache stampede.
+     * If loader fails and stale cache exists, returns stale value instead of throwing.
      */
     @SuppressWarnings("unchecked")
     private <T> T getWithTTL(String key, Callable<T> loader, Duration ttl) {
         Object cached = cache.getIfPresent(key);
+        boolean hasStaleCache = false;
+        T staleValue = null;
+        
+        // Check if we have cached value (fresh or stale)
         if (cached instanceof CachedValue) {
             CachedValue<T> cv = (CachedValue<T>) cached;
             if (!cv.isStale(ttl)) {
+                // Fresh cache - return immediately
                 return cv.value;
             }
+            // Stale cache - save it as fallback
+            hasStaleCache = true;
+            staleValue = cv.value;
         }
 
-        try {
-            T value = loader.call();
-            cache.put(key, new CachedValue<>(value));
-            return value;
-        } catch (Exception e) {
-            throw new RuntimeException("Failed to load " + key, e);
+        // Per-key locking: only one thread loads per key, others wait
+        synchronized (pendingLoads.computeIfAbsent(key, k -> new Object())) {
+            try {
+                // Double-check: maybe another thread already updated cache while we waited
+                Object rechecked = cache.getIfPresent(key);
+                if (rechecked instanceof CachedValue) {
+                    CachedValue<T> cv = (CachedValue<T>) rechecked;
+                    if (!cv.isStale(ttl)) {
+                        return cv.value;
+                    }
+                }
+
+                T value = loader.call();
+                cache.put(key, new CachedValue<>(value));
+                return value;
+            } catch (Exception e) {
+                // If we have stale cache, return it instead of throwing
+                if (hasStaleCache) {
+                    return staleValue;
+                }
+                // No cache and loader failed - throw
+                throw new RuntimeException("Failed to load " + key + " (no cached value available)", e);
+            } finally {
+                pendingLoads.remove(key);
+            }
         }
     }
 

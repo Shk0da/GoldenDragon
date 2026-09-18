@@ -7,11 +7,18 @@ import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
+
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 @DisplayName("TradingServiceCache")
 class TradingServiceCacheTest {
@@ -160,5 +167,73 @@ class TradingServiceCacheTest {
 
         // Delegate should be called only ONCE, not 10 times
         verify(mockDelegate, times(1)).getTotalPortfolioValue();
+    }
+
+    @Test
+    @DisplayName("Should return stale cache when loader fails")
+    void shouldReturnStaleCacheOnLoaderFailure() throws Exception {
+        AtomicInteger callCount = new AtomicInteger(0);
+        
+        // Create mock with custom answer for default method
+        TradingService mockDelegate = new TradingService() {
+            @Override
+            public double getTotalPortfolioCost() {
+                int count = callCount.incrementAndGet();
+                if (count == 1) {
+                    return 100000.0;  // First call succeeds
+                } else {
+                    throw new RuntimeException("API unavailable"); // Second call fails
+                }
+            }
+        };
+
+        TradingServiceCache cache = new TradingServiceCache(mockDelegate);
+
+        // First call - succeeds and caches
+        double value1 = cache.getTotalPortfolioCost();
+        assertEquals(100000.0, value1);
+
+        // Wait for TTL to expire
+        Thread.sleep(5100); // 5.1 seconds
+
+        // Second call - loader fails, but should return stale cache
+        double value2 = cache.getTotalPortfolioCost();
+        assertEquals(100000.0, value2); // Returns stale value, no exception
+    }
+
+    @Test
+    @DisplayName("Should prevent cache stampede - only one API call when multiple threads request")
+    void shouldPreventCacheStampede() throws Exception {
+        TradingService mockDelegate = mock(TradingService.class);
+        when(mockDelegate.getTotalPortfolioCost())
+            .thenReturn(100000.0);  // Always returns same value
+
+        TradingServiceCache cache = new TradingServiceCache(mockDelegate);
+
+        // First call to populate cache
+        cache.getTotalPortfolioCost();
+        
+        // Wait for TTL to expire
+        Thread.sleep(5100);
+
+        // Simulate 10 threads calling simultaneously after TTL expires
+        CountDownLatch latch = new CountDownLatch(10);
+        ExecutorService executor = Executors.newFixedThreadPool(10);
+        
+        for (int i = 0; i < 10; i++) {
+            executor.submit(() -> {
+                try {
+                    cache.getTotalPortfolioCost();
+                } finally {
+                    latch.countDown();
+                }
+            });
+        }
+        
+        latch.await(10, TimeUnit.SECONDS);
+        executor.shutdown();
+
+        // Verify delegate was called only ONCE for refresh (1 initial + 1 refresh = 2 total)
+        verify(mockDelegate, times(2)).getTotalPortfolioCost();
     }
 }
