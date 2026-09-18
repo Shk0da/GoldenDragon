@@ -88,7 +88,25 @@ fix it before finishing. A Risk Engineer failure is a blocker regardless of othe
 - [ ] commit message and comments are in English
 
 ## Project Context
-- Java 11
+- **Java 11** — strict compatibility requirement
+
+## Java 11 Compatibility Rules
+
+**MUST use only Java 11 features:**
+- `Collectors.toList()` — ✅ OK
+- `Stream.toList()` — ❌ Java 16+ (use `collect(Collectors.toList())`)
+- `Stream.mapMulti()` — ❌ Java 16+
+- `Optional.isEmpty()` — ❌ Java 11+ (use `!isPresent()`)
+- `String.isBlank()` — ❌ Java 11+ (use manual check)
+- `var` keyword — ❌ Java 10+ (use explicit types)
+- Records — ❌ Java 16+ (use regular classes)
+- Text blocks — ❌ Java 15+ (use string concatenation)
+- Switch expressions — ❌ Java 14+ (use traditional switch)
+
+**Before committing:**
+- Verify code compiles with Java 11: `./gradlew clean compileJava`
+- Check for Java 16+ stream methods: grep for `.toList()`, `.mapMulti()`
+- Ensure all tests pass: `./gradlew check`
 
 ## Priorities
 1. Correctness and safety

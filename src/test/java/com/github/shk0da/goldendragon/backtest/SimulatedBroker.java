@@ -142,7 +142,7 @@ public class SimulatedBroker implements MarketDataProvider, OrderExecutor {
      * Kill Switch flag: if true, all new OPEN operations are blocked.
      */
     private boolean killSwitchTriggered = false;
-    
+
     /**
      * Internal flag to prevent recursive Kill Switch checks during reset.
      */
@@ -397,7 +397,7 @@ public class SimulatedBroker implements MarketDataProvider, OrderExecutor {
             portfolioPeak = getTotalPortfolioValue(); // reset peak to current value
             isResettingKillSwitch = false;
             System.out.println(
-                "Kill Switch AUTO-RESET: trading resumed (peak reset to " 
+                "Kill Switch AUTO-RESET: trading resumed (peak reset to "
                 + String.format("%.0f", portfolioPeak) + ")");
         }
     }
@@ -692,7 +692,7 @@ public class SimulatedBroker implements MarketDataProvider, OrderExecutor {
         if (bar == null) {
             return ExecutionResult.failed("No market data for " + ticker);
         }
-        
+
         int remainingQty = pos.position.quantity - quantity;
         double exitPrice = bar.close;
         double commission = exitPrice * quantity * pos.lotSize * getEffectiveCommission(ticker);
@@ -702,7 +702,7 @@ public class SimulatedBroker implements MarketDataProvider, OrderExecutor {
         double entryCommissionTotal = notional(pos.position.quantity, pos.lotSize, pos.entryPrice) * getEffectiveCommission(ticker);
         double allocatedEntryCommission = entryCommissionTotal * ((double) quantity / pos.position.quantity);
         double pnl = proceeds - entryValue - allocatedEntryCommission;
-        
+
         sharedCash += proceeds;
         totalCloseCashDelta += proceeds;
         partialCloseCount++;
@@ -716,12 +716,12 @@ public class SimulatedBroker implements MarketDataProvider, OrderExecutor {
                 pos.position.candlesHeld,
                 0,
                 pos.position.appliedLeverage);
-        
+
         tradeHistory.add(new BacktestTrade(
                 ticker, "SELL", "PARTIAL_CLOSE", pos.entryPrice, exitPrice, quantity,
                 pnl, commission, "partial_close", bar.time, barIndex(ticker, bar)));
         recordTradePnl(pnl);
-        
+
         return ExecutionResult.success(quantity, exitPrice);
     }
 
@@ -738,7 +738,7 @@ public class SimulatedBroker implements MarketDataProvider, OrderExecutor {
         if (bar == null) {
             return ExecutionResult.failed("No market data for " + ticker);
         }
-        
+
         int remainingQty = Math.abs(pos.position.quantity) - quantity;
         double exitPrice = bar.close;
         double commission = exitPrice * quantity * pos.lotSize * getEffectiveCommission(ticker);
@@ -748,7 +748,7 @@ public class SimulatedBroker implements MarketDataProvider, OrderExecutor {
         double allocatedEntryCommission = entryCommissionTotal * ((double) quantity / Math.abs(pos.position.quantity));
         double grossPnlPartial = entryValue - notional(quantity, pos.lotSize, exitPrice);
         double pnl = grossPnlPartial - allocatedEntryCommission - commission;
-        
+
         // Short partial close: return freed margin + realized gross PnL for the closed
         // portion, and scale the remaining margin down (parity with partialCloseAtFirstTp).
         // Exit commission is paid on the buy-to-cover; entry commission was paid at open.
@@ -768,12 +768,12 @@ public class SimulatedBroker implements MarketDataProvider, OrderExecutor {
                 pos.position.candlesHeld,
                 0,
                 pos.position.appliedLeverage);
-        
+
         tradeHistory.add(new BacktestTrade(
                 ticker, "BUY", "PARTIAL_CLOSE", pos.entryPrice, exitPrice, quantity,
                 pnl, commission, "partial_close", bar.time, barIndex(ticker, bar)));
         recordTradePnl(pnl);
-        
+
         return ExecutionResult.success(quantity, exitPrice);
     }
 
@@ -889,13 +889,13 @@ public class SimulatedBroker implements MarketDataProvider, OrderExecutor {
         double commission = proceeds * getEffectiveCommission(name);
         double netProceeds = proceeds - commission;
         double entryValue = notional(sharesToSell, pos.lotSize, pos.entryPrice);
-        
+
         if ("TMON@".equals(name)) {
             // TMON@: PnL идёт в tmonRealizedPnl (commission = 0)
             tmonRealizedPnl += (netProceeds - entryValue);
         }
         // SPYUSDT: комиссия уже вычтена из netProceeds, PnL не отслеживается отдельно
-        
+
         sharedCash += netProceeds;
         noteMutation();
         pos.position = new Position(
@@ -1022,10 +1022,10 @@ public class SimulatedBroker implements MarketDataProvider, OrderExecutor {
         pos.position = new Position();
         pos.entryPrice = 0.0;
         pos.postedMargin = 0.0;
-        
+
         // Kill Switch check after position close (matches live onTradeClosed behavior)
         checkKillSwitch(getTotalPortfolioValue());
-        
+
         return ExecutionResult.success(quantity, exitPrice);
     }
 
@@ -1081,7 +1081,7 @@ public class SimulatedBroker implements MarketDataProvider, OrderExecutor {
                     - recordedPnlByTicker.getOrDefault(t, 0.0)))
             .sorted(Map.Entry.<String, Double>comparingByValue().reversed())
             .limit(10)
-            .toList();
+            .collect(java.util.stream.Collectors.toList());
         System.out.println("DBG-ticker top discrepancies (cash - open - pnl):");
         tickerDisc.forEach(e -> System.out.println("  " + e.getKey() + ": " + e.getValue()));
     }

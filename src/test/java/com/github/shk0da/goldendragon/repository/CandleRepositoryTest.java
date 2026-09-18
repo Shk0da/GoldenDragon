@@ -228,6 +228,6 @@ class CandleRepositoryTest {
     private List<Candle> createCandles(String... times) {
         return java.util.Arrays.stream(times)
             .map(time -> new Candle(time, 100.0, 105.0, 95.0, 102.0, 1000))
-            .toList();
+            .collect(java.util.stream.Collectors.toList());
     }
 }
