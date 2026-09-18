@@ -68,7 +68,7 @@ public class OrderExecutionResult {
     }
 
     public static OrderExecutionResult failed(String errorMessage) {
-        return new OrderExecutionResult(false, null, 0, 0.0, null);
+        return new OrderExecutionResult(false, null, 0, 0.0, null, 0, errorMessage);
     }
 
     public static OrderExecutionResult failed(int errorCode, String errorMessage) {

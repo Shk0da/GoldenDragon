@@ -176,11 +176,7 @@ public class UnifiedStrategy extends BaseStrategy {
     private final KillSwitch killSwitch;
     private final PerformanceTracker performanceTracker;
     private final StopLossManager stopLossManager;
-    private final StopLossTakeProfitStrategy slTpStrategy;
     private final boolean mmEnabled;
-
-    /** When set, overrides config leverage and disables adaptive leverage resolution. */
-    private Integer fixedEntryLeverage;
 
     // Track initial risk per position for R-based calculations
     private final ConcurrentMap<String, Double> initialRiskPerTicker = new ConcurrentHashMap<>();
@@ -277,7 +273,6 @@ public class UnifiedStrategy extends BaseStrategy {
                             effectiveConfig.mmTrailingStepPercent,
                             effectiveConfig.mmTrailingDeltaPercent,
                             effectiveConfig.mmTrailingCheckInterval,
-                            effectiveConfig.mmTrailingVolumePercent,
                             effectiveConfig.commission);
 
             log(
@@ -309,8 +304,6 @@ public class UnifiedStrategy extends BaseStrategy {
         log("RegimeFilter: enabled=" + regimeFilterEnabled + ", mode=" + regimeFilterMode
                 + ", RANGE<=" + String.format("%.1f", regimeRangeAdxMax)
                 + ", TREND>=" + String.format("%.1f", regimeTrendAdxMin));
-
-        this.slTpStrategy = null;
     }
 
     @Override
@@ -631,19 +624,15 @@ public class UnifiedStrategy extends BaseStrategy {
         double sl = isBuy ? entry - slDist : entry + slDist;
         double tp = isBuy ? entry + tpDist : entry - tpDist;
 
-        int maxLeverage =
-                fixedEntryLeverage != null ? fixedEntryLeverage : Math.max(1, tpCfg.leverage);
-        int effectiveLeverage =
-                fixedEntryLeverage != null
-                        ? fixedEntryLeverage
-                        : resolveEntryLeverage(
-                                maxLeverage,
-                                adx,
-                                dAtr,
-                                avgAtr,
-                                regimeResult.confidence,
-                                strongTrend,
-                                rangeRegime,
+        int maxLeverage = Math.max(1, tpCfg.leverage);
+        int effectiveLeverage = resolveEntryLeverage(
+                maxLeverage,
+                adx,
+                dAtr,
+                avgAtr,
+                regimeResult.confidence,
+                strongTrend,
+                rangeRegime,
                                 signal);
 
         int maxAffordableQty =
@@ -762,7 +751,6 @@ public class UnifiedStrategy extends BaseStrategy {
         }
 
         if (effectiveLeverage > 1
-                && fixedEntryLeverage == null
                 && unifiedTraderConfig.isAdaptiveLeverageEnabled()
                 && isVerboseLogging()) {
             log(
@@ -849,17 +837,14 @@ public class UnifiedStrategy extends BaseStrategy {
     }
 
     private int resolveEntryLeverage(
-            int maxLeverage,
-            double adx,
-            double atr,
-            double avgAtr,
-            double regimeConfidence,
-            boolean strongTrend,
-            boolean rangeRegime,
-            String signal) {
-        if (fixedEntryLeverage != null) {
-            return fixedEntryLeverage;
-        }
+             int maxLeverage,
+             double adx,
+             double atr,
+             double avgAtr,
+             double regimeConfidence,
+             boolean strongTrend,
+             boolean rangeRegime,
+             String signal) {
         if (maxLeverage <= 1 || !unifiedTraderConfig.isAdaptiveLeverageEnabled()) {
             return maxLeverage;
         }
@@ -1307,75 +1292,6 @@ public class UnifiedStrategy extends BaseStrategy {
                             + ", consecutiveLosses="
                             + (riskManager != null ? riskManager.getConsecutiveLosses() : 0));
         }
-    }
-
-    /**
-     * Cash parking logic: when no positions on other tickers, buy parking ticker with available cash;
-     * when other positions need cash, sell parking ticker first.
-     */
-    private TradingDecision decideTmonCashParking(
-            double balance, Position position, double currentPrice) {
-        String parkingTicker = cashParkingManager.getParkingTicker();
-        if (position.quantity > 0) {
-            if (hasActiveNonTmonPositions()) {
-                log(parkingTicker + ": selling to free cash for other positions");
-                return new TradingDecision(
-                        "CLOSE",
-                        "parking_sell_for_cash",
-                        0.0,
-                        position.quantity,
-                        null,
-                        null,
-                        null,
-                        new Position(config.cooldownCandles));
-            }
-            return new TradingDecision("HOLD", "parking_parked", 0.0, 0, null, null, null, position);
-        }
-
-        if (!hasActiveNonTmonPositions() && balance > 0.0) {
-            TickerInfo tickerInfo = resolveTickerInfo(parkingTicker);
-            if (tickerInfo == null) {
-                log(parkingTicker + ": ticker info not found, skipping buy");
-                return new TradingDecision("HOLD", "parking_ticker_not_found");
-            }
-            int lot = tickerInfo.getLot() != null ? tickerInfo.getLot() : 1;
-            // Align parking sizing with TradingService.calculateTradeCount(), which applies
-            // a 1% safety margin to avoid insufficient funds for market orders.
-            double effectivePrice = currentPrice * 1.01;
-            double effectiveCostPerLot = effectivePrice * lot;
-            if (balance < effectiveCostPerLot) {
-                return new TradingDecision("HOLD", "parking_insufficient_cash");
-            }
-            double costPerLot = currentPrice * lot;
-            int buyQty =
-                    effectiveCostPerLot > 0.0
-                            ? (int) Math.floor(balance / effectiveCostPerLot) * lot
-                            : 0;
-            if (buyQty > 0) {
-                double totalCost = buyQty * currentPrice;
-                if (isVerboseLogging()) {
-                    log(
-                            parkingTicker + ": buying "
-                                    + buyQty
-                                    + " with idle cash "
-                                    + String.format("%.2f", totalCost)
-                                    + " (safe lot cost="
-                                    + String.format("%.2f", effectiveCostPerLot)
-                                    + ")");
-                }
-                return new TradingDecision(
-                        "OPEN",
-                        "parking_cash_parking",
-                        1.0,
-                        buyQty,
-                        null,
-                        null,
-                        null,
-                        new Position("BUY", null, null, null, buyQty, 0, 0, 1));
-            }
-        }
-
-        return new TradingDecision("HOLD", "tmon_no_action");
     }
 
     @Override

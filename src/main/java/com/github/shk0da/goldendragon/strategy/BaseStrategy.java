@@ -512,11 +512,19 @@ protected static final LocalTime WORK_START_TIME = LocalTime.of(10, 0);
                                 () -> {
                                     sleep(initialDelay);
                                     while (isWorkingHours() && !tradingHalted) {
-                                        processTicker(
-                                                name,
-                                                tradingService,
-                                                unifiedTraderConfig,
-                                                allocatedBalance);
+                                        try {
+                                            processTicker(
+                                                    name,
+                                                    tradingService,
+                                                    unifiedTraderConfig,
+                                                    allocatedBalance);
+                                        } catch (Exception ex) {
+                                            log("Error processing " + name + ": " + ex.getMessage());
+                                            // Set cooldown to prevent rapid error loops
+                                            long cooldownMs = 5 * 60 * 1000; // 5 minutes
+                                            tickerCooldown.put(name, timeProvider.currentTimeMillis() + cooldownMs);
+                                            log("Ticker " + name + " set to cooldown for 5 min due to error");
+                                        }
                                         sleep(TICKER_PROCESS_INTERVAL_MS);
                                     }
                                 },

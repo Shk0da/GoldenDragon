@@ -35,14 +35,12 @@ import static com.github.shk0da.goldendragon.money.CashParkingManager.TINKOFF_PA
 public class DashboardServer {
 
     private static final int PORT = 1040;
-    private static final long POLL_INTERVAL_SECONDS = 120;
     private static final Gson gson = new GsonBuilder().setPrettyPrinting().create();
 
     private final HttpServer server;
     private final TradingService tradingService;
     private final String currency;
     private int port;
-    private final long pollIntervalSeconds;
 
     private static final LocalTime DEFAULT_END_OF_DAY = LocalTime.of(19, 0);
 
@@ -52,36 +50,28 @@ public class DashboardServer {
     private double balance = 0.0;
     private double availableCash = 0.0;
     private final List<Map<String, Object>> tradeHistory = Collections.synchronizedList(new ArrayList<>());
-    private volatile Instant appStartTime;
-    private volatile java.util.concurrent.ScheduledExecutorService tradePoller;
     private final LocalTime endOfDay;
 
     public DashboardServer(TradingService tradingService) throws IOException {
-        this(tradingService, PORT, POLL_INTERVAL_SECONDS, DEFAULT_END_OF_DAY);
+        this(tradingService, PORT, DEFAULT_END_OF_DAY);
     }
 
     public DashboardServer(TradingService tradingService, int port) throws IOException {
-        this(tradingService, port, POLL_INTERVAL_SECONDS, DEFAULT_END_OF_DAY);
-    }
-
-    public DashboardServer(TradingService tradingService, int port, long pollIntervalSeconds) throws IOException {
-        this(tradingService, port, pollIntervalSeconds, DEFAULT_END_OF_DAY);
+        this(tradingService, port, DEFAULT_END_OF_DAY);
     }
 
     public DashboardServer(TradingService tradingService, LocalTime endOfDay) throws IOException {
-        this(tradingService, PORT, POLL_INTERVAL_SECONDS, endOfDay);
+        this(tradingService, PORT, endOfDay);
     }
 
-    public DashboardServer(TradingService tradingService, int port, long pollIntervalSeconds, LocalTime endOfDay) throws IOException {
+    public DashboardServer(TradingService tradingService, int port, LocalTime endOfDay) throws IOException {
         this.tradingService = tradingService;
         this.currency = "RUB";
         this.port = port;
-        this.pollIntervalSeconds = pollIntervalSeconds;
         this.endOfDay = endOfDay;
         this.server = createServer(port);
         this.server.createContext("/", this::handleRequest);
         this.server.setExecutor(Executors.newFixedThreadPool(4));
-        this.appStartTime = Instant.now();
     }
 
     /**
@@ -155,17 +145,6 @@ public class DashboardServer {
 
     public void stop() {
         server.stop(0);
-        if (tradePoller != null) {
-            tradePoller.shutdown();
-            try {
-                if (!tradePoller.awaitTermination(5, java.util.concurrent.TimeUnit.SECONDS)) {
-                    tradePoller.shutdownNow();
-                }
-            } catch (InterruptedException ex) {
-                tradePoller.shutdownNow();
-                Thread.currentThread().interrupt();
-            }
-        }
     }
 
     private void handleRequest(com.sun.net.httpserver.HttpExchange exchange) throws IOException {

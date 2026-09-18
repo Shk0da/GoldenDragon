@@ -64,9 +64,6 @@ public class LiveOrderExecutor implements OrderExecutor {
         }
     }
 
-    /** Margin requirement for short positions on MOEX (30% of position value). */
-    private static final double SHORT_MARGIN_RATIO = 0.30;
-
     @Override
     public ExecutionResult sell(String ticker, int quantity, Double stopLossPercent, Double takeProfitPercent) {
         try {

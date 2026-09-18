@@ -536,10 +536,10 @@ public class TradeCouncilStrategy extends BaseStrategy {
                 agentFutures.add(future);
             }
 
-            // Wait for all agents in this round to complete (60s timeout per round)
+            // Wait for all agents in this round to complete (10 min timeout per round)
             try {
                 CompletableFuture.allOf(agentFutures.toArray(new CompletableFuture[0]))
-                    .orTimeout(60, TimeUnit.SECONDS)
+                    .orTimeout(10, TimeUnit.MINUTES)
                     .join();
             } catch (Exception e) {
                 log(ticker + " | Round " + (round + 1) + " timeout/error: " + e.getMessage());
@@ -827,7 +827,7 @@ public class TradeCouncilStrategy extends BaseStrategy {
                 .connectTimeout(java.time.Duration.ofSeconds(30)).build();
             HttpRequest req = HttpRequest.newBuilder()
                 .uri(java.net.URI.create(url))
-                .timeout(java.time.Duration.ofSeconds(300))
+                .timeout(java.time.Duration.ofMinutes(10))
                 .header("Content-Type", "application/json")
                 .header("Authorization", "Bearer " + tcConfig.getOpenAiApiKey())
                 .POST(HttpRequest.BodyPublishers.ofString(jsonBody)).build();

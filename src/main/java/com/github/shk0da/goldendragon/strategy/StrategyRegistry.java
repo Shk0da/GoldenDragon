@@ -42,7 +42,7 @@ public final class StrategyRegistry {
         private final String name;
         private final LiveRunner liveRunner;
 
-        private Entry(String name, LiveRunner liveRunner) {
+        Entry(String name, LiveRunner liveRunner) {
             this.name = name;
             this.liveRunner = liveRunner;
         }

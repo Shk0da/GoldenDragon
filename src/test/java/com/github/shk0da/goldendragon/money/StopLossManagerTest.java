@@ -29,7 +29,7 @@ class StopLossManagerTest {
         return new StopLossManager(
                 TRAILING_ACTIVATION_R, TRAILING_MULTIPLIER, BREAKEVEN_ACTIVATION_R, BREAKEVEN_BUFFER,
                 TRAILING_ENABLED, TRAILING_STEP_PERCENT, TRAILING_DELTA_PERCENT,
-                TRAILING_CHECK_INTERVAL, TRAILING_VOLUME_PERCENT, COMMISSION);
+                TRAILING_CHECK_INTERVAL, COMMISSION);
     }
 
     private static Position longPosition(double entry, Double stopLoss) {
@@ -110,7 +110,7 @@ class StopLossManagerTest {
             StopLossManager manager = new StopLossManager(
                     0.3, 1.0, 0.5, BREAKEVEN_BUFFER,
                     true, TRAILING_STEP_PERCENT, TRAILING_DELTA_PERCENT,
-                    TRAILING_CHECK_INTERVAL, TRAILING_VOLUME_PERCENT, COMMISSION);
+                    TRAILING_CHECK_INTERVAL, COMMISSION);
             Position position = longPosition(100.0, 90.0);
             StopLossManager.TrailingResult result = manager.updateStopLoss(
                     position, candle(103.5), ATR, INITIAL_RISK, 0);
@@ -191,7 +191,7 @@ class StopLossManagerTest {
             StopLossManager manager = new StopLossManager(
                     0.3, 1.0, 0.5, BREAKEVEN_BUFFER,
                     true, TRAILING_STEP_PERCENT, TRAILING_DELTA_PERCENT,
-                    TRAILING_CHECK_INTERVAL, TRAILING_VOLUME_PERCENT, COMMISSION);
+                    TRAILING_CHECK_INTERVAL, COMMISSION);
             Position position = shortPosition(100.0, 110.0);
             StopLossManager.TrailingResult result = manager.updateStopLoss(
                     position, candle(96.5), ATR, INITIAL_RISK, 0);

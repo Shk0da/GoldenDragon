@@ -24,7 +24,6 @@ public class StopLossManager {
     private final double trailingStepPercent;
     private final double trailingDeltaPercent;
     private final int trailingCheckInterval;
-    private final double trailingVolumePercent;
 
     // Commission for breakeven calculation
     private final double commission;
@@ -40,7 +39,6 @@ public class StopLossManager {
      * @param trailingStepPercent step size as % of price (e.g., 0.005 = 0.5%)
      * @param trailingDeltaPercent minimum price movement to trigger trail (e.g., 0.003 = 0.3%)
      * @param trailingCheckInterval check trailing every N candles
-     * @param trailingVolumePercent volume percentage for partial trailing (e.g., 0.5 = 50%)
      * @param commission commission rate for breakeven calculation (e.g., 0.0005)
      */
     public StopLossManager(
@@ -52,7 +50,6 @@ public class StopLossManager {
             double trailingStepPercent,
             double trailingDeltaPercent,
             int trailingCheckInterval,
-            double trailingVolumePercent,
             double commission) {
         this.trailingActivationR = trailingActivationR;
         this.trailingMultiplier = trailingMultiplier;
@@ -62,7 +59,6 @@ public class StopLossManager {
         this.trailingStepPercent = trailingStepPercent;
         this.trailingDeltaPercent = trailingDeltaPercent;
         this.trailingCheckInterval = trailingCheckInterval;
-        this.trailingVolumePercent = trailingVolumePercent;
         this.commission = commission;
     }
 

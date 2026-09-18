@@ -62,7 +62,6 @@ public class Config {
     public double mmTrailingStepPercent;
     public double mmTrailingDeltaPercent;
     public int mmTrailingCheckInterval;
-    public double mmTrailingVolumePercent;
 
     public Config() {
         this(true);
@@ -131,7 +130,6 @@ public class Config {
         this.mmTrailingStepPercent = 0.005;
         this.mmTrailingDeltaPercent = 0.003;
         this.mmTrailingCheckInterval = 1;
-        this.mmTrailingVolumePercent = 0.5;
     }
 
     /**
@@ -196,7 +194,6 @@ public class Config {
         this.mmTrailingStepPercent = 0.005;
         this.mmTrailingDeltaPercent = 0.003;
         this.mmTrailingCheckInterval = 1;
-        this.mmTrailingVolumePercent = 0.5;
     }
 
     public Config(
@@ -266,7 +263,6 @@ public class Config {
         this.mmTrailingStepPercent = 0.005;
         this.mmTrailingDeltaPercent = 0.003;
         this.mmTrailingCheckInterval = 1;
-        this.mmTrailingVolumePercent = 0.5;
     }
 
     /** Create Config with Money Management parameters. */
@@ -346,7 +342,6 @@ public class Config {
         this.mmTrailingStepPercent = 0.005;
         this.mmTrailingDeltaPercent = 0.003;
         this.mmTrailingCheckInterval = 1;
-        this.mmTrailingVolumePercent = 0.5;
     }
 
     /** Trailing stop configuration DTO. */
@@ -355,7 +350,6 @@ public class Config {
         public final double stepPercent;
         public final double deltaPercent;
         public final int checkInterval;
-        public final double volumePercent;
 
         public TrailingParams(boolean enabled, double stepPercent, double deltaPercent,
                               int checkInterval, double volumePercent) {
@@ -363,7 +357,6 @@ public class Config {
             this.stepPercent = stepPercent;
             this.deltaPercent = deltaPercent;
             this.checkInterval = checkInterval;
-            this.volumePercent = volumePercent;
         }
     }
 
@@ -377,6 +370,5 @@ public class Config {
         this.mmTrailingStepPercent = trailing != null ? trailing.stepPercent : 0.005;
         this.mmTrailingDeltaPercent = trailing != null ? trailing.deltaPercent : 0.003;
         this.mmTrailingCheckInterval = trailing != null ? trailing.checkInterval : 1;
-        this.mmTrailingVolumePercent = trailing != null ? trailing.volumePercent : 0.5;
     }
 }

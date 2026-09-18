@@ -85,7 +85,6 @@ class ConfigTest {
             then(config.mmTrailingStepPercent).isEqualTo(0.005);
             then(config.mmTrailingDeltaPercent).isEqualTo(0.003);
             then(config.mmTrailingCheckInterval).isEqualTo(1);
-            then(config.mmTrailingVolumePercent).isEqualTo(0.5);
         }
     }
 
@@ -264,7 +263,6 @@ class ConfigTest {
             then(config.mmTrailingStepPercent).isEqualTo(0.01);
             then(config.mmTrailingDeltaPercent).isEqualTo(0.005);
             then(config.mmTrailingCheckInterval).isEqualTo(5);
-            then(config.mmTrailingVolumePercent).isEqualTo(0.8);
 
             // Other defaults should be set
             then(config.emaTrend).isEqualTo(24);
@@ -281,7 +279,6 @@ class ConfigTest {
             then(config.mmTrailingStepPercent).isEqualTo(0.005);
             then(config.mmTrailingDeltaPercent).isEqualTo(0.003);
             then(config.mmTrailingCheckInterval).isEqualTo(1);
-            then(config.mmTrailingVolumePercent).isEqualTo(0.5);
         }
 
         @Test
@@ -312,7 +309,6 @@ class ConfigTest {
             then(params.stepPercent).isEqualTo(0.01);
             then(params.deltaPercent).isEqualTo(0.005);
             then(params.checkInterval).isEqualTo(5);
-            then(params.volumePercent).isEqualTo(0.8);
         }
 
         @Test

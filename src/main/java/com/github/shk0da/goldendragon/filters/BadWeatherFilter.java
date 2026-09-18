@@ -72,10 +72,10 @@ public class BadWeatherFilter {
         if (isLowActivity(candles, params)) {
             return false;
         }
-        if (isChaoticActivity(candles, currentPrice, params)) {
+        if (isChaoticActivity(candles, params)) {
             return false;
         }
-        if (isPoorLiquidity(candles, currentPrice, params)) {
+        if (isPoorLiquidity(candles, params)) {
             return false;
         }
         if (isTurbulentRegime(candles, params)) {
@@ -119,7 +119,7 @@ public class BadWeatherFilter {
     }
 
     /** 2. Too chaotic / dangerous activity */
-    private boolean isChaoticActivity(List<Candle> candles, double currentPrice, Params params) {
+    private boolean isChaoticActivity(List<Candle> candles, Params params) {
         int lookback = Math.min(20, candles.size() - 1);
         if (lookback < 10) {
             return false;
@@ -161,7 +161,7 @@ public class BadWeatherFilter {
     }
 
     /** 3. Poor liquidity */
-    private boolean isPoorLiquidity(List<Candle> candles, double currentPrice, Params params) {
+    private boolean isPoorLiquidity(List<Candle> candles, Params params) {
         int lookback = Math.min(20, candles.size() - 1);
         if (lookback < 10) {
             return true;
@@ -272,10 +272,10 @@ public class BadWeatherFilter {
         if (isLowActivity(candles, params)) {
             return "LOW_ACTIVITY";
         }
-        if (isChaoticActivity(candles, currentPrice, params)) {
+        if (isChaoticActivity(candles, params)) {
             return "CHAOTIC_ACTIVITY";
         }
-        if (isPoorLiquidity(candles, currentPrice, params)) {
+        if (isPoorLiquidity(candles, params)) {
             return "POOR_LIQUIDITY";
         }
         if (isTurbulentRegime(candles, params)) {

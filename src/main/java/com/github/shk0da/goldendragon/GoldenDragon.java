@@ -92,8 +92,7 @@ public final class GoldenDragon {
             final String strategy,
             final MainConfig mainConfig,
             final TradingService tradingService,
-            final String[] args)
-            throws Exception {
+            final String[] args) {
 
         final StrategyRegistry.Entry entry = StrategyRegistry.get(strategy);
         if (entry == null) {
@@ -104,7 +103,12 @@ public final class GoldenDragon {
             out.println("Strategy has no live runner: " + strategy);
             return;
         }
-        entry.runLive(mainConfig, tradingService, args);
+        try {
+            entry.runLive(mainConfig, tradingService, args);
+        } catch (final Exception ex) {
+            out.printf("%s: Strategy error: %s%n", new Date(), ex.getMessage());
+            ex.printStackTrace();
+        }
     }
 
     private static void updateTickerRepository(TradingService tradingService) throws Exception {

@@ -130,7 +130,6 @@ public class TCSService implements TradingService {
     private final Map<String, Object> marketDepthFileLocks = new ConcurrentHashMap<>();
     private volatile Map<TickerInfo.Key, TickerInfo> cachedStockList;
     private volatile Instant cachedStockListAt;
-    private volatile boolean sandboxQualificationLogged;
     private final Map<String, Long> throttledLogLastTime = new ConcurrentHashMap<>();
 
     /**
@@ -854,7 +853,7 @@ public class TCSService implements TradingService {
         TickerInfo tickerInfo = searchTicker(key);
         int lotSize = tickerInfo.getLot();
         int normalizedCount = normalizeOrderCount(count, lotSize);
-        int contractUnits = getContractUnits(tickerInfo);
+        int contractUnits = getContractUnits();
         if (normalizedCount <= 0 || count <= 0) {
             log(
                     String.format(
@@ -1539,14 +1538,14 @@ public class TCSService implements TradingService {
             return 0.0;
         }
 
-        return getOrderValue(searchTicker(key), count, price);
+        return getOrderValue(count, price);
     }
 
-    private double getOrderValue(TickerInfo tickerInfo, int count, double price) {
+    private double getOrderValue(int count, double price) {
         return count * price;
     }
 
-    private int getContractUnits(TickerInfo tickerInfo) {
+    private int getContractUnits() {
         return 1;
     }
 

@@ -145,10 +145,10 @@ public class TmonCashParkingMonitor implements Runnable {
             double totalCost = buyLots * currentPrice * lot;
 
             if (tradingService != null) {
-                // Use cached cash value (TTL 5s) with 1% buffer for race condition protection.
-                // TradingServiceCache.getAvailableCash() returns the same cached value if
-                // called within the TTL window, avoiding redundant API calls.
-                if (availableCash < totalCost * 0.90) {
+                // Final check: ensure we have enough cash (with 5% buffer for price movement and commissions)
+                if (availableCash < totalCost * 1.05) {
+                    LoggingUtils.log("TMON_MONITOR: Skipping purchase - insufficient cash. Available: " 
+                            + String.format("%.2f", availableCash) + ", Required: " + String.format("%.2f", totalCost * 1.05));
                     return;
                 }
 

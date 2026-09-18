@@ -61,7 +61,7 @@ class DashboardServerTest {
             freePort = socket.getLocalPort();
         }
 
-        DashboardServer dashboard = new DashboardServer(null, freePort, 120, LocalTime.of(19, 0));
+        DashboardServer dashboard = new DashboardServer(null, freePort, LocalTime.of(19, 0));
         dashboard.start();
         try {
             HttpClient client = HttpClient.newHttpClient();
