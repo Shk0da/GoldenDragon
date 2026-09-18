@@ -992,7 +992,13 @@ protected static final LocalTime WORK_START_TIME = LocalTime.of(10, 0);
             double availableCash = orderExecutor.getAvailableCash();
             qty = (int) Math.floor(availableCash / (liveAskPrice * lotSize));
             if (qty <= 0) {
-                logOpenCandidateSkipped(name, "insufficient_cash", decision);
+                return;
+            }
+        } else {
+            // Pre-flight cash check for margin trades to avoid error 30042
+            double availableCash = orderExecutor.getAvailableCash();
+            double positionValue = qty * liveAskPrice * lotSize;
+            if (positionValue > availableCash) {
                 return;
             }
         }
@@ -1079,6 +1085,9 @@ protected static final LocalTime WORK_START_TIME = LocalTime.of(10, 0);
                 String failedLogMessage =
                         "Failed to open " + decision.updatedPosition.direction + " for " + name + ".";
                 log(failedLogMessage);
+                // Set cooldown to prevent retry on next tick
+                long cooldownMs = unifiedTraderConfig.getCooldownCandles() * 5 * 60 * 1000;
+                tickerCooldown.put(name, timeProvider.currentTimeMillis() + cooldownMs);
                 return;
             }
 
