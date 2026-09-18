@@ -2,6 +2,10 @@ package com.github.shk0da.goldendragon.model;
 
 import java.util.Objects;
 
+/**
+ * Test-only DTO for historical candle data.
+ * Used by DataCollector for downloading historical data from Tinkoff API.
+ */
 public class TickerCandle {
 
     private final String symbol;

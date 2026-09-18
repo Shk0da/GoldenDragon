@@ -4,7 +4,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.github.shk0da.goldendragon.config.MainConfig;
 import com.github.shk0da.goldendragon.model.Candle;
-import com.github.shk0da.goldendragon.model.TickerCandle;
 import com.github.shk0da.goldendragon.model.TickerInfo;
 import com.github.shk0da.goldendragon.model.TickerType;
 import com.github.shk0da.goldendragon.repository.Repository;
@@ -233,7 +232,7 @@ public class DataCollector {
         if (!isReplace) {
             var currentCandles = readCandlesFile(name, dir, period);
             if (!currentCandles.isEmpty()) {
-                lastDateStr = currentCandles.get(currentCandles.size() - 1).getDate();
+                lastDateStr = currentCandles.get(currentCandles.size() - 1).time;
                 try {
                     lastCandleTime = dateTimeFormat.parse(lastDateStr);
                 } catch (ParseException ex) {
@@ -241,7 +240,7 @@ public class DataCollector {
                 }
             }
         }
-        List<TickerCandle> candles =
+        List<Candle> candles =
             getTickerCandles(name, period, lastCandleTime, lastDateStr, 0);
 
         if (isReplace) {
@@ -257,16 +256,16 @@ public class DataCollector {
             if (isReplace || !isFileExists) {
                 writer.write("Datetime,Open,High,Low,Close,Volume" + System.lineSeparator());
             }
-            for (TickerCandle candle : candles) {
+            for (Candle candle : candles) {
                 writer.write(
                     String.format(
                         "%s,%s,%s,%s,%s,%s",
-                        candle.getDate(),
-                        candle.getOpen(),
-                        candle.getHigh(),
-                        candle.getLow(),
-                        candle.getClose(),
-                        candle.getVolume())
+                        candle.time,
+                        candle.open,
+                        candle.high,
+                        candle.low,
+                        candle.close,
+                        candle.volume)
                         + System.lineSeparator());
             }
         } catch (Exception ex) {
@@ -275,9 +274,9 @@ public class DataCollector {
         }
     }
 
-    private List<TickerCandle> getTickerCandles(
+    private List<Candle> getTickerCandles(
         String name, String period, Date lastCandleTime, String lastDateStr, int counter) {
-        Set<TickerCandle> candles = new LinkedHashSet<>();
+        Set<Candle> candles = new LinkedHashSet<>();
         try {
             final Instant currentTime = now().toInstant();
             final Instant startTime = lastCandleTime.toInstant();
@@ -326,15 +325,13 @@ public class DataCollector {
                         var close = candle.close;
                         var volume = candle.volume;
                         candles.add(
-                            new TickerCandle(
-                                name,
+                            new Candle(
                                 candleDate,
                                 open,
                                 high,
                                 low,
                                 close,
-                                close,
-                                (long) volume));
+                                volume));
                         newCandles.incrementAndGet();
                     });
                 sleep(100);
@@ -424,9 +421,9 @@ public class DataCollector {
         }
     }
 
-    public static List<TickerCandle> readCandlesFile(
+    public static List<Candle> readCandlesFile(
         String name, String dir, String period) {
-        List<TickerCandle> tickers = new ArrayList<>();
+        List<Candle> tickers = new ArrayList<>();
         String filePath = dir + "/" + name + "/candles" + period + ".txt";
 
         // Return empty list if file doesn't exist (first run)
@@ -448,13 +445,11 @@ public class DataCollector {
 
                 String[] values = line.split(",");
                 tickers.add(
-                    new TickerCandle(
-                        name,
+                    new Candle(
                         values[0],
                         Double.valueOf(values[1]),
                         Double.valueOf(values[2]),
                         Double.valueOf(values[3]),
-                        Double.valueOf(values[4]),
                         Double.valueOf(values[4]),
                         Long.valueOf(values[5])));
                 line = br.readLine();

@@ -284,8 +284,4 @@ public class BadWeatherFilter {
 
         return null;
     }
-
-    public boolean isEnabled() {
-        return enabled;
-    }
 }

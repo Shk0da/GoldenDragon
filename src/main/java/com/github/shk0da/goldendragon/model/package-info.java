@@ -16,7 +16,6 @@
  *       (bids/asks).
  *   <li>{@link com.github.shk0da.goldendragon.model.MarketDepthLevel} — order book level
  *       (price/quantity).
- *   <li>{@link com.github.shk0da.goldendragon.model.MarketTradeTick} — last trade tick.
  * </ul>
  *
  * <h2>Instruments and Tickers</h2>
@@ -45,13 +44,6 @@
  * <ul>
  *   <li>{@link com.github.shk0da.goldendragon.model.TradingDecision} — strategy decision: action
  *       (BUY/SELL/HOLD/CLOSE), signal, quantity, prices.
- * </ul>
- *
- * <h2>Interfaces</h2>
- *
- * <ul>
- *   <li>{@link com.github.shk0da.goldendragon.model.MarketTickListener} — interface for receiving
- *       real-time market data (order book, trades). Implemented by strategies.
  * </ul>
  *
  * <h2>Thread Safety</h2>

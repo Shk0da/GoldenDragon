@@ -49,14 +49,6 @@
  *       </ul>
  * </ul>
  *
- * <h2>Interfaces and Abstractions</h2>
- *
- * <ul>
- *   <li>{@link com.github.shk0da.goldendragon.model.MarketTickListener} — interface for receiving
- *       real-time market data updates (order books, trades). Implemented by strategies for stream
- *       subscription.
- * </ul>
- *
  * <h2>State Management</h2>
  *
  * <p>Strategies store state in class fields:
@@ -65,8 +57,7 @@
  *   <li>Positions: {@link com.github.shk0da.goldendragon.model.Position}, {@link
  *       com.github.shk0da.goldendragon.model.PositionInfo}.
  *   <li>Market data: {@link com.github.shk0da.goldendragon.model.Candle}, {@link
- *       com.github.shk0da.goldendragon.model.MarketDepthSnapshot}, {@link
- *       com.github.shk0da.goldendragon.model.MarketTradeTick}.
+ *       com.github.shk0da.goldendragon.model.MarketDepthSnapshot}.
  *   <li>Signals: {@link com.github.shk0da.goldendragon.model.TradingDecision}.
  * </ul>
  *
@@ -101,10 +92,8 @@
  * <p>To create a new strategy:
  *
  * <ol>
- *   <li>Extend {@code BaseStrategy} (for candle trading) or implement {@code MarketTickListener}
- *       (for order flow).
- *   <li>Implement {@code decide()} method (for {@code BaseStrategy}) or {@code
- *       onOrderBook()}/{@code onTrade()} (for {@code MarketTickListener}).
+ *   <li>Extend {@code BaseStrategy}.
+ *   <li>Implement {@code decide()} method.
  *   <li>Add configuration class (if parameters needed).
  *   <li>Register strategy in {@link com.github.shk0da.goldendragon.GoldenDragon#main} or backtest
  *       engine.

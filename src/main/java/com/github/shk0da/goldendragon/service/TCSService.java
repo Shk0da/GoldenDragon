@@ -6,8 +6,6 @@ import com.github.shk0da.goldendragon.config.MainConfig;
 import com.github.shk0da.goldendragon.model.Candle;
 import com.github.shk0da.goldendragon.model.MarketDepthLevel;
 import com.github.shk0da.goldendragon.model.MarketDepthSnapshot;
-import com.github.shk0da.goldendragon.model.MarketTickListener;
-import com.github.shk0da.goldendragon.model.MarketTradeTick;
 import com.github.shk0da.goldendragon.model.OrderExecutionResult;
 import com.github.shk0da.goldendragon.model.Position;
 import com.github.shk0da.goldendragon.model.PositionInfo;
@@ -17,8 +15,8 @@ import com.github.shk0da.goldendragon.repository.FigiRepository;
 import com.github.shk0da.goldendragon.repository.PricesRepository;
 import com.github.shk0da.goldendragon.repository.Repository;
 import com.github.shk0da.goldendragon.repository.TickerRepository;
-import com.github.shk0da.goldendragon.utils.TinkoffApiUrlResolver;
 import com.github.shk0da.goldendragon.utils.MoneyUtils;
+import com.github.shk0da.goldendragon.utils.TinkoffApiUrlResolver;
 import ru.tinkoff.piapi.contract.v1.Bond;
 import ru.tinkoff.piapi.contract.v1.CandleInterval;
 import ru.tinkoff.piapi.contract.v1.Currency;
@@ -118,10 +116,6 @@ public class TCSService implements TradingService {
             new ConcurrentHashMap<>();
     private final Map<TickerInfo.Key, MarketDepthSnapshot> marketDepthByTicker =
             new ConcurrentHashMap<>();
-    private final Map<TickerInfo.Key, List<MarketTradeTick>> recentTradesByTicker =
-            new ConcurrentHashMap<>();
-    private final Map<TickerInfo.Key, CopyOnWriteArrayList<MarketTickListener>>
-            marketTickListenersByTicker = new ConcurrentHashMap<>();
     private final Map<String, TickerInfo.Key> marketDataKeyByFigi = new ConcurrentHashMap<>();
     private final Map<String, MarketDataStreamShard> marketDataShardByFigi =
             new ConcurrentHashMap<>();
@@ -2470,7 +2464,6 @@ public class TCSService implements TradingService {
 
     private void handleMarketDataStreamError(
             MarketDataStreamShard failedShard, Throwable throwable) {
-        notifySharedMarketDataError(throwable);
         if (failedShard == null) {
             return;
         }
@@ -2524,50 +2517,7 @@ public class TCSService implements TradingService {
             marketDepthByTicker.put(key, snapshot);
             pricesRepository.insert(key, toCurrentPrices(snapshot));
             appendMarketDepthSnapshot(key, snapshot);
-            notifyOrderBookListeners(key, snapshot);
         }
-        if (response.hasTrade()) {
-            TickerInfo.Key key = marketDataKeyByFigi.get(response.getTrade().getFigi());
-            if (key == null) {
-                return;
-            }
-            MarketTradeTick trade =
-                    new MarketTradeTick(
-                            response.getTrade().getFigi(),
-                            Instant.ofEpochSecond(
-                                    response.getTrade().getTime().getSeconds(),
-                                    response.getTrade().getTime().getNanos()),
-                            toDouble(response.getTrade().getPrice()),
-                            response.getTrade().getQuantity(),
-                            response.getTrade().getDirection().name());
-            recentTradesByTicker
-                    .computeIfAbsent(key, ignored -> new CopyOnWriteArrayList<>())
-                    .add(trade);
-            trimRecentTrades(key);
-            notifyTradeListeners(key, trade);
-        }
-    }
-
-    private void notifyOrderBookListeners(TickerInfo.Key key, MarketDepthSnapshot snapshot) {
-        List<MarketTickListener> listeners = marketTickListenersByTicker.get(key);
-        if (listeners == null) {
-            return;
-        }
-        listeners.forEach(listener -> listener.onOrderBook(snapshot));
-    }
-
-    private void notifyTradeListeners(TickerInfo.Key key, MarketTradeTick trade) {
-        List<MarketTickListener> listeners = marketTickListenersByTicker.get(key);
-        if (listeners == null) {
-            return;
-        }
-        listeners.forEach(listener -> listener.onTrade(trade));
-    }
-
-    private void notifySharedMarketDataError(Throwable throwable) {
-        marketTickListenersByTicker
-                .values()
-                .forEach(listeners -> listeners.forEach(listener -> listener.onError(throwable)));
     }
 
     private static final class MarketDataStreamShard {
@@ -2580,15 +2530,6 @@ public class TCSService implements TradingService {
             this.stream = stream;
             this.depth = depth;
         }
-    }
-
-    private void trimRecentTrades(TickerInfo.Key key) {
-        List<MarketTradeTick> trades = recentTradesByTicker.get(key);
-        if (trades == null) {
-            return;
-        }
-        Instant threshold = Instant.now().minus(Duration.ofMinutes(10));
-        trades.removeIf(it -> it.getTime().isBefore(threshold));
     }
 
     private MarketDepthSnapshot toMarketDepthSnapshot(
