@@ -1770,7 +1770,10 @@ protected static final LocalTime WORK_START_TIME = LocalTime.of(10, 0);
             try {
                 UnifiedTraderConfig.TickerParams tickerParams =
                         unifiedTraderConfig.getTickerParams(tickerName);
-                if (!tickerParams.enabled) {
+                
+                // Skip if ticker is disabled - but only if we don't have an open position
+                // If we have an open position, we MUST close it regardless of enabled status
+                if (!tickerParams.enabled && position.quantity <= 0) {
                     continue;
                 }
 

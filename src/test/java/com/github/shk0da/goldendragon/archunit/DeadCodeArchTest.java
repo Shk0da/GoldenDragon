@@ -2,6 +2,7 @@ package com.github.shk0da.goldendragon.archunit;
 
 import com.tngtech.archunit.core.domain.JavaClass;
 import com.tngtech.archunit.core.domain.JavaClasses;
+import com.tngtech.archunit.core.domain.JavaConstructor;
 import com.tngtech.archunit.core.domain.JavaField;
 import com.tngtech.archunit.core.domain.JavaMethod;
 import com.tngtech.archunit.core.domain.JavaModifier;
@@ -160,7 +161,7 @@ class DeadCodeArchTest {
         // Ignore overridden methods in strategy classes (called via polymorphism from BaseStrategy)
         if (name.equals("decide") || name.equals("onTradeClosed") || name.equals("onDailyReset")) {
             String ownerName = owner.getFullName();
-            if (ownerName.contains(".strategy.") && 
+            if (ownerName.contains(".strategy.") &&
                 (ownerName.endsWith("UnifiedStrategy") || ownerName.endsWith("TradeCouncilStrategy"))) {
                 return true;
             }
@@ -168,14 +169,14 @@ class DeadCodeArchTest {
         // Ignore DTO getters (used via Jackson serialization)
         if (name.startsWith("get") || name.startsWith("is")) {
             String ownerName = owner.getFullName();
-            if (ownerName.endsWith("PositionInfo") || ownerName.endsWith("TickerInfo") 
+            if (ownerName.endsWith("PositionInfo") || ownerName.endsWith("TickerInfo")
                 || ownerName.endsWith("MarketDepthSnapshot") || ownerName.endsWith("OrderExecutionResult")
                 || ownerName.endsWith("UnifiedTraderConfig") || ownerName.endsWith("StrategyRegistry$Entry")) {
                 return true;
             }
         }
         // Ignore methods used only in tests (CashParkingManager, PerformanceTracker, TradingServiceCache)
-        if (name.startsWith("get") || name.startsWith("is") || name.startsWith("set") 
+        if (name.startsWith("get") || name.startsWith("is") || name.startsWith("set")
             || name.startsWith("store") || name.startsWith("remove") || name.startsWith("close")
             || name.startsWith("sell") || name.startsWith("find") || name.startsWith("has")
             || name.startsWith("reset") || name.startsWith("invalidate")) {
@@ -195,7 +196,7 @@ class DeadCodeArchTest {
             }
         }
         // Ignore utility/repository methods used only in tests
-        if (name.equals("resolve") || name.equals("clear") || name.equals("removeTicker") 
+        if (name.equals("resolve") || name.equals("clear") || name.equals("removeTicker")
             || name.equals("hasCandles") || name.equals("getLatestCandle")) {
             String ownerName = owner.getFullName();
             if (ownerName.endsWith("TickerTypeResolver") || ownerName.endsWith("CandleRepository")) {
@@ -257,7 +258,7 @@ class DeadCodeArchTest {
 
     @Test
     void shouldDetectUnusedConstructors() {
-        Set<com.tngtech.archunit.core.domain.JavaConstructor> unused = allClasses.stream()
+        Set<JavaConstructor> unused = allClasses.stream()
                 .flatMap(c -> c.getConstructors().stream())
                 .filter(ctor -> !isTestClass(ctor.getOwner()))
                 .filter(ctor -> ctor.getConstructorCallsFromSelf().stream()
@@ -267,7 +268,7 @@ class DeadCodeArchTest {
         assertThat(unused)
                 .withFailMessage(() -> {
                     StringBuilder sb = new StringBuilder("Неиспользуемые конструкторы (нет вызовов из production):\n");
-                    for (com.tngtech.archunit.core.domain.JavaConstructor c : unused) {
+                    for (JavaConstructor c : unused) {
                         sb.append("  - ").append(c.getOwner().getFullName())
                                 .append("#").append(c.getName()).append("()\n");
                     }

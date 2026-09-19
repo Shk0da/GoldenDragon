@@ -107,24 +107,24 @@ public class Config {
 
         // Money Management defaults
         this.mmEnabled = true;
-        this.mmRiskPercent = 0.006;
-        this.mmMaxDailyLossPercent = 0.02;
+        this.mmRiskPercent = 0.03;
+        this.mmMaxDailyLossPercent = 0.06;
         this.mmMaxConsecutiveLosses = 3;
         this.mmSizingStrategy = "FIXED";
         this.mmVolatilityBaseAtr = 1.0;
         this.mmVolatilityMinAdjustment = 0.5;
         this.mmVolatilityMaxAdjustment = 1.5;
-        this.mmAtrStopMultiplier = 1.75;
+        this.mmAtrStopMultiplier = 1.5;
         this.mmTrailingActivationR = 0.85;
         this.mmTrailingMultiplier = 0.85;
         this.mmBreakevenActivationR = 0.4;
         this.mmBreakevenBuffer = 0.001;
-        this.mmAdaptiveEnabled = false;
-        this.mmLossesToReduce = 3;
-        this.mmWinsToRestore = 5;
+        this.mmAdaptiveEnabled = true;
+        this.mmLossesToReduce = 2;
+        this.mmWinsToRestore = 3;
         this.mmRiskReductionFactor = 0.5;
-        this.mmCriticalDrawdownPercent = 0.15;
-        this.mmMaxPositionSize = 0.15;
+        this.mmCriticalDrawdownPercent = 0.25;
+        this.mmMaxPositionSize = 0.60;
         this.shortsEnabled = shortsEnabled;
 
         // Trailing Stop defaults
@@ -133,7 +133,7 @@ public class Config {
         this.mmTrailingDeltaPercent = 0.003;
         this.mmTrailingCheckInterval = 1;
         this.mmTrailingTpEnabled = true;
-        this.mmTrailingTpCallbackPercent = 0.005;
+        this.mmTrailingTpCallbackPercent = 0.02;
     }
 
     /**
@@ -173,33 +173,32 @@ public class Config {
 
         // Money Management defaults
         this.mmEnabled = true;
-        this.mmRiskPercent = 0.006;
-        this.mmMaxDailyLossPercent = 0.02;
+        this.mmRiskPercent = 0.03;
+        this.mmMaxDailyLossPercent = 0.06;
         this.mmMaxConsecutiveLosses = 3;
         this.mmSizingStrategy = "FIXED";
         this.mmVolatilityBaseAtr = 1.0;
         this.mmVolatilityMinAdjustment = 0.5;
         this.mmVolatilityMaxAdjustment = 1.5;
-        this.mmAtrStopMultiplier = 1.75;
+        this.mmAtrStopMultiplier = 1.5;
         this.mmTrailingActivationR = 0.85;
         this.mmTrailingMultiplier = 0.85;
         this.mmBreakevenActivationR = 0.4;
         this.mmBreakevenBuffer = 0.001;
-        this.mmAdaptiveEnabled = false;
-        this.mmLossesToReduce = 3;
-        this.mmWinsToRestore = 5;
+        this.mmAdaptiveEnabled = true;
+        this.mmLossesToReduce = 2;
+        this.mmWinsToRestore = 3;
         this.mmRiskReductionFactor = 0.5;
-        this.mmCriticalDrawdownPercent = 0.15;
-        this.mmMaxPositionSize = 0.15;
+        this.mmCriticalDrawdownPercent = 0.25;
+        this.mmMaxPositionSize = 0.60;
         this.shortsEnabled = cfg.getShortsEnabled();
 
-        // Trailing Stop defaults
         this.mmTrailingEnabled = true;
         this.mmTrailingStepPercent = 0.005;
         this.mmTrailingDeltaPercent = 0.003;
         this.mmTrailingCheckInterval = 1;
         this.mmTrailingTpEnabled = true;
-        this.mmTrailingTpCallbackPercent = 0.005;
+        this.mmTrailingTpCallbackPercent = 0.02;
     }
 
     public Config(
@@ -244,24 +243,24 @@ public class Config {
 
         // Money Management defaults
         this.mmEnabled = true;
-        this.mmRiskPercent = 0.01;
-        this.mmMaxDailyLossPercent = 0.03;
+        this.mmRiskPercent = 0.03;
+        this.mmMaxDailyLossPercent = 0.06;
         this.mmMaxConsecutiveLosses = 3;
         this.mmSizingStrategy = "FIXED";
         this.mmVolatilityBaseAtr = 1.0;
         this.mmVolatilityMinAdjustment = 0.5;
         this.mmVolatilityMaxAdjustment = 1.5;
-        this.mmAtrStopMultiplier = 1.75;
+        this.mmAtrStopMultiplier = 1.5;
         this.mmTrailingActivationR = 0.85;
         this.mmTrailingMultiplier = 0.85;
         this.mmBreakevenActivationR = 0.4;
         this.mmBreakevenBuffer = 0.001;
         this.mmAdaptiveEnabled = true;
-        this.mmLossesToReduce = 3;
-        this.mmWinsToRestore = 5;
+        this.mmLossesToReduce = 2;
+        this.mmWinsToRestore = 3;
         this.mmRiskReductionFactor = 0.5;
-        this.mmCriticalDrawdownPercent = 0.10;
-        this.mmMaxPositionSize = 0.15;
+        this.mmCriticalDrawdownPercent = 0.25;
+        this.mmMaxPositionSize = 0.60;
         this.shortsEnabled = false;
 
         // Trailing Stop defaults
@@ -269,9 +268,10 @@ public class Config {
         this.mmTrailingStepPercent = 0.005;
         this.mmTrailingDeltaPercent = 0.003;
         this.mmTrailingCheckInterval = 1;
+        this.mmTrailingTpEnabled = true;
+        this.mmTrailingTpCallbackPercent = 0.02;
     }
 
-    /** Create Config with Money Management parameters. */
     public Config(
             boolean mmEnabled,
             double mmRiskPercent,

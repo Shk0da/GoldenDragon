@@ -11,6 +11,8 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -246,6 +248,69 @@ class LossStreakMonitorTest {
         public TickerInfo searchTicker(TickerInfo.Key key) {
             String ticker = key.getTicker();
             return new TickerInfo("FIGI", ticker, "ISIN", 0.01, 1, "RUB", ticker, "STOCK");
+        }
+    }
+
+    @Nested
+    @DisplayName("stop() should halt the monitoring thread")
+    class StopMonitoring {
+
+        @Test
+        @DisplayName("Should stop running flag when stop() is called")
+        void shouldStopRunning_WhenStopCalled() throws Exception {
+            FakeTradingService service = new FakeTradingService(List.of());
+            LossStreakMonitor monitor = new LossStreakMonitor(service, 3, 1_000L, null, () -> {});
+            Thread thread = new Thread(monitor, "test-monitor");
+            thread.start();
+
+            Thread.sleep(1_500);
+
+            monitor.stop();
+            thread.join(3_000);
+
+            then(thread.isAlive()).isFalse();
+        }
+
+        @Test
+        @DisplayName("Should not log continuously after stop() is called")
+        void shouldNotLogContinuously_AfterStop() throws Exception {
+            AtomicInteger checkCount = new AtomicInteger(0);
+            FakeTradingService service = new FakeTradingService(
+                    List.of(trade("2026-09-11 10:00:00", -100.0)));
+            LossStreakMonitor monitor = new LossStreakMonitor(service, 3, 200L, null, () -> {});
+
+            Thread thread = new Thread(() -> {
+                monitor.checkLossStreak();
+                monitor.stop();
+                monitor.checkLossStreak();
+            }, "test-monitor-no-loop");
+            thread.start();
+            thread.join(2_000);
+
+            then(thread.isAlive()).isFalse();
+        }
+    }
+
+    @Nested
+    @DisplayName("EOD shutdown should call stop() on LossStreakMonitor")
+    class EodShutdown {
+
+        @Test
+        @DisplayName("Should stop monitor before strategy exits")
+        void shouldCallStopOnShutdown() throws Exception {
+            AtomicBoolean stopped = new AtomicBoolean(false);
+            FakeTradingService service = new FakeTradingService(List.of());
+            LossStreakMonitor monitor = new LossStreakMonitor(
+                    service, 3, 1_000L, null, () -> {});
+
+            Thread thread = new Thread(monitor, "eod-test");
+            thread.start();
+            Thread.sleep(500);
+
+            monitor.stop();
+            thread.join(3_000);
+
+            then(thread.isAlive()).isFalse();
         }
     }
 }
